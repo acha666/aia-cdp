@@ -1,0 +1,59 @@
+# Dormant until the repository has a GitHub remote. Commit messages come out as
+# "chore(deps): ..." / "ci(deps): ...": the prefix carries no colon or scope of its own.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Vancouver
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - pnpm
+    commit-message:
+      prefix: chore
+      include: scope
+    pull-request-branch-name:
+      separator: /
+    ignore:
+      # typescript-eslint 8.x supports TypeScript < 6.1.0 (implementation §2.3).
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
+      # @types/node follows the Node major in .nvmrc / engines (Node 24).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Vancouver
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: ci
+      include: scope
+    pull-request-branch-name:
+      separator: /
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Vancouver
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: chore
+      include: scope
+    pull-request-branch-name:
+      separator: /
