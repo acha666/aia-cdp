@@ -103,7 +103,10 @@ describe.runIf(process.env.AIA_TEST_R2 === "1")("R2Store via getPlatformProxy", 
   let pages: () => number;
 
   beforeAll(async () => {
-    // Loaded only here: without AIA_TEST_R2 the suite never starts workerd.
+    // Loaded only here: without AIA_TEST_R2 the suite never starts workerd. Before wrangler is
+    // loaded: no telemetry, no banner or update check (implementation §2.4).
+    process.env.WRANGLER_SEND_METRICS = "false";
+    process.env.WRANGLER_HIDE_BANNER = "true";
     const { getPlatformProxy } = await import("wrangler");
     proxy = await getPlatformProxy<{ STORE: R2BucketLike }>({
       configPath: "wrangler.jsonc",

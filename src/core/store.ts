@@ -24,8 +24,16 @@ export interface ObjectStore {
 
 const SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 
+/**
+ * One segment of a store key. The fs adapter also uses it on directory entries: names that fail
+ * it (temporary files, `lost+found`, `a (copy).der`) are never keys and never walked into.
+ */
+export function isStoreKeySegment(segment: string): boolean {
+  return SEGMENT.test(segment);
+}
+
 function isStoreKey(key: string): boolean {
-  return key.split("/").every((segment) => SEGMENT.test(segment));
+  return key.split("/").every(isStoreKeySegment);
 }
 
 /**

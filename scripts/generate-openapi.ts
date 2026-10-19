@@ -20,6 +20,7 @@ const app = createApp({
   store: new MemoryStore(),
   now: () => new Date(0),
   settings: settings.value.app,
+  clientIpHeader: "x-forwarded-for",
   log: () => undefined,
 });
 const json = `${JSON.stringify(app.getOpenAPI31Document(OPENAPI_CONFIG), null, 2)}\n`;

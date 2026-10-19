@@ -26,12 +26,16 @@ export interface TestOverrides extends Partial<Omit<AppDeps, "settings">> {
   settings?: Partial<AppSettings>;
 }
 
-/** MemoryStore, the fixtures' clock (manifest.now), default settings and a collecting log. */
+/**
+ * MemoryStore, the fixtures' clock (manifest.now), default settings, the Node entry's
+ * clientIpHeader and a collecting log.
+ */
 export function testDeps(overrides: TestOverrides = {}): TestDeps {
   const lines: string[] = [];
   return {
     store: new MemoryStore(),
     now: () => new Date(NOW),
+    clientIpHeader: "x-forwarded-for",
     log: (line) => {
       lines.push(line);
     },

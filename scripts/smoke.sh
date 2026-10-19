@@ -72,6 +72,11 @@ want_no_header() {
   local v
   if v=$(header "$1"); then errors+=("unexpected $1: \"$v\""); fi
 }
+want_not_2xx() { [[ $CODE != 2* ]] || errors+=("status $CODE, want a non-2xx answer"); }
+want_not_html() {
+  local v
+  if v=$(header Content-Type) && [[ $v =~ $HTML ]]; then errors+=("Content-Type: \"$v\" is HTML"); fi
+}
 want_body() { grep -qE -- "$1" "$T/b" || errors+=("body does not match /$1/"); }
 want_body_without() { if grep -qF -- "$1" "$T/b"; then errors+=("body contains $1"); fi; }
 want_security_headers() {
@@ -170,6 +175,16 @@ want_body '"openapi": ?"3\.1\.0"'
 want_body '"/api/v1/health"'
 report
 
+# Reserved prefixes spelled with a double slash or an encoded slash (a base URL ending in /, a
+# proxy that re-encodes): still reserved, never the UI's 200 HTML (C12).
+for path in //api/v1/missing /api%2Fv1/missing /crl%2fissuing; do
+  request GET "$path" --path-as-is
+  want_not_2xx
+  want_not_5xx
+  want_not_html
+  report
+done
+
 # --- download prefixes: plain-text 404 for CryptoAPI clients, never the UI ----------------------
 for path in /ca/x.crt /crl/missing.crl /dcrl/x.crl; do
   request GET "$path"
@@ -221,10 +236,17 @@ want_status 404
 report
 
 # --- traversal: nothing outside the static root -------------------------------------------------
-for path in /../package.json /%2e%2e/package.json /assets/..%2f..%2fpackage.json; do
+# The static root is dist/web on the host and /app/dist/web in the image, so two levels up is the
+# real package.json in both, and ten levels reach /etc/passwd from either. A handler that decoded
+# %2f (or let `..` through) would serve them; the Worker's assets layer may answer 307 instead.
+up=..%2f..%2f..%2f..%2f..%2f..%2f..%2f..%2f..%2f..%2f
+for path in /../package.json /%2e%2e/package.json /assets/..%2f..%2fpackage.json \
+  /..%2f..%2fpackage.json /%2e%2e%2f%2e%2e%2fpackage.json /assets/..%2f..%2f..%2fpackage.json \
+  /../../../../../../../../../../etc/passwd "/${up}etc%2fpasswd" "/assets/${up}etc%2fpasswd"; do
   request GET "$path" --path-as-is
   want_not_5xx
   want_body_without '"packageManager"'
+  want_body_without 'root:x:0:0'
   report
 done
 

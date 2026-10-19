@@ -23,7 +23,7 @@
     "openapi:check": "node scripts/generate-openapi.ts --check",
     "check": "pnpm run typecheck && eslint --max-warnings 0 . && pnpm run format:check && pnpm run openapi:check",
     "test": "vitest run",
-    "test:r2": "AIA_TEST_R2=1 vitest run --project storage",
+    "test:r2": "WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true AIA_TEST_R2=1 vitest run --project storage",
     "fixtures": "bash tests/fixtures/generate-test-data.sh tests/fixtures/pki",
     "fixtures:check": "bash tests/fixtures/generate-test-data.sh --check tests/fixtures/pki",
     "fixtures:force": "bash tests/fixtures/generate-test-data.sh --force tests/fixtures/pki",

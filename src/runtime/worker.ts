@@ -7,18 +7,48 @@ import type { App } from "../http/app.ts";
 import { ERROR_MESSAGES, errorBody, NO_STORE } from "../http/errors.ts";
 import { R2Store } from "../storage/r2.ts";
 import { parseSettings } from "./settings.ts";
+import type { SettingsResult } from "./settings.ts";
+
+/** The settings the Worker reads from its env (plan §4.2, without the Node-only ones). */
+const VARIABLES = [
+  "AIA_ADMIN_TOKEN",
+  "AIA_UPLOAD_TOKEN",
+  "AIA_MAX_UPLOAD_BYTES",
+  "AIA_TRUST_PROXY",
+  "AIA_LOG_FORMAT",
+] as const;
 
 /**
  * Tokens are optional `wrangler secret`s (not `secrets.required`, which would type them as
- * required and fail deploys while unset); the rest are optional vars with defaults.
+ * required and fail deploys while unset); the rest are optional vars with defaults. Vars may be
+ * any JSON value (wrangler's schema allows it), hence `unknown`.
  */
-type WorkerEnv = Env & {
-  AIA_ADMIN_TOKEN?: string;
-  AIA_UPLOAD_TOKEN?: string;
-  AIA_MAX_UPLOAD_BYTES?: string;
-  AIA_TRUST_PROXY?: string;
-  AIA_LOG_FORMAT?: string;
-};
+type WorkerEnv = Env & Partial<Record<(typeof VARIABLES)[number], unknown>>;
+
+/**
+ * parseSettings takes strings. wrangler hands `vars` over as written: `"AIA_TRUST_PROXY": true`
+ * arrives as a boolean, `"AIA_MAX_UPLOAD_BYTES": 1048576` as a number. Those become their string
+ * form; an object, array or null is an error that names the variable (never its value).
+ */
+function settingsInput(env: WorkerEnv): SettingsResult<Record<string, string | undefined>> {
+  const input: Record<string, string | undefined> = {};
+  const errors: string[] = [];
+  for (const name of VARIABLES) {
+    const value = env[name];
+    if (value === undefined || typeof value === "string") {
+      input[name] = value;
+    } else if (typeof value === "boolean" || typeof value === "number") {
+      input[name] = String(value);
+    } else {
+      errors.push(
+        `  ${name}: must be a string, number or boolean (a wrangler var cannot be an object, array or null)`
+      );
+    }
+  }
+  return errors.length > 0
+    ? { ok: false, error: ["Invalid settings:", ...errors].join("\n") }
+    : { ok: true, value: input };
+}
 
 // One app per env object (stable within an isolate): deps and routes are built once, not per
 // request. Invalid settings are not cached, so every request reports them.
@@ -29,13 +59,8 @@ function appFor(env: WorkerEnv): { ok: true; app: App } | { ok: false; error: st
   if (cached) {
     return { ok: true, app: cached };
   }
-  const parsed = parseSettings({
-    AIA_ADMIN_TOKEN: env.AIA_ADMIN_TOKEN,
-    AIA_UPLOAD_TOKEN: env.AIA_UPLOAD_TOKEN,
-    AIA_MAX_UPLOAD_BYTES: env.AIA_MAX_UPLOAD_BYTES,
-    AIA_TRUST_PROXY: env.AIA_TRUST_PROXY,
-    AIA_LOG_FORMAT: env.AIA_LOG_FORMAT,
-  });
+  const input = settingsInput(env);
+  const parsed = input.ok ? parseSettings(input.value) : input;
   if (!parsed.ok) {
     return parsed;
   }
@@ -43,6 +68,8 @@ function appFor(env: WorkerEnv): { ok: true; app: App } | { ok: false; error: st
     store: new R2Store(env.STORE),
     now: () => new Date(),
     settings: parsed.value.app,
+    // Set by Cloudflare's edge on every request; X-Forwarded-For is whatever the client sent.
+    clientIpHeader: "cf-connecting-ip",
     log: (line) => {
       console.log(line);
     },

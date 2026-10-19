@@ -13,7 +13,7 @@ import { healthRoutes } from "./routes/health.ts";
 import type { AppDeps, AppEnv } from "./types.ts";
 import { uiFallback } from "./ui.ts";
 
-export type { AppDeps, AppEnv, AppSettings } from "./types.ts";
+export type { AppDeps, AppEnv, AppSettings, ClientIpHeader } from "./types.ts";
 
 /** Shared by GET /api/v1/openapi.json and scripts/generate-openapi.ts (docs/openapi.json). */
 export const OPENAPI_CONFIG = {
@@ -31,7 +31,7 @@ export function createApp(deps: AppDeps) {
   // Order (plan §7.3): secureHeaders → request log → methodNotAllowed → (auth / bodyLimit,
   // slices 2 and 4) → routes.
   app.use(secureHeaders({ strictTransportSecurity: false }));
-  app.use(requestLog(deps.settings, log));
+  app.use(requestLog(deps, log));
   app.use(methodNotAllowed({ app, onMethodNotAllowed }));
 
   // Generated from the route registry on the first request and kept for the life of this app

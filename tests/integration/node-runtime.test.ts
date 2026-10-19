@@ -6,13 +6,14 @@ import { spawn } from "node:child_process";
 import type { ChildProcessByStdio } from "node:child_process";
 import { once } from "node:events";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { connect, createServer } from "node:net";
-import type { AddressInfo } from "node:net";
+import type { AddressInfo, Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import process from "node:process";
 import type { Readable } from "node:stream";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { parseSettings, resolveFileVariants } from "../../src/runtime/settings.ts";
@@ -104,6 +105,30 @@ async function freshDataDir(): Promise<string> {
   return mkdtemp(join(scratch, "data-"));
 }
 
+/** Waits until a stdout record matches: the child writes a request line before it answers, but
+ * its stdout pipe may be read after the response arrives. */
+async function waitForRecord(
+  server: Server,
+  match: (record: LogLine) => boolean
+): Promise<LogLine> {
+  for (let tries = 0; tries < 500; tries += 1) {
+    const found = server.records().find(match);
+    if (found) {
+      return found;
+    }
+    await sleep(10);
+  }
+  throw new Error(`no matching log record in\n${server.stdout()}`);
+}
+
+/** A raw client socket; errors (the server resetting it at shutdown) are expected and ignored. */
+async function openSocket(port: number): Promise<Socket> {
+  const socket = connect(port, "127.0.0.1");
+  socket.on("error", () => undefined);
+  await once(socket, "connect");
+  return socket;
+}
+
 /**
  * One request on a raw socket (`Connection: close`), so that bytes after the header block are
  * seen even for HEAD, where fetch() would drop them.
@@ -168,9 +193,18 @@ describe("node src/runtime/node.ts on a real socket", { timeout: TIMEOUT }, () =
   let base: string;
   let dataDir: string;
 
+  /** Left by a put that was killed mid-write; removed at startup. */
+  const staleTemp = `.config.json.${UUID}.tmp`;
+
   beforeAll(async () => {
     dataDir = await freshDataDir();
-    server = start({ PORT: "0", AIA_DATA_DIR: dataDir, AIA_STATIC_DIR: staticDir });
+    await writeFile(join(dataDir, staleTemp), "partial");
+    server = start({
+      PORT: "0",
+      AIA_DATA_DIR: dataDir,
+      AIA_STATIC_DIR: staticDir,
+      AIA_TRUST_PROXY: "true",
+    });
     shared = server;
     port = await server.listening;
     base = `http://127.0.0.1:${port}`;
@@ -178,7 +212,23 @@ describe("node src/runtime/node.ts on a real socket", { timeout: TIMEOUT }, () =
 
   it("listens on the free port that PORT=0 picked and logs it", () => {
     expect(port).toBeGreaterThan(0);
-    expect(server.records()[0]).toEqual({ level: "info", msg: "listening", port });
+    expect(server.records().slice(0, 2)).toEqual([
+      { level: "info", msg: "temp_files_removed", count: 1 },
+      { level: "info", msg: "listening", port },
+    ]);
+  });
+
+  it("removed the temporary file a killed put left behind before listening", async () => {
+    await expect(stat(join(dataDir, staleTemp))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("logs the right-most X-Forwarded-For entry as client (AIA_TRUST_PROXY=true)", async () => {
+    const res = await fetch(`${base}/api/v1/health`, {
+      headers: { "X-Forwarded-For": "6.6.6.6, 203.0.113.7", "CF-Connecting-IP": "198.51.100.1" },
+    });
+    expect(res.status).toBe(200);
+    const record = await waitForRecord(server, (line) => line.client !== undefined);
+    expect(record).toMatchObject({ msg: "request", path: "/api/v1/health", client: "203.0.113.7" });
   });
 
   it("reports degraded, then healthy once the minimal configuration is written", async () => {
@@ -325,6 +375,64 @@ describe("node src/runtime/node.ts start-up failures", { timeout: TIMEOUT }, () 
     } finally {
       blocker.close();
     }
+  });
+});
+
+describe("node src/runtime/node.ts shutdown and degraded start-up", { timeout: TIMEOUT }, () => {
+  it("exits 0 on SIGTERM well within 5 s while sockets hold no complete request", async () => {
+    const server = start({
+      PORT: "0",
+      AIA_DATA_DIR: await freshDataDir(),
+      AIA_STATIC_DIR: staticDir,
+    });
+    const port = await server.listening;
+    // A preconnect that sends nothing, a client stuck in its header block, and an idle
+    // keep-alive connection after one complete request.
+    const preconnect = await openSocket(port);
+    const partial = await openSocket(port);
+    partial.write(`GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n`);
+    const keepAlive = await openSocket(port);
+    keepAlive.write(`GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`);
+    await once(keepAlive, "data");
+    // Let the server take in the other two sockets' bytes before the signal.
+    await sleep(200);
+    const sockets = [preconnect, partial, keepAlive];
+    const socketsClosed = Promise.all(sockets.map((socket) => once(socket, "close")));
+
+    const started = performance.now();
+    server.child.kill("SIGTERM");
+    expect(await server.closed).toEqual({ code: 0, signal: null });
+    expect(performance.now() - started).toBeLessThan(5_000);
+    await socketsClosed;
+    const messages = server.records().map((record) => record.msg);
+    expect(messages.slice(-2)).toEqual(["shutdown", "closed"]);
+    expect(messages).not.toContain("forced_exit");
+  });
+
+  it("warns once with the resolved path and keeps serving without index.html", async () => {
+    // Relative, as the default ./dist/web is: resolved against the working directory.
+    const relativeDir = "dist/no-such-static-dir";
+    const server = start({
+      PORT: "0",
+      AIA_DATA_DIR: await freshDataDir(),
+      AIA_STATIC_DIR: relativeDir,
+    });
+    const port = await server.listening;
+    expect(server.records().filter((record) => record.level !== "info")).toEqual([
+      { level: "warn", msg: "static_dir_missing", staticDir: resolve(ROOT, relativeDir) },
+    ]);
+
+    const health = await fetch(`http://127.0.0.1:${port}/api/v1/health`);
+    expect(health.status).toBe(200);
+    const page = await fetch(`http://127.0.0.1:${port}/`);
+    expect(page.status).toBe(404);
+    expect(page.headers.get("Content-Type")).toMatch(/^text\/plain/);
+
+    server.child.kill("SIGTERM");
+    expect((await server.closed).code).toBe(0);
+    expect(server.records().filter((record) => record.msg === "static_dir_missing")).toHaveLength(
+      1
+    );
   });
 });
 

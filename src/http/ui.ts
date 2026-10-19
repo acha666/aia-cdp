@@ -19,9 +19,21 @@ const HASHED_ASSETS = "/assets/";
 
 const IMMUTABLE = "public, max-age=31536000, immutable";
 
+/** Statuses of a stored asset (full, range, revalidated): the only ones cached as immutable. */
+const ASSET_STATUSES = new Set([200, 206, 304]);
+
 /** The last path segment has a file extension (`/assets/x.js`, `/favicon.ico`, `/.env`). */
 export function hasFileExtension(path: string): boolean {
   return /\.[^/]*$/.test(path.slice(path.lastIndexOf("/") + 1));
+}
+
+/**
+ * The path the reserved prefixes are matched against: `%2F` / `%2f` decoded and runs of `/`
+ * collapsed, so `//api/v1/x`, `/api%2Fv1/x` and `/crl%2fx` count as reserved too (a base URL with
+ * a trailing slash, a proxy that re-encodes slashes). Routing itself still sees the raw path.
+ */
+export function reservedPrefixPath(path: string): string {
+  return path.replace(/%2f/gi, "/").replace(/\/{2,}/g, "/");
 }
 
 /** `text/plain` 404 `Not Found`, as served to download clients. */
@@ -46,9 +58,12 @@ async function discard(res: Response): Promise<void> {
  *
  * - `/api`, `/api/*` → JSON envelope 404 `not_found`, no-store.
  * - `/ca/*`, `/crl/*`, `/dcrl/*` → text/plain 404, no-store (405 on these prefixes is slice 3).
- * - other GET / HEAD → `deps.ui(req)`, copied (binding responses have immutable headers), with
- *   `/assets/*` immutable and everything else no-cache; a ui 404, or text/html for a path whose
- *   last segment has a non-.html extension (the SPA fallback for a missing file), → text 404.
+ *   Both prefixes are matched on reservedPrefixPath(path).
+ * - other GET / HEAD → `deps.ui(req)`, copied (binding responses have immutable headers); a ui
+ *   404, or text/html for a path whose last segment has a non-.html extension (the SPA fallback
+ *   for a missing file), → text 404. Cache-Control: immutable only for a file under /assets/
+ *   (last segment with an extension) answered 200 / 206 / 304 and not as text/html; everything
+ *   else no-cache, error statuses included (their status is kept).
  * - other methods, or no ui → text 404.
  *
  * A 404 on a registered path with another method becomes 405 in methodNotAllowed afterwards.
@@ -56,12 +71,13 @@ async function discard(res: Response): Promise<void> {
 export function uiFallback(deps: Pick<AppDeps, "ui">): NotFoundHandler<AppEnv> {
   return async (c) => {
     const path = c.req.path;
-    if (API_PREFIX.test(path)) {
+    const reserved = reservedPrefixPath(path);
+    if (API_PREFIX.test(reserved)) {
       return c.json(errorBody("not_found", ERROR_MESSAGES.not_found), 404, NO_STORE);
     }
     const method = c.req.method;
     if (
-      DOWNLOAD_PREFIX.test(path) ||
+      DOWNLOAD_PREFIX.test(reserved) ||
       deps.ui === undefined ||
       (method !== "GET" && method !== "HEAD")
     ) {
@@ -69,15 +85,22 @@ export function uiFallback(deps: Pick<AppDeps, "ui">): NotFoundHandler<AppEnv> {
     }
     // HEAD is passed through as HEAD.
     const res = await deps.ui(c.req.raw);
+    const html = isHtml(res);
     if (
       res.status === 404 ||
-      (hasFileExtension(path) && !path.toLowerCase().endsWith(".html") && isHtml(res))
+      (hasFileExtension(path) && !path.toLowerCase().endsWith(".html") && html)
     ) {
       await discard(res);
       return textNotFound(c);
     }
+    // Not for /assets/ or /assets/x (the SPA's index.html) or an error: a year is too long.
+    const immutable =
+      path.startsWith(HASHED_ASSETS) &&
+      hasFileExtension(path) &&
+      !html &&
+      ASSET_STATUSES.has(res.status);
     const headers = new Headers(res.headers);
-    headers.set("Cache-Control", path.startsWith(HASHED_ASSETS) ? IMMUTABLE : "no-cache");
+    headers.set("Cache-Control", immutable ? IMMUTABLE : "no-cache");
     // A 304 passes through with the rewritten headers.
     return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
   };
