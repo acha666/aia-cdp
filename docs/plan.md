@@ -1,8 +1,12 @@
 # aia-cdp：新项目规划（2026-10-17）
 
-状态：规划文档，已按 owner 2026-10-17 的决策定稿；代码尚未搭建。
-2026-10-18 修订：§0 决策 5、§2、§4、§6、§8、§10、§12、§13、§14，依据 `docs/review-2026-10-18.md`；
-前端方案（决策 5、§8、切片 5b）待 owner 确认。
+状态：规划文档（设计），已按 owner 2026-10-17 的决策定稿；2026-10-19 评审后与 `docs/implementation.md` 一并定稿，代码尚未搭建，下一步是切片 1。
+2026-10-18 修订：§0 决策 5、§2、§4、§6、§8、§10、§12、§13、§14，依据 `docs/review-2026-10-18.md`。
+2026-10-18 第二次修订：§0、§1、§2、§3、§4（新增 §4.4）、§5、§6、§7.1–§7.3、§8、§10–§14，
+依据 owner 2026-10-18 的决策（§0 决策 5、8–14）与 `docs/implementation.md` §0 的规划默认值 B1–B22；前端方案（决策 5、§8、
+切片 5b）已确认。分步实施计划（每个切片的步骤、测试、可执行的出口条件、待 owner 确认项）见 `docs/implementation.md`；
+本文仍是设计文档，与 implementation.md §0 冲突时以后者为准，其余规则由各切片的"文档同步"步骤写回本文。
+2026-10-19 修订：§0（决策 15）、§3、§5.4、§5.5、§8、§9，依据 owner 2026-10-19 对切片 1 两项的决定与三份实施计划评审（见 implementation.md 头部）。
 
 来源：`worker-aia-cdp` 仓库中的三份分析——`docs/refactoring-plan.md`（2026-10-15 修订）、
 `docs/analysis-2026-10-13.md`、`docs/plan-review-2026-10-17.md`。本文只写新项目需要的东西，
@@ -10,16 +14,25 @@
 
 ## 0. 决策记录
 
-| #   | 事项       | owner 决定（2026-10-17）                                                               |
+| #   | 事项       | owner 决定（2026-10-17；之后的修订注明日期）                                           |
 | --- | ---------- | -------------------------------------------------------------------------------------- |
 | 1   | HTTP 与契约 | Hono + `@hono/zod-openapi`；前端用 `hc` 类型客户端；ts-rest 与手写路由器退出         |
 | 2   | 存储模型   | `config.json` + `catalog.json` + 内容寻址的不可变 blob；不用对象自定义元数据          |
 | 3   | 管理通道   | 带独立管理令牌的 HTTP 管理接口；CLI 只是薄 HTTP 客户端                                |
 | 4   | 首发后端   | memory、fs、R2；S3 兼容作为后续切片                                                   |
-| 5   | 前端       | 2026-10-18 修订（待确认）：Vue 3 + vue-router + TanStack Query + shadcn-vue（Reka UI）+ Tailwind 4 重建；旧 UI 只迁移纯逻辑、扩展渲染块与测试；Pinia 退出。见 review §3 |
+| 5   | 前端       | 2026-10-18 确认：Vue 3 + vue-router 5 + TanStack Query + shadcn-vue（Reka UI）+ Tailwind 4 重建；旧 UI 只迁移纯逻辑、扩展渲染块与测试；Pinia 退出。见 review §3、本文 §8 |
 | 6   | 测试       | vitest                                                                                 |
 | 7   | API        | 新 `/api/v1` 重新设计；下载 URL（`/ca/*`、`/crl/*`、`/dcrl/*`）不变；不再提供 v2      |
-| 8   | 交付       | 先只写本文；确认后按 §12 切片 1 搭骨架                                                |
+| 8   | 交付       | 先只写本文；确认后按 §12 切片 1 搭骨架。2026-10-18：批次 1 = `docs/implementation.md` + 本文修订 + 切片 1，之后每批一个切片 |
+| 9   | Node       | 2026-10-18：Node 24 LTS（EOL 2028-04-30）全面取代 Node 22：`.nvmrc` = `24`、`engines.node` = `^24.11.0` + `engine-strict=true`、`@types/node` 24.x、Docker `ARG NODE_VERSION=24` 与 `node:24-slim`；本机工具链 `~/.local/opt/node-24`（PATH 前缀） |
+| 10  | 版本库     | 2026-10-18：只有本地 git，暂无 GitHub 远端；`main` 放文档，每个切片在 `slice/<n>-<name>` 分支开发、评审后本地合并；CI 工作流照写但无远端时不运行，每个 CI 任务都是本地可跑的 `pnpm run ci:<job>`，切片出口条件在本机用它们验证 |
+| 11  | 切片 1 范围 | 2026-10-18：ObjectStore 端口、memory / fs / r2 适配器与一致性套件从切片 2 移到切片 1，`/api/v1/health` 在切片 1 就做真实的 store / configuration 检查（§10 #15） |
+| 12  | shadcn-vue 风格 | 2026-10-18：`--style nova`、base color `neutral`、图标库 lucide（`@lucide/vue`） |
+| 13  | 线上工件   | 2026-10-18：`tests/data/adcs.ts`（pki.acha.top 证书与 CRL 的 base64）不进新仓库；测试只用夹具脚本生成的合成 AD CS 风格夹具（fixtures spike 证明 CA Version / 模板名编码逐字节一致、扩展嵌套相同），旧仓库用到它的测试改用合成夹具迁入 |
+| 14  | 迁移源     | 2026-10-18：`~/aia-cdp/worker-aia-cdp` 本地分支 `parsing-2026-10-18` 的提交 `5b570aa`；每个迁移步骤引用 `worker-aia-cdp@5b570aa:<path>` |
+| 15  | 切片 1 两项 | 2026-10-19：加边界护栏，推翻 §3 原定（ESLint `no-restricted-imports` 分层规则、`typecheck:boundary` 检查 Worker 程序不含 Node 声明、`ci:worker` 断言 Worker 包无 `"node:` 导入）；切片 1 建 devcontainer（Node 24 镜像、PowerShell feature、非 root、无 `act`） |
+
+决策 5、8–15 即 `docs/implementation.md` §0 的 D1–D10（5 = D1，9 = D2，10 = D3，14 = D4，11 = D5，12 = D6，13 = D7，8 = D8，15 = D9 + D10）。
 
 决策 3 的连带效果：所有写入都经过服务进程。fs 后端只需要进程内互斥，不需要跨进程文件锁
 （`proper-lockfile` 不再需要）；Cloudflare 部署不需要 R2 的 S3 API 令牌，S3 适配器从
@@ -29,7 +42,7 @@
 
 目标：
 
-- 一份代码，两种运行时：Cloudflare Workers + R2；Node 22 + 本地磁盘（Docker）。
+- 一份代码，两种运行时：Cloudflare Workers + R2；Node 24 + 本地磁盘（Docker）。
   共用一个 `createApp(deps)`，两个入口文件各十几行。
 - 公开分发 CA 证书与 CRL（AIA/CDP）。公开 URL 由操作员配置，DER 是唯一权威，PEM 读取时派生。
 - AD CS 上传 CRL 后自动验签、比较新鲜度并发布，返回 created / updated / unchanged 三种结果。
@@ -47,81 +60,139 @@
 
 ## 2. 技术选型
 
-版本为 2026-10-17 `npm view` 查到的最新版，锁定以 lockfile 为准。
+版本为 2026-10-17 `npm view` 查到的最新版，2026-10-18 按工具链 spike 修正。依赖一律精确版本（`.npmrc`
+`save-exact=true`），以提交的 `pnpm-lock.yaml` 为准，Docker、CI、全新克隆都用 `pnpm install --frozen-lockfile`；
+首发完整版本表见 `docs/implementation.md` 切片 1 步骤 1，后续切片新增的包见其 §2.3。
 
 | 领域          | 选型                                            | 版本                              | 说明                                                                                           |
 | ------------- | ----------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------- |
-| 运行时        | Node 22（固定）、Cloudflare Workers              | —                                 | `.nvmrc`、`engines` + `engine-strict`、`node:22-slim`                                          |
-| 包管理        | pnpm 10（corepack）                              | —                                 |                                                                                                |
-| HTTP          | `hono`                                          | 4.13.13                           | 路由、自动 HEAD、`methodNotAllowed`、`etag`、`bodyLimit`、`bearerAuth`、`secureHeaders`         |
+| 运行时        | Node 24 LTS（固定）、Cloudflare Workers          | —                                 | `.nvmrc` = `24`、`engines.node` = `^24.11.0` + `.npmrc` `engine-strict=true`（不符即安装失败）、`node:24-slim`（决策 9） |
+| 包管理        | pnpm 10（corepack）                              | 10.34.7                           | `packageManager: pnpm@10.34.7`；npm `latest` 已是 pnpm 12，pnpm 一律经 corepack 按 `packageManager` 解析；`pnpm-workspace.yaml` 设 `ignoredBuiltDependencies` 与 `publicHoistPattern` |
+| HTTP          | `hono`                                          | 4.13.13                           | 路由、自动 HEAD、`methodNotAllowed`（`hono/method-not-allowed`，hono ≥ 4.13.0）、`bodyLimit`、`bearerAuth`、`secureHeaders`；下载的 ETag / 304 手写，不用 `hono/etag`（§6） |
 | Node 服务器   | `@hono/node-server`                             | 2.1.5                             | `serve()` + `serve-static`；替代手写 `node:http` 桥                                            |
-| 校验与 OpenAPI | `@hono/zod-openapi` + `zod`                    | 1.6.3 / 4.6.7                     | 路由声明即 schema，处理器返回值按状态码类型检查；构建时写出 `docs/openapi.json`                |
+| 校验与 OpenAPI | `@hono/zod-openapi` + `zod`                    | 1.6.3 / 4.6.7                     | 路由声明即 schema，处理器返回值按状态码类型检查；OpenAPI 文档运行时从路由表生成，另写出提交的 `docs/openapi.json` 作漂移基线（§7.3） |
 | 类型化客户端  | `hono/client` 的 `hc<AppType>`                  | 随 hono                           | 前端类型从服务端路由推导；`init: { cache: "no-store" }`                                        |
-| PKI           | `pkijs` + `asn1js`                              | 3.4.1 / 3.1.0                     | 现有解析、扩展、验签、构建器迁入                                                               |
-| 前端          | `vue`、`vue-router`、`@tanstack/vue-query`、`vue-i18n`、`tailwindcss`、`vite` | 3.5.44 / 5.4.0 / 5.104.4 / 11.4.16 / 4.3.3 / 8.3.4 | 2026-10-18 修订：vue-router 与 vue-query 新增，pinia 退出；vite 8 相对旧项目是大版本，切片 5b 迁入时核对变更说明 |
-| UI 组件       | shadcn-vue（CLI）+ `reka-ui` + `class-variance-authority` + `clsx` + `tailwind-merge` + `lucide-vue-next` + `vue-sonner` | 2.8.2 / 2.11.0 / — / — / — / 1.0.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；备选 Naive UI 2.45（review §3.2） |
-| 前端工具      | `@vueuse/core`                                   | 15.0.0                            | `useColorMode`、`useNow`（统一时钟快照）、`useClipboard`、`useStorage`                        |
-| 测试          | `vitest`、`@vue/test-utils`、`happy-dom`        | 5.0.5 / 2.5.1 / 21.0.3            | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`                            |
-| Cloudflare    | `wrangler`                                      | 4.151.1                           | `wrangler types` 生成绑定类型；不装 `@cloudflare/workers-types`                                |
+| PKI           | `pkijs` + `asn1js`                              | 3.4.1 / 3.1.0                     | 现有解析、扩展、验签、构建器迁入（切片 2 起）                                                  |
+| 前端          | `vue`、`vue-router`、`@tanstack/vue-query`、`vue-i18n` | 3.5.44 / 5.4.0 / 5.104.4 / 11.4.16 | vue-router 与 vue-query 新增，Pinia 退出（决策 5）                                     |
+| 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.4 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8 相对旧项目是大版本（Rolldown、默认 oxc 压缩）；`vue-tsc` 检查 `tsconfig.web.json` |
+| UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.59.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`（切片 5b）；`@tanstack/vue-table` 不随 shadcn Table 安装，切片 5b 需要时才加；备选 Naive UI 2.45（review §3.2） |
+| 前端工具      | `@vueuse/core`                                   | 14.4.0                            | 与 reka-ui 2.11.0 依赖的 `^14.1.0` 同一份（装 15 会出现两份）；`useColorMode`、`useNow`（统一时钟快照）、`useClipboard`、`useStorage` |
+| 测试          | `vitest`、`@vue/test-utils`、`happy-dom`        | 5.0.5 / 2.5.1 / 21.0.3            | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`；夹具在 vitest `globalSetup` 生成（§11） |
+| Cloudflare    | `wrangler`                                      | 4.151.1（精确锁定）               | `wrangler types` 生成绑定类型 `worker-configuration.d.ts`（不入库）；不装 `@cloudflare/workers-types`；`compatibility_date` 随 wrangler 一起升 |
 | CLI           | `node:util` `parseArgs` + `fetch`               | 内置                              | 零依赖                                                                                         |
 | 后续          | `@aws-sdk/client-s3`                            | 3.1152.0                          | S3 适配器切片，仅进 Node bundle                                                                |
-| 质量          | `typescript` 5.9、`eslint` 10 + `typescript-eslint`、`prettier` 3 | —               |                                                                                                |
+| 质量          | `typescript`；`eslint` + `@eslint/js` + `typescript-eslint` + `eslint-plugin-vue` + `vue-eslint-parser` + `jiti`；`prettier` | 5.9.3；10.13.0 / 10.0.1 / 8.71.2 / 10.11.1 / 10.4.1 / 2.7.0；3.9.10 | `typescript` 精确锁 5.9.3（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）；`jiti` 供 ESLint 10 加载 `eslint.config.ts`；`@types/node` 24.19.2 |
+| 开发前置      | OpenSSL CLI、bash、Docker Engine                 | OpenSSL ≥ 3.0（不是 LibreSSL）、Docker ≥ 25 | 只在开发与 CI 用：OpenSSL 生成测试夹具（§11），Docker 构建镜像（`HEALTHCHECK --start-interval` 需要 25）；运行时都不需要 |
+
+`dependencies` 只放 Node 运行时要的包（`hono`、`@hono/zod-openapi`、`zod`、`@hono/node-server`，切片 2 起加 `pkijs`、`asn1js`）；
+浏览器包、构建、测试、lint 工具都是 devDependencies（Docker 运行阶段只装生产依赖），shadcn-vue CLI 写进 `dependencies` 的包要挪走。
 
 明确不用：`unstorage`（无条件写）、`@cloudflare/vitest-pool-workers`（R2 适配器几十行，
 `getPlatformProxy` 一个测试够）、`ts-rest`（停更，锁 zod 3）、`aws4fetch`、`proper-lockfile`、
-`srvx`、Express/Fastify（非 Workers 原生）。
+`srvx`、Express/Fastify（非 Workers 原生）、`hono/etag`（在处理器之后比较，做不到 304 不读 blob）、
+`lucide-vue-next`（已弃用）、`clsx` + `tailwind-merge`（shadcn-vue 改用 `cn`）、`pinia`。
 
 ## 3. 仓库布局
 
 ```text
 aia-cdp/
-  package.json  pnpm-lock.yaml  .nvmrc  .npmrc
-  tsconfig.base.json  tsconfig.worker.json  tsconfig.node.json  tsconfig.web.json
-  wrangler.jsonc  Dockerfile  vite.config.ts  vitest.config.ts  eslint.config.ts
+  package.json  pnpm-lock.yaml  pnpm-workspace.yaml  .nvmrc  .npmrc
+  .gitignore  .gitattributes  .prettierrc.json  .prettierignore  .dockerignore
+  tsconfig.json  tsconfig.base.json  tsconfig.worker.json  tsconfig.node.json
+  tsconfig.build.json  tsconfig.web.json
+  wrangler.jsonc  worker-configuration.d.ts（`pnpm run types` 生成，不入库）
+  Dockerfile  vite.config.ts  vitest.config.ts  eslint.config.ts  components.json（shadcn-vue）
+  .github/             workflows/ci.yml  dependabot.yml
+  .devcontainer/       devcontainer.json（决策 15）
   src/
     core/              纯 TS：不引用 node:*、process、R2Bucket
       pki/             解析、扩展、验签、PEM 编解码（迁入）
       summary/         证书 / CRL 摘要与 API 投影构建器（迁入 builders）
       store.ts         ObjectStore 端口
       catalog.ts       catalog.json / config.json 的 schema、读取、条件写与重试
-      resources.ts     路径表解析、配置校验、下载策略
+      resources.ts     路径表解析、下载策略
       import.ts        importCertificate(deps, bytes)
-      publish.ts       publishCrl(deps, bytes, now)
-      admin.ts         applyConfig / retireTarget / deleteCertificate / listHistory
+      publish.ts       publishCrl(deps, bytes)（入口取一次 deps.now()）
+      admin.ts         validateConfig / applyConfig / retireTarget / deleteCertificate / listHistory
     http/
       app.ts           createApp(deps) → OpenAPIHono；中间件与挂载顺序
       routes/          health.ts  certificates.ts  crls.ts  stats.ts  admin.ts  downloads.ts
       schemas.ts       API v1 的请求 / 响应 / 错误 schema
-      errors.ts        ApiError、onError、defaultHook → 错误信封
+      errors.ts        ApiError、onError、defaultHook、onMethodNotAllowed → 错误信封
+      ui.ts            保留前缀与 UI 兜底、UI 缓存头（§4.4）
     storage/           memory.ts  fs.ts  r2.ts（s3.ts 后续）
     runtime/
       worker.ts        export default { fetch }
-      node.ts          serve + serveStatic + SIGTERM
-      settings.ts      环境变量 schema（zod）
+      node.ts          serve + SIGTERM / SIGINT
+      node-ui.ts       serveStatic + index.html 兜底（Node 的 deps.ui）
+      settings.ts      环境变量 schema（zod，两条运行时共用）
     cli/aia.ts         薄 HTTP 客户端
-    web/               Vue UI（迁入）
+    web/               Vue UI（Vite root；按 §8 重建）
+      client/          hc<AppType> 客户端（不得叫 api：dev server 会把 src/web 下的目录当 URL 服务）
+      components/ui/   shadcn-vue 生成的组件（入库）
+      lib/utils.ts     shadcn-vue 生成（cn）
   tests/
     core/  http/  storage/  web/  integration/
-    fixtures/          generate-test-data.sh（迁入，幂等，不提交私钥）
-  scripts/             adcs-crl-uploader.ps1  generate-openapi.ts  migrate-from-v2.ts
-  docs/                plan.md（本文）  api.md  operations.md  openapi.json
+    boundary/          worker-canary.ts  node-canary.ts（只编译，见下）
+    helpers/           testDeps()、store 包装、seed
+    fixtures/          generate-test-data.sh（重写）  global-setup.ts  pki.ts；产物 pki/ 不入库
+  scripts/             adcs-crl-uploader.ps1  generate-openapi.ts  migrate-from-v2.ts  check-worker-program.ts
+                       smoke.sh  node-smoke.sh  worker-smoke.ts  docker-smoke.sh
+  docs/                plan.md（本文）  implementation.md  api.md  operations.md  openapi.json
+  dist/                web/（vite build） server/（tsc -p tsconfig.build.json） worker/（dry-run）；不入库
 ```
 
-边界检查就是编译两次：`tsconfig.worker.json`（core + http + storage/r2 + runtime/worker，
-用 `wrangler types` 的输出）与 `tsconfig.node.json`（core + http + storage/fs + runtime/node +
-cli + tests）各编译一遍 `src/core` 与 `src/http`，任何平台全局引用都会在其中一个项目报错。
-不另设 ESLint 导入边界规则和 bundle 卫生断言。
+不入库：`worker-configuration.d.ts`、`dist/`、`tests/fixtures/pki/`、`.wrangler/`、`.data/`、`.dev.vars*`、`node_modules/`。
+`.gitattributes` 设 `*.sh text eol=lf`；`.dockerignore` 用白名单，`tests/fixtures`、`.dev.vars`、`.git` 进不了构建上下文。
+
+模块约定：全仓 ESM。服务端代码（`src/core`、`src/http`、`src/storage`、`src/runtime`、`src/cli`、`scripts`、除 `tests/web`
+外的测试）相对导入写 `.ts` 后缀、不用路径别名，开发与测试由 Node 24 直接运行 `.ts`，`tsc -p tsconfig.build.json` 按
+`rewriteRelativeImportExtensions` 改写为 `.js`；只用可擦除语法（`erasableSyntaxOnly`）与 `import type`（`verbatimModuleSyntax`）。
+`src/web` 走 Bundler 解析，可用 `@/` 别名（shadcn-vue 需要），对服务端模块只许 `import type`。core 与 http 只用 Web 标准全局
+（裸 `crypto`、`performance`，交给 WebCrypto 的字节为 `Uint8Array<ArrayBuffer>`），不出现 `Buffer`、`process`、`node:*`。
+
+tsconfig 拓扑：
+
+| 文件 | 用途 |
+| --- | --- |
+| `tsconfig.json` | 解决方案式：`files: []`，references 依次 worker、node、web；另带 `compilerOptions.paths {"@/*": ["./src/web/*"]}`（shadcn-vue CLI 只读这个文件） |
+| `tsconfig.base.json` | 共享严格选项与模块约定：`allowImportingTsExtensions`、`rewriteRelativeImportExtensions`、`verbatimModuleSyntax`、`erasableSyntaxOnly`、`skipLibCheck: true`、`types: []` |
+| `tsconfig.worker.json` | `lib: ["ES2024"]`（无 DOM），`types: ["./worker-configuration.d.ts"]`：`src/core`、`src/http`、`src/storage/r2.ts`、`src/runtime/{worker,settings}.ts`、Worker canary |
+| `tsconfig.node.json` | NodeNext、`types: ["node"]`、`noEmit`：src 的 Node 图、`src/cli`、`scripts`、`tests`（除 `tests/web` 与 Worker canary）、根配置文件 |
+| `tsconfig.build.json` | 继承 node，只发射 src 的 Node 图：`rootDir: src` → `dist/server`；Dockerfile 与 `pnpm run build:server` 用它；不进根 references |
+| `tsconfig.web.json` | vue-tsc：`src/web` + `tests/web`，DOM，Bundler 解析，`rewriteRelativeImportExtensions: false` |
+
+边界检查 = 三套编译 + 两个 canary：worker、node、web 三个程序都编译 `src/core` 与 `src/http`（web 经
+`import type { AppType }`）；`tests/boundary/worker-canary.ts` 用 `// @ts-expect-error` 断言 Worker 程序里没有 `process`，
+`node-canary.ts` 断言 Node 程序里没有 `R2Bucket`，任一侧混入 `@types/node` 或 Worker 类型，指令变为"未使用"而编译失败。
+R2 适配器按结构化类型 `R2BucketLike` 写，r2 一致性测试因此在 `tsconfig.node.json` 下编译，不另设 tsconfig。
+逐文件选项见 `docs/implementation.md` §2.2 与切片 1 步骤 2。三套编译抓不到 core 导入 Node-only 包、类型导入带
+`/// <reference types="node" />` 的包、core → http / hono 分层。原定"不另设 ESLint 导入边界规则和 bundle 卫生断言"已于 2026-10-19
+推翻（决策 15）：`eslint.config.ts` 对 `src/core/**`、`src/http/**` 加 `no-restricted-imports` 分层规则；`scripts/check-worker-program.ts`
+作 `typecheck:boundary` 并入 `typecheck`，Worker 程序的文件清单出现 `@types/node`、`@hono/node-server`、`vite`、`vitest`、`wrangler`
+即失败；`ci:worker` 在 dry-run 后断言 `dist/worker/worker.js` 不含 `"node:` 导入（implementation.md 切片 1 步骤 2、7、12）。
 
 ## 4. 运行时与配置
 
 ### 4.1 Cloudflare Workers
 
-- `wrangler.jsonc`：`main: src/runtime/worker.ts`；`r2_buckets: [{ binding: "STORE" }]`；
+- `wrangler.jsonc`：`name: "aia-cdp"`（绝不用旧 Worker 名 `aia-cdp-worker`，否则部署会覆盖线上 Worker）；
+  `main: src/runtime/worker.ts`；`compatibility_date: "2026-10-12"`（= wrangler 4.151.1 自带的 workerd，随 wrangler 一起升）；
+  不设兼容标志（`nodejs_compat` 自 2026-08-04 起默认开启，真正的护栏是 tsconfig 的 `types`，§3）；
+  `observability.logs.enabled: true`（§4.3）；`minify: true`；`upload_source_maps: true`；
+  `r2_buckets: [{ binding: "STORE" }]`，不写 `bucket_name`（自动置备；是否共用旧桶是切片 7 的 owner 项）；
   `assets: { directory: "dist/web", binding: "ASSETS", run_worker_first: true,
-  not_found_handling: "single-page-application" }`（history 路由的兜底）。
-- 入口：按 `env` 构造一次 deps（模块级缓存），`app.fetch(req, env)`；未命中路由时
-  `env.ASSETS.fetch(req)`。
-- 令牌用 `wrangler secret put AIA_ADMIN_TOKEN` / `AIA_UPLOAD_TOKEN`；其余设置用 `vars`。
+  not_found_handling: "single-page-application" }`（history 路由的兜底）。不写 `routes`、`build.command`、`vars`。
+- 绑定类型：`wrangler types --env-file=/dev/null` 生成 `worker-configuration.d.ts`（不读 `.dev.vars`，结果确定），不入库；
+  `pnpm run types` 在 check / typecheck / lint 之前重生成，ESLint 与 Prettier 排除它。
+- 入口：按 `env` 缓存一个 app（`WeakMap<Env, App>`），`createApp({ store: new R2Store(env.STORE), now, settings,
+  log: (line) => console.log(line), ui: (req) => env.ASSETS.fetch(req) })`，`app.fetch(req, env, ctx)`；设置无效时每个请求返回 500 信封并记一行 error 日志。
+  ASSETS 只经 `deps.ui` 调用，保留前缀与 UI 兜底规则在应用内（§4.4）：`/api/*` 与下载前缀的未命中不会被 SPA 兜底答成
+  200 HTML（C12）。
+- 令牌是可选的 `wrangler secret`（`AIA_ADMIN_TOKEN` / `AIA_UPLOAD_TOKEN`），代码里类型为可选，不用 `secrets.required`；
+  其余设置有默认值，需要时用 `vars`。
+- 脚本与 CI 调 wrangler 时设 `WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true`（`send_metrics: false` 挡不住 deploy 的遥测）；
+  `wrangler deploy --dry-run --outdir dist/worker` 需要先有 `dist/web`（先 `vite build`）。不加 `deploy` 脚本（首次部署会自动置备新桶，部署按 `docs/operations.md` 手工执行），生产部署只在切片 7。
 
 ### 4.2 Node / Docker
 
@@ -134,26 +205,60 @@ cli + tests）各编译一遍 `src/core` 与 `src/http`，任何平台全局引�
 | `AIA_ADMIN_TOKEN` / `_FILE`          | 无                   | 未设置时管理接口返回 503 `admin_disabled`            |
 | `AIA_UPLOAD_TOKEN` / `_FILE`         | 无                   | 未设置时上传不需要令牌                               |
 | `AIA_MAX_UPLOAD_BYTES`               | `10485760`           | `bodyLimit`                                          |
-| `AIA_TRUST_PROXY`                    | `false`              | 为真时日志记录 `X-Forwarded-For`                     |
+| `AIA_TRUST_PROXY`                    | `false`              | 为真时请求日志加 `client`（`CF-Connecting-IP`，否则 `X-Forwarded-For` 第一项） |
 | `AIA_LOG_FORMAT`                     | `json`               | `json` / `pretty`                                    |
 
-启动时用 zod 校验全部变量，失败即退出并打印原因。
+启动（`src/runtime/node.ts`，设置 schema 在 `src/runtime/settings.ts`，纯 zod、Worker 与 Node 共用）：
 
-Dockerfile：多阶段，`node:22-slim`；阶段一 `pnpm install` + `vite build` + `tsc -p
-tsconfig.node.json`；阶段二只复制 `dist/`、生产依赖与 `package.json`，非 root 用户，
-`VOLUME /data`，exec 形式 `CMD ["node", "dist/server/runtime/node.js"]`，
-`HEALTHCHECK` 用 `node -e "fetch(...)"` 探 `/api/v1/health`（200 即健康，含 `degraded`）。
-`SITE_NAME` 只在 `vite build` 时通过 `VITE_SITE_NAME` 注入（Docker `ARG`）。
+- 用 zod 校验全部变量，字段与默认值按上表；`*_FILE` 在启动时读取（去掉一个结尾换行），`X` 与 `X_FILE` 同时设置报错；
+  无效即在 stderr 打印原因、exit 1。`AIA_DATA_DIR` 须是可读写目录，否则 JSON 错误日志 + exit 1。
+- `serve({ fetch: app.fetch, port })`：`PORT` 显式传入（`@hono/node-server` 的默认是 3000），不传 hostname（`::` 双栈）；
+  就绪日志一行 `listening`。`server.on("error")`（如端口被占用）→ JSON 日志 + exit 1；SIGTERM / SIGINT → `server.close()`，
+  另设 10 s `unref()` 的强制退出（容器里 node 是 PID 1）。
+- 生产 `node --enable-source-maps dist/server/runtime/node.js`；开发与测试直接 `node src/runtime/node.ts`（type stripping）。
 
-静态资源：`serveStatic({ root: AIA_STATIC_DIR })`；未命中文件且路径不以 `/api/`、`/ca/`、`/crl/`、
-`/dcrl/` 开头时返回 `index.html`（history 路由），其余 404。反向代理不得对下载前缀做 HTTPS 跳转
-（AIA/CDP 客户端只走明文 HTTP）。
+Dockerfile（`ARG NODE_VERSION=24`，基础镜像浮动标签 `node:24-slim`，bookworm；digest 固定以后再定）：
+
+- 阶段 base：`corepack enable pnpm`，复制 `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml`、`.npmrc` 后 `corepack install`；
+  prod-deps：`pnpm install --prod --frozen-lockfile --ignore-scripts`（store 缓存挂载）；build：全量安装 + `vite build` +
+  `tsc -p tsconfig.build.json`。`engine-strict` 让 `NODE_VERSION=22` 的构建在安装阶段失败。
+- 阶段 runtime（`node:24-slim`）：`NODE_ENV=production`；只复制生产依赖、`dist/` 与 `package.json`（`"type": "module"` 需要它）；
+  先建 `/data` 并 chown 给 `node`，再 `USER node`（uid 1000）与 `VOLUME /data`；`EXPOSE 8080`；
+  exec 形式 `CMD ["node", "--enable-source-maps", "dist/server/runtime/node.js"]`；
+  `HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --start-interval=2s --retries=3`，用 `node -e` 的
+  `fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/api/v1/health', { signal: AbortSignal.timeout(4000) })`，200 即健康（含 `degraded`）。
+- `SITE_NAME` 只在 `vite build` 时通过 `VITE_SITE_NAME` 注入（Docker `ARG VITE_SITE_NAME`，无默认）；`%VITE_SITE_NAME%` 不做 HTML
+  转义，`vite.config.ts` 构建期校验（含 `< > & "` 即失败），空值用默认 `PKI AIA/CDP`。
+- `.dockerignore` 用白名单（只放行清单、tsconfig、`vite.config.ts`、`src`）。bind mount 的 `/data` 须属 uid 1000。
+
+静态资源：`src/runtime/node-ui.ts` 的 `createNodeUi(AIA_STATIC_DIR)` 作为 `deps.ui`：`serveStatic({ root })`，最后一段无扩展名的
+路径回退 `index.html`（history 路由）；保留前缀、扩展名与缓存规则在应用内（§4.4），与 Workers 相同。反向代理不得对下载前缀做
+HTTPS 跳转（AIA/CDP 客户端只走明文 HTTP）。
 
 ### 4.3 日志
 
 一个自写的小中间件：每请求一行 JSON（method、path、status、ms、可选 client），
 每次发布 / 导入尝试一行（targetId 或 certificateId、outcome 或 reason、sha256）。
-Node 写 stdout，Workers 用 `console.log`（Workers Logs 自动收集）。不记录令牌和请求体。
+Node 写 stdout，Workers 用 `console.log`（Workers Logs 自动收集）。不记录令牌、请求体和查询串；
+`AIA_LOG_FORMAT=pretty` 只把同一内容排成一行人读文本。
+
+### 4.4 应用依赖、保留前缀与 UI 兜底（两条运行时共用）
+
+`createApp(deps)` 返回 `OpenAPIHono`；`deps = { store, now, settings, log, ui? }`，`ui(req)` 是与平台无关的 UI 兜底
+（Workers：`env.ASSETS.fetch`；Node：`serveStatic` + `index.html`）。应用不认识运行时 env；规则都在应用内，两条运行时一致：
+
+| 请求 | 响应 |
+| --- | --- |
+| `/api`、`/api/*` 未命中 | JSON 信封 404 `not_found`，`no-store` |
+| `/ca/*`、`/crl/*`、`/dcrl/*` 未命中 | `text/plain` 404 `Not Found`，`no-store`（CryptoAPI 客户端；与线上一致） |
+| 已注册路径、方法不符 | 405 + `Allow`：API 为信封（§7.3）；下载前缀为纯文本，`Allow: GET, HEAD`（切片 3） |
+| 其他路径 GET / HEAD | `ui(req)`；ui 返回 404，或最后一段带扩展名（非 `.html`）而 ui 返回 HTML（SPA 兜底）→ 纯文本 404（缺失的 `/assets/x.js` 不变成 200 HTML） |
+| 其他路径的其他方法；未注入 `ui` | 纯文本 404 |
+
+- 保留前缀带尾斜杠匹配（`^/api(?:/|$)`、`^/(?:ca|crl|dcrl)/`）：`/crls/`、`/certificates/` 是 UI 路由，不是下载前缀。
+- UI 缓存头由应用设置：哈希资源 `/assets/*` → `public, max-age=31536000, immutable`，其余 UI 响应（`index.html`、SPA 兜底）→
+  `no-cache`。先复制 ui 返回的响应再改头（workerd 绑定响应的头不可变）。
+- 不注册 `app.get("*")`（会让未知路径的 POST 全变 405）；全部路由在 `createApp` 内、首个请求前注册完（SmartRouter 首个请求后冻结）。
 
 ## 5. 存储模型
 
@@ -163,11 +268,13 @@ Node 写 stdout，Workers 用 `console.log`（Workers Logs 自动收集）。不
 config.json                                          操作员拥有；管理接口整体替换
 catalog.json                                         服务拥有；导入与发布条件写
 blobs/certificates/<sha256>.der                      不可变
-blobs/crls/<targetId>/<thisUpdate UTC 紧凑格式>-<sha256>.der   不可变；当前与历史共用
+blobs/crls/<targetId>/<YYYYMMDDHHMMSSZ>-<crlNumber|none>-<sha256>.der   不可变；当前与历史共用
+history/<targetId>/<与 blob 同名>.json                不可变；历史标记（被取代或退役的 current、切片 7 导入的旧版本）
 ```
 
-键全部由服务生成（hex、uuid、固定名），不存在操作员命名的键，因此不需要键编码、长度、
-大小写规则。fs 适配器仍防御性拒绝含 `..` 的键。
+CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段是十进制 CRL 号、无号时为 `none`；键只由 `crlBlobKey()`
+生成（`docs/implementation.md` 切片 4 步骤 2）。键全部由服务生成（hex、uuid、十进制、固定名），不存在操作员命名的键，
+因此不需要键编码、长度、大小写规则；三个适配器仍防御性地用 `assertStoreKey` 校验每个键（§5.4）。
 
 ### 5.2 `config.json`（操作员）
 
@@ -208,7 +315,7 @@ blobs/crls/<targetId>/<thisUpdate UTC 紧凑格式>-<sha256>.der   不可变；�
     "<sha256>": {
       "key": "blobs/certificates/<sha256>.der",
       "size": 1234,
-      "importedAt": "2026-10-17T00:00:00Z",
+      "importedAt": "2026-10-17T00:00:00.000Z",
       "summary": { "subjectCN": "…", "issuerCN": "…", "serialNumber": "…", "notBefore": "…",
                    "notAfter": "…", "subjectKeyId": "…", "authorityKeyId": "…", "sha1": "…" }
     }
@@ -216,18 +323,25 @@ blobs/crls/<targetId>/<thisUpdate UTC 紧凑格式>-<sha256>.der   不可变；�
   "targets": {
     "<uuid>": {
       "current": {
-        "sha256": "…", "key": "blobs/crls/<uuid>/<thisUpdate>-<sha256>.der", "size": 4567,
+        "sha256": "…", "key": "blobs/crls/<uuid>/<thisUpdate>-<crlNumber>-<sha256>.der", "size": 4567,
         "publishedAt": "…", "verifier": "<sha256>",
         "summary": { "crlNumber": "42", "baseCrlNumber": null, "thisUpdate": "…",
-                     "nextUpdate": "…", "revokedCount": 1, "sha1": "…" }
+                     "nextUpdate": "…", "revokedCount": 1, "sha1": "…", "nextPublish": null }
       }
     }
   }
 }
 ```
 
-catalog 只存当前指针，大小与资源数成正比，不随发布次数增长。历史就是
-`blobs/crls/<uuid>/` 下的文件列表，键名自带签发时间与摘要，由管理接口列出。
+catalog 只存当前指针，大小与资源数成正比，不随发布次数增长。2026-10-18 起历史 = `history/<uuid>/` 下的标记
+（被取代或退役的 current 原样记录，或切片 7 导入的旧版本；键名与 blob 同名，自带 `thisUpdate`、CRL 号与摘要）∪ catalog 的 `current`；
+`blobs/crls/<uuid>/` 下没有标记的孤儿 blob（发布竞争失败或崩溃留下）不算历史（C8）。管理接口各 `list` 一次两个前缀即可列出，
+不逐个读对象。
+
+格式（2026-10-18，`docs/implementation.md` 切片 2 步骤 4、切片 4 步骤 2）：id、`sha1`、key id 小写 hex；时间为 `toISOString()`；
+CRL 号十进制字符串、按 BigInt 比较；`revokedCount` 是非空整数（发布时总能解析，§10 #7）；`nextPublish` 取 AD CS Next CRL
+Publish（`1.3.6.1.4.1.311.21.4`），缺失为 `null`。拟新增、开工前需 owner 确认的字段：`certificatePaths`（证书路径改绑账本，
+切片 2 第 2 项）、`targets[id].retired`（退役终态，切片 6 第 1 项）。
 
 ### 5.4 端口与适配器
 
@@ -245,20 +359,25 @@ export interface ObjectStore {
 }
 ```
 
-ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永远来自内容摘要。
+ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永远来自内容摘要，store ETag 从不外露，HTTP `If-Match` 的值也从不
+传进适配器。端口、三个适配器与一致性套件在切片 1 交付（决策 11）。三个适配器的 `get` / `head` / `put` / `delete` 先调同一个
+`assertStoreKey`：`/` 分段，每段 `[A-Za-z0-9_-][A-Za-z0-9._-]*`，拒绝空键、空段、`.`、`..`、点开头、绝对路径、`\`、NUL（同时是 fs 的
+路径穿越防护）；`list` 先调 `assertStorePrefix`：`""` 或一个以上合法段加结尾 `/`（如 `blobs/`、`history/<uuid>/`），其余拒绝（2026-10-19）。
 
 | 适配器 | 条件写                                                                 | ETag            | 规模    |
 | ------ | ---------------------------------------------------------------------- | --------------- | ------- |
-| memory | 同步比较后写入                                                         | 内容 SHA-256    | ~40 行  |
-| fs     | 临时文件 + `rename`；条件判断在进程内互斥段里读当前文件摘要后完成       | 内容 SHA-256    | ~80 行  |
-| r2     | `onlyIf: { etagMatches }` / `{ etagDoesNotMatch: "*" }`，返回 `null` 即前置条件失败 | `R2Object.etag` | ~60 行  |
+| memory | 先算摘要，再同步完成比较与写入（中间有 `await` 时并发 CAS 会双赢）；读写都复制字节 | 内容 SHA-256    | ~40 行  |
+| fs     | 按键的进程内互斥段里读当前文件摘要、判条件，再同目录临时文件 + fsync + `rename` + fsync 父目录；`list` 递归、跳过点开头的临时文件 | 内容 SHA-256    | ~80 行  |
+| r2     | `onlyIf: { etagMatches }` / `{ etagDoesNotMatch: "*" }`，返回 `null` 即前置条件失败；其他异常（含单键写速率）原样抛出；`list` 跟随游标；桶按结构化类型 `R2BucketLike` 写 | `R2Object.etag`（不带引号；带引号的 `httpEtag` 传回 `etagMatches` 会抛错） | ~60 行  |
 
-一致性测试约 10 条用例（put/get/head、`ifMatch` 成功与失败、`ifNoneMatch`、前缀列表、
-delete），memory 与 fs 每次运行，r2 在 Cloudflare CI 任务里经 `getPlatformProxy` 运行。
+一致性套件 12 条用例（缺失键、put/get/head、字节隔离、`ifNoneMatch`、`ifMatch` 成功 / 过期 / 缺失键、同一 `ifMatch` 并发 5 次
+恰好一次成功、递归前缀列表、delete、非法键、`contentType`），memory 与 fs 每次运行；r2 在 `AIA_TEST_R2=1`（`pnpm run test:r2`，
+`ci:worker` 包含它且要求 passed）下经 `getPlatformProxy({ configPath: "wrangler.jsonc", persist: false })` 运行，结束时
+`await dispose()`；另有假桶让 r2 适配器的套件每次都跑。
 
 ### 5.5 写入顺序
 
-`publishCrl(deps, bytes, now)`，与 HTTP 无关：
+`publishCrl(deps, bytes)`，入口取一次 `deps.now()` 作本次的时间快照（2026-10-19，与 `importCertificate` 同形），与 HTTP 无关：
 
 1. 按字节识别 PEM/DER，得到 DER 与 `sha256`。
 2. 解析 AKI、CRL 号、delta 指示、扩展、时间；时间解码失败、`thisUpdate` 超前 5 分钟以上、
@@ -269,13 +388,15 @@ delete），memory 与 fs 每次运行，r2 在 Cloudflare CI 任务里经 `getP
 5. 读签发者 DER（按已知键），验签。
 6. 与 `targets[id].current` 比较：`sha256` 相等即 `unchanged`，不写；否则按 catalog 里的
    `crlNumber` / `thisUpdate` 摘要判新鲜度，不必再读当前 DER。
-7. `put` blob（内容寻址，无条件，幂等）。
-8. `put catalog.json` 带 `ifMatch` 更新 `current`。失败则重读 catalog 回到第 6 步，
-   最多三次（250 ms、500 ms、1 s 退避），之后返回 `concurrent_update`。
+7. `put` blob（内容寻址，`ifNoneMatch: "*"`，已存在即视为成功，幂等）。
+8. 若有旧 `current`，先 create-only 写它的 history 标记（§5.1）；再 `put catalog.json` 带 `ifMatch` 更新 `current`。
+   失败则重读 config 与 catalog 回到第 4 步（目标或签发者变了就重新验签），重试三次（共 4 次尝试，250 ms、500 ms、
+   1 s 退避），之后返回 `concurrent_update`。
 9. 返回 `created`（之前无 current）或 `updated`。
 
-第 7 步后崩溃只留下一个无人引用的 blob，无害；第 8 步成功即完成，不存在"权威写成功但
-派生写失败"的状态。R2 对单键每秒一次写的限制只落在 `catalog.json` 上，AD CS 助手是顺序上传的。
+第 7 步后崩溃只留下一个无人引用、不进历史的 blob，无害；第 8 步 catalog 写成功即完成，不存在"权威写成功但
+派生写失败"的状态。R2 对单键每秒一次写的限制只落在 `catalog.json` 上：超限报错不是前置条件失败，服务端不重试（500），
+AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 
 `importCertificate` 同理：解析、生成完整摘要、写 blob、条件更新 catalog；重复导入 `unchanged`。
 `applyConfig` 校验 §5.2 规则后用 `ifMatch` 替换 `config.json`，首次用 `ifNoneMatch: "*"`。
@@ -283,34 +404,48 @@ delete），memory 与 fs 每次运行，r2 在 Cloudflare CI 任务里经 `getP
 ### 5.6 读取
 
 每个请求读一次 `config.json` 与 `catalog.json`（两个小对象）再读 blob。进程内按 ETag 备忘、
-5 秒 TTL 是唯一允许的优化，默认关闭，切片 5 测量后再决定开不开。
+5 秒 TTL 是唯一允许的优化，默认关闭，切片 5a 测量后再决定开不开；写路径永远直读，不经备忘。
 
 ## 6. 领域规则（沿用旧方案，不再讨论）
 
 - 身份：证书 `certificateId` = DER 的 SHA-256；CRL 目标 `targetId` = 创建时分配的 UUID；
   内容版本 = `contentSha256`。CN、文件名不参与身份、授权和路径。
 - 验证：AKI/SKI 匹配 + 签名验证；`issuer_mismatch` 指 AKI 解析到的证书不是该目标配置的
-  签发者；不比较签发者名称、不检查 `cRLSign` 和签发者有效期；Ed25519/Ed448 报
-  `unsupported_algorithm`。
+  签发者（默认上传按目标配置的签发者验签、不产生此码，只留给切片 7 的临时历史导入，C5；见 implementation 切片 4
+  开工前需 owner 确认第 4 项）；不比较签发者名称、不检查 `cRLSign` 和签发者有效期；Ed25519/Ed448 报
+  `unsupported_algorithm`。2026-10-18 定下验签方式（B21）：先过扩展与时钟策略，再按算法白名单（OID 判定，名单外
+  → `unsupported_algorithm`，不只 EdDSA），最后对收到的 TBS 字节调
+  `pkijs.getCrypto(true).verifyWithPublicKey(tbsView, signatureValue, issuerSpki, signatureAlgorithm)`。不用 PKIjs
+  `crl.verify()`：它比较签发者名称，并对其自有名单外的关键扩展静默返回 false（旧实现即如此，见 §10 末的 C1–C4 更正）；
+  不调 `pkijs.setEngine`（pkijs 3 从 `globalThis.crypto` 自动初始化）。白名单、SHA-1 取舍与策略表见 `docs/implementation.md` 切片 4。
 - 新鲜度：先比字节（相等 → `unchanged`），再比 CRL 号，再比 `thisUpdate`；号相等且
   `thisUpdate` 相等但字节不同 → `conflict`；CRL 号只在一侧存在 → `non_orderable`；更旧 → `stale_crl`。
 - 时钟：注入的 `now` 是唯一时间源；`thisUpdate` 超前 5 分钟以上拒绝 `not_yet_valid`；
   `nextUpdate` 已过去的 CRL 接受并记录日志。
-- 扩展：识别列表为关键 `2.5.29.27`（delta 指示）、`2.5.29.28`（IDP）、非关键 `2.5.29.20`、
-  `2.5.29.35`、`2.5.29.46` 与 AD CS 私有 `1.3.6.1.4.1.311.21.1 / .4 / .14`。关键 IDP 视为
-  作用域 CRL，拒绝 `scoped_crl_unsupported`；其他未识别关键扩展拒绝 `unknown_critical_extension`。
-  未识别的非关键扩展保留原始字节在详情里展示。
+- 扩展：识别列表为 `2.5.29.20`、`2.5.29.27`（delta 指示）、`2.5.29.35`、`2.5.29.46`、`2.5.29.18`（IAN）、
+  `1.3.6.1.5.5.7.1.1`（AIA）与 AD CS 私有 `1.3.6.1.4.1.311.21.1 / .4 / .14`；识别与关键性无关，标了关键也接受
+  （2026-10-18 补 IAN / AIA 与 M14）。`2.5.29.28`（IDP）非关键接受、关键视为作用域 CRL，拒绝 `scoped_crl_unsupported`
+  （只含 `distributionPoint` 的关键 IDP 见 implementation 切片 4 开工前需 owner 确认第 2 项，推荐接受）；其他未识别关键扩展拒绝 `unknown_critical_extension`。
+  条目扩展同样检查：reasonCode、invalidityDate、holdInstructionCode 接受，certificateIssuer（间接 CRL）→
+  `scoped_crl_unsupported`，其他关键 → `unknown_critical_extension`。未识别的非关键扩展保留原始字节在详情里展示。
+  策略表见 `docs/implementation.md` 切片 4 步骤 3。
 - delta 与 base 相互独立：记录并展示 `baseCrlNumber`，不与已发布 full CRL 对账。
 - 下载：路径表命中 → 资源 → catalog 的 current → 先用摘要生成 `ETag`（DER `"<sha256>"`，
   PEM `"<sha256>-pem"`）→ `If-None-Match` 命中直接 304 → 否则读 blob，DER 原样、PEM 现场派生。
-  `Content-Length` 显式设置（Node 侧 HEAD 不会自动带）。目标存在但未发布 → 404。
+  `If-None-Match` 手写比较（逗号列表、`W/`、`*`），在读 blob 之前；不用 `hono/etag`（它在处理器之后比较）。
+  `Content-Length` 显式设置（两条运行时的 HEAD 都不会自动带）。目标存在但未发布 → 404。
+  下载前缀上的 404 / 405 是纯文本（§4.4）。
   `Content-Disposition: attachment; filename="<路径最后一段>"`，与线上一致。
 - 内容类型：DER 证书 `application/pkix-cert`，DER CRL `application/pkix-crl`，
   PEM `application/x-pem-file`。
 - 缓存：证书 `public, max-age=31536000, immutable`；CRL `public, max-age=clamp(nextUpdate − now,
   60 s, 3600 s), must-revalidate`，无 `nextUpdate` 时 300 s；API JSON `no-store`；
-  `openapi.json` `max-age=300`；UI 哈希资源 `immutable`，`index.html` `no-cache`。
-- 退役：删路径即 404；`retire` 清空目标 current 并保留历史 blob；被引用的证书不可删除。
+  `openapi.json` `max-age=300`；UI 哈希资源 `immutable`，`index.html` `no-cache`（两条运行时都由应用设置，§4.4）。
+- 安全头：`secureHeaders({ strictTransportSecurity: false })`，其余 Hono 默认（`X-Content-Type-Options: nosniff`、
+  `X-Frame-Options: SAMEORIGIN`、`Cross-Origin-Resource-Policy: same-origin` 等）落在全部响应上。不发 HSTS：应用不知道自己是否
+  在 TLS 之后，AIA/CDP 下载按设计走明文 HTTP，HSTS 留给 Cloudflare / 反向代理决定。CSP 由切片 5b 定。
+- 退役：删路径即 404；`retire` 清空目标 current（先写其 history 标记）并保留历史 blob；被引用的证书不可删除。
+  默认退役是终态，该 UUID 不再接受上传，恢复发布用新 UUID（implementation 切片 6 开工前需 owner 确认第 1 项）。
 - 上传安全：`bodyLimit` 永远开；可选 `AIA_UPLOAD_TOKEN`；Node 部署的限速交给反向代理，
   文档写明。
 
@@ -320,22 +455,25 @@ delete），memory 与 fs 每次运行，r2 在 Cloudflare CI 任务里经 `getP
 
 | 方法与路径                        | 用途                                                   | 状态                                                    |
 | --------------------------------- | ------------------------------------------------------ | ------------------------------------------------------- |
-| `GET /api/v1/health`              | `status`: healthy / degraded / unhealthy；`checks.store`、`checks.configuration` | 200；store 不可读 503          |
+| `GET /api/v1/health`              | `{ status, checks: { store, configuration } }`：`status` healthy / degraded / unhealthy；`store` ok / error；`configuration` ok / missing / invalid（store 出错时 unknown）；`no-store`。切片 1 只看 `config.json` 存在、是 JSON 且 `version: 1`，切片 2 升级为完整 schema 与规则 | 200（含 degraded：配置缺失或无效）；store 抛错 503 unhealthy |
 | `GET /api/v1/certificates`        | 完整数组（无分页）                                     | 200                                                     |
 | `GET /api/v1/certificates/{id}`   | 详情：主体 / 签发者、有效期、SKI/AKI、指纹、签名算法（含参数）、扩展、`downloads`、`targets` | 200 / 404 |
 | `GET /api/v1/crls`                | 每个目标一项，`current` 为摘要或 `null`                | 200                                                     |
 | `GET /api/v1/crls/{targetId}`     | 详情：签发者证书 id、CRL 号、base 号、时间、吊销条目、扩展、`downloads` | 200 / 404                      |
 | `POST /api/v1/crls`               | 上传 CRL：multipart 字段 `crl`，或原始 body（`application/pkix-crl` / `application/x-pem-file` / `application/octet-stream`） | 201 created；200 updated / unchanged；400 / 401 / 409 / 413 / 415 / 422 |
-| `GET /api/v1/stats`               | 证书数、目标数、已发布数、吊销总数（未知为 `null`）、DER 字节数 | 200                                             |
-| `GET /api/v1/openapi.json`        | 构建时生成的文件                                       | 200                                                     |
+| `GET /api/v1/stats`               | `{ certificates, targets: { full, delta }, published: { full, delta }, totalRevocations, derBytes }`：`totalRevocations` 为已发布 full CRL 的 `revokedCount` 之和（无已发布 full 时 `null`），`derBytes` 为证书与各 current CRL 的字节数；不含时间相关字段（"需关注"数由 UI 用客户端时钟算，§8） | 200                                             |
+| `GET /api/v1/openapi.json`        | 运行时从路由表生成（`getOpenAPI31Document`），按进程 / isolate 缓存；与提交的 `docs/openapi.json` 深等（§7.3） | 200，`public, max-age=300`               |
 
 上传成功体：
 
 ```json
 { "outcome": "created", "target": "<uuid>", "kind": "full", "sha256": "…",
-  "crlNumber": "42", "thisUpdate": "…", "nextUpdate": "…",
+  "crlNumber": "42", "baseCrlNumber": null, "thisUpdate": "…", "nextUpdate": "…",
+  "issuer": "<sha256>",
   "downloads": ["/crl/issuing-ca-1.crl", "/crl/issuing-ca-1.crl.pem"] }
 ```
+
+`thisUpdate` 必填、`nextUpdate` 可空；`baseCrlNumber` 与签发者证书 id `issuer` 为 2026-10-18 补（M16）。
 
 ### 7.2 管理路由（`Authorization: Bearer <AIA_ADMIN_TOKEN>`）
 
@@ -345,12 +483,13 @@ delete），memory 与 fs 每次运行，r2 在 Cloudflare CI 任务里经 `getP
 | `DELETE /api/v1/admin/certificates/{id}`              | 删除未被引用的证书（blob 一并删除）              | 204 / 409 `referenced`      |
 | `GET /api/v1/admin/config`                            | 当前 `config.json` 与 `ETag`                     | 200 / 404（尚未配置）       |
 | `PUT /api/v1/admin/config`                            | 整体替换；`If-Match` 必填，首次 `If-None-Match: *` | 200 / 412 / 422 `config_invalid` |
-| `GET /api/v1/admin/crls/{targetId}/history`           | 历史 blob 列表（thisUpdate、sha256、size）        | 200                         |
+| `GET /api/v1/admin/crls/{targetId}/history`           | 历史条目（history 标记 ∪ current，§5.3；thisUpdate、CRL 号、sha256、size、是否 current） | 200                         |
 | `GET /api/v1/admin/crls/{targetId}/history/{sha256}`  | 下载历史 DER                                     | 200 / 404                   |
 | `POST /api/v1/admin/crls/{targetId}/retire`           | 清空 current，历史保留                           | 200                         |
 
-未设置 `AIA_ADMIN_TOKEN` 时全部管理路由返回 503 `admin_disabled`。令牌比较用 Hono
-`bearerAuth`（常量时间）。
+未设置 `AIA_ADMIN_TOKEN` 时全部管理路由返回 503 `admin_disabled`（先于鉴权与读体）。令牌比较用 Hono
+`bearerAuth`（常量时间）：令牌缺失或错误 → 401 + `WWW-Authenticate`；`Authorization` 头畸形时 `bearerAuth` 回 400，统一包成
+`bad_request` 信封。因此每条管理路由的状态表另含 400 / 401 / 503，上传路由在设置 `AIA_UPLOAD_TOKEN` 时同样有 400 / 401（B9）。
 
 ### 7.3 信封、错误、中间件
 
@@ -361,12 +500,18 @@ delete），memory 与 fs 每次运行，r2 在 Cloudflare CI 任务里经 `getP
   `config_invalid`、`referenced`、`invalid_crl`、`invalid_certificate`、`not_yet_valid`、
   `unknown_critical_extension`、`scoped_crl_unsupported`、`unsupported_algorithm`、
   `issuer_not_found`、`target_not_configured`、`invalid_signature`、`issuer_mismatch`、
-  `stale_crl`、`conflict`、`non_orderable`、`concurrent_update`、`internal`。
-- 中间件顺序：`secureHeaders` → 请求日志 → `methodNotAllowed({ app })` →
+  `stale_crl`、`conflict`、`non_orderable`、`concurrent_update`、`internal`。默认下 `issuer_mismatch` 只由切片 7 的临时历史导入
+  路由产生，随该路由在 `slice/7-cleanup` 删除（§6）。
+- 中间件顺序：`secureHeaders({ strictTransportSecurity: false })`（§6）→ 请求日志 →
+  `methodNotAllowed({ app, onMethodNotAllowed })`（`hono/method-not-allowed`，hono ≥ 4.13.0；`onMethodNotAllowed` 产出
+  `method_not_allowed` 信封 + `Allow`，GET 路由自动含 HEAD；下载前缀为纯文本，§4.4）→
   `/api/v1/admin/*` 的 `bearerAuth` → `POST /api/v1/crls` 的可选 `bearerAuth` + `bodyLimit` →
-  路由 → `app.onError` 统一 500 信封，不泄漏异常文本。
-- `app.doc31()` 运行时可用于开发；`scripts/generate-openapi.ts` 调 `getOpenAPI31Document()`
-  写出 `docs/openapi.json`，CI 检查漂移，服务端从文件返回。
+  路由 → `app.onError` 统一 500 信封，不泄漏异常文本。`bearerAuth`、`bodyLimit` 等抛出的 `HTTPException` 由 `onError` 换成
+  信封（库文本换成自己的文案，保留 `WWW-Authenticate`、`Allow`、`Retry-After`）。
+- OpenAPI（B11）：`GET /api/v1/openapi.json` 在运行时由路由表生成（`getOpenAPI31Document`），每个 app 实例首次请求时序列化并缓存，
+  `max-age=300`；`scripts/generate-openapi.ts` 用同一调用写出提交的 `docs/openapi.json`，`--check`（`pnpm run openapi:check`）是
+  CI 的漂移检查，测试断言运行时文档深等于该文件且每个 operation 都有 `operationId` 与 `summary`。服务端不读该文件：从 `src`
+  导入它会越出 `rootDir: src`，Node 产物与 Worker 包都找不到。切片 1 从 health 路由开始，改路由的切片都重新生成并提交。
 
 ### 7.4 CLI
 
@@ -378,40 +523,50 @@ delete），memory 与 fs 每次运行，r2 在 Cloudflare CI 任务里经 `getP
 
 ## 8. 前端
 
-2026-10-18 修订（待 owner 确认；评估与候选对比见 `docs/review-2026-10-18.md` §3）：不再整体迁入旧
+2026-10-18 修订，同日 owner 确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-18.md` §3）：不再整体迁入旧
 `src/web`，而是在同一技术线（Vue 3 + Tailwind 4）上用组件库重建；旧代码只迁移纯逻辑与测试。
 
 - 基座：`vue-router`（history 模式）；`@tanstack/vue-query`（列表 / 详情 `useQuery`，上传
-  `useMutation` 后 `invalidateQueries`，`staleTime: 0`）；shadcn-vue 生成的组件（Reka UI 原语，
-  源码在 `src/web/components/ui/`）；`@vueuse/core`（`useColorMode`、`useNow`、`useClipboard`、
-  `useStorage`）；`vue-sonner`（上传结果 toast）；`lucide-vue-next`。Pinia 退出：服务端数据归
-  vue-query，UI 偏好归 `useStorage`。
-- 路由：`/`（总览）、`/certificates/:id`、`/crls/:targetId`。未知路径由 Workers
-  `not_found_handling: "single-page-application"` 与 Node 的 `index.html` 兜底返回应用。
-- 总览：统计条（证书数、目标数、已发布、即将过期）；证书表（CN、签发者、有效期、状态徽标、
+  `useMutation` 后 `invalidateQueries`，`staleTime: 0`）；shadcn-vue 生成的组件（Reka UI 原语，`--style nova`、
+  base color `neutral`，源码在 `src/web/components/ui/`，生成代码用 `cn`）；`@vueuse/core`（`useColorMode`、`useNow`、
+  `useClipboard`、`useStorage`）；`vue-sonner`（上传结果 toast，`src/web/main.ts` 需 `import "vue-sonner/style.css"`）；
+  `@lucide/vue`（取代已弃用的 `lucide-vue-next`）；`tw-animate-css`。Pinia 退出：服务端数据归 vue-query，UI 偏好归 `useStorage`。
+  浏览器包全部是 devDependencies（§2）。
+- 路由：`/`（总览）、`/certificates/:id`、`/crls/:targetId`。未知 UI 路径由 §4.4 的 UI 兜底返回应用（Workers
+  `not_found_handling: "single-page-application"`，Node 回退 `index.html`）；保留前缀与末段带扩展名的路径不兜底。
+- 总览：统计条（证书数、目标数、已发布、即将过期——推荐默认改为"需关注"；时间相关数由客户端按徽标同一时钟算，stats 不含时间字段，
+  阈值与"需关注"口径见 implementation 切片 5b 开工前需 owner 确认第 2 项）；证书表（CN、签发者、有效期、状态徽标、
   DER/PEM 下载）；CRL 目标表（标签、full/delta、CRL 号、thisUpdate / nextUpdate、状态、下载，
   未发布显示"未发布"）；上传卡片（拖放 + PEM 粘贴；created / updated / unchanged 各有文案，
   错误按 `error.code` 映射 i18n，toast + 行内 Alert）。
 - 详情：Tabs = 概览（DN 表含 `rfc4514`、有效期、公钥与签名算法含参数、指纹）、扩展（Accordion；
   每个解析结果映射为 render block：rows / tags / general names / distribution points / access /
   policies / subtrees；未识别或解码失败显示 ASN.1 结构 dump 与原始 hex）、吊销列表（表格：
-  序列号、吊销时间、原因、失效起始、间接签发者；`revokedCount` 为 `null` 时显示"未知"；
-  > 200 行启用 `@tanstack/vue-table` 分页）。
+  序列号、吊销时间、原因、失效起始、间接签发者；`revokedCount` 非空，未发布目标（`current: null`）显示"未发布"而不是 0
+  或"未知"，0 条显示空状态；
+  > 200 行分页，默认只是 `slice()`；`@tanstack/vue-table` 不随 shadcn Table 安装，切片 5b 真需要时再加）。
 - 从旧实现迁移：`utils/status.ts`、`utils/dates.ts`、`utils/format.ts`、`utils/x509.ts`、
   `useCrlUploadInput`、`ExtensionView` 的 render-block 映射、`GeneralNameList` /
   `DistributionPointList` / `Asn1Dump`，以及 `tests/web` 的状态与上传输入用例（改写为 vitest）。
 - 客户端：`const api = hc<AppType>("", { init: { cache: "no-store" } })`，作为 vue-query 的
-  `queryFn`；删除 `readApiResponse`、`validateResponse`、`pagination.ts`、`collectPages`。
+  `queryFn`；删除 `readApiResponse`、`validateResponse`、`pagination.ts`、`collectPages`。客户端目录是 `src/web/client/`：
+  Vite `root: src/web` 时 dev server 会把 `src/web` 下的目录当 URL 服务，叫 `api` 会与 `/api/` 冲突（`ca`、`crl`、`dcrl` 同理）。
+  web 对服务端模块只许 `import type`（`AppType`、core 的 X.509 类型），运行时只导入 `hono/client`。切片 1 的健康徽标已走这条路径。
 - 下载链接来自 API 的 `downloads`；状态徽标与相对时间共用 `useNow({ interval: 60_000 })`。
 - `SITE_NAME` 只来自 `import.meta.env.VITE_SITE_NAME`；页脚不再写 "Cloudflare Workers"。
 - i18n：`en` 与 `zh-CN`，跟随浏览器并可切换。
-- 构建到 `dist/web`，两条运行时都从这里提供。`shadcn-vue init` 的 `components.json` 与 Vite
-  别名在切片 1 骨架里先验证。
+- 构建到 `dist/web`（Vite `root: src/web`、`build.outDir` = `<repo>/dist/web`、`envDir` = 仓库根），两条运行时都从这里提供。
+  dev 代理键用锚定正则 `^/(?:api|ca|crl|dcrl)/`（字符串键 `/crl` 会吞掉 SPA 路由 `/crls/`）。
+- shadcn-vue 在切片 1 初始化：`pnpm dlx shadcn-vue@2.8.2 init --base reka --style nova --icon-library lucide --base-color neutral
+  --font inter --yes --no-rtl --no-pointer`（永不用 `--defaults`，它等于 `--preset nova --template nuxt`），之后删掉 `main.css` 的
+  Google Fonts `@import` 与 `components.json` 的 `font` 键；`components.json`、生成文件与 lockfile 一并入库（registry 是线上的，
+  重跑 `add` 可能得到不同代码），生成代码按仓库 Prettier 风格重排。web spike 用 `vega` 风格验证过 init + Vite 8 + Tailwind 4.3，
+  `nova` 在切片 1 首次生成。切片 1 只是占位页（路由占位、vue-query、`en` + `zh-CN`、主题切换、`VITE_SITE_NAME`、健康徽标）。
 
 ## 9. AD CS 助手
 
 `scripts/adcs-crl-uploader.ps1` 重写要点：仅 PowerShell 7；`Invoke-RestMethod -Method Post
--ContentType application/pkix-crl -Body <bytes>`，不再手搓 multipart；新增
+-ContentType application/pkix-crl -Body <bytes>`（PEM 文件用 `application/x-pem-file`，见 implementation 切片 4 步骤 11），不再手搓 multipart；新增
 `-UploadTokenFile`（令牌从受保护文件读，不进任务命令行）；按字节识别 PEM/DER；
 created / updated / unchanged 都算成功；本地摘要账本 `published.json`（路径 → sha256）跳过
 已发布文件；从未被接受的文件返回 `stale_crl` 算失败（CA 产出了比已发布更旧的东西）；
@@ -422,89 +577,123 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 | #   | 旧实现问题                                                              | 新项目处理                                              | 切片 |
 | --- | ----------------------------------------------------------------------- | ------------------------------------------------------- | ---- |
 | 1   | 下载无 304、无 `Content-Length`、`ETag` 未加引号                         | §6 下载规则                                              | 3    |
-| 2   | 下载路径暴露 `archive/`、`by-keyid/` 与任意对象；详情接受归档 id         | 路径表 + catalog，请求路径不做发现                       | 3, 5 |
+| 2   | 下载路径暴露 `archive/`、`by-keyid/` 与任意对象；详情接受归档 id         | 路径表 + catalog，请求路径不做发现                       | 3, 5a, 5b |
 | 3   | CRL `max-age` 无上限，`nextUpdate` 过后降为 0                            | clamp [60 s, 3600 s]，无 `nextUpdate` 300 s              | 3    |
-| 4   | 相同 CRL 重复上传返回 409，UI 显示失败                                   | `unchanged` 200                                          | 4, 5 |
+| 4   | 相同 CRL 重复上传返回 409，UI 显示失败                                   | `unchanged` 200                                          | 4, 5b |
 | 5   | PEM / alias / archive 伴随写失败使成功发布报 500；`caches.default` 在 Node 上崩 | 无伴随写、无边缘缓存，单提交点                   | 2, 4 |
 | 6   | 归档写无条件，重试覆盖来源信息；并发发布无保护                           | 内容寻址 blob + catalog 条件写重试                       | 4    |
-| 7   | `revokedCount` 未知时显示 0                                              | 可空字段，UI 显示"未知"                                  | 5    |
+| 7   | `revokedCount` 未知时显示 0                                              | 可空字段，UI 显示"未知"；2026-10-18：发布时总能解析，`revokedCount` 实为非空整数，"未知"只以 `current: null`（未发布）出现，见 implementation 切片 5a 步骤 5 | 4, 5a, 5b |
 | 8   | 详情缺 `signatureAlgorithm`；算法 `parameters` 从不输出；契约含永不产生的变体 | 2026-10-18 已在旧实现完成（参数解码、`SignatureValue.parsed`、死变体清理待新契约）；切片 5a 迁入 | 5a |
-| 9   | 全 null 信封通过 200 校验变成空列表                                      | 按状态码 schema，无可空信封                              | 5    |
-| 10  | `relationships` 永远为空                                                 | 从配置填充证书 `targets` 与 CRL `issuer`                 | 5    |
-| 11  | 畸形 ASN.1 时间解码成 1899 并进入新鲜度判断                              | 2026-10-18 已在旧实现完成（`pki/asn1.ts` 严格时间，解析期拒绝）；切片 4 迁入 | 4    |
-| 12  | 未来 `thisUpdate`、未知关键扩展、作用域 CRL 无策略                       | 时钟策略与识别列表                                       | 4    |
-| 13  | `constructor.name` 判编码，压缩后退化为 unknown                          | 按字节识别 PEM/DER                                       | 2    |
+| 9   | 全 null 信封通过 200 校验变成空列表                                      | 按状态码 schema，无可空信封                              | 5a   |
+| 10  | `relationships` 永远为空                                                 | 从配置填充证书 `targets` 与 CRL `issuer`                 | 5a, 5b |
+| 11  | 畸形 ASN.1 时间解码成 1899 并进入新鲜度判断                              | 2026-10-18 已在旧实现完成（`pki/asn1.ts` 严格时间，解析期拒绝）；切片 2 随 `src/core/pki` 迁入（证书导入即需要），切片 4 用于 CRL | 2, 4 |
+| 12  | 未来 `thisUpdate`、未知关键扩展、作用域 CRL 无显式策略（2026-10-18 更正：并非"无策略"，而是 PKIjs 隐藏的已知扩展闸，见表后 C2） | 时钟策略与显式识别 / 关键性策略表，验签前执行 | 4    |
+| 13  | `constructor.name` 判编码，压缩后退化为 unknown                          | 按字节识别 PEM/DER；DN 编码按 ASN.1 tag 判定随构建器迁入   | 2, 5a |
 | 14  | 证书只能手工放进 R2 `ca/`，摘要靠请求时补全                              | 导入接口，导入时生成完整摘要                             | 2    |
-| 15  | 健康检查硬编码 cache ok，从不降级                                        | 真实 store / configuration 检查，`degraded` 状态          | 1    |
-| 16  | 统计按桶前缀字节                                                         | 按资源计数与字节                                         | 5    |
-| 17  | ts-rest 忽略 `no-store`，上传后 30 秒内读到旧数据                        | `hc` 的 `init` + API `no-store`                          | 5    |
-| 18  | `SITE_NAME` 四条通道三条是死的                                           | 仅构建时                                                 | 1, 5 |
+| 15  | 健康检查硬编码 cache ok，从不降级                                        | 真实 store / configuration 检查，`degraded` 状态；决策 11 把 store 适配器移入切片 1 后才能在切片 1 做，切片 2 升级为完整 schema 与规则 | 1, 2 |
+| 16  | 统计按桶前缀字节                                                         | 按资源计数与字节                                         | 5a   |
+| 17  | ts-rest 忽略 `no-store`，上传后 30 秒内读到旧数据                        | `hc` 的 `init` + API `no-store`                          | 1, 5a, 5b |
+| 18  | `SITE_NAME` 四条通道三条是死的                                           | 仅构建时                                                 | 1, 5b |
 | 19  | 上传无体积上限、无鉴权                                                   | `bodyLimit` + 可选令牌                                   | 4    |
-| 20  | 助手含 PS5 死分支、手搓 multipart、按扩展名判格式、409 当失败            | §9                                                       | 4    |
+| 20  | 助手含 PS5 死分支、手搓 multipart、按扩展名判格式、409 当失败            | §9；切换时必须安装新脚本（C10，§13）                      | 4, 7 |
 | 21  | 测试 glob 依赖 shell；组件测试钩子失败挂起整个运行；`pretest` 重生成夹具打乱本地状态 | vitest；幂等夹具生成                        | 1    |
 | 22  | 没有 Node / Docker 运行方式                                              | `runtime/node.ts` + Dockerfile                           | 1    |
 | 23  | 没有退役、删除、历史查看的管理路径                                       | 管理接口 + CLI                                           | 2, 6 |
 | 24  | 日志无结构                                                               | JSON 行                                                  | 1    |
 | 25  | `thisUpdate` 缺失时序列化为空字符串                                      | 时间字段必填，缺失即拒绝                                 | 4    |
 | 26  | 文档与代码多处不一致                                                     | OpenAPI 从代码生成；README、api.md、operations.md 重写   | 6    |
-| 27  | 详情解析覆盖不足：AD CS 私有扩展（CA Version、模板名、Next CRL Publish、CRL Self CDP）、Freshest CRL、IDP、Name/Policy Constraints 等全是 `unsupported`，`1.3.6.1.4.1.311.21.1` 被错标为模板名；DN 编码靠 `constructor.name`；无 `rfc4514`、无 ECDSA (r, s) | 2026-10-18 已在旧实现完成（解析器 13 → 41 个，`tests/data/adcs.ts` 用线上工件回归）；切片 5a 原样迁入 | 5a |
+| 27  | 详情解析覆盖不足：AD CS 私有扩展（CA Version、模板名、Next CRL Publish、CRL Self CDP）、Freshest CRL、IDP、Name/Policy Constraints 等全是 `unsupported`，`1.3.6.1.4.1.311.21.1` 被错标为模板名；DN 编码靠 `constructor.name`；无 `rfc4514`、无 ECDSA (r, s) | 2026-10-18 已在旧实现完成（解析器 13 → 41 个，旧仓库用 `tests/data/adcs.ts` 的线上工件回归）；切片 5a 迁入解析器，回归改用合成 AD CS 风格夹具（`tests/data/adcs.ts` 不入库，决策 13） | 5a |
 | 28  | 未识别扩展只给 hex；UI "签名算法"显示 Unknown（store 未请求该字段）       | 未识别 / 错误扩展附带 ASN.1 结构 dump（已完成）；新 UI 详情一次取全部分区 | 5a, 5b |
+
+2026-10-18 盘点更正（完整性评审 C1–C4）：线上旧实现（`worker-aia-cdp@0ea3130`）与迁移源（`5b570aa`）都用 PKIjs
+`crl.verify()` 与同一套新鲜度比较，实际行为和本表 #4、#12 及 §6 的隐含描述不同。§6 的规则不变，是新规则而不是"沿用"；这里只更正对旧行为的描述，处理都在切片 4（`docs/implementation.md` 附录 B.2）：
+
+| # | 线上实际行为 | 新项目 |
+| --- | --- | --- |
+| C1 | 验签用 PKIjs `crl.verify({ issuerCertificate })`，它要求 CRL 签发者名称等于证书主体，名称不同即 400 `invalid_signature` | 不比较名称：`verifyWithPublicKey` 只看签名（§6） |
+| C2 | 不是"无策略"：PKIjs 有隐藏的已知扩展闸——关键的 AD CS `1.3.6.1.4.1.311.21.1 / .4 / .14` 被拒成 `invalid_signature`；关键 IDP 反被接受（作用域 CRL 会被发布）；关键 IAN / AIA 接受；条目扩展从不检查 | 显式策略表，识别与关键性无关，条目扩展也检查；关键 IDP → `scoped_crl_unsupported` |
+| C3 | 同号同 `thisUpdate` 而字节不同 → 409 `stale_crl`；CRL 号只在一侧时回退比 `thisUpdate`，更晚即接受。#4 只覆盖了字节相同 | 前者 `conflict`，后者 `non_orderable`（§6） |
+| C4 | 所有不可验算法（Ed25519、Ed448、SHA-224 的 RSA / ECDSA、DSA、SM2、MD5）都报 400 `invalid_signature` | 白名单外一律 `unsupported_algorithm`，不只 EdDSA |
 
 ## 11. 测试与 CI
 
-- vitest `projects`：`core`、`http`、`storage`（node 环境）；`web`（happy-dom）；
-  `integration`（node）。HTTP 测试通过 `createApp({ store: new MemoryStore(), now, … }).request()`
-  进程内运行，不起端口。
-- 夹具：`tests/fixtures/generate-test-data.sh` 迁入，按生成脚本内容摘要打戳，只在脚本变化时
-  重生成；私钥不提交。现有签名 CRL 夹具覆盖 created / updated / unchanged / stale / conflict /
-  broken-sig / delta / invalid。
-- 存储一致性：memory 与 fs 每次运行；r2 测试读 `AIA_TEST_R2=1` 才启用，用
-  `getPlatformProxy({ configPath: "wrangler.jsonc" })` 拿到 `STORE`。
+2026-10-18 修订（B15、B16、B19、决策 10、13）；布局细节见 `docs/implementation.md` §2.5，脚本表见其切片 1 步骤 12。
+
+- vitest 5 `projects`：`core`、`http`、`storage`、`integration`（node 环境）与 `web`（happy-dom），用例在
+  `tests/<project>/**/*.test.ts`；独立的 `vitest.config.ts`（不继承 `vite.config.ts` 的 `root`）。HTTP 测试通过
+  `createApp({ store: new MemoryStore(), now, … }).request()` 进程内运行，不起端口；只有真实 socket 才看得到的差异
+  （HEAD 的 `Content-Length`、传输编码、信号）放 `integration`。
+- 夹具：`tests/fixtures/generate-test-data.sh [--force|--check] OUT_DIR` 重写（不是迁入），由 vitest `globalSetup` 每次运行调用一次
+  （幂等，不用 `pretest`）。契约：日期、序列号、CRL 号固定；私钥、CSR、CA 库只在 `mktemp -d` 临时目录，退出即删，产物含
+  `PRIVATE KEY` 即失败；产出证书、CRL、`invalid/`、`manifest.json`（`now = 2026-01-04T00:00:00Z`、声明值、期望结果、场景）、
+  `SHA256SUMS` 与按脚本摘要的 `.stamp`（相符且校验通过就不重写，`--check` 只读）；输出 `tests/fixtures/pki/` gitignore、永不提交；
+  需要 bash 与 OpenSSL ≥ 3.0（不是 LibreSSL），只在开发与 CI，运行时不需要。测试里的摘要、key id、序列号、大小一律从文件或
+  manifest 读（ECDSA / PSS 签名每次生成都变），`now` 注入 `manifest.now`。场景覆盖 created / updated / unchanged / stale /
+  conflict / non_orderable / 坏签名 / 伪造 AKI / 未知关键扩展 / 作用域 IDP / 未来 `thisUpdate` / 过期 / delta / EdDSA / PSS /
+  无 AKI / 畸形时间 / AD CS 形态（取代原文"现有签名 CRL 夹具覆盖 …"的不实描述，C11）。不用线上工件（决策 13）。
+- 存储一致性：同一套用例对 memory 与 fs 每次运行（r2 适配器另用假桶每次运行）；真 r2 在 `AIA_TEST_R2=1`（`pnpm run test:r2`）下经
+  `getPlatformProxy({ configPath: "wrangler.jsonc", persist: false })` 运行，`ci:worker` 包含它且要求 passed 而不是 skipped。
 - Node 集成：在临时目录起真实服务与 fs 存储，走 CLI import → config apply → 上传 →
   列表 / 详情 → DER / PEM / HEAD / 304 下载 → 重复上传 unchanged → 过期拒绝 → retire → 404。
-- Worker：`wrangler deploy --dry-run --outdir`；可选 `wrangler dev` 冒烟（health 与一次下载）。
-- Docker：构建镜像、启动、健康检查返回 `degraded`、`config apply` 后一次下载。
-- CI 四个任务：`check`（三个 tsconfig、lint、format、OpenAPI 漂移）、`test`（单元 + 集成）、
-  `worker`（dry-run + R2 一致性）、`docker`。`pnpm verify` = check + test + build。
+- Worker：`wrangler deploy --dry-run --outdir dist/worker`（先 `vite build`）；`createTestHarness` 对 dry-run 产物跑与运行时无关的
+  `scripts/smoke.sh`；`wrangler dev` 冒烟是切片出口里的人工步骤。
+- Docker：`docker build --check`、构建镜像、启动、健康检查 `healthy` 而 API 报 `degraded`、非 root、`docker stop` < 5 s；之后的切片
+  加 `config apply` 与一次下载。
+- CI：`.github/workflows/ci.yml` 四个任务 `check`（`pnpm run types` 后 worker / node / web 三套编译与 canary、lint、format、
+  OpenAPI 漂移）、`test`（单元 + 集成 + `smoke:node`）、`worker`（dry-run + harness 冒烟 + R2 一致性）、`docker`，每个任务只装依赖并
+  调用 `pnpm run ci:<job>`；`.github/dependabot.yml` 管 npm、github-actions、docker。仓库暂无远端（决策 10），工作流不运行，
+  四个 `pnpm run ci:*` 在本机执行，本机结果是唯一事实来源。`pnpm verify` = check + test + build。
 
 ## 12. 实施切片
 
-每个切片一个 PR，可独立评审。
+2026-10-18 修订（决策 10、11）：每个切片一个本地分支 `slice/<n>-<name>`，从最新 `main` 切出，评审后本地
+`git merge --no-ff` 合入 `main`，不推送、不部署（生产部署只在切片 7）；严格串行。每个切片的步骤、测试、可在本机执行的
+出口条件与"开工前需 owner 确认"见 `docs/implementation.md` §3–§11，完成定义见其 §1.3；下表的出口条件只是摘要，以 implementation.md 为准。
 
 | 切片 | 内容                                                                                                              | 出口条件                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| 1 骨架 | 依赖、三个 tsconfig、`createApp` 仅含 health 与静态资源、Worker 与 Node 入口、Dockerfile、vitest、CI、夹具脚本迁入、日志中间件 | 两条运行时提供 UI 占位页与 `/api/v1/health`；`deploy --dry-run` 通过；镜像健康检查通过 |
-| 2 存储与导入 | 端口、memory/fs/r2 适配器、一致性测试、catalog/config schema 与条件写重试、`importCertificate`、`applyConfig`、管理路由 import/config、CLI import/config | 一致性测试 memory/fs 绿，r2 经 `getPlatformProxy` 绿；CLI 在 fs 与本地 R2 上导入并应用配置 |
-| 3 下载 | 路径表解析、下载路由、PEM 派生、ETag/304/`Content-Length`/`Cache-Control`、405                                   | 多个路径读同一 blob；内部键不可达；GET/HEAD 在两条运行时字节一致                          |
-| 4 发布 | `publishCrl`、上传路由、三种结果与拒绝原因、`bodyLimit`/`bearerAuth`、发布日志、AD CS 助手重写                   | 夹具覆盖 created/updated/unchanged/stale/conflict/并发/过期/未来/未知关键扩展；助手手动验证 |
-| 5a API 与客户端 | 列表 / 详情 / 统计路由、OpenAPI 生成与漂移检查、`hc` 类型导出、PKI 构建器迁入（含 2026-10-18 在旧实现补齐的扩展解析与 `tests/data/adcs.ts` 回归工件） | 处理器返回值受类型检查；`openapi` 漂移检查通过；构建器用例在 vitest 下全绿 |
-| 5b UI | §8 的路由、组件库、vue-query、总览与详情页、上传、zh-CN；`shadcn-vue init` 在切片 1 已验证 | web 测试与 UI 场景通过；两条运行时的 SPA 兜底可用；产物 < 250 KB gzip |
-| 6 管理补全与文档 | history / retire / delete 路由与 CLI、README、`docs/api.md`、`docs/operations.md`（含迁移与回滚手册）     | 每个职责只有一个实现；`pnpm verify` 与四个 CI 任务全绿                                     |
-| 7 迁移 | `scripts/migrate-from-v2.ts`、在非生产环境演练、生产切换                                                        | 路径表每条 URL 返回与旧 URL 相同的 DER 摘要；旧对象未删；回滚手册验证过                   |
-| 8 S3（按需） | `storage/s3.ts`（`@aws-sdk/client-s3`，`IfMatch` / `IfNoneMatch`）、MinIO 可选 CI 任务、多实例部署说明     | 一致性测试对 MinIO 绿                                                                     |
+| 1 骨架与存储 | 依赖、tsconfig 拓扑与边界检查（§3：canary + 决策 15 的护栏）、devcontainer（决策 15）、ObjectStore 端口 + memory/fs/r2 适配器 + 一致性套件（决策 11）、`createApp`（真实 health、运行时 `openapi.json`、保留前缀与 UI 兜底）、Worker 与 Node 入口、Dockerfile、vitest、夹具脚本重写、日志中间件、`ci:*` 脚本与 CI 工作流、shadcn-vue 占位 UI | 全新克隆 `pnpm run verify` 通过；四个 `pnpm run ci:*` 本机通过（r2 一致性为 passed）；`wrangler dev` 冒烟；镜像 healthy 而 API 报 `degraded`（implementation §3 出口条件） |
+| 2 catalog 与导入 | catalog/config schema 与条件写重试、`src/core/pki` 迁入、`importCertificate`、`applyConfig`、health 升级为完整 schema 与规则、管理路由 import/config、CLI import/config/health | CLI 在 fs（Node 集成测试）与本地 R2（`wrangler dev` + `seed:dev`）上导入并应用配置；镜像内 CLI 可用（implementation §4） |
+| 3 下载 | 路径表解析、下载路由、PEM 派生、ETag/304/`Content-Length`/`Cache-Control`、纯文本 404/405                         | 多个路径读同一 blob；内部键不可达；HEAD / 304 不读 blob；GET/HEAD 在两条运行时头与字节一致（implementation §5） |
+| 4 发布 | `publishCrl`、history 标记、上传路由、三种结果与拒绝原因、`bodyLimit`/`bearerAuth`、发布日志、`aia publish`、AD CS 助手重写 | 夹具覆盖 created/updated/unchanged/stale/conflict/并发/过期/未来/未知关键扩展，拒绝零写入；助手手动验证（implementation §6） |
+| 5a API 与客户端 | 列表 / 详情 / 统计路由、OpenAPI 补全、`hc` 类型导出、PKI 构建器迁入（含 2026-10-18 在旧实现补齐的扩展解析，回归改用合成 AD CS 风格夹具，决策 13） | 处理器返回值受类型检查；`openapi` 漂移检查通过；构建器用例在 vitest 下全绿；测量表填满（implementation §7） |
+| 5b UI | §8 的路由、组件库、vue-query、总览与详情页、上传、zh-CN、CSP；`shadcn-vue init` 在切片 1 已完成 | web 测试与 UI 场景通过；两条运行时的 SPA 兜底可用；产物 < 250 KB gzip（implementation §8） |
+| 6 管理补全与文档 | history / retire / delete 路由与 CLI、README、`docs/api.md`、`docs/operations.md`（含迁移与回滚手册）     | 每个职责只有一个实现；`pnpm verify` 与四个 `pnpm run ci:*` 本机全绿（implementation §9） |
+| 7 迁移 | `scripts/migrate-from-v2.ts`、临时历史导入路由、在非生产环境演练、生产切换（含替换 AD CS 助手）、`slice/7-cleanup` 删临时路由 | 路径表每条 URL 返回与旧 URL 相同的 DER 摘要（或 `advanced`）；旧对象未删；CryptoAPI 冒烟通过；回滚手册验证过（implementation §10） |
+| 8 S3（按需） | `storage/s3.ts`（`@aws-sdk/client-s3`，`IfMatch` / `IfNoneMatch`）、`pnpm run ci:s3`（MinIO）与可选 CI 任务、多实例部署说明；owner 确认要做才开工 | 一致性测试对 MinIO 绿（implementation §11）                                               |
 
 ## 13. 从现有部署迁移
 
-新服务与旧 Worker 可以共用同一个 R2 桶：新布局的前缀（`config.json`、`catalog.json`、
-`blobs/`）与旧前缀（`ca/`、`crl/`、`dcrl/`、`by-keyid/`、`archive/`）不相交，旧对象原样不动。
+2026-10-18 更正（C9、C10）：本节原文有两个前提不成立。第 4 步的归档键描述的是旧仓库从未部署的工作树分支
+`parsing-2026-10-18`（含 `5b570aa`，称 Gen C）；线上 pki.acha.top 跑的是 `worker-aia-cdp@0ea3130`（Gen B），更早的对象来自 Gen A，
+两代的归档名都不含摘要且同名覆盖，所以历史迁移是**尽力而为**，不是确定性的。另外，旧助手把 v1 响应记为失败，切换时只改
+`UploadUri` 不够。真实的线上键布局、探测名集、盘点通道、归属规则与切换步骤以 `docs/implementation.md` 切片 7 为准，下文只保留轮廓。
 
-`scripts/migrate-from-v2.ts` 只是两个 HTTP 客户端，不碰 R2：
+新服务与旧 Worker 技术上可以共用同一个 R2 桶：新布局的前缀（`config.json`、`catalog.json`、
+`blobs/`、`history/`）与旧前缀（`ca/`、`crl/`、`dcrl/`，其下有 `by-keyid/`、`archive/`）不相交，旧对象原样不动。推荐默认不共用：
+新 Worker `aia-cdp` 自动置备独立的桶，旧桶零写入，回滚无数据风险（implementation 切片 7 开工前需 owner 确认第 2 项）。
+
+`scripts/migrate-from-v2.ts` 是 HTTP 客户端加本地解析验签（复用 `src/core/pki`），不写旧 R2（盘点通道见 implementation 切片 7
+开工前需 owner 确认第 1 项，推荐只用 HTTP）：
 
 1. 从旧服务 `GET /api/v2/certificates` 与 `/ca/<file>` 取每张证书的 DER，
    `POST /api/v1/admin/certificates` 导入，记录 id。
-2. 从旧服务 `GET /api/v2/crls` 取每个 full / delta CRL 的当前对象与签发者，为每个
-   （签发者, kind）生成一个 target UUID，按旧 URL 生成 `config.json` 的路径表，
+2. 从旧服务 `GET /api/v2/crls` 取每个 full / delta CRL 的当前对象，签发者只按字节验签确定（键名与 metadata 不参与归属），
+   为每个（签发者, kind）生成一个 target UUID，按旧 URL 生成 `config.json` 的路径表，
    `PUT /api/v1/admin/config`。
 3. 对每个当前 CRL `POST /api/v1/crls`（正常发布路径，期待 created）。
-4. 历史：旧归档键为 `crl/archive/<base>-<crlNumber>-<sha256>.crl`、`dcrl/archive/...`，可枚举且
-   自带 CRL 号。脚本按 CRL 号顺序下载、解析 `thisUpdate` 后作为历史 blob 写入（需要一条仅迁移期
-   使用的管理路由 `POST /api/v1/admin/crls/{targetId}/history`，切片 7 加、迁移后删）。
-   只有无法枚举时才从切换日起算。此项见 §14。
-5. 校验：对路径表逐条 GET 旧站与新站，比较 `sha256`。
+4. 历史（尽力而为）：原文写的 `crl/archive/<base>-<crlNumber>-<sha256>.crl`、`dcrl/archive/...`（"可枚举且自带 CRL 号"）
+   是 Gen C 格式，从未部署。线上归档是 Gen A/B 的 `<folder>/archive/<名>-<crlNumber>.crl`，无摘要、同名覆盖；脚本按可预测的名字逐号
+   HTTP 探测、与 `/api/v2/stats` 对账，按字节归属与验签，按 CRL 号与 `thisUpdate` 顺序经仅迁移期使用的管理路由
+   `POST /api/v1/admin/crls/{targetId}/history` 写入 blob 与 history 标记（不动 current；切片 7 加、`slice/7-cleanup` 删）。
+   被同名覆盖的旧版本不可恢复，写进迁移报告。见 §14 #9。
+5. 校验：对路径表逐条 GET 旧站与新站，比较 `sha256`（新站已按正常发布前进的记为 `advanced`）；history 列表等于计划的历史集。
 
 切换：暂停 AD CS 计划任务 → 把自定义域 / 路由指到新 Worker（Node 部署则改 DNS 或代理）→
-更新助手的 `UploadUri` → 恢复任务 → 观察一次 `updated` 或 `unchanged`。
-回滚：路由指回旧 Worker，旧对象一直都在。确认稳定后再手工删除旧前缀对象。
+替换助手脚本（旧脚本读不懂 v1 响应，C10）并把 `UploadUri` 改为 `/api/v1/crls`、放好上传令牌文件 → 恢复任务 → 观察一次
+`updated` 或 `unchanged`；域内机器上 `certutil -verify -urlfetch` 冒烟。
+回滚：路由指回旧 Worker `aia-cdp-worker`，换回旧助手脚本与 `/api/v2/crls`，旧对象一直都在。确认稳定后再手工删除旧对象
+（独立桶方案删旧 Worker 与整个旧桶）。
 
 ## 14. 本文自行取的默认值（可推翻）
 
@@ -515,7 +704,24 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 5. 证书路径不允许改绑；`config.json` 整体替换而不是逐条增删接口。
 6. 公开 API 的 `DELETE /admin/certificates/{id}` 保留在首发里（约 30 行）。
 7. 进程内 config/catalog 备忘默认关闭。
-8. Node 侧用 `tsc` 编译到 `dist/server`，不做单文件打包。
+8. Node 侧用 `tsc -p tsconfig.build.json` 编译到 `dist/server`，不做单文件打包。
 9. 历史迁移：旧归档键可枚举且含 CRL 号，按 CRL 号顺序迁入；无法枚举时才从切换日起算（2026-10-18 改）。
-10. i18n 保留现有 `en`，切片 5b 补 `zh-CN`（2026-10-18 改）。
-11. 新项目目录 `~/aia-cdp`，仓库名同名；本文件路径 `docs/plan.md`。
+   2026-10-18 第二次修订更正（C9）：这描述的是从未部署的 Gen C；线上 Gen A/B 归档无摘要且同名覆盖，历史迁移改为尽力而为
+   （按可预测名 HTTP 探测 + stats 对账 + 按字节归属），见 §13 与 `docs/implementation.md` 切片 7。
+10. i18n 保留现有 `en`，补 `zh-CN`（2026-10-18 改；切片 1 的占位页已带两种 locale，切片 5b 补全翻译）。
+11. 新项目目录 `~/aia-cdp/aia-cdp`（旧仓库在 `~/aia-cdp/worker-aia-cdp`），仓库名 `aia-cdp`；本文件路径 `docs/plan.md`。
+
+以下为 2026-10-18 第二次修订加入，括号内是 `docs/implementation.md` §0 的编号（完整列表与落实位置见该表，各切片另有标"默认值，可推翻"的细则）：
+
+12. 精确锁定 `typescript@5.9.3`、`wrangler@4.151.1`，pnpm 只经 corepack 按 `packageManager: pnpm@10.34.7` 解析（B1）。
+13. `worker-configuration.d.ts` 由 `wrangler types --env-file=/dev/null` 生成、不入库，`pnpm run types` 在 check / typecheck / lint 前重生成（B5）。
+14. 不发 HSTS：`secureHeaders({ strictTransportSecurity: false })`，其余 Hono 默认头保留；CSP 由切片 5b 定（B8）。
+15. 保留前缀 `/api/`、`/ca/`、`/crl/`、`/dcrl/` 不进 UI 兜底：API 未命中 JSON 404，下载前缀未命中纯文本 `404 Not Found`（`no-store`）、
+    方法不符纯文本 405 + `Allow: GET, HEAD`；末段带扩展名的路径不兜底；UI 缓存头由应用设置（B7，§4.4）。
+16. 下载 ETag / 304 手写、先于读 blob，不用 `hono/etag`；`bearerAuth` 对畸形 `Authorization` 回 400（B9）。
+17. health 形状与降级规则按 §7.1，store 抛错 503、配置缺失或无效 200 `degraded`（B10）。
+18. OpenAPI 文档运行时从路由表生成，另提交 `docs/openapi.json` 作漂移基线，`src` 不导入它（B11）。
+19. 夹具每次由脚本生成、永不提交，测试值从 manifest 读（B16）。
+20. Docker 基础镜像用浮动标签 `node:24-slim`，digest 固定以后再定；不加 `deploy` 脚本，生产部署只在切片 7（B6、B18）。
+21. CRL blob 键带 CRL 号；历史 = history 标记 ∪ current，孤儿 blob 不算历史；catalog 条件写 1 + 3 次尝试（切片 4，§5.1、§5.3、§5.5）。
+22. `revokedCount` 非空；`/api/v1/stats` 不含时间相关字段，"需关注"数在客户端算（切片 5a，§7.1）。
