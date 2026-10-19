@@ -1,12 +1,13 @@
 // Health check (plan §7.1, §10 #15). Rewrite of the health part of
 // worker-aia-cdp@5b570aa:src/worker/api/v2/stats.ts, which only listed the bucket and reported a
-// hard-coded `cache: ok`. Here the store and config.json are really read.
+// hard-coded `cache: ok`. Here the store, config.json and catalog.json are really read.
 //
-// Slice 1 only checks that config.json is JSON with `version === 1`; slice 2 replaces
-// isValidConfig with the full config schema and rules.
+// The configuration is checked with the static and state rules of src/core/admin.ts (V1–V6)
+// against catalog.json. The migration rules (V7–V9) compare a new config with the current one and
+// only apply when a config is applied.
+import { checkConfigState, checkConfigStatic } from "./admin.ts";
+import { CATALOG_KEY, CatalogSchema, CONFIG_KEY, decodeJson, emptyCatalog } from "./catalog.ts";
 import type { ObjectStore } from "./store.ts";
-
-export const CONFIG_KEY = "config.json";
 
 export type ConfigurationCheck = "ok" | "missing" | "invalid";
 
@@ -25,47 +26,45 @@ const UNHEALTHY: HealthReport = {
   checks: { store: "error", configuration: "unknown" },
 };
 
-function isValidConfig(bytes: Uint8Array): boolean {
-  let value: unknown;
+// config.json is present. Invalid: either object is not UTF-8 JSON or fails its schema, or the
+// config breaks a static or state rule. A missing catalog.json is the empty catalog.
+function checkConfiguration(config: Uint8Array, catalog: Uint8Array | null): ConfigurationCheck {
+  let configValue: unknown;
+  let catalogValue: unknown;
   try {
-    // Both options spelled out: the Workers types declare them as required.
-    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
-    value = JSON.parse(text);
+    configValue = decodeJson(config);
+    catalogValue = catalog === null ? emptyCatalog() : decodeJson(catalog);
   } catch {
-    return false;
+    return "invalid";
   }
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    "version" in value &&
-    value.version === 1
-  );
+  const checked = checkConfigStatic(configValue);
+  const parsedCatalog = CatalogSchema.safeParse(catalogValue);
+  if (!checked.ok || !parsedCatalog.success) {
+    return "invalid";
+  }
+  return checkConfigState(checked.config, parsedCatalog.data).length === 0 ? "ok" : "invalid";
 }
 
 /**
- * `head("config.json")` throws → unhealthy; null → missing; present → `get` and validate
- * (a throwing `get` is unhealthy too). Healthy only when both checks are ok; a missing or invalid
- * configuration is `degraded`. Store errors go to `onStoreError` (for the log), never into the
- * report.
+ * `get` of config.json and catalog.json; either throwing → unhealthy. config.json missing →
+ * missing; otherwise ok or invalid (checkConfiguration). Healthy only when both checks are ok; a
+ * missing or invalid configuration is `degraded`. Store errors go to `onStoreError` (for the log),
+ * never into the report.
  */
 export async function checkHealth(
   store: ObjectStore,
   onStoreError: (error: unknown) => void = () => undefined
 ): Promise<HealthReport> {
-  let configuration: ConfigurationCheck;
+  let objects: [{ bytes: Uint8Array } | null, { bytes: Uint8Array } | null];
   try {
-    if ((await store.head(CONFIG_KEY)) === null) {
-      configuration = "missing";
-    } else {
-      // Deleted between head and get: as good as missing.
-      const object = await store.get(CONFIG_KEY);
-      configuration = object === null ? "missing" : isValidConfig(object.bytes) ? "ok" : "invalid";
-    }
+    objects = await Promise.all([store.get(CONFIG_KEY), store.get(CATALOG_KEY)]);
   } catch (error) {
     onStoreError(error);
     return UNHEALTHY;
   }
+  const [config, catalog] = objects;
+  const configuration =
+    config === null ? "missing" : checkConfiguration(config.bytes, catalog?.bytes ?? null);
   return {
     status: configuration === "ok" ? "healthy" : "degraded",
     checks: { store: "ok", configuration },

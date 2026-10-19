@@ -45,7 +45,7 @@ describe("GET /api/v1/health", () => {
 
   it("is 503 unhealthy when the store throws, without leaking the error", async () => {
     const deps = testDeps({
-      store: patchStore({ head: () => Promise.reject(new Error("EACCES /data secret")) }),
+      store: patchStore({ get: () => Promise.reject(new Error("EACCES /data secret")) }),
     });
     const res = await createApp(deps).request("/api/v1/health");
     const text = await res.text();
