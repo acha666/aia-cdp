@@ -186,7 +186,8 @@ aia-cdp/
 启动（`src/runtime/node.ts`，设置 schema 在 `src/runtime/settings.ts`，纯 zod、Worker 与 Node 共用）：
 
 - 用 zod 校验全部变量，字段与默认值按上表；`*_FILE` 在启动时读取（去掉一个结尾换行），`X` 与 `X_FILE` 同时设置报错；
-  无效即在 stderr 打印原因、exit 1。`AIA_DATA_DIR` 须是可读写目录，否则 JSON 错误日志 + exit 1。
+  两个令牌须是 RFC 6750 `b64token`（字母、数字、`-._~+/`，末尾可接 `=`；`bearerAuth` 只从请求头读这种格式，其他字符的令牌
+  永远 400）；无效即在 stderr 打印原因、exit 1。`AIA_DATA_DIR` 须是可读写目录，否则 JSON 错误日志 + exit 1。
 - `serve({ fetch: app.fetch, port })`：`PORT` 显式传入（`@hono/node-server` 的默认是 3000），不传 hostname（`::` 双栈）；
   就绪日志一行 `listening`。`server.on("error")`（如端口被占用）→ JSON 日志 + exit 1；SIGTERM / SIGINT → `server.close()` 并立即关闭空闲连接，
   2 s 宽限后关闭其余全部连接（含没发完请求的 preconnect、半截请求头，`close()` 会一直等它们），另设 10 s `unref()` 的强制退出兜底（容器里 node 是 PID 1）。

@@ -8,6 +8,7 @@ import { CATALOG_KEY, CONFIG_KEY, encodeJson } from "../../src/core/catalog.ts";
 import type { Config } from "../../src/core/catalog.ts";
 import { sha256Hex } from "../../src/core/digest.ts";
 import { createApp } from "../../src/http/app.ts";
+import { parseSettings } from "../../src/runtime/settings.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { fixture, fixturePath, NOW } from "../fixtures/pki.ts";
 import { logRecords, MINIMAL_CONFIG, putText, testDeps } from "../helpers/app.ts";
@@ -179,6 +180,35 @@ describe("admin gate", () => {
       expect(await errorOf(res)).toEqual({ code: "bad_request", message: "Bad request" });
     }
   );
+
+  // The settings accept exactly the token syntax bearerAuth reads from the header (RFC 6750
+  // b64token): every accepted token can authenticate, and the rest fail at start-up instead.
+  it("authenticates a token with every character class the settings accept", async () => {
+    const token = "AZaz09-._~+/==";
+    const parsed = parseSettings({ AIA_ADMIN_TOKEN: token });
+    expect(parsed.ok && parsed.value.app.adminToken).toBe(token);
+    const { app } = setup({ settings: { adminToken: token } });
+    const res = await app.request(CONFIG, { headers: { Authorization: `Bearer ${token}` } });
+    expect(res.status).toBe(404);
+  });
+
+  it.each(["s3cret$", "s3cret!", "two words", "s3=cret", "s3crét", "s3cret\n", " s3cret"])(
+    "refuses the token setting %j, which bearerAuth could never match",
+    (token) => {
+      for (const name of ["AIA_ADMIN_TOKEN", "AIA_UPLOAD_TOKEN"]) {
+        expect(parseSettings({ [name]: token })).toEqual({
+          ok: false,
+          error: `Invalid settings:\n  ${name}: must be a bearer token: letters, digits and - . _ ~ + /, optionally ending in =`,
+        });
+      }
+    }
+  );
+
+  it("would answer 400 to the right token if the settings let such a token through", async () => {
+    const { app } = setup({ settings: { adminToken: "s3cret$" } });
+    const res = await app.request(CONFIG, { headers: { Authorization: "Bearer s3cret$" } });
+    expect(res.status).toBe(400);
+  });
 
   it("answers DELETE on the config with 405 + Allow with a valid token, 401 without", async () => {
     const { app } = setup();
