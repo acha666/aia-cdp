@@ -73,7 +73,8 @@
 10. **`docs/api.md`**（参考 `worker-aia-cdp@5b570aa:docs/api-design-v2.md`，不迁移内容）：权威是 `GET /api/v1/openapi.json` 与
     提交的 `docs/openapi.json`，api.md 只写规范表达不了的：鉴权（管理令牌、可选上传令牌、503 / 401 / 400）、信封与错误码→状态码表、
     上传的两种 body 与三种结果、"导入证书不等于授权签发者，须有目标绑定"（M23）、下载语义（引用切片 3 的头与缓存规则）、
-    管理流程（import → config apply → publish → retire → 删目标 → delete-certificate）、退役终态与历史定义（步骤 1–5）。
+    管理流程（import → config apply → publish → retire → 删目标 → delete-certificate）、换 CA 证书用新路径（V7 只拦直接改绑，"先删再加"
+    不拦，证书下载缓存一年；切片 2 步骤 6）、退役终态与历史定义（步骤 1–5）。
 11. **`docs/operations.md`**（补全其余各节，切片 4 的"AD CS 助手"一节与 Windows 验证记录并入下表）：
 
     | 节 | 要点 |

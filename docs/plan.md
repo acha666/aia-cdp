@@ -282,7 +282,10 @@ CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段
   （`/ca/` → 证书，`/crl/` → full 目标，`/dcrl/` → delta 目标）。规范化后唯一。
 - 被引用的证书必须已在 catalog 中；目标的签发者证书必须有 SKI；同一签发者同一 kind 只能有
   一个目标。
-- 已有证书路径不能改绑到另一证书（证书下载是 `immutable` 缓存）；更换 CA 证书用新路径。
+- 已有证书路径不能改绑到另一证书（证书下载是 `immutable` 缓存一年）：同一 `/ca/` 路径在当前 config 与新 config 中须指向同一
+  证书。只与当前 config 比对，"先删再加"的两步改绑不检测，由操作员负责；更换 CA 证书用新路径。
+- 已有目标不能改 `issuer` 或 `kind`；换签发者或种类用新 UUID（目标的 current 与全部 history 因此由同一张证书验证，删除保护覆盖历史，
+  新鲜度不跨签发者比较；implementation 切片 2 步骤 6 V9）。
 - 删除目标前，该目标的 `current` 必须已被 retire 清空；被目标或路径引用的证书不能删除。
 
 ### 5.3 `catalog.json`（服务）
@@ -317,10 +320,10 @@ catalog 只存当前指针，大小与资源数成正比，不随发布次数增
 `blobs/crls/<uuid>/` 下没有标记的孤儿 blob（发布竞争失败或崩溃留下）不算历史（C8）。管理接口各 `list` 一次两个前缀即可列出，
 不逐个读对象。
 
-格式（implementation 切片 2 步骤 4、切片 4 步骤 2）：id、`sha1`、key id 小写 hex；时间为 `toISOString()`；
+格式（implementation 切片 2 步骤 4、切片 4 步骤 2）：证书 id、`sha1`、key id 小写 hex（key id 与 CN 缺失为 `null`），target id
+小写 UUID；`serialNumber` 大写 hex，保留 INTEGER 内容字节的前导 `00`；时间为 `toISOString()`（含 `.000Z`）；
 CRL 号十进制字符串、按 BigInt 比较；`revokedCount` 是非空整数（发布时总能解析，§10 #7）；`nextPublish` 取 AD CS Next CRL
-Publish（`1.3.6.1.4.1.311.21.4`），缺失为 `null`。拟新增、开工前需 owner 确认的字段：`certificatePaths`（证书路径改绑账本，
-切片 2 第 2 项）、`targets[id].retired`（退役终态，切片 6 第 1 项）。
+Publish（`1.3.6.1.4.1.311.21.4`），缺失为 `null`。拟新增、开工前需 owner 确认的字段：`targets[id].retired`（退役终态，切片 6 第 1 项）。
 
 ### 5.4 端口与适配器
 
@@ -378,7 +381,8 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 
 `importCertificate` 同理：解析、生成完整摘要、写 blob、条件更新 catalog；重复导入 `unchanged`。
-`applyConfig` 校验 §5.2 规则后用 `ifMatch` 替换 `config.json`，首次用 `ifNoneMatch: "*"`。
+`applyConfig` 校验 §5.2 规则后用 `ifMatch` 替换 `config.json`，首次用 `ifNoneMatch: "*"`；只写 `config.json`，不写 catalog，
+状态规则按开头读到的 catalog 判定、不重查。
 
 ### 5.6 读取
 
@@ -460,7 +464,7 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 | `POST /api/v1/admin/certificates`                     | 导入证书（PEM/DER，multipart 或原始 body）       | 201 created / 200 unchanged / 422 |
 | `DELETE /api/v1/admin/certificates/{id}`              | 删除未被引用的证书（blob 一并删除）              | 204 / 409 `referenced`      |
 | `GET /api/v1/admin/config`                            | 当前 `config.json` 与 `ETag`                     | 200 / 404（尚未配置）       |
-| `PUT /api/v1/admin/config`                            | 整体替换；`If-Match` 必填，首次 `If-None-Match: *` | 200 / 412 / 422 `config_invalid` |
+| `PUT /api/v1/admin/config`                            | 整体替换；`If-Match` 与首次的 `If-None-Match: *` 恰好一个 | 200 / 412 / 422 `config_invalid` / 428 `precondition_required`（缺可用前置条件） |
 | `GET /api/v1/admin/crls/{targetId}/history`           | 历史条目（history 标记 ∪ current，§5.3；thisUpdate、CRL 号、sha256、size、是否 current） | 200                         |
 | `GET /api/v1/admin/crls/{targetId}/history/{sha256}`  | 下载历史 DER                                     | 200 / 404                   |
 | `POST /api/v1/admin/crls/{targetId}/retire`           | 清空 current，历史保留                           | 200                         |
@@ -474,7 +478,7 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 - 成功：直接返回资源体，不包 `{ data }`。
 - 失败：`{ "error": { "code": "…", "message": "…", "details"?: … } }`，每个状态码一个 schema。
 - 错误码：`bad_request`、`unauthorized`、`not_found`、`method_not_allowed`、
-  `payload_too_large`、`unsupported_media_type`、`admin_disabled`、`precondition_failed`、
+  `payload_too_large`、`unsupported_media_type`、`admin_disabled`、`precondition_failed`、`precondition_required`、
   `config_invalid`、`referenced`、`invalid_crl`、`invalid_certificate`、`not_yet_valid`、
   `unknown_critical_extension`、`scoped_crl_unsupported`、`unsupported_algorithm`、
   `issuer_not_found`、`target_not_configured`、`invalid_signature`、`issuer_mismatch`、
@@ -679,7 +683,7 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 2. 上传同时接受 multipart 字段 `crl` 与原始 body。
 3. 未设置管理令牌时管理路由返回 503，而不是 404。
 4. 公开路径只允许 `/ca/`、`/crl/`、`/dcrl/` 三个前缀；PEM 变体自动派生，不单独配置。
-5. 证书路径不允许改绑；`config.json` 整体替换而不是逐条增删接口。
+5. 证书路径不允许改绑（只与当前 config 比对，"先删再加"不检测，§5.2）；`config.json` 整体替换而不是逐条增删接口。
 6. 公开 API 的 `DELETE /admin/certificates/{id}` 保留在首发里（约 30 行）。
 7. 进程内 config/catalog 备忘默认关闭。
 8. Node 侧用 `tsc -p tsconfig.build.json` 编译到 `dist/server`，不做单文件打包。
