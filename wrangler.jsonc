@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "aia-cdp",
+  "main": "src/runtime/worker.ts",
+  "compatibility_date": "2026-10-12",
+  "minify": true,
+  "upload_source_maps": true,
+  "send_metrics": false,
+  "observability": { "logs": { "enabled": true } },
+  "r2_buckets": [{ "binding": "STORE" }],
+  "assets": {
+    "directory": "dist/web",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "not_found_handling": "single-page-application"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  // Node program (type check only): the Node graph of src, scripts, node-side tests and the tool
+  // configs. Only @types/node is visible, so R2Bucket / Env / ExportedHandler fail here.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/core/**/*.ts",
+    "src/http/**/*.ts",
+    "src/storage/**/*.ts",
+    "src/runtime/node.ts",
+    "src/runtime/node-ui.ts",
+    "src/runtime/settings.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts",
+    "eslint.config.ts",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["tests/web/**", "tests/boundary/worker-canary.ts"]
+}
