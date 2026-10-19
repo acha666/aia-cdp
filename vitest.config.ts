@@ -11,7 +11,7 @@ export default defineConfig({
     environment: "node",
     hookTimeout: 10_000,
     teardownTimeout: 10_000,
-    // Generates tests/fixtures/pki once per run (idempotent; no pretest script).
+    // Checks once per run that the committed tests/fixtures/pki matches its generator.
     globalSetup: ["./tests/fixtures/global-setup.ts"],
     projects: [
       { test: { name: "core", include: ["tests/core/**/*.test.ts"] } },

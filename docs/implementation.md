@@ -54,8 +54,8 @@ owner 决策（2026-10-18 逐项询问后确定；D9、D10 为 2026-10-19 切片
 | B12 | 每请求一行 JSON（`method`、`path`、`status`、`ms`，`AIA_TRUST_PROXY` 时加 `client`）；`AIA_LOG_FORMAT=pretty` 给人读；不记令牌与请求体 | 切片 1 步骤 4、本文 §2.6 |
 | B13 | Node：`settings.ts` 的 zod schema 照 plan §4.2；`PORT` 8080 显式传给 `serve()`；`*_FILE` 启动时读；无效即打印原因 exit 1；`server.on("error")` 与 SIGTERM / SIGINT 处理；`node --enable-source-maps dist/server/runtime/node.js` | 切片 1 步骤 5 |
 | B14 | 适配器（D5）：memory sha256 ETag；fs 临时文件 + fsync + `rename`、按键互斥、拒 `..` 与绝对路径、递归 `list`；r2 `onlyIf` 用不带引号的 `R2Object.etag`、`put` 返回 `null` 即 `precondition-failed`、`list` 跟随游标；一致性套件 memory + fs 每次跑，r2 在 `AIA_TEST_R2=1` 下经 `getPlatformProxy`；store ETag 从不当 HTTP ETag | 切片 1 步骤 3 |
-| B15 | vitest 5 `projects` = core、http、storage、integration（node）+ web（happy-dom）；独立 `vitest.config.ts`；HTTP 用 `createApp(...).request()`；夹具在 `globalSetup` 生成 | 切片 1 步骤 10、本文 §2.5 |
-| B16 | 夹具：重写的 `tests/fixtures/generate-test-data.sh [--force\|--check] OUT_DIR`，固定日期 / 序列号 / CRL 号，`manifest.json` + `SHA256SUMS` + `.stamp`，产物 gitignore，需要 OpenSSL ≥ 3.0；测试从文件或 manifest 读值、`now` = `manifest.now`；`.gitattributes` `*.sh text eol=lf` | 切片 1 步骤 9、本文 §2.5 |
+| B15 | vitest 5 `projects` = core、http、storage、integration（node）+ web（happy-dom）；独立 `vitest.config.ts`；HTTP 用 `createApp(...).request()`；夹具在 `globalSetup` 校验 | 切片 1 步骤 10、本文 §2.5 |
+| B16 | 夹具：重写的 `tests/fixtures/generate-test-data.sh [--force\|--check] OUT_DIR`，固定日期 / 序列号 / CRL 号，`manifest.json` + `SHA256SUMS` + `.stamp`，产物入库（`.gitattributes` `tests/fixtures/pki/** -text`）、`globalSetup` 只跑 `--check`，需要 OpenSSL ≥ 3.0；测试从文件或 manifest 读值、`now` = `manifest.now`；`.gitattributes` `*.sh text eol=lf` | 切片 1 步骤 9、本文 §2.5 |
 | B17 | ESLint 10 flat `eslint.config.ts`、typescript-eslint 8.71.2 projectService、eslint-plugin-vue、`consistent-type-imports` + `no-import-type-side-effects`、`--max-warnings 0`；`pnpm-workspace.yaml` 的 `ignoredBuiltDependencies` 与 `publicHoistPattern`；Prettier 3 沿用旧 `.prettierrc.json`，生成组件每次 `add` 后重排 | 切片 1 步骤 1、7 |
 | B18 | Docker：base → prod-deps ∥ build → runtime（`node:24-slim`、uid 1000、`/data`、`NODE_ENV=production`、exec 形式 CMD、HEALTHCHECK）；`ARG VITE_SITE_NAME`；白名单 `.dockerignore`；浮动基础标签 | 切片 1 步骤 11 |
 | B19 | `.github/workflows/ci.yml` 四个任务 check / test / worker / docker 各调 `pnpm run ci:<job>`；dependabot 管 npm、github-actions、docker；`pnpm verify` = check + test + build；无远端时本机为准 | 切片 1 步骤 12–13 |
@@ -198,10 +198,11 @@ canary 都放过；依赖的 `/// <reference types="node" />` 会让 `process` �
   `Content-Length`、传输编码、信号处理）放 `integration`。
 - 存储一致性套件 `tests/storage/conformance.ts` 对每个适配器跑同一组用例；r2 只在 `AIA_TEST_R2=1`（`pnpm run test:r2`）下经
   `getPlatformProxy({ configPath: "wrangler.jsonc", persist: false })` 跑，`ci:worker` 包含它且要求 passed。
-- 夹具只来自 `tests/fixtures/generate-test-data.sh`：vitest `globalSetup` 每次运行调用一次（幂等，不用 `pretest`）；产物
-  `tests/fixtures/pki/` gitignore、永不提交；私钥只在脚本的临时目录；开发与 CI 需要 OpenSSL ≥ 3.0（不是 LibreSSL），运行时不需要。
+- 夹具只来自 `tests/fixtures/generate-test-data.sh`，产物 `tests/fixtures/pki/` 入库（`.gitattributes` `-text`：`SHA256SUMS` 逐字节校验，
+  `full-01.crlf.pem` 故意是 CRLF）；vitest `globalSetup` 每次运行只跑 `--check`，不改写已跟踪文件、不用 `pretest`，过期时报错并提示
+  `pnpm run fixtures` 后提交；私钥只在脚本的临时目录；开发与 CI 需要 OpenSSL ≥ 3.0（不是 LibreSSL），运行时不需要。
 - 断言里的摘要、key id、序列号、大小、签名一律从夹具文件或 `manifest.json` 读（`tests/fixtures/pki.ts` 的 `manifest`、`NOW`、
-  `fixture()`），不写字面量——ECDSA / PSS 签名每次生成都变；时间注入 `manifest.now`（`2026-01-04T00:00:00Z`）。
+  `fixture()`），不写字面量——每次重新生成都换密钥，ECDSA / PSS 签名与摘要全变；时间注入 `manifest.now`（`2026-01-04T00:00:00Z`）。
 - 不用线上工件（D7）：`tests/data/adcs.ts` 不入库；切片 7 盘点下载的线上对象只放 gitignore 的 `.migration/`。
 
 ### 2.6 错误信封、状态码与日志（plan §4.3、§7.3、B12）
@@ -271,7 +272,7 @@ Worker 打包、Docker 镜像都能用 `pnpm run ci:<job>` 在本机跑通。处
    - `pnpm-workspace.yaml`：`ignoredBuiltDependencies: [esbuild, workerd, vue-demi]`；`publicHoistPattern: [espree, eslint-scope]`
      （防 Debian node 的 `Parsing error: Invalid Version: main`）。改动后删 `node_modules` 全新安装才生效。
    - `.gitignore`（迁 `worker-aia-cdp@5b570aa:.gitignore` 后改）：`node_modules/`、`dist/`、`coverage/`、`.wrangler/`、`.data/`、
-     `.vite/`、`*.tsbuildinfo`、`*.log`、`.env.local`、`.env.*.local`、`.dev.vars*`（例外 `!.dev.vars.example`，该文件切片 2 新建）、`worker-configuration.d.ts`、`/tests/fixtures/pki*/`、
+     `.vite/`、`*.tsbuildinfo`、`*.log`、`.env.local`、`.env.*.local`、`.dev.vars*`（例外 `!.dev.vars.example`，该文件切片 2 新建）、`worker-configuration.d.ts`、`/tests/fixtures/pki.tmp.*/`（生成器的暂存目录；夹具本身入库）、
      IDE / OS 文件。删掉旧的整目录 `tests/fixtures`（会把生成脚本也藏掉）与 `/public/`、`site/`、`.act*`。
    - `.gitattributes`：`*.sh text eol=lf`。`.prettierrc.json`、`LICENSE`：从 `worker-aia-cdp@5b570aa` 原样迁入。
    - `.prettierignore`：`pnpm-lock.yaml`、`worker-configuration.d.ts`、`docs/openapi.json`、`dist/`、`coverage/`、`.wrangler/`、`.data/`、
@@ -491,7 +492,8 @@ Worker 打包、Docker 镜像都能用 `pnpm run ci:<job>` 在本机跑通。处
    | 安全 | 私钥、CSR、CA 库只在 `mktemp -d`（0700），EXIT trap 删除；产物含 `PRIVATE KEY` 即失败；暂存到 `OUT_DIR.tmp.*` 后 rename；`flock` 串行；非空且无 `.stamp` 的目录拒绝覆盖；openssl 失败立即退出 |
    | 依赖 | bash、OpenSSL ≥ 3.0（拒绝 LibreSSL；`OPENSSL=` 可覆盖）、od / awk / sed；不再需要 Node |
 
-   - `global-setup.ts`：`execFileSync("bash", [脚本, tests/fixtures/pki], { stdio: "inherit" })`，每个 vitest 进程一次，不用 `pretest`。
+   - `global-setup.ts`：`spawnSync("bash", [脚本, "--check", tests/fixtures/pki])`，每个 vitest 进程一次，不用 `pretest`；不一致即抛错并提示
+     `pnpm run fixtures` 后提交。（原为每次调用生成器、产物 gitignore；夹具入库后改为只校验。）
    - `pki.ts`：导出 `manifest`、`NOW = new Date(manifest.now)`、`fixture(path)`。规则：sha256、key id、大小、签名永远从文件或 manifest 读，不写字面量
      （ECDSA 签名长度每次生成都变）。切片 1 只有夹具自检用到它；发布场景见切片 2、4。永远不以 root 身份生成。
 
@@ -602,7 +604,7 @@ Worker 打包、Docker 镜像都能用 `pnpm run ci:<job>` 在本机跑通。处
       `corepack enable --install-directory "$(npm prefix -g)/bin" pnpm`（以 `node` 运行，不用 sudo。2026-10-19 在该镜像实测：`corepack enable pnpm` 写
       root 所有的 `/usr/local/bin`，EACCES；`--install-directory ~/.local/bin` 目录不存在、也不在 PATH 上，镜像自带的全局 pnpm 12 在 PATH 上靠前。
       `npm prefix -g` 即属 `node` 的 `/usr/local/share/npm-global`，shim 替换其 `bin/pnpm`）；`forwardPorts`: `[5173, 8080, 8787]`。
-    - 不在 `postCreateCommand` 里装依赖或生成夹具：首次进入后手动 `pnpm install --frozen-lockfile`，夹具由 vitest `globalSetup` 生成。
+    - 不在 `postCreateCommand` 里装依赖或生成夹具：首次进入后手动 `pnpm install --frozen-lockfile`，夹具已入库。
 
 ### 测试
 
@@ -661,7 +663,7 @@ Worker 打包、Docker 镜像都能用 `pnpm run ci:<job>` 在本机跑通。处
     `pnpm ls --prod --depth 0` 只列 `hono`、`@hono/zod-openapi`、`zod`、`@hono/node-server`；`ls node_modules/.pnpm | grep -c '^@vueuse+core@'` 为 `1`。
 11. `SITE_NAME`：`VITE_SITE_NAME='Acha PKI' pnpm run build:web && grep -q '<title>Acha PKI</title>' dist/web/index.html`；
     `VITE_SITE_NAME='A&B' pnpm run build:web` 失败；未设置时标题为 `PKI AIA/CDP`。
-12. 仓库卫生：`for p in worker-configuration.d.ts tests/fixtures/pki/ dist/ .data/; do git check-ignore -q "$p" || echo "$p"; done` 无输出（目录写尾斜杠：
+12. 仓库卫生：`for p in worker-configuration.d.ts dist/ .data/; do git check-ignore -q "$p" || echo "$p"; done` 无输出（目录写尾斜杠：
     `.data/` 一类模式只匹配目录，路径不存在时不带斜杠会误报）；`! git grep -qE -e '-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY-----'` 退出 0（只匹配 PEM 私钥封装；
     文档、生成器第 702 行与 `fixtures.test.ts` 里的 `PRIVATE KEY` 字样不算）；`grep -q '"name": "aia-cdp"' wrangler.jsonc && ! grep -q aia-cdp-worker wrangler.jsonc`；
     `git status` 干净。
@@ -2236,7 +2238,7 @@ plan §13 的两个前提在本切片修正：历史迁移是**尽力而为**，
 | `docs/templates/implementation-slice.md` | migrate-adapt | docs/templates/implementation-slice.md | 1 |
 | `docs/templates/migration-inventory.example.json` | reference-only | — | 7 |
 | `docs/templates/resources.example.json` | reference-only | docs/config.example.json（新写） | 2 |
-| `tests/fixtures/pki` | drop | tests/fixtures/pki/ (generated, gitignored) | 1 |
+| `tests/fixtures/pki` | drop | tests/fixtures/pki/（重新生成后入库） | 1 |
 
 ## 附录 B. 缺陷与评审项覆盖
 

@@ -13,9 +13,10 @@ X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloud
 - Node 24（`.nvmrc` = `24`，`engines.node` = `^24.11.0`，`engine-strict`）。本机工具链不在默认 PATH 上，每个 shell 先执行
   `export PATH=$HOME/.local/opt/node-24/bin:$PATH COREPACK_ENABLE_DOWNLOAD_PROMPT=0`（后者让 corepack 下载 pnpm 时不停下来询问）。
 - pnpm 经 corepack 按 `package.json` 的 `packageManager`（`pnpm@10.34.7`）解析，不要用全局安装的 pnpm（npm `latest` 已是 12.x）。
-- OpenSSL ≥ 3.0（不是 LibreSSL）与 bash：生成测试夹具用，只在开发与 CI 需要，运行时不需要。
+- OpenSSL ≥ 3.0（不是 LibreSSL）与 bash：生成与校验测试夹具用，只在开发与 CI 需要，运行时不需要。
 - Docker Engine ≥ 25：`ci:docker` 与镜像构建用。
-- 只有本地 git，暂无远端：每个切片在 `slice/<n>-<name>` 分支开发，CI 任务用 `pnpm run ci:<job>` 在本机执行。
+- 远端 `github.com/acha666/aia-cdp`：每个切片在 `slice/<n>-<name>` 分支开发，本地合入 `main` 后推送；GitHub Actions 在推送 `main` 与 PR 时
+  运行，每个任务只调用对应的 `pnpm run ci:<job>`，本机也能原样执行。
 - 也可以用 `.devcontainer/`（Node 24、OpenSSL 3.0、PowerShell，非 root）；进入后先 `pnpm install --frozen-lockfile`。
 
 ## 常用命令
@@ -36,7 +37,8 @@ pnpm run ci:docker
 - `pnpm run dev:node`：直接运行 Node 源码，端口 8787，数据目录 `.data/`。
 - `pnpm run dev:worker`：先 `build:web`，再 `wrangler dev`（127.0.0.1:8787，本地 R2）。
 
-测试夹具（`tests/fixtures/pki/`，不入库）由 vitest 的 globalSetup 自动生成；需要时手动 `pnpm run fixtures:force`。
+测试夹具 `tests/fixtures/pki/` 入库，由 `tests/fixtures/generate-test-data.sh` 生成；vitest 的 globalSetup 只校验它与脚本一致
+（`--check`），不会改写。改了脚本就 `pnpm run fixtures` 重新生成并提交（每次生成都用新密钥，签名、摘要、key id 全变）。
 
 ## Docker
 

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { FIXTURES_DIR, NOW, fixture, fixturePath, manifest } from "../fixtures/pki.ts";
 
-// Self-test of tests/fixtures/generate-test-data.sh and of the tree that globalSetup generated
+// Self-test of tests/fixtures/generate-test-data.sh and of the committed tree it generated
 // (implementation slice 1 step 9, appendix D).
 
 const GENERATOR = fileURLToPath(new URL("../fixtures/generate-test-data.sh", import.meta.url));
