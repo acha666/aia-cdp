@@ -7,7 +7,7 @@
 
 ## D.1 证书（`certs/<名>.der` 与 `.pem`，12 张）
 
-| 名 | 签发者 | 密钥 | 序列号 | 有效期 | `import` | 用途 |
+| 名 | 签发者 | 密钥 | 序列号（hex） | 有效期 | `import` | 用途 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `root-ca` | 自签 | EC P-384 | 1000 | 2025-01-01 – 2045-01-01 | 是 | 离线根，ecdsa-with-SHA384（同线上根） |
 | `issuing-ca-1` | root-ca | RSA-2048 | 1001 | 2025-01-01 – 2035-01-01 | 是 | AD CS SubCA 形状：CA Version 0、模板名 BMPString `SubCA`、AIA、CDP |
