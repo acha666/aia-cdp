@@ -48,7 +48,10 @@ const APPEARANCE = {
 } satisfies Record<BadgeState, { variant: BadgeVariants["variant"]; icon: Component }>;
 
 const { t } = useI18n();
-const health = useQuery({ queryKey: ["health"], queryFn: fetchHealth });
+// retry: false — the badge reports the current state. TanStack's default (3 retries with 1 + 2 + 4 s
+// backoff) kept an unreachable API on "Checking…" for ~7 s; a transient failure clears on the
+// next mount or window focus (staleTime 0, main.ts).
+const health = useQuery({ queryKey: ["health"], queryFn: fetchHealth, retry: false });
 
 const state = computed<BadgeState>(() => {
   if (health.isError.value) {

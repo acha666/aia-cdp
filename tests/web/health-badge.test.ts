@@ -22,8 +22,11 @@ function stubFetch(result: () => Promise<Response>) {
   return fetchMock;
 }
 
-function mountBadge(locale: AppLocale) {
-  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function mountBadge(
+  locale: AppLocale,
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+) {
+  queryClient = client;
   wrapper = mount(HealthBadge, {
     global: { plugins: [createAppI18n(locale), [VueQueryPlugin, { queryClient }]] },
   });
@@ -89,6 +92,18 @@ describe("HealthBadge", () => {
 
     expect(badge.get('[data-slot="badge"]').attributes("data-state")).toBe("unknown");
     expect(badge.get('[data-testid="health-state"]').text()).toBe("Unknown");
+  });
+
+  it("does not retry: unknown right after one failed request, even with library defaults", async () => {
+    const fetchMock = stubFetch(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    // A client without retry: false (TanStack default: 3 retries, 1 + 2 + 4 s backoff).
+    const badge = mountBadge("en", new QueryClient());
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(badge.get('[data-slot="badge"]').attributes("data-state")).toBe("unknown");
   });
 
   it("shows unknown for a status the API never sends", async () => {
