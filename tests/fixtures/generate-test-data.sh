@@ -227,7 +227,9 @@ email.1     = leaf@example.test
 otherName.1 = 1.3.6.1.4.1.311.20.2.3;UTF8:leaf@example.test
 
 [ ext_leaf_min ]
-basicConstraints = critical, CA:FALSE
+basicConstraints       = critical, CA:FALSE
+subjectKeyIdentifier   = none
+authorityKeyIdentifier = none
 
 [ ext_leaf ]
 basicConstraints       = critical, CA:FALSE
