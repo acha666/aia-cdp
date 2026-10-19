@@ -1,0 +1,59 @@
+{
+  "app": {
+    "skipToContent": "跳到正文"
+  },
+  "nav": {
+    "backToOverview": "返回总览"
+  },
+  "health": {
+    "label": "服务状态：",
+    "state": {
+      "loading": "检查中…",
+      "healthy": "正常",
+      "degraded": "降级",
+      "unhealthy": "故障",
+      "unknown": "未知"
+    },
+    "detail": {
+      "loading": "正在检查服务状态…",
+      "healthy": "存储与配置均正常。",
+      "degraded": "服务在运行，但配置需要处理。",
+      "missing": "存储正常，但尚未应用配置。",
+      "invalid": "存储正常，但已存的配置无效。",
+      "unhealthy": "存储后端出错。",
+      "unknown": "无法访问健康检查接口。"
+    }
+  },
+  "theme": {
+    "toggle": "主题：{current}。切换为{next}",
+    "mode": {
+      "auto": "跟随系统",
+      "light": "浅色",
+      "dark": "深色"
+    }
+  },
+  "locale": {
+    "switchTo": "切换语言为"
+  },
+  "pages": {
+    "placeholder": "占位页",
+    "overview": {
+      "title": "总览",
+      "body": "证书与 CRL 列表将在切片 5b 提供。在此之前本页只是占位；页头的徽标显示服务健康检查的实时结果。"
+    },
+    "certificate": {
+      "title": "证书",
+      "idLabel": "证书 ID",
+      "body": "证书详情（使用者、有效期、扩展与下载链接）将在切片 5b 提供。"
+    },
+    "crl": {
+      "title": "CRL 目标",
+      "idLabel": "目标 ID",
+      "body": "CRL 目标详情（当前 CRL、吊销条目与下载链接）将在切片 5b 提供。"
+    },
+    "notFound": {
+      "title": "页面不存在",
+      "body": "此地址没有页面："
+    }
+  }
+}

@@ -166,8 +166,9 @@ tsconfig 拓扑：
 `import type { AppType }`）；`tests/boundary/worker-canary.ts` 用 `// @ts-expect-error` 断言 Worker 程序里没有 `process`，
 `node-canary.ts` 断言 Node 程序里没有 `R2Bucket`，任一侧混入 `@types/node` 或 Worker 类型，指令变为"未使用"而编译失败。
 R2 适配器按结构化类型 `R2BucketLike` 写，r2 一致性测试因此在 `tsconfig.node.json` 下编译，不另设 tsconfig。
-逐文件选项见 `docs/implementation.md` §2.2 与切片 1 步骤 2。三套编译抓不到 core 导入 Node-only 包、类型导入带
-`/// <reference types="node" />` 的包、core → http / hono 分层。原定"不另设 ESLint 导入边界规则和 bundle 卫生断言"已于 2026-10-19
+逐文件选项见 `docs/implementation.md` §2.2 与切片 1 步骤 2。三套编译加 canary 的盲区：core 导入类型不引用 `@types/node` 的
+Node-only 包（编译与 canary 都放过）；类型导入带 `/// <reference types="node" />` 的包（worker canary 会报 TS2578，但看不出来源）；
+core → http / hono 分层（都放过）。原定"不另设 ESLint 导入边界规则和 bundle 卫生断言"已于 2026-10-19
 推翻（决策 15）：`eslint.config.ts` 对 `src/core/**`、`src/http/**` 加 `no-restricted-imports` 分层规则；`scripts/check-worker-program.ts`
 作 `typecheck:boundary` 并入 `typecheck`，Worker 程序的文件清单出现 `@types/node`、`@hono/node-server`、`vite`、`vitest`、`wrangler`
 即失败；`ci:worker` 在 dry-run 后断言 `dist/worker/worker.js` 不含 `"node:` 导入（implementation.md 切片 1 步骤 2、7、12）。
@@ -190,7 +191,7 @@ R2 适配器按结构化类型 `R2BucketLike` 写，r2 一致性测试因此在 
   ASSETS 只经 `deps.ui` 调用，保留前缀与 UI 兜底规则在应用内（§4.4）：`/api/*` 与下载前缀的未命中不会被 SPA 兜底答成
   200 HTML（C12）。
 - 令牌是可选的 `wrangler secret`（`AIA_ADMIN_TOKEN` / `AIA_UPLOAD_TOKEN`），代码里类型为可选，不用 `secrets.required`；
-  其余设置有默认值，需要时用 `vars`。
+  其余设置有默认值，需要时用 `vars`（写成 JSON 布尔 / 数字也可以，入口转成字符串；对象、数组、`null` 是无效设置）。
 - 脚本与 CI 调 wrangler 时设 `WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true`（`send_metrics: false` 挡不住 deploy 的遥测）；
   `wrangler deploy --dry-run --outdir dist/worker` 需要先有 `dist/web`（先 `vite build`）。不加 `deploy` 脚本（首次部署会自动置备新桶，部署按 `docs/operations.md` 手工执行），生产部署只在切片 7。
 
@@ -205,7 +206,7 @@ R2 适配器按结构化类型 `R2BucketLike` 写，r2 一致性测试因此在 
 | `AIA_ADMIN_TOKEN` / `_FILE`          | 无                   | 未设置时管理接口返回 503 `admin_disabled`            |
 | `AIA_UPLOAD_TOKEN` / `_FILE`         | 无                   | 未设置时上传不需要令牌                               |
 | `AIA_MAX_UPLOAD_BYTES`               | `10485760`           | `bodyLimit`                                          |
-| `AIA_TRUST_PROXY`                    | `false`              | 为真时请求日志加 `client`（`CF-Connecting-IP`，否则 `X-Forwarded-For` 第一项） |
+| `AIA_TRUST_PROXY`                    | `false`              | 为真时请求日志加 `client`：Node 取 `X-Forwarded-For` 最右一项（最近一跳代理追加的），Workers 取 `CF-Connecting-IP`；不是 IP 字面量就省略 |
 | `AIA_LOG_FORMAT`                     | `json`               | `json` / `pretty`                                    |
 
 启动（`src/runtime/node.ts`，设置 schema 在 `src/runtime/settings.ts`，纯 zod、Worker 与 Node 共用）：
@@ -213,8 +214,10 @@ R2 适配器按结构化类型 `R2BucketLike` 写，r2 一致性测试因此在 
 - 用 zod 校验全部变量，字段与默认值按上表；`*_FILE` 在启动时读取（去掉一个结尾换行），`X` 与 `X_FILE` 同时设置报错；
   无效即在 stderr 打印原因、exit 1。`AIA_DATA_DIR` 须是可读写目录，否则 JSON 错误日志 + exit 1。
 - `serve({ fetch: app.fetch, port })`：`PORT` 显式传入（`@hono/node-server` 的默认是 3000），不传 hostname（`::` 双栈）；
-  就绪日志一行 `listening`。`server.on("error")`（如端口被占用）→ JSON 日志 + exit 1；SIGTERM / SIGINT → `server.close()`，
-  另设 10 s `unref()` 的强制退出（容器里 node 是 PID 1）。
+  就绪日志一行 `listening`。`server.on("error")`（如端口被占用）→ JSON 日志 + exit 1；SIGTERM / SIGINT → `server.close()` 并立即关闭空闲连接，
+  2 s 宽限后关闭其余全部连接（含没发完请求的 preconnect、半截请求头，`close()` 会一直等它们），另设 10 s `unref()` 的强制退出兜底（容器里 node 是 PID 1）。
+- `AIA_STATIC_DIR/index.html` 不存在 → 一行 warn `static_dir_missing`（解析后的绝对路径）后照常启动（`dev:node` 的 UI 由 Vite dev server 提供）。
+- 开始服务前删除 fs 存储里被打断的写入留下的临时文件（一个目录一个进程，此时没有写入在进行），日志 `temp_files_removed` 带个数。
 - 生产 `node --enable-source-maps dist/server/runtime/node.js`；开发与测试直接 `node src/runtime/node.ts`（type stripping）。
 
 Dockerfile（`ARG NODE_VERSION=24`，基础镜像浮动标签 `node:24-slim`，bookworm；digest 固定以后再定）：
@@ -240,11 +243,12 @@ HTTPS 跳转（AIA/CDP 客户端只走明文 HTTP）。
 一个自写的小中间件：每请求一行 JSON（method、path、status、ms、可选 client），
 每次发布 / 导入尝试一行（targetId 或 certificateId、outcome 或 reason、sha256）。
 Node 写 stdout，Workers 用 `console.log`（Workers Logs 自动收集）。不记录令牌、请求体和查询串；
-`AIA_LOG_FORMAT=pretty` 只把同一内容排成一行人读文本。
+`AIA_LOG_FORMAT=pretty` 只把同一内容排成一行人读文本（只有不含空格、`"`、`=` 的可打印 ASCII 裸写，其余 JSON 编码并转义控制字符）。
+`client` 的来源由入口经 `deps.clientIpHeader` 选定（§4.2 的 `AIA_TRUST_PROXY` 行）。
 
 ### 4.4 应用依赖、保留前缀与 UI 兜底（两条运行时共用）
 
-`createApp(deps)` 返回 `OpenAPIHono`；`deps = { store, now, settings, log, ui? }`，`ui(req)` 是与平台无关的 UI 兜底
+`createApp(deps)` 返回 `OpenAPIHono`；`deps = { store, now, settings, clientIpHeader, log, ui? }`，`ui(req)` 是与平台无关的 UI 兜底
 （Workers：`env.ASSETS.fetch`；Node：`serveStatic` + `index.html`）。应用不认识运行时 env；规则都在应用内，两条运行时一致：
 
 | 请求 | 响应 |
@@ -255,9 +259,10 @@ Node 写 stdout，Workers 用 `console.log`（Workers Logs 自动收集）。不
 | 其他路径 GET / HEAD | `ui(req)`；ui 返回 404，或最后一段带扩展名（非 `.html`）而 ui 返回 HTML（SPA 兜底）→ 纯文本 404（缺失的 `/assets/x.js` 不变成 200 HTML） |
 | 其他路径的其他方法；未注入 `ui` | 纯文本 404 |
 
-- 保留前缀带尾斜杠匹配（`^/api(?:/|$)`、`^/(?:ca|crl|dcrl)/`）：`/crls/`、`/certificates/` 是 UI 路由，不是下载前缀。
-- UI 缓存头由应用设置：哈希资源 `/assets/*` → `public, max-age=31536000, immutable`，其余 UI 响应（`index.html`、SPA 兜底）→
-  `no-cache`。先复制 ui 返回的响应再改头（workerd 绑定响应的头不可变）。
+- 保留前缀带尾斜杠匹配（`^/api(?:/|$)`、`^/(?:ca|crl|dcrl)/`）：`/crls/`、`/certificates/` 是 UI 路由，不是下载前缀。匹配用规范化路径
+  （`%2F` 解码、连续 `/` 合并），`//api/…`、`/api%2Fv1/…`、`/crl%2f…` 同样不进 UI；路由仍看原始路径。
+- UI 缓存头由应用设置：`/assets/` 下最后一段带扩展名、非 HTML、状态 200 / 206 / 304 的哈希资源 → `public, max-age=31536000, immutable`，
+  其余 UI 响应（`index.html`、SPA 兜底、ui 的错误状态）→ `no-cache`。先复制 ui 返回的响应再改头（workerd 绑定响应的头不可变）。
 - 不注册 `app.get("*")`（会让未知路径的 POST 全变 405）；全部路由在 `createApp` 内、首个请求前注册完（SmartRouter 首个请求后冻结）。
 
 ## 5. 存储模型
@@ -367,7 +372,7 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 | 适配器 | 条件写                                                                 | ETag            | 规模    |
 | ------ | ---------------------------------------------------------------------- | --------------- | ------- |
 | memory | 先算摘要，再同步完成比较与写入（中间有 `await` 时并发 CAS 会双赢）；读写都复制字节 | 内容 SHA-256    | ~40 行  |
-| fs     | 按键的进程内互斥段里读当前文件摘要、判条件，再同目录临时文件 + fsync + `rename` + fsync 父目录；`list` 递归、跳过点开头的临时文件 | 内容 SHA-256    | ~80 行  |
+| fs     | 按键的进程内互斥段里读当前文件摘要、判条件，再同目录临时文件 + fsync + `rename` + 从父目录到根逐级 fsync；`list` 递归、只认键段名（跳过临时文件与杂物，不进 `lost+found` 一类目录）；Node 启动时清理残留临时文件 | 内容 SHA-256    | ~80 行  |
 | r2     | `onlyIf: { etagMatches }` / `{ etagDoesNotMatch: "*" }`，返回 `null` 即前置条件失败；其他异常（含单键写速率）原样抛出；`list` 跟随游标；桶按结构化类型 `R2BucketLike` 写 | `R2Object.etag`（不带引号；带引号的 `httpEtag` 传回 `etagMatches` 会抛错） | ~60 行  |
 
 一致性套件 12 条用例（缺失键、put/get/head、字节隔离、`ifNoneMatch`、`ifMatch` 成功 / 过期 / 缺失键、同一 `ifMatch` 并发 5 次

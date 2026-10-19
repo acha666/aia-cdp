@@ -1,0 +1,59 @@
+{
+  "app": {
+    "skipToContent": "Skip to content"
+  },
+  "nav": {
+    "backToOverview": "Back to overview"
+  },
+  "health": {
+    "label": "Service status:",
+    "state": {
+      "loading": "Checking…",
+      "healthy": "Healthy",
+      "degraded": "Degraded",
+      "unhealthy": "Unhealthy",
+      "unknown": "Unknown"
+    },
+    "detail": {
+      "loading": "Checking the service health…",
+      "healthy": "Storage and configuration are OK.",
+      "degraded": "The service is running, but its configuration needs attention.",
+      "missing": "Storage is OK, but no configuration has been applied yet.",
+      "invalid": "Storage is OK, but the stored configuration is invalid.",
+      "unhealthy": "The storage backend is failing.",
+      "unknown": "The health endpoint could not be reached."
+    }
+  },
+  "theme": {
+    "toggle": "Theme: {current}. Switch to {next}",
+    "mode": {
+      "auto": "system",
+      "light": "light",
+      "dark": "dark"
+    }
+  },
+  "locale": {
+    "switchTo": "Switch language to"
+  },
+  "pages": {
+    "placeholder": "Placeholder",
+    "overview": {
+      "title": "Overview",
+      "body": "The certificate and CRL lists arrive in slice 5b. Until then this page is a placeholder; the badge in the header shows the live result of the service health check."
+    },
+    "certificate": {
+      "title": "Certificate",
+      "idLabel": "Certificate ID",
+      "body": "Certificate details (subject, validity, extensions and download links) arrive in slice 5b."
+    },
+    "crl": {
+      "title": "CRL target",
+      "idLabel": "Target ID",
+      "body": "CRL target details (current CRL, revoked certificates and download links) arrive in slice 5b."
+    },
+    "notFound": {
+      "title": "Page not found",
+      "body": "There is no page at this address:"
+    }
+  }
+}

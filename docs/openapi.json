@@ -1,0 +1,119 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "aia-cdp API",
+    "version": "1"
+  },
+  "components": {
+    "schemas": {
+      "HealthOk": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded"
+            ]
+          },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "store": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              },
+              "configuration": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "missing",
+                  "invalid"
+                ]
+              }
+            },
+            "required": [
+              "store",
+              "configuration"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "checks"
+        ]
+      },
+      "HealthUnavailable": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "unhealthy"
+            ]
+          },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "store": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              },
+              "configuration": {
+                "type": "string",
+                "enum": [
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "store",
+              "configuration"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "checks"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Service health",
+        "description": "Reads the object store and config.json. `degraded` (still 200) while the service is not configured yet or its configuration is invalid; 503 when the store cannot be read.",
+        "responses": {
+          "200": {
+            "description": "The store answers: healthy, or degraded (configuration missing or invalid)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthOk"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The store failed; the configuration could not be checked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthUnavailable"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

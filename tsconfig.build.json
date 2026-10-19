@@ -1,0 +1,14 @@
+{
+  // Emit-only config for the Node server (Docker image, `pnpm start`): tsc follows the import graph
+  // of src/runtime/node.ts and writes dist/server/**. Type checking stays in tsconfig.node.json.
+  // Not referenced from tsconfig.json.
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist/server",
+    "sourceMap": true,
+    "noEmitOnError": true
+  },
+  "include": ["src/runtime/node.ts"]
+}
