@@ -48,9 +48,8 @@
 | 1 | CSP | 采纳切片 5b 步骤 10 的策略，经 `secureHeaders` 的 `contentSecurityPolicy` 以响应头下发（两条运行时同一份），预绘制主题脚本用 hash 放行；冒烟出现违规只放宽 `style-src` |
 | 2 | 状态阈值 vs AD CS 节奏（旧 80% 规则与"7 天内"都会误报） | 有 `nextPublish` 时 `now` 超过它 1 h 仍未更新才算 stale；没有时沿用 80%（剩余不足 20%）；"即将过期"改为客户端计算的"需关注"（stale + expired + unknown），stats 不加时间字段；证书 `expiring` 阈值为剩余不足有效期 10% |
 
-切片 5a 与 5b 的初稿对第 2 项各给了一套推荐（5a：服务端 stats 带 `expired` / `expiringSoon`，状态函数放 `src/core/status.ts` 供 UI 导入；
-5b：时间相关数只在客户端算）。本文取 5b 的方案：plan §7.1 的 stats 本来就没有时间字段，5b 步骤 11 的构建插件禁止 web 在运行时导入
-`src/core`，且客户端计算消除了服务端与浏览器时钟不一致；保留 5a 稿的 1 h 宽限。
+第 2 项取"时间相关数只在客户端算"：plan §7.1 的 stats 本来就没有时间字段，5b 步骤 11 的构建插件禁止 web 在运行时导入 `src/core`（因此不做
+服务端 `src/core/status.ts` 与 stats 的 `expired` / `expiringSoon`），且客户端计算消除了服务端与浏览器时钟不一致；1 h 宽限保留。
 
 ## 切片 6
 

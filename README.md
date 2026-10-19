@@ -6,7 +6,8 @@ X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloud
 测试夹具、Docker 镜像与本地 CI 脚本；证书与 CRL 功能从切片 2 起。完整的使用与运维文档在切片 6。
 
 - [docs/plan.md](docs/plan.md)：设计文档（决策、存储模型、领域规则、API、切片划分）。
-- [docs/implementation.md](docs/implementation.md)：分步实施计划（每个切片的步骤、测试、出口条件、待 owner 确认项）；与 plan.md 冲突时以其 §0 为准。
+- [docs/implementation/](docs/implementation/README.md)：分步实施计划。`README.md` 是总则（决策、完成定义、通用约定），每个切片一份文件
+  （步骤、测试、出口条件、待 owner 确认项）；与 plan.md 冲突时以它为准。
 
 ## 开发环境
 

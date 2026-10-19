@@ -1,6 +1,6 @@
 # 附录 D. 夹具用例矩阵（重写契约）
 
-取自 2026-10-18 fixtures spike 产出的 `manifest.json`（生成器 sha256 `872a483b…7ac6`，OpenSSL 3.5.5），已计入切片 1 步骤 9 对 `leaf-min` 的修改。
+与入库的 `tests/fixtures/pki/manifest.json` 一致（含切片 1 步骤 9 对 `leaf-min` 的修改）。
 后续切片的测试按名字引用这些夹具、从 manifest 读值；重写生成器时，文件名、签发者、kind、声明值（序列号、有效期、CRL 号、base 号、时间、吊销条数）
 与期望结果必须逐项保持，sha256 与大小随密钥变、不在契约内。时间为 UTC，未写年份的是 2026；路径相对 `tests/fixtures/pki/`；`manifest.now` =
 `2026-01-04T00:00:00Z`。切片 4 步骤 1 另加 `certs/issuing-ca-1-renamed` 与 CRL 条目的 `nextPublish` 字段。

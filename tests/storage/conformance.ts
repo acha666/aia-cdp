@@ -1,4 +1,4 @@
-// ObjectStore conformance suite (plan §5.4; implementation.md slice 1, tests ①–⑫). Every adapter runs
+// ObjectStore conformance suite (plan §5.4; implementation slice 1, tests ①–⑫). Every adapter runs
 // the same cases; the factory hands each case an empty store.
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ObjectStore } from "../../src/core/store.ts";

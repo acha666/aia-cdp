@@ -1,11 +1,6 @@
 # 附录 A. 迁移清单
 
-来源 `worker-aia-cdp@5b570aa`（D4）。由五份迁移盘点生成，共 152 行，按旧路径列出处置、新位置与切片；处置词见本文 §1.4。下表照录，
-只按各切片正文修正了 24 行：`src/worker/api/v2/crls/upload.ts` 的 `publishCrl` 签名（2026-10-19）；`tests/data/adcs.ts`、`src/worker/r2/{listing,objects}.ts`、`tests/helpers/r2.ts` 的切片（D5、D7 → 1）；
-`src/worker/r2/summary.ts`、`tests/worker/{pki-values,crl-upload,r2-summary,extension-parsers}.test.ts`、`builders/primitives.ts`、
-`src/contracts/openapi.ts`、`scripts/generate-openapi.ts` 的切片或新位置；`src/web/api/*` 落到 `src/web/client/`（B20）；`tsconfig.build.json`
-的文件名（B4）；`tests/web/api-client.test.ts`、`tests/worker/api-pagination.test.ts` 的去向；`src/worker/r2/crls.ts` 的 `issuer_mismatch`
-说明（切片 4 步骤 7）；`src/contracts/schemas.ts` 不搬 L510（切片 5a 步骤 1）；`.devcontainer`、夹具脚本、`docs/development.md`、`docs/templates/resources.example.json` 的处置或新位置。
+来源 `worker-aia-cdp@5b570aa`（D4）。由五份迁移盘点生成，按旧路径列出处置、新位置与切片；处置词见总则 §1.4。各切片正文与本表冲突时以切片为准。
 
 | 旧路径（worker-aia-cdp@5b570aa） | 处置 | 新位置 | 切片 |
 | --- | --- | --- | --- |
@@ -21,7 +16,7 @@
 | `src/worker/api/v2/builders/extensions.ts` | migrate-as-is | src/core/summary/extensions.ts | 5a |
 | `src/worker/api/v2/builders/certificate.ts` | migrate-as-is | src/core/summary/certificate.ts | 5a |
 | `src/worker/api/v2/builders/crl.ts` | migrate-adapt | src/core/summary/crl.ts | 5a |
-| `tests/data/adcs.ts` | drop（owner 2026-10-18：不入库；改用合成 AD CS 风格夹具） | — | 1 |
+| `tests/data/adcs.ts` | drop（D7：不入库；改用合成 AD CS 风格夹具） | — | 1 |
 | `tests/worker/extension-parsers.test.ts` | migrate-adapt | tests/core/summary/extension-parsers.test.ts + tests/core/pki/asn1.test.ts | 2,5a |
 | `tests/worker/pki-values.test.ts` | migrate-adapt | tests/core/pki/parsers.test.ts + tests/core/summary/values.test.ts + tests/core/publish.test.ts | 2,4,5a |
 | `tests/worker/extensions-structure.test.ts` | migrate-as-is | tests/core/summary/extensions-structure.test.ts | 5a |
@@ -148,7 +143,7 @@
 | `.github/workflows/ci.yml` | rewrite | .github/workflows/ci.yml | 1 |
 | `.github/workflows/pages.yml` | drop | — | none |
 | `.github/dependabot.yml` | migrate-adapt | .github/dependabot.yml | 1 |
-| `.devcontainer/devcontainer.json` | rewrite（D10，owner 2026-10-19：Node 24 镜像、PowerShell feature、非 root、无 act） | .devcontainer/devcontainer.json | 1 |
+| `.devcontainer/devcontainer.json` | rewrite（D10：Node 24 镜像、PowerShell feature、非 root、无 act） | .devcontainer/devcontainer.json | 1 |
 | `scripts/generate-test-data.sh` | rewrite | tests/fixtures/generate-test-data.sh（fixtures spike 成品 + `leaf-min` 修改；用例矩阵见附录 D） | 1 |
 | `scripts/seed-dev.sh` | rewrite | scripts/seed-dev.ts | 2 |
 | `scripts/reset-dev.sh` | drop | — | 2 |

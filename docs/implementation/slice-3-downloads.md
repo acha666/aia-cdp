@@ -2,32 +2,29 @@
 
 ## 目标与范围
 
-按路径表提供 `/ca/*`、`/crl/*`、`/dcrl/*` 的 DER 与读取时派生的 PEM：摘要 `ETag`、`If-None-Match` → 304（不读 blob）、
-GET 与 HEAD 都显式带 `Content-Length`、按资源种类定 `Content-Type` / `Cache-Control`（CRL 夹紧）、filename 净化过的
-`Content-Disposition`、纯文本 404 / 405。处理 `§10 #1`、`§10 #2`（下载部分）、`§10 #3`，以及 `C6`、`C7`、`C12`（回归）、`C13`、
-`M17`（下载侧）、`M18`、`M19`、`M20`、`M22`。
+按路径表提供 `/ca/*`、`/crl/*`、`/dcrl/*` 的 DER 与读取时派生的 PEM：摘要 `ETag`、304 不读 blob、GET 与 HEAD 都显式带
+`Content-Length`、按种类定 `Content-Type` / `Cache-Control`（CRL 夹紧）、净化 filename、纯文本 404 / 405。
+处理 `§10 #1`、`§10 #2`（下载部分）、`§10 #3`，以及 `C6`、`C7`、`C12`（回归）、`C13`、`M17`（下载侧）、`M18`、`M19`、`M20`、`M22`。
 
-不在本切片：发布与上传（见切片 4）；配置路径规则——字符集、只写 DER 路径、前缀与种类一致、证书路径不改绑（见切片 2）；
-详情接受归档 id（`§10 #2` 的另一半）与 API 的 `downloads` 字段（见切片 5a）；§5.6 备忘的测量（见切片 5a）；
-`docs/operations.md` 的头差异清单（见切片 6）；CryptoAPI 冒烟（见切片 7）。
+不在本切片：发布与上传（切片 4）；配置路径规则——字符集、只写 DER 路径、前缀与种类一致、证书路径不改绑（切片 2）；
+详情接受归档 id（`§10 #2` 的另一半）与 API 的 `downloads` 字段（切片 5a）；plan §5.6 备忘的测量（切片 5a）；
+`docs/operations.md` 的头差异清单（切片 6）；CryptoAPI 冒烟（切片 7）。
 
 ## 前置
 
-- 切片 1 已合并：`createApp(deps)`（`{ store, now, settings, log, ui? }`）、保留前缀 notFound（下载前缀纯文本 404，B7）、
-  `methodNotAllowed` + `onMethodNotAllowed`、`secureHeaders({ strictTransportSecurity: false })`（B8）、请求日志（B12）、
-  memory / fs / r2 适配器（D5）、vitest 五个 project、夹具脚本、`ci:*` 脚本与基于 `createTestHarness` 的 Worker 冒烟。
-- 切片 2 已合并：`src/core/catalog.ts` 的 config / catalog schema 与读取；`src/core/pki/pem.ts`（`derToPem`、`PEM_BLOCK_MARKERS`）；
+- 切片 1：`createApp(deps)`（`src/http/app.ts`）、保留前缀 notFound（B7）、`methodNotAllowed` + `onMethodNotAllowed`（`src/http/errors.ts`）、
+  `secureHeaders`（B8）、`deps.log`；memory / fs / r2 适配器；`tests/http/app.test.ts`；基于 `createTestHarness` 的 Worker 冒烟。
+- 切片 2：`src/core/catalog.ts` 的 config / catalog schema 与读取；`src/core/pki/pem.ts`（`derToPem`、`PEM_BLOCK_MARKERS`）；
   `src/core/summary/catalog-summary.ts`；管理路由与 CLI 的 import / config。
-- 本切片依赖、但不重复校验的配置不变量（切片 2 的 `applyConfig` 保证）：路径表只含 DER 路径、不以 `.pem` 结尾；前缀与种类一致；
+- 依赖、不重复校验的配置不变量（切片 2 `applyConfig` 保证）：路径表只含 DER 路径、不以 `.pem` 结尾；前缀与种类一致；
   被引用的证书在 catalog 中。
-- 从 `main` 切分支 `slice/3-downloads`（D3）。
 
 ## 步骤
 
 1. **PEM 字节格式定为规范（M22）**。`src/core/pki/pem.ts`：`derToPem` 不改（64 列 base64、LF、末尾换行；
    `worker-aia-cdp@5b570aa:src/worker/pki/pem.ts:52-66`）；新增 `pemLength(derSize, markers)` =
-   `begin.length + end.length + b64 + ceil(b64 / 64) + 2`，`b64 = 4 * ceil(n / 3)`。注意：`"<sha256>-pem"` 与 HEAD 长度都依赖
-   这个格式；改换行或列宽必须同时换 ETag 后缀。
+   `begin.length + end.length + b64 + ceil(b64 / 64) + 2`，`b64 = 4 * ceil(n / 3)`。`"<sha256>-pem"` 与 HEAD 长度都依赖
+   这个格式，改换行或列宽必须同时换 ETag 后缀。
 2. **路径表解析**。`src/core/resources.ts` 新增纯函数 `resolveDownload(config, catalog, path)`，返回 `found`（`kind`、`format`、
    `sha256`、`key`、`size`、`filename`、`nextUpdate`、`lastModified`）/ `not_found` / `inconsistent`：
    - `Object.hasOwn(config.paths, path)` 精确匹配、区分大小写 → DER；否则以 `.pem` 结尾且去后缀后命中 → PEM；其余 `not_found`。
@@ -35,7 +32,7 @@ GET 与 HEAD 都显式带 `Content-Length`、按资源种类定 `Content-Type` /
    - 路径引用的证书不在 catalog，或引用的目标不在 `config.targets` → `inconsistent`（例如删除证书与 `applyConfig` 竞争）。
    - 请求路径取 `c.req.path`（Hono 按 `decodeURI` 解码）；不再 `decodeURIComponent`，请求路径也不再当存储键
      （改写 `worker-aia-cdp@5b570aa:src/worker/worker.ts:59-69`）。`src/worker/api/v2/shared/resource.ts` 不迁。
-   匹配规则（M20；2026-10-18 用 hono 4.13.13 探针验证）：
+   匹配规则（M20；hono 4.13.13 探针验证）：
 
    | 请求 | `c.req.path` | 新 | 旧 |
    | --- | --- | --- | --- |
@@ -75,8 +72,8 @@ GET 与 HEAD 都显式带 `Content-Length`、按资源种类定 `Content-Type` /
    4. `c.req.method === "HEAD"` → `c.body(null, 200, 全部头)`，不读 blob。
    5. GET：`store.get(key)`；`null` → 记 `download_blob_missing` 后抛错（500，不是 404）；`bytes.byteLength !== size` → 记
       `download_size_mismatch` 后抛错；DER 原样，PEM 为 `TextEncoder` 编码的 `derToPem(...)`；`Content-Length` 取实际字节数。
-   注意：每个 200 分支都显式设 `Content-Type`——2026-10-18 探针（hono 4.13.13 + `@hono/node-server` 2.1.5 真实 socket）里未设时
-   GET 被补成 `text/plain; charset=UTF-8`、HEAD 没有。`c.body` 只收 `Uint8Array<ArrayBuffer>`（Hono `Data` 类型），端口 `get`
+   每个 200 分支都显式设 `Content-Type`：hono 4.13.13 + `@hono/node-server` 2.1.5 真实 socket 探针里未设时 GET 被补成
+   `text/plain; charset=UTF-8`、HEAD 没有。`c.body` 只收 `Uint8Array<ArrayBuffer>`（Hono `Data` 类型），端口 `get`
    的返回类型按 B3 写，不在下载路径上复制。不支持 `Range`（忽略，200 全量，旧实现同）。旧 `worker.ts:79-83` 的"HEAD 读整对象"不保留。
 5. **挂载与 405（M19、C12）**。`src/http/app.ts`：注册阶段 `app.route("/", downloadRoutes(deps))`（首个请求后 SmartRouter 冻结）。
    `src/http/errors.ts` 的 `onMethodNotAllowed` 按路径分支：`/ca`、`/crl`、`/dcrl` 本身或其下 →
@@ -101,16 +98,15 @@ GET 与 HEAD 都显式带 `Content-Length`、按资源种类定 `Content-Type` /
 
 - `tests/core/pki/pem.test.ts`（追加）：`pemLength(n)` 与 `derToPem(...).length` 在 n = 1…4096 及 1 MiB、两种 marker 下全等；
   `derToPem` 对 `certs/root-ca.der`、`crls/issuing-ca-1/full-01.der` 的输出与夹具 `certs/root-ca.pem`、`crls/issuing-ca-1/full-01.pem`
-  （OpenSSL 输出）逐字节相等（2026-10-18 在 spike 夹具上验证成立）。
+  （OpenSSL 输出）逐字节相等（spike 夹具上已验证）。
 - `tests/core/resources.test.ts`（迁自 `worker-aia-cdp@5b570aa:tests/worker/cache-config.test.ts:78-114`，期望值换新）：步骤 2 匹配表；
   证书 immutable；CRL 无 `nextUpdate` 300、已过期 60（旧 0）、远未来 3600（旧无上限）、`nextUpdate − now = 1234.9 s` → 1234；
   四种 `Content-Type`；`ifNoneMatchHit` 的精确、`W/`、带空格列表、`*`、无引号、空串、缺失；filename 里 `"`、`\`、控制字符、
   非 ASCII → `_`；`inconsistent` 的两种来源。
-- `tests/http/downloads.test.ts`：`createApp({ store, now: () => NOW, … }).request()`，`NOW` 取 `manifest.now`；新建
-  `tests/helpers/seed-downloads.ts` 直接往 `MemoryStore` 写 blob、`config.json`、`catalog.json`（经切片 2 的 schema 与摘要构建器；
-  CRL `current` 直接写，发布在切片 4）。夹具：`certs/root-ca.der`、`certs/issuing-ca-1.der`、`crls/issuing-ca-1/full-01.der`
-  （NOW 后 4 天到期 → 3600）、`crls/issuing-ca-1/delta-01.der`（已过期 → 60）、`crls/issuing-ca-1/full-no-next-update.der`（300）；
-  摘要与长度一律从文件或 manifest 读（B16）。用例：
+- `tests/http/downloads.test.ts`：`createApp({ store, now: () => NOW, … }).request()`；新建 `tests/helpers/seed-downloads.ts` 直接往
+  `MemoryStore` 写 blob、`config.json`、`catalog.json`（经切片 2 的 schema 与摘要构建器；CRL `current` 直接写，发布在切片 4）。
+  夹具：`certs/root-ca.der`、`certs/issuing-ca-1.der`、`crls/issuing-ca-1/full-01.der`（NOW 后 4 天到期 → 3600）、
+  `crls/issuing-ca-1/delta-01.der`（已过期 → 60）、`crls/issuing-ca-1/full-no-next-update.der`（300）；取值见总则 §2.5。用例：
   - DER / PEM 字节；两条路径指向同一证书 → 同字节、同 ETag、读同一个 blob 键；
   - 头快照：证书 DER GET、证书 PEM HEAD、CRL DER GET、304 四个响应的完整头（去 `Date`、排序后 `toEqual` 内联期望），并断言没有
     `Strict-Transport-Security`、`s-maxage`、`stale-while-revalidate`、`filename*`；
@@ -132,15 +128,14 @@ GET 与 HEAD 都显式带 `Content-Length`、按资源种类定 `Content-Type` /
 
 ## 出口条件
 
-- `pnpm run ci:check` 通过（含 `node scripts/generate-openapi.ts --check`：下载路由不进 OpenAPI，`docs/openapi.json` 不变）。
-- `pnpm run ci:test` 通过；`pnpm exec vitest run --project core --project http --project integration` 中本节用例全绿。
-- `pnpm run ci:worker` 通过，含下载段。
+- `docs/openapi.json` 不变：下载路由不进 OpenAPI，`node scripts/generate-openapi.ts --check` 无漂移。
+- `pnpm exec vitest run --project core --project http --project integration` 中本节用例全绿。
+- `pnpm run ci:worker` 的 Worker 冒烟含下载段。
 - 多路径读同一 blob、内部键不可达、HEAD / 304 零 blob 读：`tests/http/downloads.test.ts` 对应用例通过。
 - GET / HEAD 两条运行时一致：Node 集成测试与 Worker 冒烟对 `/ca/root-ca.crt` 及其 `.pem` 得到相同的 `ETag`、`Content-Length`、
   `Content-Type`、`Cache-Control`，体 sha256 等于 `certs/root-ca.der`（PEM 等于派生结果）。
 - 本地手工：用切片 2 的 CLI 导入 `root-ca` 并应用配置后，`curl -sSI http://127.0.0.1:8080/ca/root-ca.crt` 显示 `Content-Length` 与
   带引号的 `ETag`；加 `-H 'If-None-Match: <该 ETag>'` 返回 304。
-- 评审后把 `slice/3-downloads` 本地合并到 `main`（D3）。
 
 ## 风险与对策
 
@@ -150,6 +145,6 @@ GET 与 HEAD 都显式带 `Content-Length`、按资源种类定 `Content-Type` /
 | HEAD 在两条运行时都不自动带 `Content-Length`，`app.request()` 也看不出 Node 传输层差异 | 显式设置；Node 真实 socket 集成测试；Worker 冒烟 |
 | PEM 格式漂移使 `-pem` ETag 与 HEAD 长度失真（M22） | `pemLength` 全等测试 + 与 OpenSSL PEM 夹具逐字节比较 |
 | 切片 2 的路径规则未落实（字符集、DER-only、不改绑） | 下载侧净化 filename、精确匹配兜底；证书路径改绑会被 `immutable` 缓存一年——见切片 2 |
-| 每次下载读 config + catalog（GET 3 次 store 读，HEAD / 304 2 次） | 资源以十计可接受；§5.6 备忘测量见切片 5a |
+| 每次下载读 config + catalog（GET 3 次 store 读，HEAD / 304 2 次） | 资源以十计可接受；plan §5.6 的备忘测量见切片 5a |
 | 头变化对 CryptoAPI 可见（PEM 类型、去边缘指令、`Last-Modified` 值、过期 CRL 60 s、安全头） | 步骤 6 表格；切片 7 用 `certutil -URL` / `-verify -urlfetch` 冒烟 |
 | 存储不一致（blob 缺失、引用失效）被 404 掩盖 | 一律 500 + 日志行（`download_blob_missing`、`download_inconsistent`、`download_size_mismatch`） |

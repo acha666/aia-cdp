@@ -1,16 +1,12 @@
 # aia-cdp：新项目规划（2026-10-17）
 
-状态：规划文档（设计），已按 owner 2026-10-17 的决策定稿；2026-10-19 评审后与 `docs/implementation.md` 一并定稿，代码尚未搭建，下一步是切片 1。
-2026-10-18 修订：§0 决策 5、§2、§4、§6、§8、§10、§12、§13、§14，依据 `docs/review-2026-10-18.md`。
-2026-10-18 第二次修订：§0、§1、§2、§3、§4（新增 §4.4）、§5、§6、§7.1–§7.3、§8、§10–§14，
-依据 owner 2026-10-18 的决策（§0 决策 5、8–14）与 `docs/implementation.md` §0 的规划默认值 B1–B22；前端方案（决策 5、§8、
-切片 5b）已确认。分步实施计划（每个切片的步骤、测试、可执行的出口条件、待 owner 确认项）见 `docs/implementation.md`；
-本文仍是设计文档，与 implementation.md §0 冲突时以后者为准，其余规则由各切片的"文档同步"步骤写回本文。
-2026-10-19 修订：§0（决策 15）、§3、§5.4、§5.5、§8、§9，依据 owner 2026-10-19 对切片 1 两项的决定与三份实施计划评审（见 implementation.md 头部）。
+状态：设计文档，2026-10-17 定稿，之后按 owner 决策与评审修订（经过见 git 历史）。切片 1 已完成（`main` 的 `0b391cc`），下一个是切片 2。
+分步实施计划（每个切片的步骤、测试、可执行的出口条件、待 owner 确认项）在 `docs/implementation/`；本文与之冲突时以后者为准，规则由各切片的
+"文档同步"步骤写回本文。
 
-来源：`worker-aia-cdp` 仓库中的三份分析——`docs/refactoring-plan.md`（2026-10-15 修订）、
-`docs/analysis-2026-10-13.md`、`docs/plan-review-2026-10-17.md`。本文只写新项目需要的东西，
-不再复述对旧实现的逐项评审；凡沿用的业务规则在 §6 一次列全，旧实现要补齐的缺陷在 §10 列全。
+来源：`worker-aia-cdp` 仓库中的三份分析——`docs/refactoring-plan.md`（2026-10-15 修订）、`docs/analysis-2026-10-13.md`、
+`docs/plan-review-2026-10-17.md`，以及本仓库 `docs/review-2026-10-18.md`。本文只写新项目需要的东西，不复述对旧实现的逐项评审；
+凡沿用的业务规则在 §6 一次列全，旧实现要补齐的缺陷在 §10 列全。
 
 ## 0. 决策记录
 
@@ -23,16 +19,16 @@
 | 5   | 前端       | 2026-10-18 确认：Vue 3 + vue-router 5 + TanStack Query + shadcn-vue（Reka UI）+ Tailwind 4 重建；旧 UI 只迁移纯逻辑、扩展渲染块与测试；Pinia 退出。见 review §3、本文 §8 |
 | 6   | 测试       | vitest                                                                                 |
 | 7   | API        | 新 `/api/v1` 重新设计；下载 URL（`/ca/*`、`/crl/*`、`/dcrl/*`）不变；不再提供 v2      |
-| 8   | 交付       | 先只写本文；确认后按 §12 切片 1 搭骨架。2026-10-18：批次 1 = `docs/implementation.md` + 本文修订 + 切片 1，之后每批一个切片 |
-| 9   | Node       | 2026-10-18：Node 24 LTS（EOL 2028-04-30）全面取代 Node 22：`.nvmrc` = `24`、`engines.node` = `^24.11.0` + `engine-strict=true`、`@types/node` 24.x、Docker `ARG NODE_VERSION=24` 与 `node:24-slim`；本机工具链 `~/.local/opt/node-24`（PATH 前缀） |
-| 10  | 版本库     | 2026-10-18：只有本地 git，暂无 GitHub 远端；`main` 放文档，每个切片在 `slice/<n>-<name>` 分支开发、评审后本地合并；CI 工作流照写但无远端时不运行，每个 CI 任务都是本地可跑的 `pnpm run ci:<job>`，切片出口条件在本机用它们验证 |
-| 11  | 切片 1 范围 | 2026-10-18：ObjectStore 端口、memory / fs / r2 适配器与一致性套件从切片 2 移到切片 1，`/api/v1/health` 在切片 1 就做真实的 store / configuration 检查（§10 #15） |
+| 8   | 交付       | 2026-10-18：批次 1 = 实施计划（`docs/implementation/`）+ 本文修订 + 切片 1（已完成），之后每批一个切片 |
+| 9   | Node       | 2026-10-18：Node 24 LTS（EOL 2028-04-30）全面取代 Node 22：`.nvmrc` = `24`、`engines.node` = `^24.11.0` + `engine-strict=true`、`@types/node` 24.x、Docker `ARG NODE_VERSION=24` 与 `node:24-slim` |
+| 10  | 版本库     | 2026-10-18：`main` 放文档与已合入的切片，每个切片在 `slice/<n>-<name>` 分支开发、评审后本地 `--no-ff` 合并；每个 CI 任务都是本地可跑的 `pnpm run ci:<job>`。2026-10-19 建远端 `github.com/acha666/aia-cdp`，合并后推送，GitHub Actions 跑同一组脚本 |
+| 11  | 切片 1 范围 | 2026-10-18：ObjectStore 端口、memory / fs / r2 适配器与一致性套件在切片 1（原在切片 2），`/api/v1/health` 在切片 1 就做真实的 store / configuration 检查（§10 #15） |
 | 12  | shadcn-vue 风格 | 2026-10-18：`--style nova`、base color `neutral`、图标库 lucide（`@lucide/vue`） |
 | 13  | 线上工件   | 2026-10-18：`tests/data/adcs.ts`（pki.acha.top 证书与 CRL 的 base64）不进新仓库；测试只用夹具脚本生成的合成 AD CS 风格夹具（fixtures spike 证明 CA Version / 模板名编码逐字节一致、扩展嵌套相同），旧仓库用到它的测试改用合成夹具迁入 |
 | 14  | 迁移源     | 2026-10-18：`~/aia-cdp/worker-aia-cdp` 本地分支 `parsing-2026-10-18` 的提交 `5b570aa`；每个迁移步骤引用 `worker-aia-cdp@5b570aa:<path>` |
-| 15  | 切片 1 两项 | 2026-10-19：加边界护栏，推翻 §3 原定（ESLint `no-restricted-imports` 分层规则、`typecheck:boundary` 检查 Worker 程序不含 Node 声明、`ci:worker` 断言 Worker 包无 `"node:` 导入）；切片 1 建 devcontainer（Node 24 镜像、PowerShell feature、非 root、无 `act`） |
+| 15  | 切片 1 两项 | 2026-10-19：加边界护栏，推翻原定"不另设 ESLint 导入边界规则和 bundle 卫生断言"（ESLint `no-restricted-imports` 分层规则、`typecheck:boundary` 检查 Worker 程序不含 Node 声明、`ci:worker` 断言 Worker 包无 `"node:` 导入）；切片 1 建 devcontainer（Node 24 镜像、PowerShell feature、非 root、无 `act`） |
 
-决策 5、8–15 即 `docs/implementation.md` §0 的 D1–D10（5 = D1，9 = D2，10 = D3，14 = D4，11 = D5，12 = D6，13 = D7，8 = D8，15 = D9 + D10）。
+决策 5、8–15 即 implementation 总则 §0 的 D1–D10（5 = D1，9 = D2，10 = D3，14 = D4，11 = D5，12 = D6，13 = D7，8 = D8，15 = D9 + D10）。
 
 决策 3 的连带效果：所有写入都经过服务进程。fs 后端只需要进程内互斥，不需要跨进程文件锁
 （`proper-lockfile` 不再需要）；Cloudflare 部署不需要 R2 的 S3 API 令牌，S3 适配器从
@@ -60,9 +56,8 @@
 
 ## 2. 技术选型
 
-版本为 2026-10-17 `npm view` 查到的最新版，2026-10-18 按工具链 spike 修正。依赖一律精确版本（`.npmrc`
-`save-exact=true`），以提交的 `pnpm-lock.yaml` 为准，Docker、CI、全新克隆都用 `pnpm install --frozen-lockfile`；
-首发完整版本表见 `docs/implementation.md` 切片 1 步骤 1，后续切片新增的包见其 §2.3。
+版本为规划时 `npm view` 查到的最新版，并经工具链 spike 修正。依赖一律精确版本（`.npmrc` `save-exact=true`），以提交的
+`package.json` 与 `pnpm-lock.yaml` 为准，Docker、CI、全新克隆都用 `pnpm install --frozen-lockfile`；后续切片新增的包见 implementation 总则 §2.3。
 
 | 领域          | 选型                                            | 版本                              | 说明                                                                                           |
 | ------------- | ----------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -138,40 +133,19 @@ aia-cdp/
     fixtures/          generate-test-data.sh（重写）  global-setup.ts  pki.ts；产物 pki/ 入库
   scripts/             adcs-crl-uploader.ps1  generate-openapi.ts  migrate-from-v2.ts  check-worker-program.ts
                        smoke.sh  node-smoke.sh  worker-smoke.ts  docker-smoke.sh
-  docs/                plan.md（本文）  implementation.md  api.md  operations.md  openapi.json
+  docs/                plan.md（本文）  implementation/（总则 + 每切片一份）  api.md  operations.md  openapi.json
   dist/                web/（vite build） server/（tsc -p tsconfig.build.json） worker/（dry-run）；不入库
 ```
 
 不入库：`worker-configuration.d.ts`、`dist/`、`.wrangler/`、`.data/`、`.dev.vars*`、`node_modules/`。
 `.gitattributes` 设 `*.sh text eol=lf` 与 `tests/fixtures/pki/** -text`（夹具逐字节比较）；`.dockerignore` 用白名单，`tests/fixtures`、`.dev.vars`、`.git` 进不了构建上下文。
 
-模块约定：全仓 ESM。服务端代码（`src/core`、`src/http`、`src/storage`、`src/runtime`、`src/cli`、`scripts`、除 `tests/web`
-外的测试）相对导入写 `.ts` 后缀、不用路径别名，开发与测试由 Node 24 直接运行 `.ts`，`tsc -p tsconfig.build.json` 按
-`rewriteRelativeImportExtensions` 改写为 `.js`；只用可擦除语法（`erasableSyntaxOnly`）与 `import type`（`verbatimModuleSyntax`）。
-`src/web` 走 Bundler 解析，可用 `@/` 别名（shadcn-vue 需要），对服务端模块只许 `import type`。core 与 http 只用 Web 标准全局
-（裸 `crypto`、`performance`，交给 WebCrypto 的字节为 `Uint8Array<ArrayBuffer>`），不出现 `Buffer`、`process`、`node:*`。
-
-tsconfig 拓扑：
-
-| 文件 | 用途 |
-| --- | --- |
-| `tsconfig.json` | 解决方案式：`files: []`，references 依次 worker、node、web；另带 `compilerOptions.paths {"@/*": ["./src/web/*"]}`（shadcn-vue CLI 只读这个文件） |
-| `tsconfig.base.json` | 共享严格选项与模块约定：`allowImportingTsExtensions`、`rewriteRelativeImportExtensions`、`verbatimModuleSyntax`、`erasableSyntaxOnly`、`skipLibCheck: true`、`types: []` |
-| `tsconfig.worker.json` | `lib: ["ES2024"]`（无 DOM），`types: ["./worker-configuration.d.ts"]`：`src/core`、`src/http`、`src/storage/r2.ts`、`src/runtime/{worker,settings}.ts`、Worker canary |
-| `tsconfig.node.json` | NodeNext、`types: ["node"]`、`noEmit`：src 的 Node 图、`src/cli`、`scripts`、`tests`（除 `tests/web` 与 Worker canary）、根配置文件 |
-| `tsconfig.build.json` | 继承 node，只发射 src 的 Node 图：`rootDir: src` → `dist/server`；Dockerfile 与 `pnpm run build:server` 用它；不进根 references |
-| `tsconfig.web.json` | vue-tsc：`src/web` + `tests/web`，DOM，Bundler 解析，`rewriteRelativeImportExtensions: false` |
-
-边界检查 = 三套编译 + 两个 canary：worker、node、web 三个程序都编译 `src/core` 与 `src/http`（web 经
-`import type { AppType }`）；`tests/boundary/worker-canary.ts` 用 `// @ts-expect-error` 断言 Worker 程序里没有 `process`，
-`node-canary.ts` 断言 Node 程序里没有 `R2Bucket`，任一侧混入 `@types/node` 或 Worker 类型，指令变为"未使用"而编译失败。
-R2 适配器按结构化类型 `R2BucketLike` 写，r2 一致性测试因此在 `tsconfig.node.json` 下编译，不另设 tsconfig。
-逐文件选项见 `docs/implementation.md` §2.2 与切片 1 步骤 2。三套编译加 canary 的盲区：core 导入类型不引用 `@types/node` 的
-Node-only 包（编译与 canary 都放过）；类型导入带 `/// <reference types="node" />` 的包（worker canary 会报 TS2578，但看不出来源）；
-core → http / hono 分层（都放过）。原定"不另设 ESLint 导入边界规则和 bundle 卫生断言"已于 2026-10-19
-推翻（决策 15）：`eslint.config.ts` 对 `src/core/**`、`src/http/**` 加 `no-restricted-imports` 分层规则；`scripts/check-worker-program.ts`
-作 `typecheck:boundary` 并入 `typecheck`，Worker 程序的文件清单出现 `@types/node`、`@hono/node-server`、`vite`、`vitest`、`wrangler`
-即失败；`ci:worker` 在 dry-run 后断言 `dist/worker/worker.js` 不含 `"node:` 导入（implementation.md 切片 1 步骤 2、7、12）。
+模块约定（全仓 ESM、服务端相对导入写 `.ts`、只用可擦除语法、`src/web` 对服务端模块只许 `import type`、core 与 http 只用 Web 标准全局）
+见 implementation 总则 §2.1。tsconfig 拓扑（worker / node / web 三个程序加只发射的 `tsconfig.build.json`）与边界检查见总则 §2.2：三套程序都编译
+`src/core` 与 `src/http`，两个 `@ts-expect-error` canary 断言 Worker 程序里没有 `process`、Node 程序里没有 `R2Bucket`；canary 抓不到的三类漏洞
+（core 导入类型不引用 `@types/node` 的 Node-only 包、类型导入带 `/// <reference types="node" />` 的包、core → http / hono 分层）由决策 15 的护栏补上：
+`eslint.config.ts` 对 `src/core/**`、`src/http/**` 的 `no-restricted-imports` 分层规则，`scripts/check-worker-program.ts`（`typecheck:boundary`），以及
+`ci:worker` 断言 `dist/worker/worker.js` 不含 `"node:` 导入。R2 适配器按结构化类型 `R2BucketLike` 写，r2 一致性测试因此在 `tsconfig.node.json` 下编译。
 
 ## 4. 运行时与配置
 
@@ -278,7 +252,7 @@ history/<targetId>/<与 blob 同名>.json                不可变；历史标�
 ```
 
 CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段是十进制 CRL 号、无号时为 `none`；键只由 `crlBlobKey()`
-生成（`docs/implementation.md` 切片 4 步骤 2）。键全部由服务生成（hex、uuid、十进制、固定名），不存在操作员命名的键，
+生成（implementation 切片 4 步骤 2）。键全部由服务生成（hex、uuid、十进制、固定名），不存在操作员命名的键，
 因此不需要键编码、长度、大小写规则；三个适配器仍防御性地用 `assertStoreKey` 校验每个键（§5.4）。
 
 ### 5.2 `config.json`（操作员）
@@ -338,12 +312,12 @@ CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段
 }
 ```
 
-catalog 只存当前指针，大小与资源数成正比，不随发布次数增长。2026-10-18 起历史 = `history/<uuid>/` 下的标记
+catalog 只存当前指针，大小与资源数成正比，不随发布次数增长。历史 = `history/<uuid>/` 下的标记
 （被取代或退役的 current 原样记录，或切片 7 导入的旧版本；键名与 blob 同名，自带 `thisUpdate`、CRL 号与摘要）∪ catalog 的 `current`；
 `blobs/crls/<uuid>/` 下没有标记的孤儿 blob（发布竞争失败或崩溃留下）不算历史（C8）。管理接口各 `list` 一次两个前缀即可列出，
 不逐个读对象。
 
-格式（2026-10-18，`docs/implementation.md` 切片 2 步骤 4、切片 4 步骤 2）：id、`sha1`、key id 小写 hex；时间为 `toISOString()`；
+格式（implementation 切片 2 步骤 4、切片 4 步骤 2）：id、`sha1`、key id 小写 hex；时间为 `toISOString()`；
 CRL 号十进制字符串、按 BigInt 比较；`revokedCount` 是非空整数（发布时总能解析，§10 #7）；`nextPublish` 取 AD CS Next CRL
 Publish（`1.3.6.1.4.1.311.21.4`），缺失为 `null`。拟新增、开工前需 owner 确认的字段：`certificatePaths`（证书路径改绑账本，
 切片 2 第 2 项）、`targets[id].retired`（退役终态，切片 6 第 1 项）。
@@ -367,7 +341,7 @@ export interface ObjectStore {
 ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永远来自内容摘要，store ETag 从不外露，HTTP `If-Match` 的值也从不
 传进适配器。端口、三个适配器与一致性套件在切片 1 交付（决策 11）。三个适配器的 `get` / `head` / `put` / `delete` 先调同一个
 `assertStoreKey`：`/` 分段，每段 `[A-Za-z0-9_-][A-Za-z0-9._-]*`，拒绝空键、空段、`.`、`..`、点开头、绝对路径、`\`、NUL（同时是 fs 的
-路径穿越防护）；`list` 先调 `assertStorePrefix`：`""` 或一个以上合法段加结尾 `/`（如 `blobs/`、`history/<uuid>/`），其余拒绝（2026-10-19）。
+路径穿越防护）；`list` 先调 `assertStorePrefix`：`""` 或一个以上合法段加结尾 `/`（如 `blobs/`、`history/<uuid>/`），其余拒绝。
 
 | 适配器 | 条件写                                                                 | ETag            | 规模    |
 | ------ | ---------------------------------------------------------------------- | --------------- | ------- |
@@ -382,7 +356,7 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 
 ### 5.5 写入顺序
 
-`publishCrl(deps, bytes)`，入口取一次 `deps.now()` 作本次的时间快照（2026-10-19，与 `importCertificate` 同形），与 HTTP 无关：
+`publishCrl(deps, bytes)`，入口取一次 `deps.now()` 作本次的时间快照（与 `importCertificate` 同形），与 HTTP 无关：
 
 1. 按字节识别 PEM/DER，得到 DER 与 `sha256`。
 2. 解析 AKI、CRL 号、delta 指示、扩展、时间；时间解码失败、`thisUpdate` 超前 5 分钟以上、
@@ -418,22 +392,21 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 - 验证：AKI/SKI 匹配 + 签名验证；`issuer_mismatch` 指 AKI 解析到的证书不是该目标配置的
   签发者（默认上传按目标配置的签发者验签、不产生此码，只留给切片 7 的临时历史导入，C5；见 implementation 切片 4
   开工前需 owner 确认第 4 项）；不比较签发者名称、不检查 `cRLSign` 和签发者有效期；Ed25519/Ed448 报
-  `unsupported_algorithm`。2026-10-18 定下验签方式（B21）：先过扩展与时钟策略，再按算法白名单（OID 判定，名单外
+  `unsupported_algorithm`。验签方式（B21）：先过扩展与时钟策略，再按算法白名单（OID 判定，名单外
   → `unsupported_algorithm`，不只 EdDSA），最后对收到的 TBS 字节调
   `pkijs.getCrypto(true).verifyWithPublicKey(tbsView, signatureValue, issuerSpki, signatureAlgorithm)`。不用 PKIjs
-  `crl.verify()`：它比较签发者名称，并对其自有名单外的关键扩展静默返回 false（旧实现即如此，见 §10 末的 C1–C4 更正）；
-  不调 `pkijs.setEngine`（pkijs 3 从 `globalThis.crypto` 自动初始化）。白名单、SHA-1 取舍与策略表见 `docs/implementation.md` 切片 4。
+  `crl.verify()`：它比较签发者名称，并对其自有名单外的关键扩展静默返回 false（旧实现即如此，见 §10 末的 C1–C4）；
+  不调 `pkijs.setEngine`（pkijs 3 从 `globalThis.crypto` 自动初始化）。白名单、SHA-1 取舍与策略表见 implementation 切片 4。
 - 新鲜度：先比字节（相等 → `unchanged`），再比 CRL 号，再比 `thisUpdate`；号相等且
   `thisUpdate` 相等但字节不同 → `conflict`；CRL 号只在一侧存在 → `non_orderable`；更旧 → `stale_crl`。
 - 时钟：注入的 `now` 是唯一时间源；`thisUpdate` 超前 5 分钟以上拒绝 `not_yet_valid`；
   `nextUpdate` 已过去的 CRL 接受并记录日志。
 - 扩展：识别列表为 `2.5.29.20`、`2.5.29.27`（delta 指示）、`2.5.29.35`、`2.5.29.46`、`2.5.29.18`（IAN）、
-  `1.3.6.1.5.5.7.1.1`（AIA）与 AD CS 私有 `1.3.6.1.4.1.311.21.1 / .4 / .14`；识别与关键性无关，标了关键也接受
-  （2026-10-18 补 IAN / AIA 与 M14）。`2.5.29.28`（IDP）非关键接受、关键视为作用域 CRL，拒绝 `scoped_crl_unsupported`
+  `1.3.6.1.5.5.7.1.1`（AIA）与 AD CS 私有 `1.3.6.1.4.1.311.21.1 / .4 / .14`；识别与关键性无关，标了关键也接受（M14）。`2.5.29.28`（IDP）非关键接受、关键视为作用域 CRL，拒绝 `scoped_crl_unsupported`
   （只含 `distributionPoint` 的关键 IDP 见 implementation 切片 4 开工前需 owner 确认第 2 项，推荐接受）；其他未识别关键扩展拒绝 `unknown_critical_extension`。
   条目扩展同样检查：reasonCode、invalidityDate、holdInstructionCode 接受，certificateIssuer（间接 CRL）→
   `scoped_crl_unsupported`，其他关键 → `unknown_critical_extension`。未识别的非关键扩展保留原始字节在详情里展示。
-  策略表见 `docs/implementation.md` 切片 4 步骤 3。
+  策略表见 implementation 切片 4 步骤 3。
 - delta 与 base 相互独立：记录并展示 `baseCrlNumber`，不与已发布 full CRL 对账。
 - 下载：路径表命中 → 资源 → catalog 的 current → 先用摘要生成 `ETag`（DER `"<sha256>"`，
   PEM `"<sha256>-pem"`）→ `If-None-Match` 命中直接 304 → 否则读 blob，DER 原样、PEM 现场派生。
@@ -478,7 +451,7 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
   "downloads": ["/crl/issuing-ca-1.crl", "/crl/issuing-ca-1.crl.pem"] }
 ```
 
-`thisUpdate` 必填、`nextUpdate` 可空；`baseCrlNumber` 与签发者证书 id `issuer` 为 2026-10-18 补（M16）。
+`thisUpdate` 必填、`nextUpdate` 可空；`baseCrlNumber` 与签发者证书 id `issuer` 见 M16。
 
 ### 7.2 管理路由（`Authorization: Bearer <AIA_ADMIN_TOKEN>`）
 
@@ -528,7 +501,7 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 
 ## 8. 前端
 
-2026-10-18 修订，同日 owner 确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-18.md` §3）：不再整体迁入旧
+owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-18.md` §3）：不再整体迁入旧
 `src/web`，而是在同一技术线（Vue 3 + Tailwind 4）上用组件库重建；旧代码只迁移纯逻辑与测试。
 
 - 基座：`vue-router`（history 模式）；`@tanstack/vue-query`（列表 / 详情 `useQuery`，上传
@@ -587,15 +560,15 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 | 4   | 相同 CRL 重复上传返回 409，UI 显示失败                                   | `unchanged` 200                                          | 4, 5b |
 | 5   | PEM / alias / archive 伴随写失败使成功发布报 500；`caches.default` 在 Node 上崩 | 无伴随写、无边缘缓存，单提交点                   | 2, 4 |
 | 6   | 归档写无条件，重试覆盖来源信息；并发发布无保护                           | 内容寻址 blob + catalog 条件写重试                       | 4    |
-| 7   | `revokedCount` 未知时显示 0                                              | 可空字段，UI 显示"未知"；2026-10-18：发布时总能解析，`revokedCount` 实为非空整数，"未知"只以 `current: null`（未发布）出现，见 implementation 切片 5a 步骤 5 | 4, 5a, 5b |
-| 8   | 详情缺 `signatureAlgorithm`；算法 `parameters` 从不输出；契约含永不产生的变体 | 2026-10-18 已在旧实现完成（参数解码、`SignatureValue.parsed`、死变体清理待新契约）；切片 5a 迁入 | 5a |
+| 7   | `revokedCount` 未知时显示 0                                              | 发布时总能解析，`revokedCount` 是非空整数；"未知"只以 `current: null`（未发布）出现，见 implementation 切片 5a 步骤 5 | 4, 5a, 5b |
+| 8   | 详情缺 `signatureAlgorithm`；算法 `parameters` 从不输出；契约含永不产生的变体 | 已在迁移源 `5b570aa` 完成（参数解码、`SignatureValue.parsed`，死变体清理待新契约）；切片 5a 迁入 | 5a |
 | 9   | 全 null 信封通过 200 校验变成空列表                                      | 按状态码 schema，无可空信封                              | 5a   |
 | 10  | `relationships` 永远为空                                                 | 从配置填充证书 `targets` 与 CRL `issuer`                 | 5a, 5b |
-| 11  | 畸形 ASN.1 时间解码成 1899 并进入新鲜度判断                              | 2026-10-18 已在旧实现完成（`pki/asn1.ts` 严格时间，解析期拒绝）；切片 2 随 `src/core/pki` 迁入（证书导入即需要），切片 4 用于 CRL | 2, 4 |
-| 12  | 未来 `thisUpdate`、未知关键扩展、作用域 CRL 无显式策略（2026-10-18 更正：并非"无策略"，而是 PKIjs 隐藏的已知扩展闸，见表后 C2） | 时钟策略与显式识别 / 关键性策略表，验签前执行 | 4    |
+| 11  | 畸形 ASN.1 时间解码成 1899 并进入新鲜度判断                              | 已在迁移源 `5b570aa` 完成（`pki/asn1.ts` 严格时间，解析期拒绝）；切片 2 随 `src/core/pki` 迁入（证书导入即需要），切片 4 用于 CRL | 2, 4 |
+| 12  | 未来 `thisUpdate`、未知关键扩展、作用域 CRL 无显式策略（实为 PKIjs 隐藏的已知扩展闸，见表后 C2） | 时钟策略与显式识别 / 关键性策略表，验签前执行 | 4    |
 | 13  | `constructor.name` 判编码，压缩后退化为 unknown                          | 按字节识别 PEM/DER；DN 编码按 ASN.1 tag 判定随构建器迁入   | 2, 5a |
 | 14  | 证书只能手工放进 R2 `ca/`，摘要靠请求时补全                              | 导入接口，导入时生成完整摘要                             | 2    |
-| 15  | 健康检查硬编码 cache ok，从不降级                                        | 真实 store / configuration 检查，`degraded` 状态；决策 11 把 store 适配器移入切片 1 后才能在切片 1 做，切片 2 升级为完整 schema 与规则 | 1, 2 |
+| 15  | 健康检查硬编码 cache ok，从不降级                                        | 真实 store / configuration 检查，`degraded` 状态；切片 1 起检查，切片 2 升级为完整 schema 与规则 | 1, 2 |
 | 16  | 统计按桶前缀字节                                                         | 按资源计数与字节                                         | 5a   |
 | 17  | ts-rest 忽略 `no-store`，上传后 30 秒内读到旧数据                        | `hc` 的 `init` + API `no-store`                          | 1, 5a, 5b |
 | 18  | `SITE_NAME` 四条通道三条是死的                                           | 仅构建时                                                 | 1, 5b |
@@ -607,11 +580,11 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 | 24  | 日志无结构                                                               | JSON 行                                                  | 1    |
 | 25  | `thisUpdate` 缺失时序列化为空字符串                                      | 时间字段必填，缺失即拒绝                                 | 4    |
 | 26  | 文档与代码多处不一致                                                     | OpenAPI 从代码生成；README、api.md、operations.md 重写   | 6    |
-| 27  | 详情解析覆盖不足：AD CS 私有扩展（CA Version、模板名、Next CRL Publish、CRL Self CDP）、Freshest CRL、IDP、Name/Policy Constraints 等全是 `unsupported`，`1.3.6.1.4.1.311.21.1` 被错标为模板名；DN 编码靠 `constructor.name`；无 `rfc4514`、无 ECDSA (r, s) | 2026-10-18 已在旧实现完成（解析器 13 → 41 个，旧仓库用 `tests/data/adcs.ts` 的线上工件回归）；切片 5a 迁入解析器，回归改用合成 AD CS 风格夹具（`tests/data/adcs.ts` 不入库，决策 13） | 5a |
+| 27  | 详情解析覆盖不足：AD CS 私有扩展（CA Version、模板名、Next CRL Publish、CRL Self CDP）、Freshest CRL、IDP、Name/Policy Constraints 等全是 `unsupported`，`1.3.6.1.4.1.311.21.1` 被错标为模板名；DN 编码靠 `constructor.name`；无 `rfc4514`、无 ECDSA (r, s) | 已在迁移源 `5b570aa` 完成（解析器 13 → 41 个，旧仓库用 `tests/data/adcs.ts` 的线上工件回归）；切片 5a 迁入解析器，回归改用合成 AD CS 风格夹具（`tests/data/adcs.ts` 不入库，决策 13） | 5a |
 | 28  | 未识别扩展只给 hex；UI "签名算法"显示 Unknown（store 未请求该字段）       | 未识别 / 错误扩展附带 ASN.1 结构 dump（已完成）；新 UI 详情一次取全部分区 | 5a, 5b |
 
-2026-10-18 盘点更正（完整性评审 C1–C4）：线上旧实现（`worker-aia-cdp@0ea3130`）与迁移源（`5b570aa`）都用 PKIjs
-`crl.verify()` 与同一套新鲜度比较，实际行为和本表 #4、#12 及 §6 的隐含描述不同。§6 的规则不变，是新规则而不是"沿用"；这里只更正对旧行为的描述，处理都在切片 4（`docs/implementation.md` 附录 B.2）：
+线上旧实现（`worker-aia-cdp@0ea3130`）与迁移源（`5b570aa`）都用 PKIjs `crl.verify()` 与同一套新鲜度比较，实际行为如下（完整性评审 C1–C4）；
+§6 的对应规则是新规则而不是"沿用"，处理都在切片 4（implementation 附录 B.2）：
 
 | # | 线上实际行为 | 新项目 |
 | --- | --- | --- |
@@ -622,7 +595,7 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 
 ## 11. 测试与 CI
 
-2026-10-18 修订（B15、B16、B19、决策 10、13）；布局细节见 `docs/implementation.md` §2.5，脚本表见其切片 1 步骤 12。
+布局与夹具规则见 implementation 总则 §2.5（B15、B16、决策 13），脚本见 `package.json`。
 
 - vitest 5 `projects`：`core`、`http`、`storage`、`integration`（node 环境）与 `web`（happy-dom），用例在
   `tests/<project>/**/*.test.ts`；独立的 `vitest.config.ts`（不继承 `vite.config.ts` 的 `root`）。HTTP 测试通过
@@ -635,7 +608,7 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
   需要 bash 与 OpenSSL ≥ 3.0（不是 LibreSSL），只在开发与 CI，运行时不需要。测试里的摘要、key id、序列号、大小一律从文件或
   manifest 读（每次重新生成都换密钥，ECDSA / PSS 签名与摘要全变），`now` 注入 `manifest.now`。场景覆盖 created / updated / unchanged / stale /
   conflict / non_orderable / 坏签名 / 伪造 AKI / 未知关键扩展 / 作用域 IDP / 未来 `thisUpdate` / 过期 / delta / EdDSA / PSS /
-  无 AKI / 畸形时间 / AD CS 形态（取代原文"现有签名 CRL 夹具覆盖 …"的不实描述，C11）。不用线上工件（决策 13）。
+  无 AKI / 畸形时间 / AD CS 形态（C11；用例矩阵见 implementation 附录 D）。不用线上工件（决策 13）。
 - 存储一致性：同一套用例对 memory 与 fs 每次运行（r2 适配器另用假桶每次运行）；真 r2 在 `AIA_TEST_R2=1`（`pnpm run test:r2`）下经
   `getPlatformProxy({ configPath: "wrangler.jsonc", persist: false })` 运行，`ci:worker` 包含它且要求 passed 而不是 skipped。
 - Node 集成：在临时目录起真实服务与 fs 存储，走 CLI import → config apply → 上传 →
@@ -646,33 +619,33 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
   加 `config apply` 与一次下载。
 - CI：`.github/workflows/ci.yml` 四个任务 `check`（`pnpm run types` 后 worker / node / web 三套编译与 canary、lint、format、
   OpenAPI 漂移）、`test`（单元 + 集成 + `smoke:node`）、`worker`（dry-run + harness 冒烟 + R2 一致性）、`docker`，每个任务只装依赖并
-  调用 `pnpm run ci:<job>`；`.github/dependabot.yml` 管 npm、github-actions、docker。仓库暂无远端（决策 10），工作流不运行，
-  四个 `pnpm run ci:*` 在本机执行，本机结果是唯一事实来源。`pnpm verify` = check + test + build。
+  调用 `pnpm run ci:<job>`；`.github/dependabot.yml` 管 npm、github-actions、docker。GitHub Actions 在推送 `main` 与 PR 时运行（决策 10），本机执行的是
+  同一组脚本。`pnpm verify` = check + test + build。
 
 ## 12. 实施切片
 
-2026-10-18 修订（决策 10、11）：每个切片一个本地分支 `slice/<n>-<name>`，从最新 `main` 切出，评审后本地
-`git merge --no-ff` 合入 `main`，不推送、不部署（生产部署只在切片 7）；严格串行。每个切片的步骤、测试、可在本机执行的
-出口条件与"开工前需 owner 确认"见 `docs/implementation.md` §3–§11，完成定义见其 §1.3；下表的出口条件只是摘要，以 implementation.md 为准。
+每个切片一个分支 `slice/<n>-<name>`，从最新 `main` 切出，评审后本地 `git merge --no-ff` 合入 `main` 再推送；不部署（生产部署只在切片 7）；
+严格串行（决策 10、11）。每个切片的步骤、测试、可在本机执行的出口条件与"开工前需 owner 确认"见 `docs/implementation/` 下的切片文件，完成定义见
+总则 §1.3；下表的出口条件只是摘要，以切片文件为准。
 
 | 切片 | 内容                                                                                                              | 出口条件                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| 1 骨架与存储 | 依赖、tsconfig 拓扑与边界检查（§3：canary + 决策 15 的护栏）、devcontainer（决策 15）、ObjectStore 端口 + memory/fs/r2 适配器 + 一致性套件（决策 11）、`createApp`（真实 health、运行时 `openapi.json`、保留前缀与 UI 兜底）、Worker 与 Node 入口、Dockerfile、vitest、夹具脚本重写、日志中间件、`ci:*` 脚本与 CI 工作流、shadcn-vue 占位 UI | 全新克隆 `pnpm run verify` 通过；四个 `pnpm run ci:*` 本机通过（r2 一致性为 passed）；`wrangler dev` 冒烟；镜像 healthy 而 API 报 `degraded`（implementation §3 出口条件） |
-| 2 catalog 与导入 | catalog/config schema 与条件写重试、`src/core/pki` 迁入、`importCertificate`、`applyConfig`、health 升级为完整 schema 与规则、管理路由 import/config、CLI import/config/health | CLI 在 fs（Node 集成测试）与本地 R2（`wrangler dev` + `seed:dev`）上导入并应用配置；镜像内 CLI 可用（implementation §4） |
-| 3 下载 | 路径表解析、下载路由、PEM 派生、ETag/304/`Content-Length`/`Cache-Control`、纯文本 404/405                         | 多个路径读同一 blob；内部键不可达；HEAD / 304 不读 blob；GET/HEAD 在两条运行时头与字节一致（implementation §5） |
-| 4 发布 | `publishCrl`、history 标记、上传路由、三种结果与拒绝原因、`bodyLimit`/`bearerAuth`、发布日志、`aia publish`、AD CS 助手重写 | 夹具覆盖 created/updated/unchanged/stale/conflict/并发/过期/未来/未知关键扩展，拒绝零写入；助手手动验证（implementation §6） |
-| 5a API 与客户端 | 列表 / 详情 / 统计路由、OpenAPI 补全、`hc` 类型导出、PKI 构建器迁入（含 2026-10-18 在旧实现补齐的扩展解析，回归改用合成 AD CS 风格夹具，决策 13） | 处理器返回值受类型检查；`openapi` 漂移检查通过；构建器用例在 vitest 下全绿；测量表填满（implementation §7） |
-| 5b UI | §8 的路由、组件库、vue-query、总览与详情页、上传、zh-CN、CSP；`shadcn-vue init` 在切片 1 已完成 | web 测试与 UI 场景通过；两条运行时的 SPA 兜底可用；产物 < 250 KB gzip（implementation §8） |
-| 6 管理补全与文档 | history / retire / delete 路由与 CLI、README、`docs/api.md`、`docs/operations.md`（含迁移与回滚手册）     | 每个职责只有一个实现；`pnpm verify` 与四个 `pnpm run ci:*` 本机全绿（implementation §9） |
-| 7 迁移 | `scripts/migrate-from-v2.ts`、临时历史导入路由、在非生产环境演练、生产切换（含替换 AD CS 助手）、`slice/7-cleanup` 删临时路由 | 路径表每条 URL 返回与旧 URL 相同的 DER 摘要（或 `advanced`）；旧对象未删；CryptoAPI 冒烟通过；回滚手册验证过（implementation §10） |
-| 8 S3（按需） | `storage/s3.ts`（`@aws-sdk/client-s3`，`IfMatch` / `IfNoneMatch`）、`pnpm run ci:s3`（MinIO）与可选 CI 任务、多实例部署说明；owner 确认要做才开工 | 一致性测试对 MinIO 绿（implementation §11）                                               |
+| 1 骨架与存储 | 依赖、tsconfig 拓扑与边界检查（§3：canary + 决策 15 的护栏）、devcontainer（决策 15）、ObjectStore 端口 + memory/fs/r2 适配器 + 一致性套件（决策 11）、`createApp`（真实 health、运行时 `openapi.json`、保留前缀与 UI 兜底）、Worker 与 Node 入口、Dockerfile、vitest、夹具脚本重写、日志中间件、`ci:*` 脚本与 CI 工作流、shadcn-vue 占位 UI | 全新克隆 `pnpm run verify` 通过；四个 `pnpm run ci:*` 本机通过（r2 一致性为 passed）；`wrangler dev` 冒烟；镜像 healthy 而 API 报 `degraded`（implementation 切片 1） |
+| 2 catalog 与导入 | catalog/config schema 与条件写重试、`src/core/pki` 迁入、`importCertificate`、`applyConfig`、health 升级为完整 schema 与规则、管理路由 import/config、CLI import/config/health | CLI 在 fs（Node 集成测试）与本地 R2（`wrangler dev` + `seed:dev`）上导入并应用配置；镜像内 CLI 可用（implementation 切片 2） |
+| 3 下载 | 路径表解析、下载路由、PEM 派生、ETag/304/`Content-Length`/`Cache-Control`、纯文本 404/405                         | 多个路径读同一 blob；内部键不可达；HEAD / 304 不读 blob；GET/HEAD 在两条运行时头与字节一致（implementation 切片 3） |
+| 4 发布 | `publishCrl`、history 标记、上传路由、三种结果与拒绝原因、`bodyLimit`/`bearerAuth`、发布日志、`aia publish`、AD CS 助手重写 | 夹具覆盖 created/updated/unchanged/stale/conflict/并发/过期/未来/未知关键扩展，拒绝零写入；助手手动验证（implementation 切片 4） |
+| 5a API 与客户端 | 列表 / 详情 / 统计路由、OpenAPI 补全、`hc` 类型导出、PKI 构建器迁入（含迁移源 `5b570aa` 补齐的扩展解析，回归改用合成 AD CS 风格夹具，决策 13） | 处理器返回值受类型检查；`openapi` 漂移检查通过；构建器用例在 vitest 下全绿；测量表填满（implementation 切片 5a） |
+| 5b UI | §8 的路由、组件库、vue-query、总览与详情页、上传、zh-CN、CSP；`shadcn-vue init` 在切片 1 已完成 | web 测试与 UI 场景通过；两条运行时的 SPA 兜底可用；产物 < 250 KB gzip（implementation 切片 5b） |
+| 6 管理补全与文档 | history / retire / delete 路由与 CLI、README、`docs/api.md`、`docs/operations.md`（含迁移与回滚手册）     | 每个职责只有一个实现；`pnpm verify` 与四个 `pnpm run ci:*` 本机全绿（implementation 切片 6） |
+| 7 迁移 | `scripts/migrate-from-v2.ts`、临时历史导入路由、在非生产环境演练、生产切换（含替换 AD CS 助手）、`slice/7-cleanup` 删临时路由 | 路径表每条 URL 返回与旧 URL 相同的 DER 摘要（或 `advanced`）；旧对象未删；CryptoAPI 冒烟通过；回滚手册验证过（implementation 切片 7） |
+| 8 S3（按需） | `storage/s3.ts`（`@aws-sdk/client-s3`，`IfMatch` / `IfNoneMatch`）、`pnpm run ci:s3`（MinIO）与可选 CI 任务、多实例部署说明；owner 确认要做才开工 | 一致性测试对 MinIO 绿（implementation 切片 8）                                               |
 
 ## 13. 从现有部署迁移
 
-2026-10-18 更正（C9、C10）：本节原文有两个前提不成立。第 4 步的归档键描述的是旧仓库从未部署的工作树分支
-`parsing-2026-10-18`（含 `5b570aa`，称 Gen C）；线上 pki.acha.top 跑的是 `worker-aia-cdp@0ea3130`（Gen B），更早的对象来自 Gen A，
-两代的归档名都不含摘要且同名覆盖，所以历史迁移是**尽力而为**，不是确定性的。另外，旧助手把 v1 响应记为失败，切换时只改
-`UploadUri` 不够。真实的线上键布局、探测名集、盘点通道、归属规则与切换步骤以 `docs/implementation.md` 切片 7 为准，下文只保留轮廓。
+线上 pki.acha.top 跑的是 `worker-aia-cdp@0ea3130`（Gen B），更早的对象来自 Gen A，两代的归档名都不含摘要且同名覆盖，所以历史迁移是
+**尽力而为**，不是确定性的；旧仓库分支 `parsing-2026-10-18`（含 `5b570aa`，称 Gen C）的归档键从未部署（C9）。旧助手把 v1 响应记为失败，
+切换时必须换脚本，只改 `UploadUri` 不够（C10）。线上键布局、探测名集、盘点通道、归属规则与切换步骤以 implementation 切片 7 为准，
+下文只保留轮廓。
 
 新服务与旧 Worker 技术上可以共用同一个 R2 桶：新布局的前缀（`config.json`、`catalog.json`、
 `blobs/`、`history/`）与旧前缀（`ca/`、`crl/`、`dcrl/`，其下有 `by-keyid/`、`archive/`）不相交，旧对象原样不动。推荐默认不共用：
@@ -687,8 +660,8 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
    为每个（签发者, kind）生成一个 target UUID，按旧 URL 生成 `config.json` 的路径表，
    `PUT /api/v1/admin/config`。
 3. 对每个当前 CRL `POST /api/v1/crls`（正常发布路径，期待 created）。
-4. 历史（尽力而为）：原文写的 `crl/archive/<base>-<crlNumber>-<sha256>.crl`、`dcrl/archive/...`（"可枚举且自带 CRL 号"）
-   是 Gen C 格式，从未部署。线上归档是 Gen A/B 的 `<folder>/archive/<名>-<crlNumber>.crl`，无摘要、同名覆盖；脚本按可预测的名字逐号
+4. 历史（尽力而为）：线上归档是 Gen A/B 的 `<folder>/archive/<名>-<crlNumber>.crl`，无摘要、同名覆盖（Gen C 的
+   `crl/archive/<base>-<crlNumber>-<sha256>.crl` 从未部署）；脚本按可预测的名字逐号
    HTTP 探测、与 `/api/v2/stats` 对账，按字节归属与验签，按 CRL 号与 `thisUpdate` 顺序经仅迁移期使用的管理路由
    `POST /api/v1/admin/crls/{targetId}/history` 写入 blob 与 history 标记（不动 current；切片 7 加、`slice/7-cleanup` 删）。
    被同名覆盖的旧版本不可恢复，写进迁移报告。见 §14 #9。
@@ -710,23 +683,10 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 6. 公开 API 的 `DELETE /admin/certificates/{id}` 保留在首发里（约 30 行）。
 7. 进程内 config/catalog 备忘默认关闭。
 8. Node 侧用 `tsc -p tsconfig.build.json` 编译到 `dist/server`，不做单文件打包。
-9. 历史迁移：旧归档键可枚举且含 CRL 号，按 CRL 号顺序迁入；无法枚举时才从切换日起算（2026-10-18 改）。
-   2026-10-18 第二次修订更正（C9）：这描述的是从未部署的 Gen C；线上 Gen A/B 归档无摘要且同名覆盖，历史迁移改为尽力而为
-   （按可预测名 HTTP 探测 + stats 对账 + 按字节归属），见 §13 与 `docs/implementation.md` 切片 7。
-10. i18n 保留现有 `en`，补 `zh-CN`（2026-10-18 改；切片 1 的占位页已带两种 locale，切片 5b 补全翻译）。
+9. 历史迁移尽力而为：线上 Gen A/B 归档无摘要且同名覆盖，按可预测名 HTTP 探测 + stats 对账 + 按字节归属，按 CRL 号顺序迁入（C9），
+   见 §13 与 implementation 切片 7。
+10. i18n 保留现有 `en`，补 `zh-CN`（切片 1 的占位页已带两种 locale，切片 5b 补全翻译）。
 11. 新项目目录 `~/aia-cdp/aia-cdp`（旧仓库在 `~/aia-cdp/worker-aia-cdp`），仓库名 `aia-cdp`；本文件路径 `docs/plan.md`。
-
-以下为 2026-10-18 第二次修订加入，括号内是 `docs/implementation.md` §0 的编号（完整列表与落实位置见该表，各切片另有标"默认值，可推翻"的细则）：
-
-12. 精确锁定 `typescript@5.9.3`、`wrangler@4.151.1`，pnpm 只经 corepack 按 `packageManager: pnpm@10.34.7` 解析（B1）。
-13. `worker-configuration.d.ts` 由 `wrangler types --env-file=/dev/null` 生成、不入库，`pnpm run types` 在 check / typecheck / lint 前重生成（B5）。
-14. 不发 HSTS：`secureHeaders({ strictTransportSecurity: false })`，其余 Hono 默认头保留；CSP 由切片 5b 定（B8）。
-15. 保留前缀 `/api/`、`/ca/`、`/crl/`、`/dcrl/` 不进 UI 兜底：API 未命中 JSON 404，下载前缀未命中纯文本 `404 Not Found`（`no-store`）、
-    方法不符纯文本 405 + `Allow: GET, HEAD`；末段带扩展名的路径不兜底；UI 缓存头由应用设置（B7，§4.4）。
-16. 下载 ETag / 304 手写、先于读 blob，不用 `hono/etag`；`bearerAuth` 对畸形 `Authorization` 回 400（B9）。
-17. health 形状与降级规则按 §7.1，store 抛错 503、配置缺失或无效 200 `degraded`（B10）。
-18. OpenAPI 文档运行时从路由表生成，另提交 `docs/openapi.json` 作漂移基线，`src` 不导入它（B11）。
-19. 夹具由脚本生成后入库，globalSetup 只校验，测试值从 manifest 读（B16）。
-20. Docker 基础镜像用浮动标签 `node:24-slim`，digest 固定以后再定；不加 `deploy` 脚本，生产部署只在切片 7（B6、B18）。
-21. CRL blob 键带 CRL 号；历史 = history 标记 ∪ current，孤儿 blob 不算历史；catalog 条件写 1 + 3 次尝试（切片 4，§5.1、§5.3、§5.5）。
-22. `revokedCount` 非空；`/api/v1/stats` 不含时间相关字段，"需关注"数在客户端算（切片 5a，§7.1）。
+12. 其余规划默认值（版本锁定、`worker-configuration.d.ts` 不入库、不发 HSTS、保留前缀与 UI 兜底、手写 ETag / 304、health 形状、运行时
+    OpenAPI、夹具入库、浮动 Docker 基础标签、不加 `deploy` 脚本等）是 implementation 总则 §0 的 B1–B22，落实位置见该表；CRL blob 键、
+    历史定义与重试次数见 §5，`revokedCount` 非空与 stats 不含时间字段见 §5.3、§7.1。

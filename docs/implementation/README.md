@@ -1,49 +1,58 @@
-# aia-cdp：实施步骤（2026-10-18）
+# aia-cdp 实施计划：总则与索引
 
-状态：实施计划，2026-10-18 起草，2026-10-19 评审后定稿；代码尚未搭建（`main` 只有 `a30f6dc` 的 plan 与 review），下一步是切片 1。
-owner 决策 D1–D10 已定，B1–B22 是规划默认值，可推翻（§0）；各切片未决事项列在该切片的"开工前需 owner 确认"，汇总见附录 C。
+状态：切片 1 已完成（`main` 的 `0b391cc`），下一个是切片 2。owner 决策 D1–D10 已定，B1–B22 是规划默认值、可推翻（§0）；各切片未决事项列在
+该切片的"开工前需 owner 确认"，汇总见附录 C。设计文档是 `docs/plan.md`；二者冲突时以本目录为准，并在同一分支回写 plan.md。
 
-2026-10-19 评审修订：覆盖面（10 条）、切片 1 可执行性（13 条）、一致性（20 条）三份评审共 43 条，逐条对照文档、spike 与旧源码核实后
-全部采纳、0 条驳回（重叠的按同一问题只改一次）。主要改动：夹具用例矩阵列入附录 D 作重写契约，生成器已在工作树、切片 1 步骤 9 提交并去掉
-`leaf-min` 的 SKI / AKI；`list` 改用 `assertStorePrefix`；切片 1 出口条件改为可重复执行的命令；health 用最小完整配置；切片 2 加 V9
-（目标的签发者与 kind 不可改）、`PUT /admin/config` 可替换无效配置；补齐切片 2→4、3→4、5a→7、5a→6 的断链与切片 7 的 §10 #27 核对。
-同日 owner 确认切片 1 的两项：加边界护栏（D9），本切片建 devcontainer（D10）。
+| 文件 | 内容 |
+| --- | --- |
+| `README.md`（本文，"总则"） | §0 决策与默认值；§1 顺序、分支与完成定义；§2 跨切片的通用约定 |
+| `slice-1-skeleton.md` | 切片 1：骨架、存储端口与适配器（已完成，保留作记录与回归命令） |
+| `slice-2-catalog-import.md` | 切片 2：catalog/config 与导入 |
+| `slice-3-downloads.md` | 切片 3：下载 |
+| `slice-4-publish.md` | 切片 4：发布与 AD CS 助手 |
+| `slice-5a-api.md` | 切片 5a：API 与客户端 |
+| `slice-5b-ui.md` | 切片 5b：UI |
+| `slice-6-admin-docs.md` | 切片 6：管理补全与文档 |
+| `slice-7-migration.md` | 切片 7：迁移 |
+| `slice-8-s3.md` | 切片 8：S3（按需） |
+| `appendix-a-migration-inventory.md` | 附录 A：旧仓库逐文件的迁移处置 |
+| `appendix-b-coverage.md` | 附录 B：§10 缺陷与 C / M 评审项的去向 |
+| `appendix-c-owner-questions.md` | 附录 C：待 owner 确认汇总 |
+| `appendix-d-fixture-matrix.md` | 附录 D：夹具用例矩阵 |
 
-来源：`docs/plan.md`（2026-10-17 定稿、10-18 修订）、`docs/review-2026-10-18.md`；2026-10-18 对 `worker-aia-cdp@5b570aa` 的迁移盘点
-（PKI、存储与发布、HTTP 契约、Web、工具链五份清单与一份完整性评审）；在 Node 24.22.0 上跑的六个工具链 spike（hono-node、quality、
-web、docker、cloudflare、fixtures）。这些原始报告是临时材料，不在仓库里；本文只用其结论，写"spike 验证"的事实以当时的版本为准。
+来源：`docs/plan.md`、`docs/review-2026-10-18.md`；对 `worker-aia-cdp@5b570aa` 的迁移盘点（PKI、存储与发布、HTTP 契约、Web、工具链五份
+清单与一份完整性评审）；在 Node 24.22.0 上跑的六个工具链 spike（hono-node、quality、web、docker、cloudflare、fixtures）。原始报告不在仓库里，
+写"spike 验证"的事实以当时的版本为准。
 
-引用约定：`§N`、`§10 #k` 指 `docs/plan.md` 的章节与 §10 缺陷表第 k 行；`C1`–`C13`、`M1`–`M24` 是完整性评审列出的计划矛盾与
-旧代码中计划漏写的规则，逐条去向见附录 B；`D`、`B` 编号见 §0；本文自身章节写"本文 §N"，切片写"切片 N"（"切片 N 步骤 k"指该切片
-"步骤"下的第 k 条）。
+引用约定：`§N`、`§10 #k` 指 `docs/plan.md` 的章节与 §10 缺陷表第 k 行；`C1`–`C13`、`M1`–`M24` 是完整性评审列出的计划矛盾与旧代码中
+计划漏写的规则，逐条去向见附录 B；`D`、`B` 编号见 §0；"总则 §N"指本文的章节；"切片 N 步骤 k"指该切片"步骤"下的第 k 条，
+"切片 N 出口 k"指其"出口条件"第 k 条。
 
 ## 0. 决策与默认值
 
-本节与 `docs/plan.md` 冲突时以本节为准；plan.md 在批次 1 按本节修订（本文 §1.2）。
+owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 2026-10-19 切片 1 开工前）：
 
-owner 决策（2026-10-18 逐项询问后确定；D9、D10 为 2026-10-19 切片 1 开工前确认）：
-
-| # | 事项 | owner 决定（2026-10-18；D9、D10 为 2026-10-19） |
+| # | 事项 | owner 决定 |
 | --- | --- | --- |
-| D1 | 前端（plan 决策 5） | 确认：Vue 3 + vue-router 5 + TanStack Query + shadcn-vue（Reka UI）+ Tailwind 4；Pinia 退出 |
-| D2 | Node | Node 24 LTS（EOL 2028-04-30）全面取代 Node 22：`.nvmrc` = `24`、`engines.node` = `^24.11.0`、`engine-strict=true`、`@types/node` 24.x、Docker `ARG NODE_VERSION=24` 与 `node:24-slim`；本机工具链 `~/.local/opt/node-24`（PATH 前缀） |
-| D3 | Git | 新仓库只有本地 git，暂无 GitHub 远端；`main` 放文档，每个切片在 `slice/<n>-<name>` 上开发、评审后本地合并；CI 工作流照写但无远端时不运行，每个 CI 任务都有本地 `pnpm run ci:<job>`，出口条件用它们在本机验证 |
+| D1 | 前端（plan 决策 5） | Vue 3 + vue-router 5 + TanStack Query + shadcn-vue（Reka UI）+ Tailwind 4；Pinia 退出 |
+| D2 | Node | Node 24 LTS（EOL 2028-04-30）全面取代 Node 22：`.nvmrc` = `24`、`engines.node` = `^24.11.0`、`engine-strict=true`、`@types/node` 24.x、Docker `ARG NODE_VERSION=24` 与 `node:24-slim`；本机工具链见总则 §2.4 |
+| D3 | Git | `main` 放文档与已合入的切片；每个切片在 `slice/<n>-<name>` 上开发，评审后本地 `--no-ff` 合并再推送。2026-10-19 起有远端 `github.com/acha666/aia-cdp`（public）：GitHub Actions 在推送 `main` 与 PR 时跑四个 `pnpm run ci:<job>`，与本机执行等价；出口条件仍可全部在本机验证 |
 | D4 | 迁移源 | `~/aia-cdp/worker-aia-cdp` 本地分支 `parsing-2026-10-18` 的提交 `5b570aa`；每个迁移步骤引用 `worker-aia-cdp@5b570aa:<path>` |
-| D5 | 切片 1 的存储 | ObjectStore 端口、memory / fs / r2 适配器与一致性套件从切片 2 移到切片 1，`/api/v1/health` 在切片 1 就做真实的 store / configuration 检查（§10 #15）；切片 2 保留 catalog/config schema 与条件写重试、`importCertificate`、`applyConfig`、管理路由与 CLI 的 import / config |
+| D5 | 切片 1 的存储 | ObjectStore 端口、memory / fs / r2 适配器与一致性套件在切片 1（原在切片 2），`/api/v1/health` 在切片 1 就做真实的 store / configuration 检查（§10 #15）；切片 2 保留 catalog/config schema 与条件写重试、`importCertificate`、`applyConfig`、管理路由与 CLI 的 import / config |
 | D6 | shadcn-vue 风格 | `--style nova`、base color `neutral`、图标库 lucide（`@lucide/vue`） |
 | D7 | 线上工件 | `tests/data/adcs.ts`（pki.acha.top 证书与 CRL 的 base64）不进新仓库；测试只用夹具脚本生成的合成 AD CS 风格夹具（fixtures spike 证明 CA Version / 模板名编码逐字节一致、扩展嵌套相同）；旧仓库用到它的测试改用合成夹具迁入 |
-| D8 | 批次 1 | 本文 + plan.md 修订 + 切片 1 |
-| D9 | 边界护栏（推翻 plan §3"不另设 ESLint 导入边界规则和 bundle 卫生断言"） | 加：ESLint `no-restricted-imports` 分层规则（`src/core/**`、`src/http/**`）；`scripts/check-worker-program.ts` 作 `typecheck:boundary` 并入 `typecheck`；`ci:worker` 在 dry-run 后断言 `dist/worker/worker.js` 不含 `"node:` 导入。落实：切片 1 步骤 2、7、12，出口 9 |
+| D8 | 批次 1 | 本目录 + plan.md 修订 + 切片 1（已完成，见 §1.2） |
+| D9 | 边界护栏（推翻 plan 原定"不另设 ESLint 导入边界规则和 bundle 卫生断言"） | 加：ESLint `no-restricted-imports` 分层规则（`src/core/**`、`src/http/**`）；`scripts/check-worker-program.ts` 作 `typecheck:boundary` 并入 `typecheck`；`ci:worker` 在 dry-run 后断言 `dist/worker/worker.js` 不含 `"node:` 导入。落实：切片 1 步骤 2、7、12，出口 9 |
 | D10 | devcontainer | 切片 1 建 `.devcontainer/devcontainer.json`：Node 24 镜像、PowerShell feature（AD CS 助手）、非 root `remoteUser`、不装 `act`、OpenSSL ≥ 3.0 可生成夹具；容器内 Docker 可选；不以 root 生成文件。落实：切片 1 步骤 15，出口 13 |
 
 规划默认值（全部可推翻；推翻时改本表与"落实"列指向的步骤）：
 
 | # | 默认值（可推翻） | 落实 |
 | --- | --- | --- |
-| B1 | 精确锁 `typescript@5.9.3`（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）、`wrangler@4.151.1`、`packageManager: pnpm@10.34.7`（npm latest 是 12.x，pnpm 一律经 corepack）；其余版本按 plan §2 与 spike | 切片 1 步骤 1 |
+| B1 | 精确锁 `typescript@5.9.3`（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）、`wrangler@4.151.1`、`packageManager: pnpm@10.34.7`（npm latest 是 12.x，pnpm 一律经 corepack）；其余版本按 plan §2 | 切片 1 步骤 1 |
 | B2 | 包修正：`@lucide/vue` 取代 `lucide-vue-next`；生成代码用 `cn`；补 `tw-animate-css`、`@vitejs/plugin-vue`、`@tailwindcss/vite`、`vue-tsc`、`eslint-plugin-vue`、`vue-eslint-parser`、`jiti`；`vue-sonner` 需 `import "vue-sonner/style.css"`；浏览器包都是 devDependencies；`@tanstack/vue-table` 仅 5b 需要时加；`@vueuse/core` 用 reka-ui 依赖的同一 major | 切片 1 步骤 1、切片 5b 步骤 1 |
-| B3 | 模块约定：相对导入带 `.ts`；`allowImportingTsExtensions` + `rewriteRelativeImportExtensions` + `verbatimModuleSyntax` + `erasableSyntaxOnly`、`types: []`、`skipLibCheck`；服务端无路径别名，web 可用 `@/`；共享代码只用裸 `crypto` / `performance`、`Uint8Array<ArrayBuffer>`，core / http 无 `Buffer`、`process` | 本文 §2.1 |
-| B4 | tsconfig 拓扑：解决方案式 `tsconfig.json` + base / worker / node / build / web；边界检查 = 三套编译 + 两个 `@ts-expect-error` canary（另加 D9 的 `typecheck:boundary`）；R2 适配器用结构化类型 `R2BucketLike` | 本文 §2.2、切片 1 步骤 2 |
+| B3 | 模块约定：相对导入带 `.ts`；`allowImportingTsExtensions` + `rewriteRelativeImportExtensions` + `verbatimModuleSyntax` + `erasableSyntaxOnly`、`types: []`、`skipLibCheck`；服务端无路径别名，web 可用 `@/`；共享代码只用裸 `crypto` / `performance`、`Uint8Array<ArrayBuffer>`，core / http 无 `Buffer`、`process` | 总则 §2.1 |
+| B4 | tsconfig 拓扑：解决方案式 `tsconfig.json` + base / worker / node / build / web；边界检查 = 三套编译 + 两个 `@ts-expect-error` canary（另加 D9 的 `typecheck:boundary`）；R2 适配器用结构化类型 `R2BucketLike` | 总则 §2.2、切片 1 步骤 2 |
 | B5 | `wrangler types --env-file=/dev/null` 生成的 `worker-configuration.d.ts` 不入库，`pnpm run types` 在 check / typecheck / lint 前重生成；ESLint、Prettier 排除它 | 切片 1 步骤 1、12 |
 | B6 | wrangler：`name: "aia-cdp"`（绝不用旧名 `aia-cdp-worker`）、`compatibility_date: "2026-10-12"`、无兼容标志、logs、`minify`、source maps、`STORE` 不写 `bucket_name`（共用旧桶与否是切片 7 的 owner 项）、assets `run_worker_first` + SPA；令牌是可选 secret；脚本关遥测；dry-run 前先建 `dist/web` | 切片 1 步骤 5、12 |
 | B7 | `createApp({ store, now, settings, log, ui? })`；保留前缀 `/api/`、`/ca/`、`/crl/`、`/dcrl/` 不进 UI 兜底（API JSON 404、下载纯文本 404）；末段带扩展名的路径不兜底；UI 缓存头由 app 设置（先复制 ASSETS 响应）；405 用 `hono/method-not-allowed`；不注册 `app.get("*")`；路由在首个请求前注册完 | 切片 1 步骤 4 |
@@ -51,14 +60,14 @@ owner 决策（2026-10-18 逐项询问后确定；D9、D10 为 2026-10-19 切片
 | B9 | 下载不用 `hono/etag`，手写 `If-None-Match`（列表、`W/`、`*`）且先于读 blob；显式 `Content-Length`；`bearerAuth` 对畸形头回 400，进管理与上传的状态表 | 切片 3 步骤 3–4、切片 2 步骤 8、切片 4 步骤 8 |
 | B10 | health：`{ status, checks: { store, configuration } }`；store 抛错 → 503 `unhealthy`；config 缺失 / 无效 → 200 `degraded`；`no-store`；切片 2 升级为完整 schema 校验 | 切片 1 步骤 4、切片 2 步骤 7 |
 | B11 | OpenAPI 文档运行时从路由表生成并按进程 / isolate 缓存，`GET /api/v1/openapi.json` `max-age=300`；`scripts/generate-openapi.ts` 写入提交的 `docs/openapi.json`，`--check` 查漂移；`src` 不导入该文件 | 切片 1 步骤 8 |
-| B12 | 每请求一行 JSON（`method`、`path`、`status`、`ms`，`AIA_TRUST_PROXY` 时加 `client`）；`AIA_LOG_FORMAT=pretty` 给人读；不记令牌与请求体 | 切片 1 步骤 4、本文 §2.6 |
+| B12 | 每请求一行 JSON（`method`、`path`、`status`、`ms`，`AIA_TRUST_PROXY` 时加 `client`）；`AIA_LOG_FORMAT=pretty` 给人读；不记令牌与请求体 | 切片 1 步骤 4、总则 §2.6 |
 | B13 | Node：`settings.ts` 的 zod schema 照 plan §4.2；`PORT` 8080 显式传给 `serve()`；`*_FILE` 启动时读；无效即打印原因 exit 1；`server.on("error")` 与 SIGTERM / SIGINT 处理；`node --enable-source-maps dist/server/runtime/node.js` | 切片 1 步骤 5 |
 | B14 | 适配器（D5）：memory sha256 ETag；fs 临时文件 + fsync + `rename`、按键互斥、拒 `..` 与绝对路径、递归 `list`；r2 `onlyIf` 用不带引号的 `R2Object.etag`、`put` 返回 `null` 即 `precondition-failed`、`list` 跟随游标；一致性套件 memory + fs 每次跑，r2 在 `AIA_TEST_R2=1` 下经 `getPlatformProxy`；store ETag 从不当 HTTP ETag | 切片 1 步骤 3 |
-| B15 | vitest 5 `projects` = core、http、storage、integration（node）+ web（happy-dom）；独立 `vitest.config.ts`；HTTP 用 `createApp(...).request()`；夹具在 `globalSetup` 校验 | 切片 1 步骤 10、本文 §2.5 |
-| B16 | 夹具：重写的 `tests/fixtures/generate-test-data.sh [--force\|--check] OUT_DIR`，固定日期 / 序列号 / CRL 号，`manifest.json` + `SHA256SUMS` + `.stamp`，产物入库（`.gitattributes` `tests/fixtures/pki/** -text`）、`globalSetup` 只跑 `--check`，需要 OpenSSL ≥ 3.0；测试从文件或 manifest 读值、`now` = `manifest.now`；`.gitattributes` `*.sh text eol=lf` | 切片 1 步骤 9、本文 §2.5 |
+| B15 | vitest 5 `projects` = core、http、storage、integration（node）+ web（happy-dom）；独立 `vitest.config.ts`；HTTP 用 `createApp(...).request()`；夹具在 `globalSetup` 校验 | 切片 1 步骤 10、总则 §2.5 |
+| B16 | 夹具：重写的 `tests/fixtures/generate-test-data.sh [--force\|--check] OUT_DIR`，固定日期 / 序列号 / CRL 号，`manifest.json` + `SHA256SUMS` + `.stamp`，产物入库（`.gitattributes` `tests/fixtures/pki/** -text`）、`globalSetup` 只跑 `--check`，需要 OpenSSL ≥ 3.0；测试从文件或 manifest 读值、`now` = `manifest.now`；`.gitattributes` `*.sh text eol=lf` | 切片 1 步骤 9、总则 §2.5 |
 | B17 | ESLint 10 flat `eslint.config.ts`、typescript-eslint 8.71.2 projectService、eslint-plugin-vue、`consistent-type-imports` + `no-import-type-side-effects`、`--max-warnings 0`；`pnpm-workspace.yaml` 的 `ignoredBuiltDependencies` 与 `publicHoistPattern`；Prettier 3 沿用旧 `.prettierrc.json`，生成组件每次 `add` 后重排 | 切片 1 步骤 1、7 |
 | B18 | Docker：base → prod-deps ∥ build → runtime（`node:24-slim`、uid 1000、`/data`、`NODE_ENV=production`、exec 形式 CMD、HEALTHCHECK）；`ARG VITE_SITE_NAME`；白名单 `.dockerignore`；浮动基础标签 | 切片 1 步骤 11 |
-| B19 | `.github/workflows/ci.yml` 四个任务 check / test / worker / docker 各调 `pnpm run ci:<job>`；dependabot 管 npm、github-actions、docker；`pnpm verify` = check + test + build；无远端时本机为准 | 切片 1 步骤 12–13 |
+| B19 | `.github/workflows/ci.yml` 四个任务 check / test / worker / docker 各调 `pnpm run ci:<job>`；dependabot 管 npm、github-actions、docker；`pnpm verify` = check + test + build | 切片 1 步骤 12–13 |
 | B20 | Web 占位：Vite root `src/web`、`outDir` `dist/web`、`envDir` 仓库根；`shadcn-vue@2.8.2 init` 固定参数（不用 `--defaults`）；路由占位、vue-query、i18n `en` + `zh-CN`、主题、`VITE_SITE_NAME`、经 `hc<AppType>` 的健康徽标；客户端目录 `src/web/client/`；dev 代理键 `^/(?:api\|ca\|crl\|dcrl)/` | 切片 1 步骤 6 |
 | B21 | 切片 4 验签不用 PKIjs `crl.verify()`，改为对收到的 TBS 字节调 `pkijs.getCrypto(true).verifyWithPublicKey(...)`，在扩展策略之后、按算法白名单（EdDSA 按 OID → `unsupported_algorithm`）；不调 `pkijs.setEngine` | 切片 4 步骤 3–4 |
 | B22 | 未定的 owner 问题列在需要它的切片的"开工前需 owner 确认"，每项带推荐默认 | 附录 C |
@@ -69,15 +78,15 @@ owner 决策（2026-10-18 逐项询问后确定；D9、D10 为 2026-10-19 切片
 
 | 切片 | 分支 | 内容 | 依赖 |
 | --- | --- | --- | --- |
-| 1 | `slice/1-skeleton` | 骨架、存储端口与适配器（本文 §3） | — |
-| 2 | `slice/2-catalog-import` | catalog/config 与导入（§4） | 1 |
-| 3 | `slice/3-downloads` | 下载（§5） | 1、2 |
-| 4 | `slice/4-publish` | 发布与 AD CS 助手（§6） | 1–3 |
-| 5a | `slice/5a-api` | API 与客户端（§7） | 1–4 |
-| 5b | `slice/5b-ui` | UI（§8） | 1、4、5a |
-| 6 | `slice/6-admin-docs` | 管理补全与文档（§9） | 1–5b |
-| 7 | `slice/7-migration`，收尾 `slice/7-cleanup` | 迁移（§10） | 1–6 |
-| 8 | `slice/8-s3` | S3，按需（§11） | 1、2、5a、6；owner 确认要做 |
+| 1 | `slice/1-skeleton` | 骨架、存储端口与适配器（`slice-1-skeleton.md`） | — |
+| 2 | `slice/2-catalog-import` | catalog/config 与导入（`slice-2-catalog-import.md`） | 1 |
+| 3 | `slice/3-downloads` | 下载（`slice-3-downloads.md`） | 1、2 |
+| 4 | `slice/4-publish` | 发布与 AD CS 助手（`slice-4-publish.md`） | 1–3 |
+| 5a | `slice/5a-api` | API 与客户端（`slice-5a-api.md`） | 1–4 |
+| 5b | `slice/5b-ui` | UI（`slice-5b-ui.md`） | 1、4、5a |
+| 6 | `slice/6-admin-docs` | 管理补全与文档（`slice-6-admin-docs.md`） | 1–5b |
+| 7 | `slice/7-migration`，收尾 `slice/7-cleanup` | 迁移（`slice-7-migration.md`） | 1–6 |
+| 8 | `slice/8-s3` | S3，按需（`slice-8-s3.md`） | 1、2、5a、6；owner 确认要做 |
 
 ```text
 1 ──► 2 ──► 3 ──► 4 ──► 5a ──► 5b ──► 6 ──► 7 ──► 7-cleanup
@@ -90,40 +99,27 @@ owner 决策（2026-10-18 逐项询问后确定；D9、D10 为 2026-10-19 切片
 
 ### 1.2 批次 1
 
-D8：批次 1 = 本文 + plan.md 修订 + 切片 1。顺序：
-
-1. 在 `main` 上提交 `docs/implementation.md`、修订后的 `docs/plan.md` 与 `README.md`（仓库已 `git init`，`main` 现有 `a30f6dc`），
-   只 `git add` 这三个文件。工作树里未跟踪的 `tests/fixtures/generate-test-data.sh` 不进 `main`，留到切片 1 步骤 9 在
-   `slice/1-skeleton` 上提交，在此之前不得删除（切分支时未跟踪文件随工作树保留）。
-2. plan.md 修订范围（只改与本文 §0 冲突或被其取代的部分，其余规则修订由各切片的"文档同步"步骤做）：头部状态行与 §0 决策 5（D1 确认）；
-   §1、§2、§4.2 的 Node 22 → 24（D2）；§2 版本与包修正（B1、B2）；§3 tsconfig 拓扑与边界检查（B4）、`tests/boundary/`、`src/web/client/`；
-   §4.1 wrangler 配置、保留前缀与 UI 兜底（B6、B7、C12）、`secureHeaders`（B8）；§4.2 Dockerfile（B18）；§5.4 适配器细节与一致性套件
-   归切片 1（B14、D5）；§7.1 health 形状与 `openapi.json` 运行时生成（B10、B11）；§11 测试布局、夹具规则、CI 本地脚本（B15、B16、B19、
-   D3），删掉"现有签名 CRL 夹具覆盖 …"的不实描述（C11）；§12 按 D5 调整切片 1/2，"每个切片一个 PR"改为本地分支（D3），出口条件改为
-   指向本文；§13、§14 #9 标注历史迁移前提有误、见本文切片 7（C9、C10）。2026-10-19 评审后另改：§0 决策 15（D9、D10）；§3 推翻
-   "不另设 ESLint 导入边界规则和 bundle 卫生断言"、布局加 `.devcontainer/` 与 `scripts/check-worker-program.ts`、`admin.ts` 承担配置校验；
-   §5.4 `assertStorePrefix`；§3、§5.5 的 `publishCrl(deps, bytes)`；§8 统计条与 §9 PEM 内容类型指向本文切片 5b、4。
-3. 从 `main` 切 `slice/1-skeleton`，按本文 §3 实施，满足 §1.3 后合入。
-
-批次 1 之后每批一个切片；开工前先确认附录 C 中该切片的 owner 项，未答复就按推荐默认实施并在合并说明里写明。
+D8：批次 1 = 本目录（当时为单文件 `docs/implementation.md`）+ plan.md 修订 + 切片 1，2026-10-19 完成（`main` 的 `0b391cc`）。
+之后每批一个切片；开工前先确认附录 C 中该切片的 owner 项，未答复就按推荐默认实施并在合并说明里写明。
 
 ### 1.3 完成定义（每个切片）
 
 1. 在该切片分支上全部提交，`git status` 干净；从 `main` 的最新提交切出（必要时 rebase）。
 2. `pnpm run verify` 通过（= `check` + `test` + `build`）。
-3. 该切片"出口条件"逐条在本机执行通过；从切片 1 起，合并前另跑一遍四个 `pnpm run ci:<job>`（`ci:check`、`ci:test`、`ci:worker`、
-   `ci:docker`）——它们就是 CI 的定义，无远端时没有别的东西会替你跑（D3）。需要人工的出口（`wrangler dev` 冒烟、Windows 助手验证、
+3. 该切片"出口条件"逐条执行通过；合并前四个 `pnpm run ci:<job>`（`ci:check`、`ci:test`、`ci:worker`、`ci:docker`）全过：本机执行，或推送
+   切片分支并开 PR 由 GitHub Actions 执行（同一组脚本，D3）。需要人工的出口（`wrangler dev` 冒烟、Windows 助手验证、
    浏览器检查、生产操作）把命令与输出摘要写进合并提交说明，或写进出口条件指定的文档。
 4. 改了路由的切片：`node scripts/generate-openapi.ts` 重新生成并提交 `docs/openapi.json`，`pnpm run openapi:check` 无漂移。
 5. 改了 plan 规则的切片：同一分支里同步 `docs/plan.md`（各切片的"文档同步"步骤）。
-6. 评审通过后在本地合入 `main`（`git merge --no-ff slice/<n>-<name>`，保留切片边界），不推送、不部署；生产部署只在切片 7。
+6. 评审通过后在本地合入 `main`（`git merge --no-ff slice/<n>-<name>`，保留切片边界）并 `git push origin main`；不部署，生产部署只在切片 7。
+7. 改了 `tests/fixtures/generate-test-data.sh`：`pnpm run fixtures` 重新生成整树，与脚本一起提交（总则 §2.5）。
 
 ### 1.4 迁移源与引用
 
 - 迁移源固定为 `worker-aia-cdp@5b570aa`（D4），引用写 `worker-aia-cdp@5b570aa:<path>[:<行>]`，行号相对该提交。处置用附录 A 的词：
   原样迁入（migrate-as-is）、迁后改（migrate-adapt）、重写（rewrite）、仅参考（reference-only）、不迁（drop）。
 - 读取不切换旧仓库的分支：`GIT_OPTIONAL_LOCKS=0 git -C ~/aia-cdp/worker-aia-cdp show 5b570aa:<path>`；原样迁入的文件用它写出，
-  再按本文 §2.1 改导入。旧仓库只读：不提交、不切分支、不在里面安装依赖或跑构建。
+  再按总则 §2.1 改导入。旧仓库只读：不提交、不切分支、不在里面安装依赖或跑构建。
 - 线上现状（pki.acha.top 跑的是旧仓库 `main` = `0ea3130`，切片 7 称 Gen B）引用 `worker-aia-cdp@0ea3130:<path>`，只用来说明线上行为与
   迁移，不作迁移源。
 - 每个 `§10` 缺陷、`C`、`M` 项在处理它的步骤或测试里按编号引用；不处理的写"不做，原因…"。附录 B 是总表。
@@ -171,7 +167,7 @@ canary 都放过；依赖的 `/// <reference types="node" />` 会让 `process` �
   `pnpm install --frozen-lockfile`。
 - pnpm 只经 corepack 按 `packageManager: pnpm@10.34.7` 解析；`typescript` 锁 `5.9.3`、`wrangler` 锁 `4.151.1`；dependabot 忽略
   `typescript` ≥ 6.1 与 `@types/node` 的 major 升级。`compatibility_date` 随 wrangler 一起升。
-- 首发版本表在切片 1 步骤 1。后续切片新增：`pkijs@3.4.1`、`asn1js@3.1.0`（切片 2，dependencies）；`playwright-core@1.64.1`（切片 5b，
+- 首发版本见 `package.json`（切片 1 步骤 1）。后续切片新增：`pkijs@3.4.1`、`asn1js@3.1.0`（切片 2，dependencies）；`playwright-core@1.64.1`（切片 5b，
   devDependency，不进 `ci:*`）；`@aws-sdk/client-s3`（切片 8，dependencies，开工时 `npm view` 复核版本）。
 - `dependencies` 只放 Node 运行时要的包（Docker 运行阶段只装 `--prod`）；浏览器包、构建、测试、lint 工具都是 devDependencies；
   shadcn-vue CLI 写进 `dependencies` 的包用 `pnpm add -D <包>@<版本>` 挪走。
@@ -179,15 +175,15 @@ canary 都放过；依赖的 `/// <reference types="node" />` 会让 `process` �
 ### 2.4 脚本命名（D3、B19）
 
 - `pnpm run ci:<job>`（`ci:check`、`ci:test`、`ci:worker`、`ci:docker`，切片 8 加 `ci:s3`）是 CI 任务的可执行定义；
-  `.github/workflows/ci.yml` 的每个任务只装依赖并调用它。无远端期间本机结果是唯一事实来源。
+  `.github/workflows/ci.yml` 的每个任务只装依赖并调用它，本机与 GitHub Actions 跑的是同一组脚本。
 - 组合：`verify` = `check` + `test` + `build`；`check` = `typecheck` + lint + `format:check` + `openapi:check`；`types` 在 `typecheck`、
   `lint` 之前重生成 `worker-configuration.d.ts`。
 - 命名为"动作[:变体]"：`typecheck:worker`、`build:web`、`dev:node`、`smoke:worker`、`fixtures:check`、`openapi:check`、`test:r2`。
   完整表见切片 1 步骤 12；后续新增 `aia`、`seed:dev`、`reset:dev`（切片 2）、`size:web`（切片 5b）、`ci:s3`（切片 8）。不加 `deploy` 脚本。
 - TypeScript 脚本直接 `node scripts/<名>.ts`；shell 脚本一律 `bash <脚本>`（owner 的交互 shell 是 zsh）；调用 wrangler 的脚本都带
   `WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true`。
-- 每个 shell 先 `export PATH=$HOME/.local/opt/node-24/bin:$PATH COREPACK_ENABLE_DOWNLOAD_PROMPT=0`；不以 root 在工作树里跑 pnpm、
-  夹具脚本或容器。
+- Node 24 必须在 PATH 最前（否则命令会静默跑在主机自带的 Node 20 上、过不了引擎检查）；owner 本机：每个 shell 先
+  `export PATH=$HOME/.local/opt/node-24/bin:$PATH COREPACK_ENABLE_DOWNLOAD_PROMPT=0`。不以 root 在工作树里跑 pnpm、夹具脚本或容器。
 
 ### 2.5 测试布局与夹具（B15、B16、D7）
 
@@ -214,9 +210,9 @@ canary 都放过；依赖的 `/// <reference types="node" />` 会让 `process` �
   `missing_aki`（切片 4 默认）。新增取值同步 `docs/api.md` 的码表（切片 6 的 docs-consistency 测试检查）。
 - 头：API JSON（含错误）`Cache-Control: no-store`；`/api/v1/openapi.json` `public, max-age=300`。HTTP `ETag` 永远来自内容 sha256
   （下载 DER `"<sha256>"`、PEM `"<sha256>-pem"`，管理 config `"<sha256(存储字节)>"`）；store ETag 只回传给同一适配器，绝不外露（B14）。
-- 保留前缀：`/api/*` 未命中 → JSON 404 `not_found`；`/ca/`、`/crl/`、`/dcrl/` 下未命中 → `text/plain` 404 `Not Found`，方法不符 →
-  `text/plain` 405 + `Allow: GET, HEAD`（CryptoAPI 客户端；404 从切片 1 起，405 从切片 3 起，切片 1 里方法不符也是 404）。其余 405 走
-  `onMethodNotAllowed` 的信封 + `Allow`。
+- 保留前缀与 UI 兜底的完整规则见 plan §4.4：`/api/*` 未命中 → JSON 404 `not_found`；`/ca/`、`/crl/`、`/dcrl/` 下未命中 → `text/plain` 404
+  `Not Found`，方法不符 → `text/plain` 405 + `Allow: GET, HEAD`（CryptoAPI 客户端；404 从切片 1 起，405 从切片 3 起，切片 1 里方法不符也是 404）；
+  其余 405 走 `onMethodNotAllowed` 的信封 + `Allow`。
 - 鉴权：管理令牌未配置 → 503 `admin_disabled`（先于鉴权与读体）；令牌缺失或错误 → 401 + `WWW-Authenticate`；`Authorization` 畸形 →
   400 `bad_request`（B9）。上传令牌可选，未设置时上传不鉴权。
 - 日志只经 `deps.log(line)`（Node 写 stdout，Workers `console.log`），每行一个 JSON 对象，必有 `level` 与 `msg`；`msg` 为事件名：
