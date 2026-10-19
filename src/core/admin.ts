@@ -12,6 +12,7 @@
 // `/ca/` path removed by one apply and re-added for another certificate by a later one is not
 // detected. Certificate downloads are cached `immutable` for a year: a new CA certificate needs a
 // new path, which is the operator's responsibility.
+import type { z } from "zod";
 import {
   CONFIG_KEY,
   ConfigSchema,
@@ -24,7 +25,10 @@ import type { Catalog, Config, CrlKind } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import type { ObjectStore } from "./store.ts";
 
-export type ConfigRule = "V1" | "V2" | "V3" | "V4" | "V5" | "V6" | "V7" | "V8" | "V9";
+/** `rule` of a config_invalid issue (the HTTP schema enumerates it). */
+export const CONFIG_RULES = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9"] as const;
+
+export type ConfigRule = (typeof CONFIG_RULES)[number];
 
 /** One violation: `details.issues[]` of config_invalid. */
 export interface ConfigIssue {
@@ -134,6 +138,22 @@ function staticIssues(config: Config): ConfigIssue[] {
   return issues;
 }
 
+/**
+ * The V1 issues of a failed ConfigSchema parse. Also used by the HTTP route, whose JSON body is
+ * validated against ConfigSchema before applyConfig runs.
+ */
+export function schemaIssues(error: z.ZodError): ConfigIssue[] {
+  return error.issues.map((issue) => ({
+    path: issue.path.map((key) => (typeof key === "symbol" ? String(key) : key)),
+    rule: "V1",
+    // zod reports a bad record key as "Invalid key in record"; say what is wrong with it.
+    message:
+      issue.code === "invalid_key"
+        ? `Invalid key: ${issue.issues.map((inner) => inner.message).join("; ")}`
+        : issue.message,
+  }));
+}
+
 // V1, then the other static rules on a schema-valid document. `config` is undefined when V1 fails:
 // the other rules need a well-formed document and do not run.
 function staticLayer(value: unknown): { config: Config | undefined; issues: ConfigIssue[] } {
@@ -141,18 +161,7 @@ function staticLayer(value: unknown): { config: Config | undefined; issues: Conf
   if (parsed.success) {
     return { config: parsed.data, issues: staticIssues(parsed.data) };
   }
-  return {
-    config: undefined,
-    issues: parsed.error.issues.map((issue) => ({
-      path: issue.path.map((key) => (typeof key === "symbol" ? String(key) : key)),
-      rule: "V1",
-      // zod reports a bad record key as "Invalid key in record"; say what is wrong with it.
-      message:
-        issue.code === "invalid_key"
-          ? `Invalid key: ${issue.issues.map((inner) => inner.message).join("; ")}`
-          : issue.message,
-    })),
-  };
+  return { config: undefined, issues: schemaIssues(parsed.error) };
 }
 
 /**

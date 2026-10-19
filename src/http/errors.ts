@@ -1,7 +1,7 @@
 // Error envelope and handlers (plan §7.3, implementation §2.6). Rewrite of
 // worker-aia-cdp@5b570aa:src/worker/api/v2/response.ts: no `{ data, meta }` wrapper, one envelope
 // `{ error: { code, message, details? } }`, and exception text never reaches a response.
-import type { Hook } from "@hono/zod-openapi";
+import type { Hook, z } from "@hono/zod-openapi";
 import type { Context, ErrorHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -31,6 +31,7 @@ export const ERROR_MESSAGES = {
   method_not_allowed: "Method not allowed",
   conflict: "Conflict",
   precondition_failed: "Precondition failed",
+  precondition_required: "Precondition required",
   payload_too_large: "Payload too large",
   unsupported_media_type: "Unsupported media type",
   internal: "Internal server error",
@@ -65,6 +66,7 @@ const CODE_BY_STATUS: Partial<Record<number, keyof typeof ERROR_MESSAGES>> = {
   412: "precondition_failed",
   413: "payload_too_large",
   415: "unsupported_media_type",
+  428: "precondition_required",
 };
 
 // Headers of a library HTTPException response that must survive the envelope rewrite: bearerAuth
@@ -115,19 +117,24 @@ export function onMethodNotAllowed(c: Context<AppEnv>, methods: string[]): Respo
   });
 }
 
-/** OpenAPIHono defaultHook: a zod validation failure becomes 400 bad_request with the issues. */
-export const validationHook: Hook<unknown, AppEnv, string, Response | undefined> = (result, c) => {
-  if (result.success) {
-    return undefined;
-  }
-  const issues = result.error.issues.map((issue) => ({
+/** 400 bad_request for a zod validation failure, with the target and the issues. */
+export function validationError(target: string, error: z.ZodError): ApiError {
+  const issues = error.issues.map((issue) => ({
     path: issue.path.map(String),
     code: issue.code,
     message: issue.message,
   }));
-  return c.json(
-    errorBody("bad_request", "Request validation failed", { target: result.target, issues }),
-    400,
-    NO_STORE
-  );
+  return new ApiError(400, "bad_request", "Request validation failed", { target, issues });
+}
+
+/**
+ * OpenAPIHono defaultHook: a zod validation failure throws validationError, so onError writes the
+ * envelope. Thrown rather than returned so that a route-level hook can delegate to it without
+ * widening its typed responses.
+ */
+export const validationHook: Hook<unknown, AppEnv, string, undefined> = (result) => {
+  if (!result.success) {
+    throw validationError(result.target, result.error);
+  }
+  return undefined;
 };

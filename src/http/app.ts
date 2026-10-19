@@ -9,6 +9,7 @@ import { methodNotAllowed } from "hono/method-not-allowed";
 import { secureHeaders } from "hono/secure-headers";
 import { createErrorHandler, onMethodNotAllowed, validationHook } from "./errors.ts";
 import { createLogger, requestLog } from "./log.ts";
+import { adminRoutes } from "./routes/admin.ts";
 import { healthRoutes } from "./routes/health.ts";
 import type { AppDeps, AppEnv } from "./types.ts";
 import { uiFallback } from "./ui.ts";
@@ -28,8 +29,8 @@ export function createApp(deps: AppDeps) {
   app.onError(createErrorHandler(log));
   app.notFound(uiFallback(deps));
 
-  // Order (plan §7.3): secureHeaders → request log → methodNotAllowed → (auth / bodyLimit,
-  // slices 2 and 4) → routes.
+  // Order (plan §7.3): secureHeaders → request log → methodNotAllowed → (admin: token check,
+  // bearerAuth, bodyLimit in routes/admin.ts; uploads: slice 4) → routes.
   app.use(secureHeaders({ strictTransportSecurity: false }));
   app.use(requestLog(deps, log));
   app.use(methodNotAllowed({ app, onMethodNotAllowed }));
@@ -45,8 +46,12 @@ export function createApp(deps: AppDeps) {
     });
   });
 
-  // The chained value carries the route types: AppType (hc<AppType>) is inferred from it.
-  return app.route("/api/v1", healthRoutes(deps));
+  // The chained value carries the route types: AppType (hc<AppType>) is inferred from it. Only
+  // public routes join the chain; the admin routes are served and documented, but stay out of the
+  // web client's types (slice 5a step 8).
+  const routes = app.route("/api/v1", healthRoutes(deps));
+  app.route("/api/v1", adminRoutes(deps));
+  return routes;
 }
 
 export type App = ReturnType<typeof createApp>;
