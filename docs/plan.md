@@ -77,7 +77,7 @@
 | 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.4 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8 相对旧项目是大版本（Rolldown、默认 oxc 压缩）；`vue-tsc` 检查 `tsconfig.web.json` |
 | UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.59.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`（切片 5b）；`@tanstack/vue-table` 不随 shadcn Table 安装，切片 5b 需要时才加；备选 Naive UI 2.45（review §3.2） |
 | 前端工具      | `@vueuse/core`                                   | 14.4.0                            | 与 reka-ui 2.11.0 依赖的 `^14.1.0` 同一份（装 15 会出现两份）；`useColorMode`、`useNow`（统一时钟快照）、`useClipboard`、`useStorage` |
-| 测试          | `vitest`、`@vue/test-utils`、`happy-dom`        | 5.0.5 / 2.5.1 / 21.0.3            | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`；夹具在 vitest `globalSetup` 生成（§11） |
+| 测试          | `vitest`、`@vue/test-utils`、`happy-dom`        | 5.0.5 / 2.5.1 / 21.0.3            | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`；夹具由脚本生成后入库，vitest `globalSetup` 校验（§11） |
 | Cloudflare    | `wrangler`                                      | 4.151.1（精确锁定）               | `wrangler types` 生成绑定类型 `worker-configuration.d.ts`（不入库）；不装 `@cloudflare/workers-types`；`compatibility_date` 随 wrangler 一起升 |
 | CLI           | `node:util` `parseArgs` + `fetch`               | 内置                              | 零依赖                                                                                         |
 | 后续          | `@aws-sdk/client-s3`                            | 3.1152.0                          | S3 适配器切片，仅进 Node bundle                                                                |
@@ -135,15 +135,15 @@ aia-cdp/
     core/  http/  storage/  web/  integration/
     boundary/          worker-canary.ts  node-canary.ts（只编译，见下）
     helpers/           testDeps()、store 包装、seed
-    fixtures/          generate-test-data.sh（重写）  global-setup.ts  pki.ts；产物 pki/ 不入库
+    fixtures/          generate-test-data.sh（重写）  global-setup.ts  pki.ts；产物 pki/ 入库
   scripts/             adcs-crl-uploader.ps1  generate-openapi.ts  migrate-from-v2.ts  check-worker-program.ts
                        smoke.sh  node-smoke.sh  worker-smoke.ts  docker-smoke.sh
   docs/                plan.md（本文）  implementation.md  api.md  operations.md  openapi.json
   dist/                web/（vite build） server/（tsc -p tsconfig.build.json） worker/（dry-run）；不入库
 ```
 
-不入库：`worker-configuration.d.ts`、`dist/`、`tests/fixtures/pki/`、`.wrangler/`、`.data/`、`.dev.vars*`、`node_modules/`。
-`.gitattributes` 设 `*.sh text eol=lf`；`.dockerignore` 用白名单，`tests/fixtures`、`.dev.vars`、`.git` 进不了构建上下文。
+不入库：`worker-configuration.d.ts`、`dist/`、`.wrangler/`、`.data/`、`.dev.vars*`、`node_modules/`。
+`.gitattributes` 设 `*.sh text eol=lf` 与 `tests/fixtures/pki/** -text`（夹具逐字节比较）；`.dockerignore` 用白名单，`tests/fixtures`、`.dev.vars`、`.git` 进不了构建上下文。
 
 模块约定：全仓 ESM。服务端代码（`src/core`、`src/http`、`src/storage`、`src/runtime`、`src/cli`、`scripts`、除 `tests/web`
 外的测试）相对导入写 `.ts` 后缀、不用路径别名，开发与测试由 Node 24 直接运行 `.ts`，`tsc -p tsconfig.build.json` 按
@@ -628,12 +628,12 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
   `tests/<project>/**/*.test.ts`；独立的 `vitest.config.ts`（不继承 `vite.config.ts` 的 `root`）。HTTP 测试通过
   `createApp({ store: new MemoryStore(), now, … }).request()` 进程内运行，不起端口；只有真实 socket 才看得到的差异
   （HEAD 的 `Content-Length`、传输编码、信号）放 `integration`。
-- 夹具：`tests/fixtures/generate-test-data.sh [--force|--check] OUT_DIR` 重写（不是迁入），由 vitest `globalSetup` 每次运行调用一次
-  （幂等，不用 `pretest`）。契约：日期、序列号、CRL 号固定；私钥、CSR、CA 库只在 `mktemp -d` 临时目录，退出即删，产物含
+- 夹具：`tests/fixtures/generate-test-data.sh [--force|--check] OUT_DIR` 重写（不是迁入），产物入库；vitest `globalSetup` 每次运行只跑
+  `--check`（不改写、不用 `pretest`），改了脚本由开发者 `pnpm run fixtures` 重新生成并提交。契约：日期、序列号、CRL 号固定；私钥、CSR、CA 库只在 `mktemp -d` 临时目录，退出即删，产物含
   `PRIVATE KEY` 即失败；产出证书、CRL、`invalid/`、`manifest.json`（`now = 2026-01-04T00:00:00Z`、声明值、期望结果、场景）、
-  `SHA256SUMS` 与按脚本摘要的 `.stamp`（相符且校验通过就不重写，`--check` 只读）；输出 `tests/fixtures/pki/` gitignore、永不提交；
+  `SHA256SUMS` 与按脚本摘要的 `.stamp`（相符且校验通过就不重写，`--check` 只读）；输出 `tests/fixtures/pki/`；
   需要 bash 与 OpenSSL ≥ 3.0（不是 LibreSSL），只在开发与 CI，运行时不需要。测试里的摘要、key id、序列号、大小一律从文件或
-  manifest 读（ECDSA / PSS 签名每次生成都变），`now` 注入 `manifest.now`。场景覆盖 created / updated / unchanged / stale /
+  manifest 读（每次重新生成都换密钥，ECDSA / PSS 签名与摘要全变），`now` 注入 `manifest.now`。场景覆盖 created / updated / unchanged / stale /
   conflict / non_orderable / 坏签名 / 伪造 AKI / 未知关键扩展 / 作用域 IDP / 未来 `thisUpdate` / 过期 / delta / EdDSA / PSS /
   无 AKI / 畸形时间 / AD CS 形态（取代原文"现有签名 CRL 夹具覆盖 …"的不实描述，C11）。不用线上工件（决策 13）。
 - 存储一致性：同一套用例对 memory 与 fs 每次运行（r2 适配器另用假桶每次运行）；真 r2 在 `AIA_TEST_R2=1`（`pnpm run test:r2`）下经
@@ -726,7 +726,7 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 16. 下载 ETag / 304 手写、先于读 blob，不用 `hono/etag`；`bearerAuth` 对畸形 `Authorization` 回 400（B9）。
 17. health 形状与降级规则按 §7.1，store 抛错 503、配置缺失或无效 200 `degraded`（B10）。
 18. OpenAPI 文档运行时从路由表生成，另提交 `docs/openapi.json` 作漂移基线，`src` 不导入它（B11）。
-19. 夹具每次由脚本生成、永不提交，测试值从 manifest 读（B16）。
+19. 夹具由脚本生成后入库，globalSetup 只校验，测试值从 manifest 读（B16）。
 20. Docker 基础镜像用浮动标签 `node:24-slim`，digest 固定以后再定；不加 `deploy` 脚本，生产部署只在切片 7（B6、B18）。
 21. CRL blob 键带 CRL 号；历史 = history 标记 ∪ current，孤儿 blob 不算历史；catalog 条件写 1 + 3 次尝试（切片 4，§5.1、§5.3、§5.5）。
 22. `revokedCount` 非空；`/api/v1/stats` 不含时间相关字段，"需关注"数在客户端算（切片 5a，§7.1）。
