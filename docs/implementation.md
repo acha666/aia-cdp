@@ -160,8 +160,9 @@ D8：批次 1 = 本文 + plan.md 修订 + 切片 1。顺序：
 
 边界检查 = 三套程序都编译 `src/core` 与 `src/http`（web 经 `import type { AppType }`），加 `tests/boundary/` 两个 `@ts-expect-error`
 canary（Worker 程序里 `process` 不存在、Node 程序里 `R2Bucket` 不存在），再加 `typecheck:boundary`（D9）：Worker 程序的文件清单里
-出现 `@types/node`、`@hono/node-server`、`vite`、`vitest`、`wrangler` 的声明即失败——依赖的 `/// <reference types="node" />` 会让
-`process` 在整个 Worker 程序里合法，canary 看不到这种泄漏。每个被 lint 的文件都要落在某个被引用的 tsconfig 里
+出现 `@types/node`、`@hono/node-server`、`vite`、`vitest`、`wrangler` 的声明即失败——Node-only 包（`@hono/node-server`）的类型导入编译与
+canary 都放过；依赖的 `/// <reference types="node" />` 会让 `process` 在整个 Worker 程序里合法，worker canary 只报 TS2578、看不出来源，所以
+`typecheck` 先跑 `typecheck:boundary` 再编译 worker、node、web。每个被 lint 的文件都要落在某个被引用的 tsconfig 里
 （typescript-eslint projectService）。逐文件选项见切片 1 步骤 2。
 
 ### 2.3 版本锁定（B1、B2）
@@ -301,7 +302,8 @@ Worker 打包、Docker 镜像都能用 `pnpm run ci:<job>` 在本机跑通。处
    - `scripts/check-worker-program.ts`（D9；quality spike 验证过的约 30 行脚本）：`node_modules/typescript/bin/tsc -p tsconfig.worker.json --listFilesOnly`，
      任一行匹配 `/\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?(@types\/node|@hono\/node-server|vite|vitest|wrangler)\//` 即打印条数与前 5 个文件、
      提示 `tsc -p tsconfig.worker.json --explainFiles`，`exitCode = 1`；否则打印文件数。脚本 `typecheck:boundary` = `node scripts/check-worker-program.ts`，
-     并入 `typecheck` 末尾（步骤 12）。spike 中它抓住了 core 导入 `@hono/node-server` 与 `import type … from "vite"` 两类漏洞（编译与 canary 都放过），干净树上通过。
+     在 `typecheck` 里紧跟 `types`、先于三套编译（步骤 12；Node 类型泄漏时 worker canary 先报 TS2578，会盖住本脚本指明来源的输出）。spike 中它抓住了
+     core 导入 `@hono/node-server` 与 `import type … from "vite"` 两类漏洞（前者编译与 canary 都放过，后者 canary 只报 TS2578），干净树上通过。
 
 3. **存储端口与适配器**（D5、B14）：`src/core/store.ts`、`src/core/digest.ts`、`src/storage/memory.ts`、`src/storage/fs.ts`、`src/storage/r2.ts`。
    - `store.ts`：plan §5.4 的 `ObjectStore` 原样，另导出 `PutOptions`、`PutResult`；加 `assertStoreKey(key)`：`/` 分段，每段
@@ -336,6 +338,7 @@ Worker 打包、Docker 镜像都能用 `pnpm run ci:<job>` 在本机跑通。处
      `validationHook` → 400 `bad_request`，`details.issues`（`issue.path.map(String)`）。
    - `log.ts`：`next()` 之后写一行 `{"level":"info","msg":"request","method","path","status","ms"}`；`settings.trustProxy` 为真时加 `client`
      （`CF-Connecting-IP`，否则 `X-Forwarded-For` 第一项）；`path` 用 `c.req.path`（不含查询串）；不记任何头与体；`pretty` 输出一行人读文本。
+     签名 `requestLog(settings, log)`：`log` 是 `createLogger(deps)` 的结构化 Logger（与 `createErrorHandler(log)` 同一个），不是 `deps.log`。
    - `core/health.ts` + `routes/health.ts`（重写 `worker-aia-cdp@5b570aa:src/worker/api/v2/stats.ts` 的健康部分，它把 `cache: ok` 写死，§10 #15）：
      `head("config.json")` 抛错 → `unhealthy` 503；`null` → `missing`；存在 → `get` 后 `JSON.parse` 且 `version === 1` → `ok`，否则 `invalid`
      （`get` 抛错按 `unhealthy`）。两项都 ok 才 `healthy`，`degraded` 为 200。`Cache-Control: no-store`。异常写一行
@@ -353,7 +356,7 @@ Worker 打包、Docker 镜像都能用 `pnpm run ci:<job>` 在本机跑通。处
    | 其他路径的其他方法；或未注入 `ui` | 纯文本 404 |
 
    - `app.ts`：`new OpenAPIHono<AppEnv>({ defaultHook: validationHook })`；`onError`、`notFound`；中间件顺序
-     `secureHeaders({ strictTransportSecurity: false })` → `requestLog(deps)` → `methodNotAllowed({ app, onMethodNotAllowed })` →
+     `secureHeaders({ strictTransportSecurity: false })` → `requestLog(deps.settings, log)` → `methodNotAllowed({ app, onMethodNotAllowed })` →
      （认证 / `bodyLimit` 见切片 2、4）→ 路由。`GET /api/v1/openapi.json`：每个 app 实例首次请求时 `getOpenAPI31Document(OPENAPI_CONFIG)` 序列化并缓存，
      `public, max-age=300`。返回 `app.route("/api/v1", healthRoutes(deps))` 的链式值；导出 `OPENAPI_CONFIG`
      （`openapi: "3.1.0"`，`info: { title: "aia-cdp API", version: "1" }`）与 `type AppType`。规则：不注册 `app.get("*")`（会让所有未知路径的 POST
@@ -537,7 +540,7 @@ Worker 打包、Docker 镜像都能用 `pnpm run ci:<job>` 在本机跑通。处
     | `types` | `WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true wrangler types --env-file=/dev/null`（不读 `.dev.vars`，生成结果确定） |
     | `typecheck:worker` / `:node` / `:web` | `tsc -p tsconfig.worker.json` / `tsc -p tsconfig.node.json` / `vue-tsc -p tsconfig.web.json` |
     | `typecheck:boundary` | `node scripts/check-worker-program.ts`（D9，步骤 2） |
-    | `typecheck` | `pnpm run types && pnpm run typecheck:worker && pnpm run typecheck:node && pnpm run typecheck:web && pnpm run typecheck:boundary` |
+    | `typecheck` | `pnpm run types && pnpm run typecheck:boundary && pnpm run typecheck:worker && pnpm run typecheck:node && pnpm run typecheck:web`（boundary 在前，见步骤 2） |
     | `lint` / `lint:fix` | `pnpm run types && eslint --max-warnings 0 .` / `pnpm run types && eslint --fix .` |
     | `format` / `format:check` | `prettier --write .` / `prettier --check .` |
     | `openapi` / `openapi:check` | `node scripts/generate-openapi.ts` / `node scripts/generate-openapi.ts --check` |
@@ -577,8 +580,10 @@ Worker 打包、Docker 镜像都能用 `pnpm run ci:<job>` 在本机跑通。处
       不装 `act`（无远端，CI 就是 `pnpm run ci:*`）。容器内 Docker 可选：需要在容器里跑 `ci:docker` 时自行加
       `ghcr.io/devcontainers/features/docker-outside-of-docker:1`，默认不加，`ci:docker` 在主机上跑。
     - `remoteUser: "node"`，`updateRemoteUserUID` 保持默认 `true`（容器 uid 对齐主机用户，工作树里生成的文件不属 root）；`containerEnv`
-      `{ "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0", "WRANGLER_SEND_METRICS": "false" }`；`postCreateCommand`: `corepack enable pnpm`（以 `node` 运行，
-      不用 sudo；写不进 nvm 目录时改 `corepack enable --install-directory ~/.local/bin pnpm`）；`forwardPorts`: `[5173, 8080, 8787]`。
+      `{ "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0", "WRANGLER_SEND_METRICS": "false" }`；`postCreateCommand`:
+      `corepack enable --install-directory "$(npm prefix -g)/bin" pnpm`（以 `node` 运行，不用 sudo。2026-10-19 在该镜像实测：`corepack enable pnpm` 写
+      root 所有的 `/usr/local/bin`，EACCES；`--install-directory ~/.local/bin` 目录不存在、也不在 PATH 上，镜像自带的全局 pnpm 12 在 PATH 上靠前。
+      `npm prefix -g` 即属 `node` 的 `/usr/local/share/npm-global`，shim 替换其 `bin/pnpm`）；`forwardPorts`: `[5173, 8080, 8787]`。
     - 不在 `postCreateCommand` 里装依赖或生成夹具：首次进入后手动 `pnpm install --frozen-lockfile`，夹具由 vitest `globalSetup` 生成。
 
 ### 测试
@@ -628,7 +633,8 @@ Worker 打包、Docker 镜像都能用 `pnpm run ci:<job>` 在本机跑通。处
    - canary：删掉 `tests/boundary/worker-canary.ts` 的 `@ts-expect-error` 行，`pnpm run typecheck:worker` 报 TS2591；对 node canary 同样操作，
      `pnpm run typecheck:node` 报 TS2304。
    - `typecheck:boundary`（D9）：在 `src/http/types.ts` 末尾加 `import type { Plugin } from "vite";` 与 `export type VitePlugin = Plugin;`（导出它，免得
-     `noUnusedLocals` 先报错），`pnpm run typecheck` 失败且输出含 `pulls in Node-only declarations`（三套编译照常通过，失败来自 `typecheck:boundary`）。
+     `noUnusedLocals` 先报错），`pnpm run typecheck` 失败且输出含 `pulls in Node-only declarations`（失败来自先跑的 `typecheck:boundary`，三套编译不再运行；
+     单跑时 `typecheck:worker` 报 worker canary 的 TS2578，node、web 照常通过）。
    - ESLint 分层（D9）：在 `src/core/health.ts` 加 `import type { AppDeps } from "../http/types.ts";`，`pnpm exec eslint src/core/health.ts` 的输出含
      `no-restricted-imports`；在 `src/http/app.ts` 加 `import { serve } from "@hono/node-server";`，`pnpm exec eslint src/http/app.ts` 同样报它。
    - 还原后 `pnpm run typecheck && pnpm run lint` 通过。
