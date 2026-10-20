@@ -21,6 +21,7 @@ import { sha256Hex } from "../../core/digest.ts";
 import { importCertificate } from "../../core/import.ts";
 import { ApiError, ERROR_MESSAGES, NO_STORE, validationError } from "../errors.ts";
 import { createLogger } from "../log.ts";
+import { mediaType, MULTIPART } from "../media.ts";
 import {
   AdminDisabledError,
   BadRequestError,
@@ -80,8 +81,6 @@ const ETAG = z.object({
 
 // POST /admin/certificates -----------------------------------------------------------------------
 
-const MULTIPART = "multipart/form-data";
-
 // The format (DER or one PEM block) is recognized from the bytes; the type only gates 415.
 const CERTIFICATE_MEDIA_TYPES = new Set([
   "application/pkix-cert",
@@ -89,11 +88,6 @@ const CERTIFICATE_MEDIA_TYPES = new Set([
   "application/octet-stream",
   MULTIPART,
 ]);
-
-/** The essence of a Content-Type (`type/subtype`, lowercase), or undefined without one. */
-function mediaType(contentType: string | undefined): string | undefined {
-  return contentType?.split(";")[0]?.trim().toLowerCase();
-}
 
 // zod-openapi's media gate counts application/x-www-form-urlencoded as the declared form type; this
 // one runs first and lets only the four declared types through. The gate still answers 415 for a

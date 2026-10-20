@@ -1,6 +1,12 @@
 import { z } from "@hono/zod-openapi";
 import { CONFIG_RULES } from "../core/admin.ts";
-import { CertificateSummarySchema, Sha256Hex } from "../core/catalog.ts";
+import {
+  CertificateSummarySchema,
+  CrlKind,
+  CrlSummarySchema,
+  Sha256Hex,
+  TargetId,
+} from "../core/catalog.ts";
 import { PKI_PARSE_REASONS } from "../core/pki/errors.ts";
 
 /** Every error code of plan §7.3. Each route narrows the enum per status code (errorSchema). */
@@ -75,6 +81,8 @@ export const ConcurrentUpdateError = errorSchema(["concurrent_update"]).openapi(
   "ConcurrentUpdateError"
 );
 
+export const InternalError = errorSchema(["internal"]).openapi("InternalError");
+
 /** 200: the store answers. `degraded` while config.json is missing or invalid. */
 export const HealthOk = z
   .object({
@@ -140,3 +148,121 @@ export const PreconditionFailedError = errorSchema(["precondition_failed"]).open
 export const PreconditionRequiredError = errorSchema(["precondition_required"]).openapi(
   "PreconditionRequiredError"
 );
+
+// CRL upload ---------------------------------------------------------------------------------------
+
+/**
+ * The request media types of POST /api/v1/crls (M8). The three raw types only pass the gate: the
+ * format (DER or one X509 CRL PEM block) is always recognized from the bytes.
+ */
+export const CRL_MEDIA_TYPES = [
+  "multipart/form-data",
+  "application/pkix-crl",
+  "application/x-pem-file",
+  "application/octet-stream",
+] as const;
+
+/**
+ * The multipart form of an upload: the field `crl`, a file or a string (pasted PEM text, `curl -F
+ * crl=<file`), exactly once. Documented as one binary string: zod-openapi renders the union so,
+ * and the form validator checks the union (tests/http/crls-upload.test.ts).
+ */
+export const CrlUpload = z
+  .object({
+    crl: z.union([z.file(), z.string()]).openapi({
+      type: "string",
+      format: "binary",
+      description: "The CRL: a DER or PEM file, or PEM text",
+    }),
+  })
+  .openapi("CrlUpload");
+
+/** 200 / 201 of POST /api/v1/crls (plan §7.1, M16). */
+export const PublishedCrl = z
+  .object({
+    /** created → 201; updated, unchanged → 200. */
+    outcome: z.enum(["created", "updated", "unchanged"]),
+    /** The target the configuration binds to the CRL's issuer and kind. */
+    target: TargetId,
+    kind: CrlKind,
+    /** SHA-256 of the DER: the target's current CRL after the upload. */
+    sha256: Sha256Hex,
+    crlNumber: CrlSummarySchema.shape.crlNumber,
+    baseCrlNumber: CrlSummarySchema.shape.baseCrlNumber,
+    thisUpdate: CrlSummarySchema.shape.thisUpdate,
+    nextUpdate: CrlSummarySchema.shape.nextUpdate,
+    /** Id of the issuer certificate the target names, whose key verified the signature. */
+    issuer: Sha256Hex,
+    /** The paths that serve the target, in code-unit order, each DER path before its `.pem`. */
+    downloads: z.array(z.string()),
+  })
+  .openapi("PublishedCrl");
+
+/** The stored current CRL a 409 compares against (`details.current`). */
+const CurrentCrlVersion = z
+  .object({
+    sha256: Sha256Hex,
+    crlNumber: CrlSummarySchema.shape.crlNumber,
+    thisUpdate: CrlSummarySchema.shape.thisUpdate,
+  })
+  .openapi("CurrentCrlVersion");
+
+export const CrlConflictError = z
+  .union([
+    detailedErrorSchema(
+      ["stale_crl", "conflict", "non_orderable"],
+      z.object({ current: CurrentCrlVersion })
+    ),
+    ConcurrentUpdateError,
+  ])
+  .openapi("CrlConflictError");
+
+/** `details` of 422 by code (src/core/publish.ts PublishFailure). */
+export const CrlRejectedError = z
+  .union([
+    detailedErrorSchema(
+      ["invalid_crl"],
+      z.object({ reason: z.enum([...PKI_PARSE_REASONS, "signature_algorithm_mismatch"]) })
+    ),
+    detailedErrorSchema(
+      ["not_yet_valid"],
+      z.object({ thisUpdate: CrlSummarySchema.shape.thisUpdate })
+    ),
+    detailedErrorSchema(
+      ["unknown_critical_extension", "scoped_crl_unsupported"],
+      z.object({
+        oid: z.string(),
+        /** Uppercase hex: only for a CRL entry extension. */
+        serialNumber: z.string().optional(),
+      })
+    ),
+    detailedErrorSchema(
+      ["issuer_not_found"],
+      z.union([
+        z.object({ reason: z.literal("missing_aki") }),
+        z.object({ authorityKeyId: z.string() }),
+      ])
+    ),
+    detailedErrorSchema(
+      ["target_not_configured"],
+      z.object({
+        kind: CrlKind,
+        /** The imported certificates whose Subject Key Identifier is the CRL's AKI. */
+        certificates: z.array(Sha256Hex),
+      })
+    ),
+    detailedErrorSchema(
+      ["invalid_signature", "unsupported_algorithm"],
+      z.object({ algorithm: z.string() })
+    ),
+  ])
+  .openapi("CrlRejectedError");
+
+export const CrlMediaTypeError = detailedErrorSchema(
+  ["unsupported_media_type"],
+  z.object({
+    /** The request's media type (lowercase, without parameters); null without a Content-Type. */
+    received: z.string().nullable(),
+    accepted: z.array(z.enum(CRL_MEDIA_TYPES)),
+  })
+).openapi("CrlMediaTypeError");
