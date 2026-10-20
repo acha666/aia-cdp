@@ -35,7 +35,9 @@
    ∪ catalog 的 `current`（切片 4 步骤 6 的定义）。`thisUpdate`、`crlNumber`、`sha256` 从键名解出（键格式见切片 4 步骤 2），`size` 取自
    blob 的 `list`，`current` = 与 catalog 当前 `sha256` 相等；标记与 current 可能同名并存（切片 4 步骤 6：写了被取代 current 的标记
    而 catalog 写输掉，即 `concurrent_update` 或重读后终态），按版本名合并成一条 `current: true`，不重复列出；按 `thisUpdate` 降序、同时间按
-   CRL 号（BigInt）降序。不逐个读 blob 或标记
+   CRL 号（BigInt）降序。标记体是被取代 `current` 的记录原样、不带时间（切片 4 步骤 6）：一个版本被取代的时间是取代它的那一版（列表里
+   紧随其后的已发布版本）的 `publishedAt`，退役的时间是 `retired.at`；条目要展示取代时间时从后一版的记录（其标记体或 catalog 的
+   `current`）取，被取代版本自己的标记里没有。不逐个读 blob 或标记
    （Workers 的子请求数与 CPU 撑不住）。解析不了的键跳过并记 warn；无标记的孤儿 blob 不列出（C8）；目标未知且两个前缀都为空 →
    `not_found`。`getHistoryBlob(deps, targetId, sha256)` 只对上述条目 `get` 其 blob 并重算摘要，不等 → `internal` 并记日志（存储或恢复后的
    损坏可见）。

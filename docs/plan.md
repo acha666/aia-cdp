@@ -256,7 +256,9 @@ history/<targetId>/<与 blob 同名>.json                不可变；历史标�
 ```
 
 CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段是十进制 CRL 号、无号时为 `none`；键只由 `crlBlobKey()`
-生成（implementation 切片 4 步骤 2）。键全部由服务生成（hex、uuid、十进制、固定名），不存在操作员命名的键，
+生成（implementation 切片 4 步骤 2）。号进文件名，所以 CRL Number 与 Delta 指示的内容至多 48 octet（116 位十进制）：最长名字 202 字节，
+fs 适配器的临时文件 `.<名字>.<uuid>.tmp` 244 字节，都在单个名字 255 字节以内（R2 键上限 1024）；更长的号拒为 `invalid_crl`
+（`extension_value`）。这只给"不设 20 octet 上限"的默认值加了上界，RFC 5280 的 20 octet 仍不强制。键全部由服务生成（hex、uuid、十进制、固定名），不存在操作员命名的键，
 因此不需要键编码、长度、大小写规则；三个适配器仍防御性地用 `assertStoreKey` 校验每个键（§5.4）。
 
 ### 5.2 `config.json`（操作员）
@@ -322,8 +324,9 @@ CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段
 catalog 只存当前指针，大小与资源数成正比，不随发布次数增长。历史 = `history/<uuid>/` 下的标记
 （被取代或退役的 current 原样记录，或切片 7 导入的旧版本；键名与 blob 同名，自带 `thisUpdate`、CRL 号与摘要）∪ catalog 的 `current`；
 `blobs/crls/<uuid>/` 下没有标记的孤儿 blob（发布竞争失败或崩溃留下）不算历史（C8）。管理接口各 `list` 一次两个前缀即可列出，
-不逐个读对象。发布写的标记体是被取代的 `current` 记录原样加 `supersededAt`（退役写同样的形状，切片 7 的导入为 `importedAt`）；发布写了
-标记而 catalog 写输掉时，被标记的版本仍是 current，列历史时按版本名把标记与 current 合并成一条。
+不逐个读对象。发布写的标记体是被取代的 `current` 记录原样，不带时间（退役写同样的形状，切片 7 的导入另带 `importedAt`）；发布写了
+标记而 catalog 写输掉时，被标记的版本仍是 current，列历史时按版本名把标记与 current 合并成一条。标记不记取代时间：create-only 的
+标记可能来自最终 `concurrent_update` 的调用，那时写下的时间之后永远改不掉；某版本被取代的时间就是取代它的那一版的 `publishedAt`。
 
 格式（implementation 切片 2 步骤 4、切片 4 步骤 2）：证书 id、`sha1`、key id 小写 hex（key id 与 CN 缺失为 `null`），target id
 小写 UUID；`serialNumber` 大写 hex，保留 INTEGER 内容字节的前导 `00`；时间为 `toISOString()`（含 `.000Z`）；
@@ -382,6 +385,12 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
    1 s 退避），之后返回 `concurrent_update`。
 9. 返回 `created`（之前无 current）或 `updated`。
 
+CRL 的大小：解码按输入设 asn1js 的限额（节点数与内容长度都取输入字节数），唯一的上界是 `AIA_MAX_UPLOAD_BYTES`。内存约每 10 000 个
+吊销条目 100 MB 堆（Node 实测：10 000 条目 410 KB 需 96–128 MB 堆、0.5 s；100 000 条目 4 MB 需 1 GB、4.7 s；10 MiB 约 249 000 条目
+需 3 GB、12.8 s）。Workers 的隔离区 128 MB，可支持约 5 000 条目（≈ 200 KB），10 000 在边缘；Node 受堆上限约束。上传默认不要令牌而
+解码先于任何检查，10 MiB 的畸形输入（全 NULL 的 SEQUENCE）需约 3 GB 堆，超过即整个 Node 进程退出：降低默认上限或要求令牌待定，
+数字与建议见 implementation 切片 4 的风险。线上 CRL 目前 0 个条目。
+
 第 7 步后崩溃只留下一个无人引用、不进历史的 blob，无害；第 8 步 catalog 写成功即完成，不存在"权威写成功但
 派生写失败"的状态。第 1–6 步的拒绝与 `unchanged` 零写入；输掉的竞争只留下本次 blob 与旧 current 的标记（§5.3）。R2 对单键每秒一次写
 的限制只落在 `catalog.json` 上：超限报错不是前置条件失败，服务端不重试（500），AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
@@ -404,8 +413,11 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 - 身份：证书 `certificateId` = DER 的 SHA-256；CRL 目标 `targetId` = 创建时分配的 UUID；
   内容版本 = `contentSha256`。CN、文件名不参与身份、授权和路径。
 - 验证：AKI/SKI 匹配 + 签名验证。CRL 没有 AKI `keyIdentifier` → `issuer_not_found`（`details.reason = "missing_aki"`，implementation
-  切片 4 owner 确认 3）；外层 `signatureAlgorithm` 与 TBS 内 `signature` 的 OID 或参数 DER 不同 → `invalid_crl`
-  （`signature_algorithm_mismatch`，owner 确认 5）。`issuer_mismatch` 指 AKI 解析到的证书不是该目标配置的签发者：上传按目标配置的
+  切片 4 owner 确认 3）；外层 `signatureAlgorithm` 与 TBS 内 `signature` 收到的字节不同（OID 或参数）→ `invalid_crl`
+  （`signature_algorithm_mismatch`，owner 确认 5；比较收到的字节而不是重编码，外层不在签名之内）。严格 DER 含 X.690 的内容规则
+  （INTEGER 最短、OID 子标识符不以 0x80 开头、NULL 无内容、BOOLEAN 为 00 / FF），所以没有人能改写外层算法造出 OpenSSL 读不了、
+  却先成为 current 的变体。ECDSA 签名本身可延展：`(r, n − s)` 是另一份 OpenSSL 也验得过的合法 CRL，谁先上传谁成为 current，CA 的原始
+  字节随后得 `conflict`（只是 409 的麻烦，不是完整性问题）。`issuer_mismatch` 指 AKI 解析到的证书不是该目标配置的签发者：上传按目标配置的
   签发者验签、不产生此码（owner 确认 4），只留给切片 7 的临时历史导入（C5）。不比较签发者名称、不检查 `cRLSign` 和签发者有效期。
   验签方式（B21）：先过扩展与时钟策略，再在任何密码学调用之前按 OID 白名单判定：sha1/256/384/512WithRSAEncryption、RSASSA-PSS
   （哈希同这四种、MGF1 用同一哈希、`trailerField = 1`）、ecdsa-with-SHA1/256/384/512（签发者曲线 P-256 / P-384 / P-521）；SHA-1 接受
@@ -425,7 +437,8 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 - 扩展：识别列表为 `2.5.29.20`、`2.5.29.27`（delta 指示）、`2.5.29.35`、`2.5.29.46`、`2.5.29.18`（IAN）、
   `1.3.6.1.5.5.7.1.1`（AIA）与 AD CS 私有 `1.3.6.1.4.1.311.21.1 / .4 / .14`；识别与关键性无关，标了关键也接受（M14）。`2.5.29.28`（IDP）不论关键性都读：
   只含 `distributionPoint` 接受（AD CS 的 CDP 选项，implementation 切片 4 owner 确认 2），含 `onlyContains*`、`onlySomeReasons`、`indirectCRL`
-  即作用域 CRL，拒绝 `scoped_crl_unsupported`，畸形 IDP 为 `invalid_crl`；其他未识别关键扩展拒绝 `unknown_critical_extension`。
+  即作用域 CRL，拒绝 `scoped_crl_unsupported`，畸形 IDP（含 RFC 5280 禁止的空 IDP）为 `invalid_crl`；其他未识别关键扩展拒绝
+  `unknown_critical_extension`。同一扩展出现两次 → `invalid_crl`（X.509 每个扩展至多一次）。
   条目扩展同样检查：reasonCode、invalidityDate、holdInstructionCode 接受，certificateIssuer（间接 CRL）→
   `scoped_crl_unsupported`，其他关键 → `unknown_critical_extension`。未识别的非关键扩展保留原始字节在详情里展示。
   策略表见 implementation 切片 4 步骤 3。
@@ -637,7 +650,7 @@ owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-
 | # | 线上实际行为 | 新项目 |
 | --- | --- | --- |
 | C1 | 验签用 PKIjs `crl.verify({ issuerCertificate })`，它要求 CRL 签发者名称等于证书主体，名称不同即 400 `invalid_signature` | 不比较名称：`verifyWithPublicKey` 只看签名（§6） |
-| C2 | 不是"无策略"：PKIjs 有隐藏的已知扩展闸——关键的 AD CS `1.3.6.1.4.1.311.21.1 / .4 / .14` 被拒成 `invalid_signature`；关键 IDP 反被接受（作用域 CRL 会被发布）；关键 IAN / AIA 接受；条目扩展从不检查 | 显式策略表，识别与关键性无关，条目扩展也检查；作用域 IDP（不论关键性）→ `scoped_crl_unsupported`，只含 `distributionPoint` 的接受 |
+| C2 | 不是"无策略"：PKIjs 有隐藏的已知扩展闸——关键的 AD CS `1.3.6.1.4.1.311.21.1 / .4 / .14` 被拒成 `invalid_signature`；关键 IDP 反被接受（作用域 CRL 会被发布）；关键 IAN / AIA 接受；条目扩展从不检查 | 显式策略表，识别与关键性无关，条目扩展也检查；作用域 IDP（不论关键性）→ `scoped_crl_unsupported`，只含 `distributionPoint` 的接受，空 IDP 为 `invalid_crl` |
 | C3 | 同号同 `thisUpdate` 而字节不同 → 409 `stale_crl`；CRL 号只在一侧时回退比 `thisUpdate`，更晚即接受。#4 只覆盖了字节相同 | 前者 `conflict`，后者 `non_orderable`（§6） |
 | C4 | 所有不可验算法（Ed25519、Ed448、SHA-224 的 RSA / ECDSA、DSA、SM2、MD5）都报 400 `invalid_signature` | 白名单外一律 `unsupported_algorithm`，不只 EdDSA |
 

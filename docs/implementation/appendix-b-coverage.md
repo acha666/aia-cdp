@@ -58,8 +58,8 @@
 
 | 编号 | 规则（简） | 处理 |
 | --- | --- | --- |
-| M1 | 证书与 CRL 严格 DER：单一顶层元素、解码错误即拒、BER 编码（不定长、非最短长度或标签、构造形式的字符串、空 INTEGER 等）即拒、RFC 5280 时间 | 切片 2 步骤 1、5（证书）；切片 4 步骤 6（CRL） |
-| M2 | CRL Number / Delta 指示须 INTEGER、非负、BigInt、无 20 octet 上限 | 切片 4 步骤 6（测试 `tests/core/publish.test.ts` 的合成畸形值）；切片 2 测试 `tests/core/pki/parsers.test.ts` |
+| M1 | 证书与 CRL 严格 DER：单一顶层元素、解码错误即拒、BER 编码（不定长、非最短长度或标签、构造形式的字符串、空 INTEGER、非最短 INTEGER / ENUMERATED、0x80 开头的 OID 子标识符、带内容的 NULL、非 00 / FF 的 BOOLEAN 等）即拒、RFC 5280 时间 | 切片 2 步骤 1、5（证书）；切片 4 步骤 6（CRL；内容规则来自切片 4 评审 C2，测试 `tests/core/pki/asn1.test.ts`） |
+| M2 | CRL Number / Delta 指示须恰好一个 INTEGER、非负、BigInt；不设 RFC 5280 的 20 octet 上限，至多 48 octet（号进文件名） | 切片 4 步骤 2、6（测试 `tests/core/publish.test.ts` 的合成畸形值与生成的 CA、`tests/core/summary.test.ts`）；切片 2 测试 `tests/core/pki/parsers.test.ts` |
 | M3 | AKI `keyIdentifier` 必需 | 切片 4 步骤 6（`issuer_not_found` + `missing_aki`，owner 确认 3；AKI 的 `keyIdentifier` 为空是 `invalid_crl`） |
 | M4 | key id 规范为小写 hex | 切片 2 步骤 4（schema 拒大写）与 `tests/core/summary.test.ts` 的跨切片锁定；切片 4 步骤 6 |
 | M5 | 签发者并列规则（畸形 SKI、多证书同 SKI） | 切片 2 步骤 3（畸形 SKI 拒导入）、步骤 6（V6）；切片 4 步骤 6（按目标配置的签发者验签，owner 确认 4）；切片 7 步骤 2、5（迁移归属与历史导入同一规则） |
@@ -68,7 +68,7 @@
 | M8 | 上传 body：字段 `crl`、字符串字段、415 `details.received` | 切片 4 步骤 8（测试 `tests/http/crls-upload.test.ts`）；切片 5b 步骤 7 |
 | M9 | 任何拒绝零写入 | 切片 2 步骤 5（导入）；切片 4 步骤 6（发布，测试 `tests/core/publish.test.ts` 的写日志）；切片 6 步骤 3（退役后上传） |
 | M10 | 可验算法集与 SHA-1 | 切片 4 步骤 4（SHA-1 接受，owner 确认 1；测试 `tests/core/pki/verify.test.ts`） |
-| M11 | 外层与 TBS 签名算法须相同 | 切片 4 步骤 3（`invalid_crl` / `signature_algorithm_mismatch`，owner 确认 5；测试 `tests/core/pki/crl-policy.test.ts`） |
+| M11 | 外层与 TBS 签名算法须相同（比较收到的字节） | 切片 4 步骤 3（`invalid_crl` / `signature_algorithm_mismatch`，owner 确认 5；测试 `tests/core/pki/crl-policy.test.ts`；改写外层算法的上传见 `tests/core/publish.test.ts`） |
 | M12 | 对收到的 TBS 字节验签 | 切片 4 步骤 4；测试 `tests/core/pki/verify.test.ts` |
 | M13 | CRL 条目扩展的关键性 | 切片 4 步骤 3；测试 `tests/core/pki/crl-policy.test.ts` |
 | M14 | 已识别扩展标为关键时接受 | 切片 4 步骤 3；测试 `tests/core/pki/crl-policy.test.ts` |

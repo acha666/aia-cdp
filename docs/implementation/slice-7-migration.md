@@ -61,8 +61,8 @@
      `issuer_mismatch`（plan §6 的含义，C5）；否则用配置的签发者验签。同钥续期时几张证书共用 SKI，"AKI 解析到哪张"没有唯一答案，所以只问"配置的签发者在不在候选里"。
      kind 也必须一致。
    - 按切片 4 步骤 5 的新鲜度不早于 current 的 → 409 `conflict`（`details.reason: "not_older_than_current"`），这种 CRL 应走正常发布。
-   - blob 键与 publish 相同（`crlBlobKey`，切片 4 步骤 2），`put` 带 `ifNoneMatch: "*"`，再 create-only 写同名 history 标记（体与切片 4 的
-     标记同形，`supersededAt` 换成 `importedAt`）：两者都已存在返回 200 `unchanged`，否则 201 `created`。**不读写 catalog 的 current**，
+   - blob 键与 publish 相同（`crlBlobKey`，切片 4 步骤 2），`put` 带 `ifNoneMatch: "*"`，再 create-only 写同名 history 标记（体为切片 4 标记的
+     形状，即 `current` 记录的字段，另加 `importedAt`）：两者都已存在返回 200 `unchanged`，否则 201 `created`。**不读写 catalog 的 current**，
      除上一条外不做新鲜度判断。
    - 路由进 OpenAPI，漂移检查照常。不加额外开关，暴露窗口靠步骤 11 删除收口。
    - 导入的版本从来不是 current，靠标记出现在 history 列表里（切片 6 步骤 4）；没有标记的孤儿 blob 仍不出现。

@@ -28,8 +28,10 @@
    - owner 确认 1 选了接受 SHA-1：加 `crls/issuing-ca-1/full-sha1`（`-md sha1`），先确认 OpenSSL 3.0 能签。已确认：OpenSSL 3.5.5
      直接签（安全级别只约束 TLS，无需本地覆盖）；生成器再用 `openssl crl -text` 核对签名算法，签不出或不是 SHA-1 即失败。
    - owner 确认 2 接受只含 `distributionPoint` 的关键 IDP：`full-idp-dp-only` 的 `expect` 改为 `created`。
-   - 条目扩展关键性、内外签名算法不一致两类不做夹具（`openssl ca` 产不出）：测试解析现有 CRL 后改 pkijs 对象再调策略函数；
-     策略在验签之前，不需要重签。
+   - 条目扩展关键性、内外签名算法不一致两类不做夹具（`openssl ca` 产不出）：测试解析现有 CRL 后改 pkijs 对象（条目扩展）或
+     `parseCRL` 暴露的收到字节（算法，见步骤 3）再调策略函数；策略在验签之前，不需要重签。夹具放不下的形态（几千个吊销条目、
+     号长到上限）由测试内生成的 CA 现签（`tests/helpers/generated-ca.ts`：WebCrypto P-256 密钥 + PKIjs 自签证书，经 `importCertificate`
+     导入），不提交大夹具。
    - manifest 的 CRL 条目加 `nextPublish`（`full-adcs`、`delta-adcs` 取脚本的 `NEXT_PUBLISH`，即 `2026-01-10T12:00:00Z`、
      `2026-01-04T18:00:00Z`；其余 `null`），供摘要测试读取，不写字面量。
    - 改完生成器 `pnpm run fixtures` 重生成整树并提交（每次换新密钥，签名、摘要、key id 全变，测试照旧只从 manifest 与文件取值）；
@@ -44,15 +46,24 @@
      只取字段推导）→ `{ crlNumber, baseCrlNumber, thisUpdate, nextUpdate, revokedCount, sha1, nextPublish }`，格式同切片 2 步骤 4 与
      plan §5.3：`revokedCount` 非空整数（§10 #7 见切片 5a）；`nextPublish` 取 Next CRL Publish（`1.3.6.1.4.1.311.21.4`），缺失为 `null`，
      供切片 5b 的状态规则。整份替换，不合并。CRL Number、Delta 指示、Next CRL Publish 存在但畸形 → 抛 `PkiParseError`（`invalid_crl`，
-     `reason = "extension_value"`）：Next CRL Publish 须恰好是一个 RFC 5280 形式的 UTCTime / GeneralizedTime（多余字节、别的类型都算畸形），
-     与严格 DER 一致，不当作 `null` 静默存下（5b 的状态规则依赖它）；值内时间格式错误在 `parseCRL` 已按 `reason = "time"` 拒绝。
+     `reason = "extension_value"`）：三者（与 AKI）的 extnValue 都须恰好是一个值，多余字节即畸形（与严格 DER 一致，评审 C3）；Next CRL
+     Publish 须是 RFC 5280 形式的 UTCTime / GeneralizedTime，别的类型也算畸形，不当作 `null` 静默存下（5b 的状态规则依赖它）；值内时间
+     格式错误在 `parseCRL` 已按 `reason = "time"` 拒绝。同一 OID 的 CRL 扩展出现两次 → 同样 `extension_value`（X.509 每个扩展至多一次，
+     读取都取第一个；证书摘要同样拒绝重复扩展）。
+   - 号的长度上限（评审 C5）：号段进 blob 与 history 标记的文件名，文件系统单个名字 255 字节，fs 适配器还经 `.<名字>.<uuid>.tmp`
+     临时文件写入（多 42 字节）。CRL Number 与 Delta 指示的 INTEGER 内容至多 48 octet（`MAX_CRL_NUMBER_OCTETS`，即至多 2^383 − 1、
+     116 位十进制），更长 → `extension_value`。最长名字 = 15（时间）+ 1 + 116 + 1 + 64（sha256）+ 5（`.json`）= 202 字节，临时文件 244 字节，
+     R2 键 247 字节（上限 1024）。这只给规划默认值"不设 20 octet 上限"加了一个上界：RFC 5280 的 20 octet 仍不强制，48 远高于它；
+     原先过长的号在 fs 上是 `ENAMETOOLONG` 的 500，Workers 上却是 201，两条运行时不一致。
      `crlVersionName(summary, sha256)`（`<时间>-<号>-<sha256>`）同时给 blob 键与第 6 步的 history 标记命名。`formatGeneralizedTime`
      对无效日期或 0000–9999 以外的年份抛 `RangeError`（定宽格式放不下）。
    - 切片 2 的 `CatalogSchema` 是严格对象：补全 CRL 摘要字段后，切片 3 的 `tests/helpers/seed-downloads.ts`（手写 CRL `current`）改用
      `buildCrlSummary`；切片 2–3 期间写下的本地 `.data` / `.wrangler/state` 不合新 schema，`pnpm reset:dev` 后重跑 `seed:dev`。
 3. **扩展与时钟策略**（新 `src/core/pki/crl-policy.ts`，纯函数 `checkCrlPolicy(crl, now)`）。按序执行，首个命中即返回：
-   1. 外层 `crl.signatureAlgorithm` 与 TBS 内 `crl.signature` 的 OID 或参数 DER 不同 → `invalid_crl`，
-      `details.reason = "signature_algorithm_mismatch"`（M11，owner 确认 5）。
+   1. 外层 `signatureAlgorithm` 与 TBS 内 `signature` 收到的字节不同（OID 或参数）→ `invalid_crl`，
+      `details.reason = "signature_algorithm_mismatch"`（M11，owner 确认 5）。比较收到的字节（`parseCRL` 返回的 `ReceivedCrl` 带
+      `signatureAlgorithmView` / `signatureView`，即 asn1js 的 `valueBeforeDecodeView`），不比较重编码：外层不在签名之内，asn1js 会把
+      0x80 填充的 OID 子标识符、带内容的 NULL 解码后按 DER 重编码，比较重编码就把这类改写当成相同（评审 C2）。
    2. `thisUpdate − now > 300 000 ms` → `not_yet_valid`（恰好超前 5 分钟接受；时间均为整秒，§10 #12）；
       `nextUpdate < now` 接受并返回 `expired: true` 供日志。两者都按 epoch ms 比较。
    3. CRL 扩展（`crl.crlExtensions`；C2、M14：识别与关键性无关，识别的扩展标了关键也接受）：
@@ -62,7 +73,8 @@
       | `2.5.29.20` CRL Number、`2.5.29.27` Delta 指示、`2.5.29.35` AKI、`2.5.29.46` Freshest CRL | 接受 | 接受 |
       | `2.5.29.18` IAN、`1.3.6.1.5.5.7.1.1` AIA（PKIjs 现状接受，C2） | 接受 | 接受 |
       | `1.3.6.1.4.1.311.21.1` / `.21.4` / `.21.14`（CA Version、Next CRL Publish、CRL Self CDP） | 接受 | 接受 |
-      | `2.5.29.28` IDP，只含 `distributionPoint`（或为空） | 接受 | 接受（owner 确认 2） |
+      | `2.5.29.28` IDP，只含 `distributionPoint` | 接受 | 接受（owner 确认 2） |
+      | `2.5.29.28` IDP，空 SEQUENCE（RFC 5280 §5.2.5：合规签发者不得写） | `invalid_crl`，`extension_value` | `invalid_crl`，`extension_value` |
       | `2.5.29.28` IDP，含 `onlyContains*`、`onlySomeReasons`、`indirectCRL` 任一 | `scoped_crl_unsupported` | `scoped_crl_unsupported` |
       | 其他 | 接受，原字节保留 | `unknown_critical_extension`，`details.oid` |
 
@@ -119,9 +131,15 @@
    `publishedAt`、日志共用。
    1. `toDer(bytes, "crl")` → DER 与 `sha256`；标签只认 `X509 CRL`，坏 base64 / 缺 END → `invalid_crl`（旧 `invalid_body` 取消，§10 #13）。
    2. `parseCRL`：错误映射为 `invalid_crl` + `details.reason`（`der` / `trailing_bytes` / `time` / `structure`；§10 #11、#25：
-      `thisUpdate` 缺失或畸形即拒绝）。读 AKI、CRL Number、Delta 指示，值非法（M2：须 INTEGER tag 2、非空、≥ 0，BigInt
-      读取，不加 20 octet 上限）→ `invalid_crl`，`reason = "extension_value"`；AKI 存在而 `keyIdentifier` 为空同样是 `extension_value`
-      （同证书摘要：空 key id 不标识任何密钥），摘要不合 catalog 格式为 `structure`。kind：带合法 Delta 指示即 `delta`（M6）。
+      `thisUpdate` 缺失或畸形即拒绝）。严格 DER（M1）另含 X.690 对 X.509 所用通用类原始类型的内容规则（评审 C2）：INTEGER /
+      ENUMERATED 最短（§8.3.2，空 INTEGER 本就拒绝）、OID 子标识符不以 0x80 开头（§8.19.2）、NULL 无内容（§8.8.2）、BOOLEAN 恰好
+      一个 octet 且为 00 / FF（§11.1）→ `der`；规则在共用的解码里，证书同样适用（线上 3 张 CA 证书与 5 份 CRL 已逐一核对仍可解析、
+      发布）。asn1js 的 `fromBER` 限额按输入设（节点数与内容长度上限都取输入字节数，评审 C1）：asn1js 3.1.0 默认 10 000 个节点，
+      一个带 reasonCode 的条目占 8 个，约 1 250 个吊销条目的合法 CRL 曾被拒为 `der`；现在唯一的上界是 `AIA_MAX_UPLOAD_BYTES`
+      （内存代价见风险）。读 AKI、CRL Number、Delta 指示，值非法（M2：须恰好一个 INTEGER，tag 2、非空、≥ 0、至多 48 octet，BigInt
+      读取；不加 RFC 5280 的 20 octet 上限，见步骤 2）→ `invalid_crl`，`reason = "extension_value"`；AKI 存在而 `keyIdentifier` 为空、
+      CRL 扩展重复同样是 `extension_value`（同证书摘要：空 key id 不标识任何密钥），摘要不合 catalog 格式为 `structure`。kind：带合法
+      Delta 指示即 `delta`（M6）。
    3. `checkCrlPolicy`（步骤 3）。
    4. `readState`：`config.json`、`catalog.json` 各一次 `get`，记下 catalog ETag。
    5. 解析目标：无 AKI 或 AKI 无 `keyIdentifier` → `issuer_not_found`，`details: { reason: "missing_aki" }`（owner 确认 3，M3）；
@@ -136,7 +154,9 @@
    8. `put crlBlobKey(…)`（步骤 2），`ifNoneMatch: "*"`，`precondition-failed` 视为已存在（键含摘要，内容必然相同），
       `contentType: application/pkix-crl`。
    9. 提交循环：若有旧 `current`，先 create-only 写 `history/<targetId>/<YYYYMMDDHHMMSSZ>-<crlNumber>-<sha256>.json`（与被取代版本的
-      blob 同名；体为被取代的 `current` 记录原样 + `supersededAt`；`precondition-failed` 视为已有）；再 `put catalog.json`（`ifMatch`）。
+      blob 同名；体为被取代的 `current` 记录原样，不带时间；`precondition-failed` 视为已有）；再 `put catalog.json`（`ifMatch`）。
+      标记不记取代时间（评审 C6）：最终 `concurrent_update` 的调用也可能先写了标记，而被标记的版本仍是 current，之后真正取代它的发布
+      遇到已有标记不会改写，标记里的时间就永远是错的。取代时间 = 取代它的那一版的 `publishedAt`，切片 6 列历史时推出。
       失败则按 250 / 500 / 1000 ms 退避，重读 state，重跑第 5–7 步（目标或签发者变了就重新验签），1 次初试 + 3 次重试，共 4 次
       catalog 写，之后 `concurrent_update`（同切片 2 步骤 4）。循环是切片 2 `updateCatalog` 的推广 `updateState`（`src/core/catalog.ts`）：
       每次尝试先 `readState`，mutation 可以是 async，可在返回 `next` 前做 create-only 写；blob 与标记每次调用至多 `put` 一次。
@@ -147,7 +167,8 @@
    - 历史 = `history/<targetId>/` 标记 ∪ catalog 的 `current`（plan §5.3），不是 `blobs/crls/<id>/` 的目录列表。不放进 catalog 数组：
      违背 plan §5.3"catalog 大小不随发布次数增长"，且每个请求都读 catalog。`history/` 与旧前缀不相交（plan §13）。retire 写标记见切片 6，历史导入写标记见切片 7。孤儿清扫：不做（体积可忽略，需要时切片 6 再加）。（规划默认值，可推翻）
    - 日志：经 `deps.log` 恰好一行 `{ level, msg: "publish", targetId, kind, outcome | reason, sha256, crlNumber, thisUpdate,
-     expired, attempts, ms, detail? }`（plan §4.3、总则 §2.6）。结束时还不知道的字段省略（解析失败无 `kind`，解析目标前无 `targetId`），
+     expired, attempts, ms, detail? }`（plan §4.3、总则 §2.6）。结束时还不知道的字段省略（解析失败无 `kind`，解析目标前无 `targetId`；
+     每次尝试先清掉上一次的 `targetId` 与 `detail`，重试解析不到目标时不带前一次的目标，评审 C7），
      `null` 表示已知不存在（无 CRL 号）；`attempts` = 读 state 并解析目标的次数（1 + 重试，`readState` 之前的拒绝为 0）；成功 `info`、
      拒绝 `warn`。抛错时也恰好一行（`error`、`reason: "internal"`、`detail` 为异常文本），再抛给路由的 500：HTTP 侧依次是
      `publish`（`internal`）→ `unhandled_error` → `request`。
@@ -229,12 +250,14 @@
 ## 测试
 
 - `tests/core/pki/crl-policy.test.ts`：`crls/issuing-ca-1/full-unknown-critical.der` → `unknown_critical_extension`；
-  `full-unknown-noncritical.der` 通过；`full-idp-scoped.der` → `scoped_crl_unsupported`；`full-idp-dp-only.der` 按 owner 确认 2；
+  `full-unknown-noncritical.der` 通过；`full-idp-scoped.der` → `scoped_crl_unsupported`；`full-idp-dp-only.der` 按 owner 确认 2，空 IDP 不论
+  关键性 `invalid_crl`；
   `full-future.der` → `not_yet_valid`；`full-01.der` 在 `now = thisUpdate − 5 min` 通过、`− 5 min − 1 s` 拒绝；
   `delta-01.der` 在 `manifest.now` 通过且 `expired: true`；`full-01.der`（keyCompromise + invalidityDate）、
   `issuing-ca-2/full-01.der`（certificateHold + holdInstructionCode）通过。改对象构造：关键 CRL Number 通过（M14）；
   `full-adcs.der` 的 `.21.1` / `.21.4` / `.21.14` 与另造的 IAN / AIA 逐个标为关键都接受（C2、M14；夹具里它们都非关键，线上旧实现
-  对关键的 `.21.x` 报 `invalid_signature`）；关键未知条目扩展、certificateIssuer 条目、内外算法不一致（M11）。
+  对关键的 `.21.x` 报 `invalid_signature`）；关键未知条目扩展、certificateIssuer 条目、内外算法不一致（M11，改收到的字节；0x80 填充的 OID
+  解码重编码后相同，仍判不一致）。
 - `tests/core/pki/verify.test.ts`：`issuing-ca-1/full-01.der`（RSA）、`full-pss.der`、`root-ca/full-01.der`（ECDSA P-384）通过；
   `full-broken-sig.der`、`full-forged-aki.der` → `invalid_signature`；`full-01.der` 对 `issuing-ca-1-renamed` 通过（C1）；
   `full-unknown-critical.der` 签名通过（证明绕开了 PKIjs 的闸，C2）；`ed25519-ca/full-01.der`、`ed448-ca/full-01.der` →
@@ -247,7 +270,10 @@
     不再单独断言；`full-no-aki` 的 `expect` 已是 `issuer_not_found`，另断言 `details.reason = "missing_aki"`）；
     `test.each(manifest.scenarios)` 17 条（含 `full-02-conflict`、`root-ca/full-02-resigned` → `conflict`，`full-no-number` 双向
     `non_orderable`，`full-04-older-time` 号优先）；`test.each(manifest.invalid)` → `invalid_crl`；`full-bad-time.der` →
-    `reason = "time"`；合成的畸形 CRL Number / Delta / AKI（迁自 `worker-aia-cdp@5b570aa:tests/worker/pki-values.test.ts:159-179`）→ `invalid_crl`。
+    `reason = "time"`；合成的畸形 CRL Number / Delta / AKI（迁自 `worker-aia-cdp@5b570aa:tests/worker/pki-values.test.ts:159-179`；另有尾随字节、
+    重复扩展、超过 48 octet 的号）→ `invalid_crl`。改写外层算法（OID 加 0x80 填充、NULL 带内容）的 `full-01` 与 `root-ca/full-01` →
+    `invalid_crl` / `der` 且零写入，之后原文件仍 `created`。签名先于新鲜度：先发 `full-pss`，再发更旧的 `full-broken-sig` → `invalid_signature`
+    而不是 `stale_crl`（HTTP 层同一行）。生成的 CA：3000 个带 reasonCode 的条目 `created`；48 octet 的号 `created`、49 octet `invalid_crl`。
   - 不变量：上面每个拒绝与 `unchanged` 的写日志为空（迁自 `worker-aia-cdp@5b570aa:tests/worker/crl-upload.test.ts:48-62, 266-276, 291-301, 341-349`）。
   - `full-01.pem`、`full-01.crlf.pem` 在 `full-01.der` 之后 → `unchanged`；blob 键格式、`current.verifier`、`publishedAt = now`；
     `full-02.der` 更新后 history = {full-01 标记, full-02 current}。
@@ -259,13 +285,14 @@
   - SKI 冲突：另导入 `issuing-ca-1-renewed`（不绑目标）→ `full-01.der` 仍 `created`，`verifier` = issuing-ca-1。
   - AD CS 形态：`full-adcs.der`、`delta-adcs.der`（合成，D7）。
   - 竞争：包装 store 在第一次 catalog 写前插入竞争者发布（更旧 / 相同 / 更新）→ 重试后 `updated` / `unchanged` / `stale_crl`，
-    `sleep` 记录 `[250]`，孤儿 blob 存在但不在 history；每次 `ifMatch` 都失败 → `concurrent_update`，`sleep` 记录
-    `[250, 500, 1000]`，catalog 写 4 次，catalog 不变。
+    `sleep` 记录 `[250]`，孤儿 blob 存在但不在 history，本次调用只验签一次（对 `verifyWithPublicKey` 计数）；重试解析到另一签发者 →
+    验签两次；每次 `ifMatch` 都失败 → `concurrent_update`，`sleep` 记录 `[250, 500, 1000]`，catalog 写 4 次，catalog 不变，留下的标记是
+    full-01 的记录原样。
   - 日志：每次调用恰一行，字段齐全；拒绝时有 `reason`。
 - `tests/core/summary.test.ts`（切片 2 文件追加）：`buildCrlSummary` 对 `full-no-next-update` 得 `nextUpdate: null`；`full-01` 得
   `nextPublish: null`；`full-adcs` 的 `nextPublish` 等于 manifest 的 `nextPublish`（步骤 1）；`revokedCount` 等于 manifest 的 `revoked`。
 - `tests/storage/publish-stores.test.ts`：created / updated / unchanged / 竞争四组对 fs 适配器跑；`AIA_TEST_R2=1` 时对 r2
-  （`getPlatformProxy`）跑，验证真实条件写语义。
+  （`getPlatformProxy`）跑，验证真实条件写语义。fs 上另发 48 octet 号的 CRL 并被同号更晚的取代：blob、标记与临时文件名都放得下。
 - Worker 冒烟（`scripts/worker-smoke.ts`，续写切片 3 的下载段，`ci:worker` 执行）：该段配置加 root-ca 与 issuing-ca-1 的 full 目标与
   `/crl/root-ca.crl`、`/crl/issuing-ca-1.crl`，上传令牌作为 harness secret；经 `POST /api/v1/crls` 发布，验签跑在 workerd 的 WebCrypto 上：ECDSA P-384
   （`crls/root-ca/full-01.der`）、RSA PKCS#1 v1.5、RSASSA-PSS 与 SHA-1 接受，`full-broken-sig` 为 422 `invalid_signature`，原始体与
@@ -314,6 +341,25 @@
 - 测试误写字面字节或大小：重生成夹具（步骤 1）后这类测试会失败；评审时检查只读 `manifest`。
 - 事件触发时读到半写文件：`FileShare.Read` + 重试；读到截断内容服务端回 `invalid_crl`，助手记失败，下次补上。
 - UI 上传在设置 `AIA_UPLOAD_TOKEN` 后不可用：本切片只在文档写明，处理见切片 5b。
+- 大 CRL 的内存与时间（评审 C1，2026-10-20 实测，生成的 P-256 CA，每条目 9 octet 序列号 + reasonCode，约 42 字节）。线上 CRL 目前 0 个条目。
+
+  | 条目数 | DER | Node 发布耗时 | Node 峰值 RSS（基线约 105 MB） | Node 最小可行 `--max-old-space-size` | workerd 单次上传 RSS 增量 |
+  | --- | --- | --- | --- | --- | --- |
+  | 1 000 | 41 KB | 73 ms | 137 MB | 32 MB | +30 MB |
+  | 5 000 | 205 KB | 281 ms | 274 MB | 64 MB | +107 MB |
+  | 10 000 | 410 KB | 510 ms | 315 MB | 96–128 MB | +138 MB |
+  | 25 000 | 1.0 MB | 1.2 s | 446 MB | 256 MB | +216 MB |
+  | 50 000 | 2.0 MB | 2.4 s | 653 MB | 512 MB | +342 MB |
+  | 100 000 | 4.0 MB | 4.7 s | 1 060 MB | 1 024 MB | +589 MB |
+  | 249 000 | 10.0 MB | 12.8 s | 2 261 MB | 3 072 MB | +732 MB（与前几次共用一个进程） |
+
+  约每 10 000 条目 100 MB 堆（asn1js 节点树 + PKIjs 对象）。本地 workerd 不执行 128 MB 隔离区上限，以上尺寸全部 201；按 Node 的堆需求与
+  workerd 的 RSS 增量估计，Workers 上可支持约 5 000 条目（≈ 200 KB），10 000 条目已在 128 MB 边缘，50 000 必然超限（生产上该请求报
+  内存超限，未在 Cloudflare 上验证）。Node 上的上限是堆：默认堆（本机 4 GB）下 10 MiB 的合法 CRL 也能发布。风险：上传默认不要令牌，
+  解码先于任何检查，10 MiB 的"全 NULL 的 SEQUENCE"（524 万个节点）在 Node 上需约 3 GB 堆（峰值 RSS 3.2 GB，堆上限 ≤ 2 GB 时进程以
+  heap out of memory 退出，整个服务停摆；本地 workerd 运行时同样崩溃重启），1 MiB 的同类输入需 384 MB、2 MiB 需 768 MB。修复前
+  asn1js 的 1 万节点默认值意外挡住了它（代价是拒收真实的大 CRL）。待定（不在本次修复中决定）：建议把 `AIA_MAX_UPLOAD_BYTES` 默认值降到
+  1 MiB（≈ 25 000 条目，最坏输入约 400 MB 堆），需要更大 CRL 的部署显式调高并设 `AIA_UPLOAD_TOKEN`；或保留 10 MiB 而要求 Node 部署设置令牌。
 
 ## 开工前需 owner 确认
 
