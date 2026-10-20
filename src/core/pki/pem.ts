@@ -106,6 +106,15 @@ function sequenceLength(bytes: Uint8Array): number | undefined {
 }
 
 /**
+ * Whether `bytes` is one definite-length SEQUENCE spanning all of them: toDer's test for DER
+ * input, shared with the CLI, which sends such a file as is and splits anything else that holds
+ * PEM boundaries.
+ */
+export function isDerSequence(bytes: Uint8Array): boolean {
+  return sequenceLength(bytes) === bytes.length;
+}
+
+/**
  * The DER bytes of an uploaded certificate or CRL.
  *
  * - A SEQUENCE whose outer TLV spans exactly all bytes is DER and returned as is.
@@ -118,7 +127,7 @@ function sequenceLength(bytes: Uint8Array): number | undefined {
  * Throws PkiParseError with the given kind.
  */
 export function toDer(bytes: Uint8Array, kind: PkiKind): Uint8Array {
-  if (sequenceLength(bytes) === bytes.length) {
+  if (isDerSequence(bytes)) {
     return bytes;
   }
   // Both options spelled out: the Workers types declare them as required. Not fatal: only the

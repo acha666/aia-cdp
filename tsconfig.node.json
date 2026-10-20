@@ -1,6 +1,6 @@
 {
-  // Node program (type check only): the Node graph of src, scripts, node-side tests and the tool
-  // configs. Only @types/node is visible, so R2Bucket / Env / ExportedHandler fail here.
+  // Node program (type check only): the Node graph of src (with the CLI), scripts, node-side tests
+  // and the tool configs. Only @types/node is visible, so R2Bucket / Env / ExportedHandler fail here.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
@@ -13,6 +13,7 @@
     "src/runtime/node.ts",
     "src/runtime/node-ui.ts",
     "src/runtime/settings.ts",
+    "src/cli/**/*.ts",
     "scripts/**/*.ts",
     "tests/**/*.ts",
     "eslint.config.ts",
