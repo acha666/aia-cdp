@@ -13,10 +13,10 @@
 
 | # | 问题 | 推荐默认 |
 | --- | --- | --- |
-| 1 | 多块 PEM | API 拒绝（`pem_blocks`），CLI 拆块逐个导入 |
-| 2 | 改绑账本 `catalog.certificatePaths`（plan §5.3 新字段，只增不减） | 采用 |
-| 3 | V6 状态部分（SKI 相同的证书不得各有同 kind 目标） | 先拒绝；与切片 4 第 4 项一起定 |
-| 4 | `PUT /api/v1/admin/config` 缺前置条件头 | 400 `bad_request`（不新增错误码） |
+| 1 | 多块 PEM | 已确认（2026-10-19）：API 拒绝（`pem_blocks`），CLI 用 `splitPemBlocks` 拆块逐个导入 |
+| 2 | 改绑账本 `catalog.certificatePaths`（plan §5.3 新字段，只增不减） | 已确认（2026-10-19）：不采用（非推荐项）。catalog 无此字段（严格对象，带该键即无效）；V7 只与当前 config 比对，`applyConfig` 只写 `config.json`；"先删再加"的两步改绑不检测，由操作员负责（证书下载 `immutable` 缓存一年，换 CA 证书用新路径） |
+| 3 | V6 状态部分（SKI 相同的证书不得各有同 kind 目标） | 已确认（2026-10-19）：拒绝（与切片 4 第 4 项的推荐默认一致） |
+| 4 | `PUT /api/v1/admin/config` 缺前置条件头 | 已确认（2026-10-19）：428 `precondition_required`（非推荐项，新增错误码）。可用前置条件 = `If-Match` 或 `If-None-Match: *` 恰好一个；两者都缺、都有或 `If-None-Match` 不是 `*` → 428；可用但不匹配 → 412 `precondition_failed` |
 
 ## 切片 3
 

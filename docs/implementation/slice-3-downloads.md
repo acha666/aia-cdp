@@ -144,7 +144,7 @@
 | 自动 HEAD 跑完整 GET 处理器，漏掉分支就读 blob | 步骤 4 的 `HEAD` 分支；store 计数用例 |
 | HEAD 在两条运行时都不自动带 `Content-Length`，`app.request()` 也看不出 Node 传输层差异 | 显式设置；Node 真实 socket 集成测试；Worker 冒烟 |
 | PEM 格式漂移使 `-pem` ETag 与 HEAD 长度失真（M22） | `pemLength` 全等测试 + 与 OpenSSL PEM 夹具逐字节比较 |
-| 切片 2 的路径规则未落实（字符集、DER-only、不改绑） | 下载侧净化 filename、精确匹配兜底；证书路径改绑会被 `immutable` 缓存一年——见切片 2 |
+| 切片 2 的路径规则未落实（字符集、DER-only、不改绑）；"先删再加"的两步改绑本就不拦（V7 只比对当前 config，owner 确认） | 下载侧净化 filename、精确匹配兜底；改绑后客户端仍按 `immutable` 用旧证书一年，下载侧无法补救，换 CA 证书须用新路径——见切片 2 步骤 6 V7 |
 | 每次下载读 config + catalog（GET 3 次 store 读，HEAD / 304 2 次） | 资源以十计可接受；plan §5.6 的备忘测量见切片 5a |
 | 头变化对 CryptoAPI 可见（PEM 类型、去边缘指令、`Last-Modified` 值、过期 CRL 60 s、安全头） | 步骤 6 表格；切片 7 用 `certutil -URL` / `-verify -urlfetch` 冒烟 |
 | 存储不一致（blob 缺失、引用失效）被 404 掩盖 | 一律 500 + 日志行（`download_blob_missing`、`download_inconsistent`、`download_size_mismatch`） |

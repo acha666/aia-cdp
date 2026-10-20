@@ -2,8 +2,9 @@
 
 X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloudflare Workers + R2 或 Node 24 + 本地磁盘（Docker）。
 
-当前状态：切片 1（骨架）——两条运行时、ObjectStore 端口与 memory / fs / r2 适配器、`/api/v1/health`、`/api/v1/openapi.json`、UI 占位、
-测试夹具、Docker 镜像与本地 CI 脚本；证书与 CRL 功能从切片 2 起。完整的使用与运维文档在切片 6。
+当前状态：切片 2（catalog/config 与导入）——在切片 1 的骨架（两条运行时、ObjectStore 与 memory / fs / r2 适配器、health、OpenAPI、UI 占位、
+测试夹具、Docker 镜像与本地 CI 脚本）之上，加了 PKI 解析、`config.json` / `catalog.json` 的 schema 与规则 V1–V9、管理接口
+（导入证书、读写配置）与 CLI `aia`（import / config / new-target-id / health）；下载从切片 3 起，CRL 发布从切片 4 起。完整的使用与运维文档在切片 6。
 
 - [docs/plan.md](docs/plan.md)：设计文档（决策、存储模型、领域规则、API、切片划分）。
 - [docs/implementation/](docs/implementation/README.md)：分步实施计划。`README.md` 是总则（决策、完成定义、通用约定），每个切片一份文件
@@ -36,7 +37,14 @@ pnpm run ci:docker
 
 - `pnpm run dev:web`：Vite 开发服务器（5173），把 `/api/`、`/ca/`、`/crl/`、`/dcrl/` 代理到 127.0.0.1:8787。
 - `pnpm run dev:node`：直接运行 Node 源码，端口 8787，数据目录 `.data/`。
-- `pnpm run dev:worker`：先 `build:web`，再 `wrangler dev`（127.0.0.1:8787，本地 R2）。
+- `pnpm run dev:worker`：先 `build:web`，再 `wrangler dev`（127.0.0.1:8787，本地 R2）。管理令牌来自 `.dev.vars`
+  （`cp .dev.vars.example .dev.vars`）；`dev:node` 则在命令前加 `AIA_ADMIN_TOKEN=dev-admin-token`。
+- `AIA_URL=http://127.0.0.1:8787 AIA_ADMIN_TOKEN=dev-admin-token pnpm run seed:dev`：经 CLI 导入夹具里的根 CA 与两个签发 CA，
+  并在尚无配置时应用一份示例配置；可重复执行（再跑全部 unchanged，已有配置不动）。`pnpm run reset:dev` 删除本地数据
+  （`.wrangler/state`、`.data`）。
+
+CLI：`pnpm aia <命令>`（镜像内为 `node dist/server/cli/aia.js <命令>`），读 `AIA_URL` 与 `AIA_ADMIN_TOKEN_FILE` / `AIA_ADMIN_TOKEN`，
+`pnpm aia --help` 列出子命令。`pnpm aia config validate docs/config.example.json` 离线校验示例配置（不需要服务与令牌）。
 
 测试夹具 `tests/fixtures/pki/` 入库，由 `tests/fixtures/generate-test-data.sh` 生成；vitest 的 globalSetup 只校验它与脚本一致
 （`--check`），不会改写。改了脚本就 `pnpm run fixtures` 重新生成并提交（每次生成都用新密钥，签名、摘要、key id 全变）。

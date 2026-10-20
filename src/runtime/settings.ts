@@ -32,14 +32,25 @@ function integer(min: number, max: number, message: string) {
 
 const nonEmpty = (message: string) => z.string().min(1, message);
 
+// RFC 6750 b64token, the only token syntax a Bearer Authorization header carries (bearerAuth's own
+// pattern): a token with any other character (`$`, `!`, a space, …) could never authenticate, as
+// every request would get 400, so it is an invalid setting instead.
+const bearerToken = z
+  .string()
+  .min(1, { message: "must not be empty when set", abort: true })
+  .regex(
+    /^[A-Za-z0-9._~+/-]+=*$/,
+    "must be a bearer token: letters, digits and - . _ ~ + /, optionally ending in ="
+  );
+
 // Messages never echo the value: two of these variables are secrets.
 const SettingsSchema = z.object({
   PORT: integer(0, 65535, "must be an integer from 0 to 65535").default(8080),
   AIA_STORE: z.enum(["fs"], 'must be "fs"').default("fs"),
   AIA_DATA_DIR: nonEmpty("must not be empty").default("/data"),
   AIA_STATIC_DIR: nonEmpty("must not be empty").default("./dist/web"),
-  AIA_ADMIN_TOKEN: nonEmpty("must not be empty when set").optional(),
-  AIA_UPLOAD_TOKEN: nonEmpty("must not be empty when set").optional(),
+  AIA_ADMIN_TOKEN: bearerToken.optional(),
+  AIA_UPLOAD_TOKEN: bearerToken.optional(),
   AIA_MAX_UPLOAD_BYTES: integer(
     1,
     Number.MAX_SAFE_INTEGER,

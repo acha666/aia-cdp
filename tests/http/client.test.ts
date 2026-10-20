@@ -39,7 +39,7 @@ describe("hc<AppType>", () => {
   });
 
   it("narrows a 503 body to unhealthy", async () => {
-    const store = patchStore({ head: () => Promise.reject(new Error("store down")) });
+    const store = patchStore({ get: () => Promise.reject(new Error("store down")) });
     const res = await client({ store }).api.v1.health.$get();
     expect(res.status).toBe(503);
     if (res.status !== 503) {

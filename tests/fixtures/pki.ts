@@ -33,7 +33,7 @@ export interface ManifestCertificate {
   /** Name of the issuing certificate (itself for self-signed ones). */
   issuer: string;
   key: CertificateKey;
-  /** Decimal. */
+  /** Uppercase hex of the INTEGER content, as `openssl x509 -serial` prints it (not decimal). */
   serial: string;
   /** ISO 8601 UTC, e.g. 2025-01-01T00:00:00Z. */
   notBefore: string;

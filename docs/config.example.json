@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "certificates": {
+    "4a8a149c54ec971900ff7bbac44ebe44b39fe8b72fa1e75359c69f3846749ea2": {
+      "label": "Example Root CA (ECC P-384)"
+    },
+    "848e235bc8c11ed62ff1153ff60a0099e61117ea6fa4dfa087059138e5ef84b0": {
+      "label": "Example Issuing CA 01 (RSA)"
+    },
+    "6f3f7bd1e294ad8c70b016af2c0d74a149bb388359831c7b2e00925a1c1829d2": {
+      "label": "Example Issuing CA 02 (RSA)"
+    }
+  },
+  "targets": {
+    "17a084f3-7795-4cdc-8695-97941f1ccdf6": {
+      "issuer": "4a8a149c54ec971900ff7bbac44ebe44b39fe8b72fa1e75359c69f3846749ea2",
+      "kind": "full",
+      "label": "Example Root CA"
+    },
+    "3e56664c-0a12-4532-bb04-fd21cf0e0e5f": {
+      "issuer": "848e235bc8c11ed62ff1153ff60a0099e61117ea6fa4dfa087059138e5ef84b0",
+      "kind": "full",
+      "label": "Example Issuing CA 01"
+    },
+    "de7aeaa3-1c57-499f-967e-78a436c039d0": {
+      "issuer": "848e235bc8c11ed62ff1153ff60a0099e61117ea6fa4dfa087059138e5ef84b0",
+      "kind": "delta",
+      "label": "Example Issuing CA 01 (delta)"
+    },
+    "17726fde-994c-4f69-a888-15dd684806ff": {
+      "issuer": "6f3f7bd1e294ad8c70b016af2c0d74a149bb388359831c7b2e00925a1c1829d2",
+      "kind": "full",
+      "label": "Example Issuing CA 02"
+    },
+    "f7e55930-327b-4e31-9821-51fdfaed8e1c": {
+      "issuer": "6f3f7bd1e294ad8c70b016af2c0d74a149bb388359831c7b2e00925a1c1829d2",
+      "kind": "delta",
+      "label": "Example Issuing CA 02 (delta)"
+    }
+  },
+  "paths": {
+    "/ca/root-ca.crt": {
+      "certificate": "4a8a149c54ec971900ff7bbac44ebe44b39fe8b72fa1e75359c69f3846749ea2"
+    },
+    "/ca/issuing-ca-01.crt": {
+      "certificate": "848e235bc8c11ed62ff1153ff60a0099e61117ea6fa4dfa087059138e5ef84b0"
+    },
+    "/ca/issuing-ca-02.crt": {
+      "certificate": "6f3f7bd1e294ad8c70b016af2c0d74a149bb388359831c7b2e00925a1c1829d2"
+    },
+    "/crl/root-ca.crl": { "target": "17a084f3-7795-4cdc-8695-97941f1ccdf6" },
+    "/crl/issuing-ca-01.crl": { "target": "3e56664c-0a12-4532-bb04-fd21cf0e0e5f" },
+    "/crl/issuing-ca-02.crl": { "target": "17726fde-994c-4f69-a888-15dd684806ff" },
+    "/dcrl/issuing-ca-01.crl": { "target": "de7aeaa3-1c57-499f-967e-78a436c039d0" },
+    "/dcrl/issuing-ca-02.crl": { "target": "f7e55930-327b-4e31-9821-51fdfaed8e1c" }
+  }
+}

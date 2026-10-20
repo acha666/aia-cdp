@@ -27,8 +27,9 @@
 | 13  | 线上工件   | 2026-10-18：`tests/data/adcs.ts`（pki.acha.top 证书与 CRL 的 base64）不进新仓库；测试只用夹具脚本生成的合成 AD CS 风格夹具（fixtures spike 证明 CA Version / 模板名编码逐字节一致、扩展嵌套相同），旧仓库用到它的测试改用合成夹具迁入 |
 | 14  | 迁移源     | 2026-10-18：`~/aia-cdp/worker-aia-cdp` 本地分支 `parsing-2026-10-18` 的提交 `5b570aa`；每个迁移步骤引用 `worker-aia-cdp@5b570aa:<path>` |
 | 15  | 切片 1 两项 | 2026-10-19：加边界护栏，推翻原定"不另设 ESLint 导入边界规则和 bundle 卫生断言"（ESLint `no-restricted-imports` 分层规则、`typecheck:boundary` 检查 Worker 程序不含 Node 声明、`ci:worker` 断言 Worker 包无 `"node:` 导入）；切片 1 建 devcontainer（Node 24 镜像、PowerShell feature、非 root、无 `act`） |
+| 16  | 切片 2 两项 | 2026-10-19：不记证书路径改绑账本——V7 只与当前 config 比对，"先删再加"不拦截、由操作员负责，`applyConfig` 只写 `config.json`（§5.2）；`PUT /api/v1/admin/config` 缺可用前置条件回 428 `precondition_required`，不用 400（§7.2、§7.3） |
 
-决策 5、8–15 即 implementation 总则 §0 的 D1–D10（5 = D1，9 = D2，10 = D3，14 = D4，11 = D5，12 = D6，13 = D7，8 = D8，15 = D9 + D10）。
+决策 5、8–16 即 implementation 总则 §0 的 D1–D12（5 = D1，9 = D2，10 = D3，14 = D4，11 = D5，12 = D6，13 = D7，8 = D8，15 = D9 + D10，16 = D11 + D12）。
 
 决策 3 的连带效果：所有写入都经过服务进程。fs 后端只需要进程内互斥，不需要跨进程文件锁
 （`proper-lockfile` 不再需要）；Cloudflare 部署不需要 R2 的 S3 API 令牌，S3 适配器从
@@ -186,7 +187,8 @@ aia-cdp/
 启动（`src/runtime/node.ts`，设置 schema 在 `src/runtime/settings.ts`，纯 zod、Worker 与 Node 共用）：
 
 - 用 zod 校验全部变量，字段与默认值按上表；`*_FILE` 在启动时读取（去掉一个结尾换行），`X` 与 `X_FILE` 同时设置报错；
-  无效即在 stderr 打印原因、exit 1。`AIA_DATA_DIR` 须是可读写目录，否则 JSON 错误日志 + exit 1。
+  两个令牌须是 RFC 6750 `b64token`（字母、数字、`-._~+/`，末尾可接 `=`；`bearerAuth` 只从请求头读这种格式，其他字符的令牌
+  永远 400）；无效即在 stderr 打印原因、exit 1。`AIA_DATA_DIR` 须是可读写目录，否则 JSON 错误日志 + exit 1。
 - `serve({ fetch: app.fetch, port })`：`PORT` 显式传入（`@hono/node-server` 的默认是 3000），不传 hostname（`::` 双栈）；
   就绪日志一行 `listening`。`server.on("error")`（如端口被占用）→ JSON 日志 + exit 1；SIGTERM / SIGINT → `server.close()` 并立即关闭空闲连接，
   2 s 宽限后关闭其余全部连接（含没发完请求的 preconnect、半截请求头，`close()` 会一直等它们），另设 10 s `unref()` 的强制退出兜底（容器里 node 是 PID 1）。
@@ -222,7 +224,7 @@ Node 写 stdout，Workers 用 `console.log`（Workers Logs 自动收集）。不
 
 ### 4.4 应用依赖、保留前缀与 UI 兜底（两条运行时共用）
 
-`createApp(deps)` 返回 `OpenAPIHono`；`deps = { store, now, settings, clientIpHeader, log, ui? }`，`ui(req)` 是与平台无关的 UI 兜底
+`createApp(deps)` 返回 `OpenAPIHono`；`deps = { store, now, settings, clientIpHeader, log, sleep?, ui? }`（`sleep` 只给 catalog 条件写重试的退避，测试注入），`ui(req)` 是与平台无关的 UI 兜底
 （Workers：`env.ASSETS.fetch`；Node：`serveStatic` + `index.html`）。应用不认识运行时 env；规则都在应用内，两条运行时一致：
 
 | 请求 | 响应 |
@@ -282,7 +284,10 @@ CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段
   （`/ca/` → 证书，`/crl/` → full 目标，`/dcrl/` → delta 目标）。规范化后唯一。
 - 被引用的证书必须已在 catalog 中；目标的签发者证书必须有 SKI；同一签发者同一 kind 只能有
   一个目标。
-- 已有证书路径不能改绑到另一证书（证书下载是 `immutable` 缓存）；更换 CA 证书用新路径。
+- 已有证书路径不能改绑到另一证书（证书下载是 `immutable` 缓存一年）：同一 `/ca/` 路径在当前 config 与新 config 中须指向同一
+  证书。只与当前 config 比对，"先删再加"的两步改绑不检测，由操作员负责；更换 CA 证书用新路径。
+- 已有目标不能改 `issuer` 或 `kind`；换签发者或种类用新 UUID（目标的 current 与全部 history 因此由同一张证书验证，删除保护覆盖历史，
+  新鲜度不跨签发者比较；implementation 切片 2 步骤 6 V9）。
 - 删除目标前，该目标的 `current` 必须已被 retire 清空；被目标或路径引用的证书不能删除。
 
 ### 5.3 `catalog.json`（服务）
@@ -317,10 +322,10 @@ catalog 只存当前指针，大小与资源数成正比，不随发布次数增
 `blobs/crls/<uuid>/` 下没有标记的孤儿 blob（发布竞争失败或崩溃留下）不算历史（C8）。管理接口各 `list` 一次两个前缀即可列出，
 不逐个读对象。
 
-格式（implementation 切片 2 步骤 4、切片 4 步骤 2）：id、`sha1`、key id 小写 hex；时间为 `toISOString()`；
+格式（implementation 切片 2 步骤 4、切片 4 步骤 2）：证书 id、`sha1`、key id 小写 hex（key id 与 CN 缺失为 `null`），target id
+小写 UUID；`serialNumber` 大写 hex，保留 INTEGER 内容字节的前导 `00`；时间为 `toISOString()`（含 `.000Z`）；
 CRL 号十进制字符串、按 BigInt 比较；`revokedCount` 是非空整数（发布时总能解析，§10 #7）；`nextPublish` 取 AD CS Next CRL
-Publish（`1.3.6.1.4.1.311.21.4`），缺失为 `null`。拟新增、开工前需 owner 确认的字段：`certificatePaths`（证书路径改绑账本，
-切片 2 第 2 项）、`targets[id].retired`（退役终态，切片 6 第 1 项）。
+Publish（`1.3.6.1.4.1.311.21.4`），缺失为 `null`。拟新增、开工前需 owner 确认的字段：`targets[id].retired`（退役终态，切片 6 第 1 项）。
 
 ### 5.4 端口与适配器
 
@@ -378,7 +383,8 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 
 `importCertificate` 同理：解析、生成完整摘要、写 blob、条件更新 catalog；重复导入 `unchanged`。
-`applyConfig` 校验 §5.2 规则后用 `ifMatch` 替换 `config.json`，首次用 `ifNoneMatch: "*"`。
+`applyConfig` 校验 §5.2 规则后用 `ifMatch` 替换 `config.json`，首次用 `ifNoneMatch: "*"`；只写 `config.json`，不写 catalog，
+状态规则按开头读到的 catalog 判定、不重查。
 
 ### 5.6 读取
 
@@ -460,7 +466,7 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 | `POST /api/v1/admin/certificates`                     | 导入证书（PEM/DER，multipart 或原始 body）       | 201 created / 200 unchanged / 422 |
 | `DELETE /api/v1/admin/certificates/{id}`              | 删除未被引用的证书（blob 一并删除）              | 204 / 409 `referenced`      |
 | `GET /api/v1/admin/config`                            | 当前 `config.json` 与 `ETag`                     | 200 / 404（尚未配置）       |
-| `PUT /api/v1/admin/config`                            | 整体替换；`If-Match` 必填，首次 `If-None-Match: *` | 200 / 412 / 422 `config_invalid` |
+| `PUT /api/v1/admin/config`                            | 整体替换；`If-Match` 与首次的 `If-None-Match: *` 恰好一个 | 200 / 412 / 422 `config_invalid` / 428 `precondition_required`（缺可用前置条件） |
 | `GET /api/v1/admin/crls/{targetId}/history`           | 历史条目（history 标记 ∪ current，§5.3；thisUpdate、CRL 号、sha256、size、是否 current） | 200                         |
 | `GET /api/v1/admin/crls/{targetId}/history/{sha256}`  | 下载历史 DER                                     | 200 / 404                   |
 | `POST /api/v1/admin/crls/{targetId}/retire`           | 清空 current，历史保留                           | 200                         |
@@ -474,7 +480,7 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 - 成功：直接返回资源体，不包 `{ data }`。
 - 失败：`{ "error": { "code": "…", "message": "…", "details"?: … } }`，每个状态码一个 schema。
 - 错误码：`bad_request`、`unauthorized`、`not_found`、`method_not_allowed`、
-  `payload_too_large`、`unsupported_media_type`、`admin_disabled`、`precondition_failed`、
+  `payload_too_large`、`unsupported_media_type`、`admin_disabled`、`precondition_failed`、`precondition_required`、
   `config_invalid`、`referenced`、`invalid_crl`、`invalid_certificate`、`not_yet_valid`、
   `unknown_critical_extension`、`scoped_crl_unsupported`、`unsupported_algorithm`、
   `issuer_not_found`、`target_not_configured`、`invalid_signature`、`issuer_mismatch`、
@@ -494,10 +500,12 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 ### 7.4 CLI
 
 `aia` 读取 `AIA_URL` 与 `AIA_ADMIN_TOKEN(_FILE)`，子命令：
-`import <file...>`、`config show | validate <file> | apply <file>`、`publish <file...>`
+`import <file...>`、`config show | validate <file> | apply <file>`、`new-target-id`（打印
+`crypto.randomUUID()`：目标 UUID 由工具分配，没有建目标接口）、`publish <file...>`
 （走公开上传路由，可带 `AIA_UPLOAD_TOKEN`）、`history <targetId>`、`retire <targetId>`、
-`delete-certificate <id>`、`health`。`config validate` 在本地用同一份 schema 与规则校验，
-不需要连服务。参数解析用 `parseArgs`，输出为表格或 `--json`。
+`delete-certificate <id>`、`health`。`config validate` 离线只跑静态规则（V1–V3、V4 / V6 的静态部分，
+与服务端共用 `checkConfigStatic`），不连服务、不要令牌；状态与迁移规则（V4–V9 其余部分）由服务端在
+apply 时判定，以服务端为准。参数解析用 `parseArgs`，输出为表格或 `--json`。
 
 ## 8. 前端
 
@@ -679,7 +687,7 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 2. 上传同时接受 multipart 字段 `crl` 与原始 body。
 3. 未设置管理令牌时管理路由返回 503，而不是 404。
 4. 公开路径只允许 `/ca/`、`/crl/`、`/dcrl/` 三个前缀；PEM 变体自动派生，不单独配置。
-5. 证书路径不允许改绑；`config.json` 整体替换而不是逐条增删接口。
+5. 证书路径不允许改绑（只与当前 config 比对，"先删再加"不检测，§5.2）；`config.json` 整体替换而不是逐条增删接口。
 6. 公开 API 的 `DELETE /admin/certificates/{id}` 保留在首发里（约 30 行）。
 7. 进程内 config/catalog 备忘默认关闭。
 8. Node 侧用 `tsc -p tsconfig.build.json` 编译到 `dist/server`，不做单文件打包。

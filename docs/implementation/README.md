@@ -1,6 +1,6 @@
 # aia-cdp 实施计划：总则与索引
 
-状态：切片 1 已完成（`main` 的 `0b391cc`），下一个是切片 2。owner 决策 D1–D10 已定，B1–B22 是规划默认值、可推翻（§0）；各切片未决事项列在
+状态：切片 1、2 已完成（切片 1 = `main` 的 `0b391cc`；切片 2 见 `main` 上的 `Merge slice/2-catalog-import`），下一个是切片 3。owner 决策 D1–D12 已定，B1–B22 是规划默认值、可推翻（§0）；各切片未决事项列在
 该切片的"开工前需 owner 确认"，汇总见附录 C。设计文档是 `docs/plan.md`；二者冲突时以本目录为准，并在同一分支回写 plan.md。
 
 | 文件 | 内容 |
@@ -30,7 +30,7 @@
 
 ## 0. 决策与默认值
 
-owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 2026-10-19 切片 1 开工前）：
+owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 2026-10-19 切片 1 开工前，D11、D12 为 2026-10-19 切片 2 开工前；切片 2 另两项按推荐默认确认，见附录 C）：
 
 | # | 事项 | owner 决定 |
 | --- | --- | --- |
@@ -44,6 +44,8 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | D8 | 批次 1 | 本目录 + plan.md 修订 + 切片 1（已完成，见 §1.2） |
 | D9 | 边界护栏（推翻 plan 原定"不另设 ESLint 导入边界规则和 bundle 卫生断言"） | 加：ESLint `no-restricted-imports` 分层规则（`src/core/**`、`src/http/**`）；`scripts/check-worker-program.ts` 作 `typecheck:boundary` 并入 `typecheck`；`ci:worker` 在 dry-run 后断言 `dist/worker/worker.js` 不含 `"node:` 导入。落实：切片 1 步骤 2、7、12，出口 9 |
 | D10 | devcontainer | 切片 1 建 `.devcontainer/devcontainer.json`：Node 24 镜像、PowerShell feature（AD CS 助手）、非 root `remoteUser`、不装 `act`、OpenSSL ≥ 3.0 可生成夹具；容器内 Docker 可选；不以 root 生成文件。落实：切片 1 步骤 15，出口 13 |
+| D11 | 证书路径改绑（推翻推荐的改绑账本 `catalog.certificatePaths`） | 不记账本：V7 只与当前 config 比对，直接改绑拒绝，"先删再加"两步改绑不拦截，由操作员负责（证书下载 `immutable` 缓存一年，换 CA 证书用新路径）；`applyConfig` 只写 `config.json`。落实：切片 2 步骤 6、plan §5.2 |
+| D12 | `PUT /api/v1/admin/config` 缺可用前置条件（推翻推荐的 400 `bad_request`） | 428 + 新错误码 `precondition_required`：`If-Match` 与 `If-None-Match: *` 两者都缺、都有、或 `If-None-Match` 不是 `*`；不匹配仍是 412。落实：切片 2 步骤 8、plan §7.2 / §7.3 |
 
 规划默认值（全部可推翻；推翻时改本表与"落实"列指向的步骤）：
 
@@ -55,7 +57,7 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | B4 | tsconfig 拓扑：解决方案式 `tsconfig.json` + base / worker / node / build / web；边界检查 = 三套编译 + 两个 `@ts-expect-error` canary（另加 D9 的 `typecheck:boundary`）；R2 适配器用结构化类型 `R2BucketLike` | 总则 §2.2、切片 1 步骤 2 |
 | B5 | `wrangler types --env-file=/dev/null` 生成的 `worker-configuration.d.ts` 不入库，`pnpm run types` 在 check / typecheck / lint 前重生成；ESLint、Prettier 排除它 | 切片 1 步骤 1、12 |
 | B6 | wrangler：`name: "aia-cdp"`（绝不用旧名 `aia-cdp-worker`）、`compatibility_date: "2026-10-12"`、无兼容标志、logs、`minify`、source maps、`STORE` 不写 `bucket_name`（共用旧桶与否是切片 7 的 owner 项）、assets `run_worker_first` + SPA；令牌是可选 secret；脚本关遥测；dry-run 前先建 `dist/web` | 切片 1 步骤 5、12 |
-| B7 | `createApp({ store, now, settings, log, ui? })`；保留前缀 `/api/`、`/ca/`、`/crl/`、`/dcrl/` 不进 UI 兜底（API JSON 404、下载纯文本 404）；末段带扩展名的路径不兜底；UI 缓存头由 app 设置（先复制 ASSETS 响应）；405 用 `hono/method-not-allowed`；不注册 `app.get("*")`；路由在首个请求前注册完 | 切片 1 步骤 4 |
+| B7 | `createApp({ store, now, settings, clientIpHeader, log, sleep?, ui? })`（`sleep` 是 catalog 条件写重试的退避，测试注入，缺省用真实计时器）；保留前缀 `/api/`、`/ca/`、`/crl/`、`/dcrl/` 不进 UI 兜底（API JSON 404、下载纯文本 404）；末段带扩展名的路径不兜底；UI 缓存头由 app 设置（先复制 ASSETS 响应）；405 用 `hono/method-not-allowed`；不注册 `app.get("*")`；路由在首个请求前注册完 | 切片 1 步骤 4 |
 | B8 | `secureHeaders({ strictTransportSecurity: false })`，其余默认；CSP 由切片 5b 定 | 切片 1 步骤 4、切片 5b 步骤 10 |
 | B9 | 下载不用 `hono/etag`，手写 `If-None-Match`（列表、`W/`、`*`）且先于读 blob；显式 `Content-Length`；`bearerAuth` 对畸形头回 400，进管理与上传的状态表 | 切片 3 步骤 3–4、切片 2 步骤 8、切片 4 步骤 8 |
 | B10 | health：`{ status, checks: { store, configuration } }`；store 抛错 → 503 `unhealthy`；config 缺失 / 无效 → 200 `degraded`；`no-store`；切片 2 升级为完整 schema 校验 | 切片 1 步骤 4、切片 2 步骤 7 |

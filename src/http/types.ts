@@ -24,6 +24,8 @@ export type ClientIpHeader = "cf-connecting-ip" | "x-forwarded-for";
 export interface AppDeps {
   store: ObjectStore;
   now: () => Date;
+  /** Backoff between conditional catalog writes; a real timer when omitted (tests pass a no-op). */
+  sleep?: (ms: number) => Promise<void>;
   settings: AppSettings;
   clientIpHeader: ClientIpHeader;
   /** Receives one finished log line per call. Node: stdout; Workers: console.log. */
