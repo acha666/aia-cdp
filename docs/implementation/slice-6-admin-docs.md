@@ -79,7 +79,7 @@
     上传的两种 body 与三种结果、"导入证书不等于授权签发者，须有目标绑定"（M23）、下载语义（引用切片 3 的头与缓存规则）、
     管理流程（import → config apply → publish → retire → 删目标 → delete-certificate）、换 CA 证书用新路径（V7 只拦直接改绑，"先删再加"
     不拦，证书下载缓存一年；切片 2 步骤 6）、退役终态与历史定义（步骤 1–5）。
-11. **`docs/operations.md`**（补全其余各节，切片 4 的"AD CS 助手"一节与 Windows 验证记录并入下表）：
+11. **`docs/operations.md`**（补全其余各节，切片 4 的"AD CS 助手"一节与 Windows 验证记录、切片 5a 的"容量"一节并入下表）：
 
     | 节 | 要点 |
     | --- | --- |
@@ -92,7 +92,7 @@
     | 备份与恢复 | fs：先复制 `config.json`、`catalog.json`，再复制 `blobs/` 与 `history/`（blob 与标记不可变且先于 catalog 写入，快照引用的对象必在）；恢复 = 停服务 → 替换目录 → chown → 启动 → health。R2：按 owner 确认 3 的默认，操作员保存 `aia config show --json` 输出与 CA 证书文件，恢复 = import → config apply → 助手重跑或 `aia publish`，历史不能经 API 恢复；任何恢复之后删除各 CA 上助手的 `published.json`（账本按 `-UploadUri` 记，同一 URI 后面的服务状态变了它看不出，会把当前 CRL 全部 Skipped；切片 4） |
     | AD CS 计划任务（并入切片 4 的初稿） | `certutil -setreg CA\LogLevel 4` 后重启 CertSvc；CA 的本地 CDP 发布项写入助手的 SourceDir；任务 = 事件 68/69/70 触发 + 定时补扫、`MultipleInstances IgnoreNew`（每签发者一个发布者，`worker-aia-cdp@5b570aa:docs/architecture.md:122-124`）、运行账户对 SourceDir 与令牌文件只读、对日志与账本可写；动作 `pwsh.exe -NoProfile -NonInteractive -File …\adcs-crl-uploader.ps1 -UploadUri https://<host>/api/v1/crls -UploadTokenFile …`；参数、顺序与退出码以切片 4 的脚本为准（M24） |
     | 根 CRL | 离线 OpenSSL 签发、约半年有效；在 `nextUpdate` 前重签并 `aia publish`（review §2.2 #3）；到期提示阈值见切片 5b |
-    | Worker CPU 与大 CRL | 切片 5a 的 10 000 条吊销详情构建实测；偏大时 `wrangler.jsonc` 设 `limits.cpu_ms`（旧 `limits.cpu_seconds` 是无效键），否则写明可接受的条目数上限 |
+    | Worker CPU 与大 CRL（切片 5a 已写"容量"一节，并入） | 切片 4 / 5a 实测：上限是内存不是 CPU，Workers 约 5 000 条目，不设 `limits.cpu_ms`（旧 `limits.cpu_seconds` 是无效键）；Free 套餐的 10 ms CPU；Node 的堆与 `AIA_MAX_UPLOAD_BYTES` |
     | 退役与删除 | 先停该 CA 的计划任务 → `aia retire` → `aia config apply` 删路径与目标 → 需要时 `aia delete-certificate`；管理操作单人串行 |
     | 迁移与切换 | 前检：访问日志里 `by-keyid` / `archive` URL 是否在用（`worker-aia-cdp@5b570aa:docs/templates/migration-inventory.example.json:49-52`）、桶与历史枚举通道（C9，见切片 7）；步骤按 plan §13，切换时同时替换助手脚本并先放好令牌文件（C10），首跑前删除演练或旧部署在同一 URI 上留下的 `published.json`；预期头变化照切片 3 步骤 6 的表（旧记录见同文件 `:110` 起；C6、C7、M18、§10 #3）；域内机器上 `certutil -URL` 与 `certutil -verify -urlfetch` 冒烟 |
     | 回滚 | 路由指回 `aia-cdp-worker`；换回旧助手脚本与 `/api/v2/crls` 的 `UploadUri`（新助手读不了 v2 响应）；手动跑一次旧助手，补上切换窗口里只发到新服务的 CRL；旧对象从未改动；再次切到新服务前删除新助手的 `published.json`（同一 URI，见"备份与恢复"） |

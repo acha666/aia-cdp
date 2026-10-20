@@ -107,20 +107,34 @@ history / retire / delete（切片 6）；页面、vue-query、扩展渲染块�
 8. **AppType**：`createApp` 的返回链只串公开路由（health、certificates、crls、stats），管理路由用独立语句 `app.route(...)` 注册——运行时与
    OpenAPI 文档都包含它们，`AppType` 不含（默认值，可推翻；CLI 不用 `hc`）。
 
-9. **OpenAPI**：`scripts/generate-openapi.ts`（切片 1）不改机制，重新生成并提交 `docs/openapi.json`。原 `redocly.yaml` 的 `operation-operationId`、
-   `operation-summary`、`no-unused-components` 改为 `tests/http/openapi.test.ts` 里的断言；管理路由缺 `security` 声明时在此补上。
+9. **OpenAPI**：`scripts/generate-openapi.ts`（切片 1）不改机制，重新生成并提交 `docs/openapi.json`；脚本另打印 `getOpenAPI31Document`
+   的耗时（出口 9）。原 `redocly.yaml` 的 `operation-operationId`、`operation-summary`、`no-unused-components` 改为
+   `tests/http/openapi.test.ts` 里的断言；管理路由缺 `security` 声明时在此补上。每个操作带 `tags`，文档顶层声明 `health`、`certificates`、
+   `crls`、`stats`、`admin`（`OPENAPI_CONFIG`）。
 
 10. **网页客户端** `src/web/client/`（B20；迁移表里的 `src/web/api/*` 一律落到这里）：
     - `errors.ts` ← `worker-aia-cdp@5b570aa:src/web/api/response.ts`（重写）：`ApiError { code, message, status, details? }`（字段显式声明，
-      `erasableSyntaxOnly`）；`unwrap(res)`：`res.ok` → `res.json()`，否则解析 v1 信封抛 `ApiError(code)`，非 JSON → `invalid_response`，
-      `fetch` 失败 → `network`；运行时不带 zod。
-    - `types.ts`：从 `src/core/summary/types.ts` 的纯类型再导出（`Name`、`GeneralName`、`Extension`、`DistributionPoint`、`Asn1Line`、
-      `AlgorithmIdentifier`、`ExtensionType` …）+ 五条路由 200 体的 `InferResponseType` 别名。
-    - `error-codes.ts`：错误码的运行时数组（字面量，供 5b 的 i18n 测试遍历；web 不得在运行时导入 `src/http`，切片 5b 步骤 11），
-      `tests/web/client.typetest.ts` 断言它与 `(typeof ERROR_CODES)[number]`（`import type` 自 `src/http/schemas.ts`）双向相等。
-    - 保留切片 1 的 `hc<AppType>("", { init: { cache: "no-store" } })`；`worker-aia-cdp@5b570aa:src/web/api/client.ts` 的分页、`include`、
-      `encodeURIComponent(id)` 与 `pagination.ts` 不迁。
-11. **测量**：填出口条件 9 的测量表（plan §5.6 备忘保持默认关；R2 真实延迟要有部署环境，见切片 7 步骤 8 演练 B）。
+      `erasableSyntaxOnly`；构造参数顺序 `(status, code, message, details?, options?)` 与服务端 `src/http/errors.ts` 的 `ApiError` 相同）；
+      `code` 类型是 `string`：服务端更新后出现的未知码原样保留（5b 显示 `errors.unknown` 与原始 code）。运行时不带 zod。
+      - `unwrap(res)`：2xx → JSON 体（类型取 hc 联合里 `ok: true` 成员的体，不做运行时校验）；否则解析 v1 信封抛 `ApiError`（信封的
+        `code`、`message`、`details`，`status` 为 HTTP 状态）；体不是 JSON（代理的 HTML 页、空体，2xx 也算）或非 2xx 的 JSON 不是信封 →
+        `invalid_response`（`status` 为 HTTP 状态）。
+      - `network`（`status: 0`，同 `Response.error()`）：由 `apiFetch` 产出——它是 `api` 的 `fetch` 选项，调用时取全局 `fetch`，拒绝即换成
+        `ApiError("network")`（`cause` 为原错误）；`unwrap` 读体失败同样是 `network`。所以经 `api` 的请求拿不到响应时总是 `ApiError`，
+        不论调用方是否 `unwrap`（5b 的写法 `unwrap(await api…$get(…))` 不必再包 try）。中止（signal 已 abort 或 `AbortError`）原样抛出：
+        vue-query 取消查询不是失败。
+    - `types.ts`：`export type *` 再导出 `src/core/summary/types.ts` 的全部纯类型（`Name`、`GeneralName`、`Extension`、`Extensions`、
+      `DistributionPoint`、`Asn1Line`、`AlgorithmIdentifier`、41 个 `*Value`、`ExtensionType` …）+ `InferResponseType` 别名：
+      `CertificateList` / `CertificateListItem`、`CertificateDetail`、`CrlTargetList` / `CrlTargetListItem`、`CrlTargetDetail`、`Stats`
+      （五条读路由的 200 体）与 `PublishedCrl`（上传的 200 / 201 体）。
+    - `error-codes.ts`：`ERROR_CODES`（全部 v1 错误码的运行时数组，字面量，供 5b 的 i18n 测试遍历；web 不得在运行时导入 `src/http`，
+      切片 5b 步骤 11）与 `CLIENT_ERROR_CODES`（`network`、`invalid_response`）；`tests/web/client.typetest.ts` 断言其元素类型与
+      服务端的 `(typeof ERROR_CODES)[number]`（`import type` 自 `src/http/schemas.ts`）双向相等、两个数组长度相同（无重复）。
+    - 保留切片 1 的 `hc<AppType>("", { init: { cache: "no-store" } })`，加 `fetch: apiFetch`；每请求的 `init`（如 vue-query 的 `signal`）
+      与它合并，不替换 `cache`。`worker-aia-cdp@5b570aa:src/web/api/client.ts` 的分页、`include`、`encodeURIComponent(id)` 与
+      `pagination.ts` 不迁。
+11. **测量**：填出口条件 9 的测量表（plan §5.6 备忘保持默认关；R2 真实延迟要有部署环境，见切片 7 步骤 8 演练 B）。大 CRL 的结论写进
+    `docs/operations.md` 的"容量"一节（切片 6 步骤 11 并入完整手册）。
 
 ## 测试
 
@@ -137,10 +151,12 @@ history / retire / delete（切片 6）；页面、vue-query、扩展渲染块�
 | `tests/http/crl-targets.test.ts`（新） | — | 经 `importCertificate` / `applyConfig` / `publishCrl` 写 MemoryStore；未发布 → 列表与详情 `current: null`；非 uuid → 400、未知 → 404；`revokedCertificates.count === summary.revokedCount`；另把 `revocations.test.ts` 的 11 条重编码字节直接写成 blob + catalog 条目（详情不验签），断言全部返回 |
 | `tests/http/lists.test.ts` | `tests/worker/api-pagination.test.ts` 的不变量 | 每个 catalog 证书 / config 目标恰好一项；`downloads` 不含 `blobs/` 与历史；store `get` 抛错 → 500 信封，不是 `200 []` |
 | `tests/http/stats.test.ts` | `tests/worker/api-stats.test.ts` | 计数来自 config + catalog；`derBytes` = 夹具文件字节数之和；`totalRevocations` 只计 full、无已发布 full 时 `null`；store `list` 未被调用 |
-| `tests/http/openapi.test.ts` | 扩展切片 1 的同名文件；替代 `redocly.yaml` | 在切片 1 的断言上加：每个操作有唯一 `operationId`、`summary`、`tags`；`/api/v1/admin/*` 有 `security`；无未引用组件；体积 ≤ 100 000 字节（默认值） |
-| `tests/http/routes.typetest.ts`、`tests/web/client.typetest.ts`（新） | — | 错形状、未声明状态码是编译错误；`hc` 按状态码与 `extensionType` 收窄，`@ts-expect-error` 在 `hc<any>` 下会失效，证明不是 `any`；`src/web/client/error-codes.ts` 与 `ERROR_CODES` 相等（步骤 10） |
-| `tests/web/api-errors.test.ts` | `tests/web/state.test.ts` 用例 (3) | `unwrap`：v1 错误体 → `ApiError(code, status)`；HTML / 空体 → `invalid_response`；`fetch` 抛错 → `network`；经 `hc` 的 `fetch` 选项断言 `init.cache === "no-store"` |
+| `tests/http/openapi.test.ts` | 扩展切片 1 的同名文件；替代 `redocly.yaml` | 在切片 1 的断言上加：每个操作有唯一 `operationId`、`summary`、文档已声明的 `tags`；`/api/v1/admin/*` 有 `security`；无未引用组件、`$ref` 全可解析；体积 ≤ 100 000 字节（默认值，按运行时发出的紧凑 JSON 计；提交的 `docs/openapi.json` 缩进 2 格，约其 2.3 倍）；读路由的状态码；`extensionType` 判别的 41 项 `mapping` |
+| `tests/http/routes.typetest.ts`、`tests/web/client.typetest.ts`（新） | — | 错形状、未声明状态码是编译错误；`hc` 按状态码与 `extensionType` 收窄，`@ts-expect-error` 在 `hc<any>` 下会失效，证明不是 `any`；`src/web/client/error-codes.ts` 与 `ERROR_CODES` 双向相等、长度相同；`unwrap` 对五条读路由与上传的结果类型等于 `types.ts` 的别名、不含错误体（步骤 10） |
+| `tests/web/api-errors.test.ts` | `tests/web/state.test.ts` 用例 (3) | `unwrap`：v1 错误体 → `ApiError(code, status)`（含 `details`、未知码原样）；HTML / 空体 / 非信封 JSON / 2xx 的 HTML → `invalid_response`；`fetch` 抛错 → `network`（`status: 0`，`cause`），中止原样抛出；经 `hc` 的 `fetch` 选项断言 `init.cache === "no-store"`，每请求的 `init.signal` 与之合并 |
+| `tests/http/client.test.ts` | 切片 1 / 4 已建 | 追加：`unwrap` 处理应用真实发出的 200 体、404 `not_found` 与 400 `bad_request` 信封 |
 | `tests/integration/node-e2e.test.ts` | 切片 4 已建 | 追加真实 socket 上的 list / detail / stats 与 HEAD |
+| `scripts/worker-smoke.ts`（`ci:worker`） | 切片 3 / 4 已建 | 追加读取段：在 workerd 上读两份列表、大写 id 的证书详情（ECDSA `(r, s)`）、`issuing-ca-1` 目标详情的全部条目、stats 与各自 HEAD，均 200 + `no-store`（PKIjs 与 WebCrypto SHA-1 / SHA-256 指纹在 workerd 上跑） |
 
 HTTP 用例照总则 §2.5，需要类型化 body 时用 `hono/testing` 的 `testClient`。ECDSA 签名随机：r / s 断言 `≤ 96` hex 且不以 `00` 开头，
 不断言等长；CRL / 签名大小不断言字面量（B16）。
@@ -160,12 +176,16 @@ HTTP 用例照总则 §2.5，需要类型化 body 时用 `hono/testing` 的 `tes
 
 | 测量项 | 基线（2026-10-18 spike） | 5a 实测 | 判定（默认值） |
 | --- | --- | --- | --- |
-| `vue-tsc -p tsconfig.web.json --extendedDiagnostics` 的 Instantiations / Check time | 336 542 / 1.50 s（2 条详情路由 + 客户端） | | 超过基线 5 倍 → `hc` 只用公开子应用类型 |
-| `docs/openapi.json` 字节数 | 23 368（2 条详情路由，组件命名；内联为 91 732） | | ≤ 100 000 |
-| 文档生成耗时（`node scripts/generate-openapi.ts` 输出） | 3.8 ms（2 条路由） | | 仅记录 |
-| Worker 包（`wrangler deploy --dry-run`，`minify: true`） | 526.83 KiB / gzip 118.86 KiB | | 仅记录 |
-| 10 000 条吊销 CRL 详情构建（Node） | — | | 仅记录；偏大时评估 `limits.cpu_ms` |
-| 每请求读 config + catalog（memory / fs） | — | | 决定 §5.6 备忘（默认关） |
+| `vue-tsc -p tsconfig.web.json --extendedDiagnostics` 的 Instantiations / Check time | 336 542 / 1.50 s（2 条详情路由 + 客户端） | 676 325 / 1.6–1.8 s（471 个文件：5 条读路由 + 上传 + health 的 `AppType`、`src/web/client/`、两个 web typetest；加客户端之前 626 314 / 1.42 s） | 2.0 倍 / 约 1.2 倍，未超 5 倍：保持 `hc<AppType>`（`AppType` 本来只含公开路由，步骤 8） |
+| `docs/openapi.json` 字节数 | 23 368（2 条详情路由，组件命名；内联为 91 732） | 运行时发出的紧凑 JSON 59 560（10 个操作、89 个组件 schema）；提交的缩进版 134 350（`main` `ab46f3e` 为 47 119） | ≤ 100 000，通过：预算按紧凑 JSON 计（与基线同口径），`tests/http/openapi.test.ts` 断言 |
+| 文档生成耗时（`node scripts/generate-openapi.ts` 输出） | 3.8 ms（2 条路由） | 18–22 ms（新进程的第一个 app；同进程后建的 app 约 7 ms；缓存后每请求 < 1 ms） | 仅记录：每个进程 / isolate 的第一个 `openapi.json` 请求付一次 |
+| Worker 包（`wrangler deploy --dry-run`，`minify: true`） | 526.83 KiB / gzip 118.86 KiB | 1038.01 KiB / gzip 239.95 KiB（`main` `ab46f3e` 996.36 / 227.87 KiB：本切片 +41.65 / +12.08 KiB，构建器与 X.509 schema） | 仅记录 |
+| 10 000 条吊销 CRL 详情构建（Node） | — | 480 336 B DER：`parseCRL` 740–800 ms + `buildTBSCertList` 120–130 ms；整条 `GET /api/v1/crls/{targetId}` 830–950 ms，响应 5.48 MB，堆增长约 145–165 MB，`--max-old-space-size=128` 下 OOM；7 500 条在 128 MB 下通过，5 000 条 0.4–0.5 s、2.74 MB | CPU 不是瓶颈（Workers Standard 默认每请求 30 s），不设 `limits.cpu_ms`；上限是内存：128 MB 隔离区下约 5 000 条目，与切片 4 的上传一致；写进 `docs/operations.md`"容量" |
+| 每请求读 config + catalog（memory / fs） | — | 夹具部署（5 证书、7 目标；config 2 169 B、catalog 7 432 B）：`readState` p50 memory 48 µs、fs 0.30 ms；放大 20 倍（100 证书、140 目标，catalog 147 KB）memory 0.85 ms、fs 1.09 ms；整条列表 / stats 请求 memory 0.05–0.15 ms、fs 0.4–0.5 ms | 备忘保持关：读两份小对象在亚毫秒级，远小于一次详情构建；R2 延迟留给切片 7 演练 B |
+
+测量方法（2026-10-20，本机 WSL2、Node 24.22.0）：vue-tsc 连跑三次取范围；CRL 用 `tests/helpers/pki.ts` 的 `crlWithEntries` 写成 blob + catalog
+条目后经 `app.request` 读详情，`--expose-gc` 后取 `heapUsed` 增量，另以 `--max-old-space-size` 找能跑通的堆；`readState` 与整条请求各跑
+2 000 / 500 次（先热身 50 次），fs 为 `FsStore` 指向临时目录（每次 `get` 都读文件并算 SHA-256 作 ETag）。
 
 ## 风险与对策
 
@@ -176,9 +196,9 @@ HTTP 用例照总则 §2.5，需要类型化 body 时用 `hono/testing` 的 `tes
 | 41 个字面量与字段名是与 5b 的契约；删死变体、必填化会改类型 | 只做步骤 1 列出的删改；schema 测试锁定集合；5b 的 switch 用 `never` 穷尽 |
 | 合成夹具 ≠ 线上字节：签发 CA 是 RSA-2048（线上 4096），DN、日期、URL 不同；旧断言的字面量全失效 | 断言改用夹具配置值 / `manifest`；线上工件"全部 Decoded"的核对在切片 7 步骤 7（§10 #27、D7） |
 | 组件 id 挂在派生实例上或漏挂 → 文档内联膨胀 | 定义处 `.meta({ id })`；体积预算断言 |
-| `hc<AppType>` 类型成本随路由增长，拖慢 `vue-tsc` 与编辑器 | 管理路由不进 `AppType`（步骤 8）；测量；超预算的退路写在测量表 |
+| `hc<AppType>` 类型成本随路由增长，拖慢 `vue-tsc` 与编辑器 | 管理路由不进 `AppType`（步骤 8）；测量（出口 9：2.0 倍，未超预算）；超预算的退路写在测量表 |
 | zod / hono 进网页包 | 网页只 `import type`；`consistent-type-imports`（B17）；出口 6 |
-| 大 CRL 详情的 JS CPU；旧 `limits.cpu_seconds` 是无效键，从未生效 | 10 000 条测量；需要时设 `limits.cpu_ms` 或在 operations.md 写明上限（切片 6 步骤 11） |
+| 大 CRL 详情的 JS CPU；旧 `limits.cpu_seconds` 是无效键，从未生效 | 10 000 条已测（出口 9）：CPU 约 1 s，不设 `limits.cpu_ms`；内存才是上限（Workers 约 5 000 条目），写在 `docs/operations.md`"容量"（切片 6 步骤 11 并入完整手册） |
 | 服务端与客户端时钟不一致 | stats 不含时间字段，状态与"需关注"数只在客户端按同一时钟算（切片 5b） |
 | `.meta({ id })` 进全局注册表：重复 id 或两份 zod 会出错 | id 唯一性测试；出口 7 |
 

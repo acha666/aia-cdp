@@ -1,6 +1,6 @@
 # aia-cdp 运维手册
 
-本文的部署、令牌、备份、迁移与回滚各节由切片 6 补全；目前只有切片 4 写的"AD CS 助手"一节。
+本文的部署、令牌、备份、迁移与回滚各节由切片 6 补全；目前只有切片 4 写的"AD CS 助手"一节与切片 5a 写的"容量"一节。
 
 ## AD CS 助手
 
@@ -173,3 +173,20 @@
 
 两次实际上传之间的 1 s 间隔见各条时间戳（如第 1 条 `08:50:23.588` → `08:50:24.607`）。没有验证的：真实 AD CS（事件、文件名、写文件时序）、
 Windows Server、服务账户与 gMSA、经 TLS 的 `https://`（验证用的是 `http://` + `-AllowInsecureHttp`）、R2 的单键写限速。
+
+## 容量
+
+大 CRL 的成本在解码（asn1js 节点树 + PKIjs 对象），上传与详情各解码一次：约每 10 000 个吊销条目 100–150 MB 堆。实测（Node 24，本机；
+切片 4 风险表与切片 5a 出口 9）：
+
+| 条目数 | DER | 上传（`POST /api/v1/crls`） | 目标详情（`GET /api/v1/crls/{targetId}`） |
+| --- | --- | --- | --- |
+| 5 000 | 约 205–240 KB | 0.3 s | 0.4–0.5 s，响应 2.7 MB，128 MB 堆内可完成 |
+| 10 000 | 约 410–480 KB | 0.5 s | 0.8–1.0 s，响应 5.5 MB，堆增长约 145–165 MB，128 MB 堆内 OOM |
+
+- **Workers**：隔离区 128 MB，实际可用约 5 000 条目（≈ 200 KB）的 CRL；更大的 CRL 上传与详情都会因内存超限失败（未在 Cloudflare 上验证）。
+  CPU 不是瓶颈：Standard 套餐默认每请求 30 s，所以 `wrangler.jsonc` 不设 `limits.cpu_ms`（旧配置的 `limits.cpu_seconds` 是无效键）。
+  Free 套餐每请求只有 10 ms CPU，按上表约 0.09 ms / 条目估计，约百条以上的 CRL 就会超时（未验证）。
+- **Node / Docker**：上限是堆（`--max-old-space-size`，默认随内存）；`AIA_MAX_UPLOAD_BYTES` 默认 1 MiB（≈ 25 000 条目），调高时同时设
+  `AIA_UPLOAD_TOKEN`，并按上表给够堆。
+- 列表与 stats 只读 `config.json`、`catalog.json`，与条目数无关；目前线上 CRL 为 0 条。

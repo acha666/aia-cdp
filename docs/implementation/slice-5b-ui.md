@@ -19,13 +19,24 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
 - 切片 4：`POST /api/v1/crls` 的三种结果、错误码、可选 `AIA_UPLOAD_TOKEN`；multipart 字段 `crl` 接受文件与字符串（M8，切片 4 步骤 8），
   UI 一律发文件（步骤 7）。
 - 切片 5a 提供下列 UI 依赖（缺哪项就在 5a 补，不在 UI 里绕）：
-  - `src/web/client/`：`api`（`hc<AppType>`，`init: { cache: "no-store" }`）、`ApiError`（`code`、`status`、`message`、`details`）+ `unwrap`、
-    `types.ts`（core summary schema 的 type-only 再导出：`Name`、`GeneralName`、`Extension(s)`、`Asn1Line`、`DistributionPoint`、
-    `AlgorithmIdentifier`、列表项与详情）、运行时错误码数组 `src/web/client/error-codes.ts`（供测试遍历，切片 5a 步骤 10）。
-  - 列表项带 `downloads[]`；证书项含 `label: string | null`、`summary`（`subjectCN`、`issuerCN`、`notBefore`、`notAfter` 等）、`targets[]`；
-    目标项含 `label`、`kind`、`issuer`、`current`（可空；`current.summary` 含 `crlNumber`、`baseCrlNumber`、`thisUpdate`、`nextUpdate`、
-    `revokedCount`（非空整数）、`nextPublish | null`）——均见切片 5a 步骤 5。
-  - 已配置未发布的目标详情 200 + `current: null`；上传成功体含 `kind`、`crlNumber`、`baseCrlNumber`、`downloads`（M16）。
+  - `src/web/client/`（切片 5a 步骤 10）：`api`（`hc<AppType>("", { init: { cache: "no-store" }, fetch: apiFetch })`，每请求的 `init`
+    如 `signal` 与之合并）；`errors.ts` 的 `ApiError`（`code: string`、`status: number`、`message`、`details?`）+ `unwrap(res)`：2xx → hc 推断的体，
+    否则抛 `ApiError`——v1 信封的 `code` 与 HTTP 状态；非 JSON 或非信封 → `invalid_response`；拿不到响应 → `network`，`status: 0`（`apiFetch`
+    已换好，`unwrap(await api…$get(…))` 不必再包 try）；中止原样抛出（不是 `ApiError`）；服务端更新后的未知码原样保留。`types.ts`：
+    core 类型 `export type *`（`Name`、`GeneralName`、`Extension(s)`、`Asn1Line`、`DistributionPoint`、`AlgorithmIdentifier`、41 个 `*Value`、
+    `ExtensionType` …）与响应体 `CertificateList` / `CertificateListItem`、`CertificateDetail`、`CrlTargetList` / `CrlTargetListItem`、
+    `CrlTargetDetail`、`Stats`、`PublishedCrl`。`error-codes.ts`：`ERROR_CODES`（全部 v1 码）与 `CLIENT_ERROR_CODES`（`network`、
+    `invalid_response`），供 i18n 测试遍历。
+  - 列表是完整数组，按 id / `targetId` 排序（UI 自行排序）；`downloads[]` 只有 config 的路径（每条 DER 路径后紧跟 `.pem`）。证书项
+    `{ id, label: string | null, importedAt, size, summary, downloads, targets: [{ targetId, kind, label }] }`，`summary` 含 `subjectCN`、
+    `issuerCN`、`notBefore`、`notAfter` 等；目标项 `{ targetId, kind, label, issuer: { id, label: string | null, subjectCN }, downloads, current }`，
+    `current` 为 `{ sha256, size, publishedAt, summary }` 或 `null`，`summary` 含 `crlNumber`、`baseCrlNumber`、`thisUpdate`、`nextUpdate`、
+    `revokedCount`（非空整数）、`nextPublish | null`。证书详情另加 `fingerprints`、`tbsCertificate`、`signatureAlgorithm`、`signatureValue`；
+    目标详情的 `current` 另加 `verifier`、`fingerprints`、`tbsCertList`（`revokedCertificates: { count, items }`，全部条目）、
+    `signatureAlgorithm`、`signatureValue`。stats `{ certificates, targets: { full, delta }, published: { full, delta }, totalRevocations, derBytes }`，
+    无时间字段——均见切片 5a 步骤 5。
+  - 已配置未发布的目标详情 200 + `current: null`；详情 id 格式不符 400 `bad_request`、未知 404 `not_found`；上传成功体含 `kind`、`crlNumber`、
+    `baseCrlNumber`、`downloads`（M16）。`GET /api/v1/health` 的 503 体不是错误信封（`unwrap` 会报 `invalid_response`），健康徽标按状态码读。
   - 死变体 `extensionType: "unknown"` 已删；吊销条目不再按旧 builder 的默认 10 条分页。
 - 冒烟数据：已入库的 `tests/fixtures/pki/` 经切片 2 的 CLI `import` / `config apply` 灌入。
 
@@ -62,8 +73,9 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
    `…:src/web/components/ResourceCard.vue:44-51,76-85`：由 `downloads[]` 驱动，`.pem` 结尾标 PEM 否则 DER，`<a download>`，空列表 "—"）；
    `KeyValueList.vue`（取代 `FingerprintDetails.vue` 与各处重复的 `dt/dd` 类名）；`LocaleSelect.vue`（取代切片 1 的 `LocaleSwitch.vue`）。
 5. **查询层** `src/web/client/queries.ts`：键 `["health"]`、`["stats"]`、`["certificates"]`、`["certificate", id]`、`["crls"]`、
-   `["crl", targetId]`，`queryFn` 一律 `unwrap(await api…$get(…))`。`src/web/main.ts` 的 `QueryClient`：`staleTime: 0`、
-   `retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2`（404 不重试，否则详情页的 404 要等几秒）、`refetchOnWindowFocus` 保持默认。
+   `["crl", targetId]`，`queryFn` 一律 `unwrap(await api…$get(…))`（`["health"]` 除外：沿用切片 1 `HealthBadge` 按状态码读，见前置）。
+   `src/web/main.ts` 的 `QueryClient`：`staleTime: 0`、`retry: (n, e) => !(e instanceof ApiError && e.status >= 400 && e.status < 500) && n < 2`
+   （4xx 不重试，否则详情页的 404 要等几秒；`network` 的 `status` 是 0，要重试）、`refetchOnWindowFocus` 保持默认。
    `useUploadCrl()` = `useMutation`，成功后 `queryClient.invalidateQueries()` 全量失效（数据量很小）；配合 5a 的 `no-store` 修 §10 #17。
    骨架屏只在无数据的首次加载显示，重取时保留旧数据（旧 `App.vue:72,125`）。旧 `stores/*`、`useCollectionLoader`、`useDetailCache` 不迁。
 6. **路由与页面**：
