@@ -46,7 +46,8 @@
      供切片 5b 的状态规则。整份替换，不合并。CRL Number、Delta 指示、Next CRL Publish 存在但畸形 → 抛 `PkiParseError`（`invalid_crl`，
      `reason = "extension_value"`）：Next CRL Publish 须恰好是一个 RFC 5280 形式的 UTCTime / GeneralizedTime（多余字节、别的类型都算畸形），
      与严格 DER 一致，不当作 `null` 静默存下（5b 的状态规则依赖它）；值内时间格式错误在 `parseCRL` 已按 `reason = "time"` 拒绝。
-     `crlVersionName(summary, sha256)`（`<时间>-<号>-<sha256>`）同时给 blob 键与第 6 步的 history 标记命名。
+     `crlVersionName(summary, sha256)`（`<时间>-<号>-<sha256>`）同时给 blob 键与第 6 步的 history 标记命名。`formatGeneralizedTime`
+     对无效日期或 0000–9999 以外的年份抛 `RangeError`（定宽格式放不下）。
    - 切片 2 的 `CatalogSchema` 是严格对象：补全 CRL 摘要字段后，切片 3 的 `tests/helpers/seed-downloads.ts`（手写 CRL `current`）改用
      `buildCrlSummary`；切片 2–3 期间写下的本地 `.data` / `.wrangler/state` 不合新 schema，`pnpm reset:dev` 后重跑 `seed:dev`。
 3. **扩展与时钟策略**（新 `src/core/pki/crl-policy.ts`，纯函数 `checkCrlPolicy(crl, now)`）。按序执行，首个命中即返回：
@@ -119,14 +120,17 @@
    1. `toDer(bytes, "crl")` → DER 与 `sha256`；标签只认 `X509 CRL`，坏 base64 / 缺 END → `invalid_crl`（旧 `invalid_body` 取消，§10 #13）。
    2. `parseCRL`：错误映射为 `invalid_crl` + `details.reason`（`der` / `trailing_bytes` / `time` / `structure`；§10 #11、#25：
       `thisUpdate` 缺失或畸形即拒绝）。读 AKI、CRL Number、Delta 指示，值非法（M2：须 INTEGER tag 2、非空、≥ 0，BigInt
-      读取，不加 20 octet 上限）→ `invalid_crl`，`reason = "extension_value"`。kind：带合法 Delta 指示即 `delta`（M6）。
+      读取，不加 20 octet 上限）→ `invalid_crl`，`reason = "extension_value"`；AKI 存在而 `keyIdentifier` 为空同样是 `extension_value`
+      （同证书摘要：空 key id 不标识任何密钥），摘要不合 catalog 格式为 `structure`。kind：带合法 Delta 指示即 `delta`（M6）。
    3. `checkCrlPolicy`（步骤 3）。
    4. `readState`：`config.json`、`catalog.json` 各一次 `get`，记下 catalog ETag。
-   5. 解析目标：无 AKI 或 AKI 无 `keyIdentifier` → owner 确认 3（默认 `issuer_not_found`，`details.reason = "missing_aki"`，M3）；
-      候选 = catalog 中 `summary.subjectKeyId === aki` 的证书（M4），无候选 → `issuer_not_found`；目标 = config 中 `issuer` 属于候选
-      且 `kind` 相同的目标，无 → `target_not_configured`（导入的证书在被目标绑定前不是签发者，M23）；验签用目标配置的签发者
-      （owner 确认 4 默认，SKI 相同的续期证书不影响选择，C5）。
-   6. 读签发者 DER（catalog 里的 `key`，缺失 → 500 `internal` + 日志），`parseCertificate` 取 SPKI，`verifyCrlSignature`（步骤 4）。
+   5. 解析目标：无 AKI 或 AKI 无 `keyIdentifier` → `issuer_not_found`，`details: { reason: "missing_aki" }`（owner 确认 3，M3）；
+      候选 = catalog 中 `summary.subjectKeyId === aki` 的证书（M4），无候选 → `issuer_not_found`，`details: { authorityKeyId }`；目标 =
+      config 中 `issuer` 属于候选且 `kind` 相同的目标，无 → `target_not_configured`，`details: { kind, certificates }`（候选证书 id；
+      导入的证书在被目标绑定前不是签发者，M23）；多于一个（只有绕过 V6 手写的 `config.json` 才会出现）→ 抛错，500 `internal`。
+      验签用目标配置的签发者（owner 确认 4，SKI 相同的续期证书不影响选择，C5）。
+   6. 读签发者 DER（catalog 里的 `key`，缺失 → 500 `internal` + 日志），`parseCertificate` 取 SPKI，`verifyCrlSignature`（步骤 4）；
+      失败 → `invalid_signature` / `unsupported_algorithm`，`details: { algorithm }`。验签结果按签发者在重试间复用（重试解析到别的签发者才重验）。
    7. `compareFreshness`；终态（`unchanged` / `stale_crl` / `conflict` / `non_orderable`）立即返回，零写入。409 的
       `details.current` 带当前 `sha256`、`crlNumber`、`thisUpdate`。
    8. `put crlBlobKey(…)`（步骤 2），`ifNoneMatch: "*"`，`precondition-failed` 视为已存在（键含摘要，内容必然相同），
@@ -134,14 +138,19 @@
    9. 提交循环：若有旧 `current`，先 create-only 写 `history/<targetId>/<YYYYMMDDHHMMSSZ>-<crlNumber>-<sha256>.json`（与被取代版本的
       blob 同名；体为被取代的 `current` 记录原样 + `supersededAt`；`precondition-failed` 视为已有）；再 `put catalog.json`（`ifMatch`）。
       失败则按 250 / 500 / 1000 ms 退避，重读 state，重跑第 5–7 步（目标或签发者变了就重新验签），1 次初试 + 3 次重试，共 4 次
-      catalog 写，之后 `concurrent_update`（同切片 2 步骤 4）。
+      catalog 写，之后 `concurrent_update`（同切片 2 步骤 4）。循环是切片 2 `updateCatalog` 的推广 `updateState`（`src/core/catalog.ts`）：
+      每次尝试先 `readState`，mutation 可以是 async，可在返回 `next` 前做 create-only 写；blob 与标记每次调用至多 `put` 一次。
    10. 返回 `created`（之前无 current）或 `updated`；`current` 写入 `verifier`（签发者证书 id）、`publishedAt`、`summary`。
    - 零写入与孤儿（M9、C8）：第 1–7 步的任何拒绝与 `unchanged`，store 写日志为空。竞争失败（重读后终态）、`concurrent_update`
-     或第 8 步后崩溃只留下本次 blob（孤儿）与"真实发布过的旧 current"的 history 标记，catalog 不变。
+     或第 8 步后崩溃只留下本次 blob（孤儿）与"真实发布过的旧 current"的 history 标记，catalog 不变。此时被标记的版本仍是 current：
+     标记与 current 同名并存，切片 6 的历史列表按版本名合并（切片 6 步骤 4）。
    - 历史 = `history/<targetId>/` 标记 ∪ catalog 的 `current`（plan §5.3），不是 `blobs/crls/<id>/` 的目录列表。不放进 catalog 数组：
      违背 plan §5.3"catalog 大小不随发布次数增长"，且每个请求都读 catalog。`history/` 与旧前缀不相交（plan §13）。retire 写标记见切片 6，历史导入写标记见切片 7。孤儿清扫：不做（体积可忽略，需要时切片 6 再加）。（规划默认值，可推翻）
    - 日志：经 `deps.log` 恰好一行 `{ level, msg: "publish", targetId, kind, outcome | reason, sha256, crlNumber, thisUpdate,
-     expired, attempts, ms, detail? }`（plan §4.3、总则 §2.6）。
+     expired, attempts, ms, detail? }`（plan §4.3、总则 §2.6）。结束时还不知道的字段省略（解析失败无 `kind`，解析目标前无 `targetId`），
+     `null` 表示已知不存在（无 CRL 号）；`attempts` = 读 state 并解析目标的次数（1 + 重试，`readState` 之前的拒绝为 0）；成功 `info`、
+     拒绝 `warn`。抛错时也恰好一行（`error`、`reason: "internal"`、`detail` 为异常文本），再抛给路由的 500：HTTP 侧依次是
+     `publish`（`internal`）→ `unhandled_error` → `request`。
    - 无伴随写（PEM、alias）、无 `caches.default`，第 9 步 catalog 写成功即完成（§10 #5、#6）。
 7. **SKI 冲突规则**：同 kind 的两个目标其签发者 SKI 相同 → `config_invalid`，已由切片 2 步骤 6 的规则 V6 实现（M5，owner 确认 4
    默认）；本切片只在 `publish.test.ts` 补用例。默认下上传不产生 `issuer_mismatch`：从上传路由的状态表删除，`ERROR_CODES` 里
@@ -151,27 +160,38 @@
      媒体类型闸 → `bodyLimit({ maxSize: AIA_MAX_UPLOAD_BYTES })`（流式无 `Content-Length` 也 413，已验证）。
    - 媒体类型（忽略参数与大小写）只认 `multipart/form-data`、`application/pkix-crl`、`application/x-pem-file`、
      `application/octet-stream`；其余或缺失 → 415 `unsupported_media_type`，`details: { received, accepted }`（M8）。
-     三种原始体类型只作闸门，内容一律按字节识别。
-   - `body.required: false`；multipart schema `{ crl: z.union([z.file(), z.string()]) }` 加 `.openapi({ type: "string",
-     format: "binary" })`。`z.file()` 带注解可生成已验证；union 的生成与 form 校验未验证，开工先在测试里确认，不行就
-     schema 只作文档、由处理器校验。
+     三种原始体类型只作闸门，内容一律按字节识别。`details.received` 是小写、不带参数的媒体类型，缺失或空头为 `null`。multipart 的
+     `Content-Type` 除一个 `boundary` 外带任何参数 → 400 `bad_request`（hono 的表单解析只认这种形式，否则 zod-openapi 的闸会答无 details 的 415）。
+   - `body.required: false`（否则原始体也会过表单校验器）；multipart schema `{ crl: z.union([z.file(), z.string()]) }` 加
+     `.openapi({ type: "string", format: "binary" })`。已验证：union 生成为一个 binary string，表单校验器确实校验它（字段缺失或重复 →
+     400，`details.target = "form"`），schema 不只是文档；处理器经 `parseBody` 取该字段。
    - 处理器：multipart 读 `c.req.parseBody()`，缺 `crl` 或空串 → 400 `bad_request`；字符串字段按 UTF-8 文本走同一识别
      （UI 粘贴 PEM、`curl -F crl=<file`，M8）；multipart 畸形 → 400。原始体读 `c.req.arrayBuffer()`，0 字节 → 400。
    - 成功体（plan §7.1，M16）：`{ outcome, target, kind, sha256, crlNumber, baseCrlNumber, thisUpdate, nextUpdate, issuer, downloads }`；
-     `thisUpdate` 必填、`nextUpdate` 可空（§10 #25）；`downloads` = 绑定该目标的路径按字典序，每条 DER 后接其 `.pem`。状态表：
+     `thisUpdate` 必填、`nextUpdate` 可空（§10 #25）；`downloads` = 绑定该目标的路径按字典序，每条 DER 后接其 `.pem`；200 与 201 共用
+     一个 `PublishedCrl` schema。状态表：
 
      | 状态 | 码 |
      | --- | --- |
      | 201 / 200 | `created` / `updated`、`unchanged` |
-     | 400 | `bad_request`（缺字段、空体、畸形 multipart、畸形 `Authorization`，B9） |
-     | 401 / 413 / 415 | `unauthorized` / `payload_too_large` / `unsupported_media_type` |
-     | 409 | `stale_crl`、`conflict`、`non_orderable`、`concurrent_update` |
-     | 422 | `invalid_crl`、`not_yet_valid`、`unknown_critical_extension`、`scoped_crl_unsupported`、`unsupported_algorithm`、`issuer_not_found`、`target_not_configured`、`invalid_signature` |
-     | 500 | `internal`（不泄漏异常文本） |
+     | 400 | `bad_request`（字段缺失、重复或为空，空体，畸形 multipart 或其 `Content-Type` 参数，畸形 `Authorization`，B9） |
+     | 401 / 413 / 415 | `unauthorized`（带 `WWW-Authenticate`）/ `payload_too_large` / `unsupported_media_type`（`{ received, accepted }`） |
+     | 409 | `stale_crl`、`conflict`、`non_orderable`（`details.current = { sha256, crlNumber, thisUpdate }`）、`concurrent_update`（无 details） |
+     | 422 | `invalid_crl`、`not_yet_valid`、`unknown_critical_extension`、`scoped_crl_unsupported`、`unsupported_algorithm`、`issuer_not_found`、`target_not_configured`、`invalid_signature`（details 见步骤 3、4、6） |
+     | 500 | `internal`（不泄漏异常文本；OpenAPI 里只有这条路由声明 500） |
 
-9. **CLI**（`src/cli/aia.ts`）：`aia publish <file...>` 读 `AIA_URL`、`AIA_UPLOAD_TOKEN(_FILE)`，按字节选
-   `application/pkix-crl` / `application/x-pem-file` 发原始体；逐个文件处理互不影响；三种结果退出 0，其余 1；表格或 `--json`。
-   根 CA 的离线 CRL 走这条路（review §2.2-3）。
+   - OpenAPI `security: [{}, { uploadBearer: [] }]`（令牌可选）。该数组须显式标成 `Record<string, string[]>[]`：推断出的混合元素类型
+     会让 `createRoute` 退回约束类型、丢掉路由的字面量类型。路由并入 `AppType` 链（切片 5b 的上传卡片）；`mediaType` 移到
+     `src/http/media.ts`，两条上传路由共用。
+
+9. **CLI**（`src/cli/aia.ts`）：`aia publish <file...>` 读 `AIA_URL`；上传令牌按 `--token-file` → `AIA_UPLOAD_TOKEN_FILE` →
+   `AIA_UPLOAD_TOKEN` → 无（路由只在设了令牌时要求）。`--token-file` 是当前命令的令牌：import / config 为管理令牌，publish 为上传令牌；
+   两个变量同时设、空令牌或非 bearer 字符 → 用法错误（两种令牌共用 `bearerToken` 的规则与文案）。按字节选类型发原始体：单个 DER
+   SEQUENCE 为 `application/pkix-crl`，含 PEM 边界的文本为 `application/x-pem-file`（原样发送，bundle 由服务端报 `pem_blocks`），
+   其余按 `application/pkix-crl` 交服务端报错。逐个文件处理互不影响：每文件一行（结果、目标、kind、CRL 号、文件；失败行带 HTTP 状态、
+   码、`details.reason` 与其余 details，如 `stale_crl` 的当前 CRL 号与 thisUpdate）加汇总行，或 `--json` 的
+   `{ results, created, updated, unchanged, failed }`。created / updated / unchanged 之外（含读不了文件、连不上服务、体不是上传结果）都算
+   该文件失败；有失败退出 1，用法错误 2。根 CA 的离线 CRL 走这条路（review §2.2-3）。
 10. **OpenAPI**：`node scripts/generate-openapi.ts` 重写 `docs/openapi.json`，`--check` 无漂移。
 11. **AD CS 助手**（`scripts/adcs-crl-uploader.ps1`，重写 `worker-aia-cdp@5b570aa:scripts/adcs-crl-uploader.ps1`；§10 #20、M24）。
     - 保留：`#Requires -Version 7.0`、`$ErrorActionPreference = 'Stop'`、`Write-Log` 格式 `[yyyy-MM-dd HH:mm:ss.fffK][LEVEL]`
@@ -181,20 +201,27 @@
       按扩展名判格式、`New-Item SourceDir`（缺目录改为退出 1）、`data.id` 判定。
     - 新增参数：`-UploadUri`（默认 `https://aia.example.com/api/v1/crls`）、`-UploadTokenFile`、`-LedgerPath`
       （默认 `C:\ProgramData\PKI\crl-uploader\published.json`）、`-TimeoutSec 60`、`-AllowInsecureHttp`、
-      `-UploadIntervalMs 1000`（两次实际上传之间的间隔，压住 catalog 单键每秒一次写，见风险）。
-    - 令牌：`(Get-Content -LiteralPath $f -Raw).Trim()`，缺失或空 → 退出 1；带令牌且 URI 为 `http://` 时拒绝，除非
-      `-AllowInsecureHttp`；令牌永不进日志与命令行。
-    - 每个文件：`FileShare.Read` 打开，`IOException` 重试（事件触发时 CA 可能正在写）；`Get-FileHash -Algorithm SHA256`
-      命中账本 → Skipped；首字节 `0x30` → `application/pkix-crl`，含 `-----BEGIN X509 CRL-----` → `application/x-pem-file`，
-      否则失败且不上传；`Invoke-RestMethod -Method Post -ContentType <type> -Body <bytes> -SkipHttpErrorCheck
+      `-UploadIntervalMs 1000`（两次实际上传之间的间隔，压住 catalog 单键每秒一次写，见风险）。`-TimeoutSec` 限 1–3600、
+      `-UploadIntervalMs` 限 0–600000（参数校验失败 `pwsh -File` 退出 1）；`-UploadUri` 须是绝对 `http://` / `https://` URI，否则退出 1。
+    - 令牌：`(Get-Content -LiteralPath $f -Raw).Trim()`，缺失或空 → 退出 1；另须是 RFC 6750 b64token（与 settings 对 `AIA_UPLOAD_TOKEN`
+      的要求相同；非法头值会被请求异常的文本原样引用），否则退出 1；带令牌且 URI 为 `http://` 时拒绝，除非 `-AllowInsecureHttp`；
+      令牌永不进日志与命令行。不给 `-UploadTokenFile` 就不发 `Authorization`。发送用 `-Authentication Bearer -Token <SecureString>`，
+      `http://` 且 `-AllowInsecureHttp` 时加 `-AllowUnencryptedAuthentication`（PowerShell 自己也拒绝明文发令牌）。
+    - 每个文件：`FileShare.Read` 打开，`IOException` 重试（共 5 次、间隔 1 s；事件触发时 CA 可能正在写）；对读到的字节
+      `Get-FileHash -InputStream … -Algorithm SHA256`（不再开一次文件，摘要与上传的字节必然一致）；账本是"文件完整路径（不分大小写）→
+      被接受字节的 SHA-256"，该路径的值相等 → Skipped，跳过的 `X.pem` 也记 Skipped。账本按路径而不是摘要集合：同一字节换个文件名
+      （误放的旧副本）仍上传并得到 `stale_crl`（出口条件第 5 条）。首字节 `0x30` → `application/pkix-crl`，含 `-----BEGIN X509 CRL-----`
+      → `application/x-pem-file`，否则失败且不上传；`Invoke-RestMethod -Method Post -ContentType <type> -Body <bytes> -SkipHttpErrorCheck
       -StatusCodeVariable status -TimeoutSec`。
-    - 判定看 `outcome` / `error.code`，不只看状态：created / updated / unchanged 成功并写账本（临时文件 + `Move-Item -Force`；
-      账本损坏或缺失按空处理并 WARN）；`stale_crl` 失败（账本说明该摘要从未被接受，plan §9）；401 失败并提示
-      `-UploadTokenFile`；其余码、5xx、网络错误、超时都失败。
-    - 汇总 `Created / Updated / Unchanged / Skipped / Failed`；有失败退出 1，否则 0。
+    - 判定看 `outcome` / `error.code`，不只看状态：200 / 201 且 created / updated / unchanged 成功并写账本（临时文件 + `Move-Item -Force`；
+      账本损坏或缺失按空处理并 WARN；写不进去则该文件记失败，下次重发得 unchanged）；`stale_crl` 失败（账本说明该摘要从未被接受，
+      plan §9）；401 失败并提示 `-UploadTokenFile`（带了令牌说令牌错，没带说需要令牌）；其余码（日志带 `message` 与 `details`）、5xx、
+      非上传结果的体、网络错误、超时都失败。`Invoke-RestMethod` 把 ISO 时间解析成 `DateTime`，日志按 ISO UTC 重新格式化。
+    - 汇总 `Created / Updated / Unchanged / Skipped / Failed`；有失败退出 1，否则 0。手动 Windows 验证（出口条件）的环境、顺序、各条
+      退出码与日志摘录记在 `docs/operations.md`。
     - 事件 68/69/70 与定时补扫在两个仓库里都只有 README 文字、没有任务定义：本切片把触发器、`MultipleInstances IgnoreNew`、
       运行账户、令牌文件 ACL（`icacls`）、动作命令行写进 `docs/operations.md` 的"AD CS 助手"一节（该文件其余部分见切片 6），
-      不提交任务 XML。Pester / PSScriptAnalyzer 进 CI：不做（`worker-aia-cdp@5b570aa:docs/plan-review-2026-10-17.md` 已否决）。
+      不提交任务 XML；没在真实 AD CS 上验证的项标"未核对"，由切片 7 的生产切换核对。Pester / PSScriptAnalyzer 进 CI：不做（`worker-aia-cdp@5b570aa:docs/plan-review-2026-10-17.md` 已否决）。
 12. **文档同步**：plan §5.1/§5.3/§5.5（history 标记、含 CRL 号的 blob 键、`nextPublish` 字段、重试次数；§5.5 另记剩余的跨对象竞争
     窗口——发布中目标被删——与"管理操作单人串行"）、§6（验签机制、策略表、白名单、新鲜度语义）、§7.1（成功体与状态表）、
     §7.3（码表）、§9（助手细节）、§11（夹具覆盖，C11）；`docs/operations.md` 记录手动 Windows 验证。
@@ -239,17 +266,24 @@
   `nextPublish: null`；`full-adcs` 的 `nextPublish` 等于 manifest 的 `nextPublish`（步骤 1）；`revokedCount` 等于 manifest 的 `revoked`。
 - `tests/storage/publish-stores.test.ts`：created / updated / unchanged / 竞争四组对 fs 适配器跑；`AIA_TEST_R2=1` 时对 r2
   （`getPlatformProxy`）跑，验证真实条件写语义。
-- Worker 冒烟（`scripts/worker-smoke.ts`，续写切片 3 的下载段，`ci:worker` 执行）：该段配置加 root-ca 的 full 目标与 `/crl/root-ca.crl`，
-  经 `POST /api/v1/crls` 发布 `crls/root-ca/full-01.der`，再对 `/crl/root-ca.crl` 及其 `.pem` 做 GET、HEAD 与带 ETag 的 304：
+- Worker 冒烟（`scripts/worker-smoke.ts`，续写切片 3 的下载段，`ci:worker` 执行）：该段配置加 root-ca 与 issuing-ca-1 的 full 目标与
+  `/crl/root-ca.crl`、`/crl/issuing-ca-1.crl`，上传令牌作为 harness secret；经 `POST /api/v1/crls` 发布，验签跑在 workerd 的 WebCrypto 上：ECDSA P-384
+  （`crls/root-ca/full-01.der`）、RSA PKCS#1 v1.5、RSASSA-PSS 与 SHA-1 接受，`full-broken-sig` 为 422 `invalid_signature`，原始体与
+  multipart（文件与字符串字段）都解析，无令牌 401。再对 `/crl/root-ca.crl` 及其 `.pem` 做 GET、HEAD、带 ETag 的 304 与 405：
   `application/pkix-crl`、`"<sha256>"` / `"<sha256>-pem"` ETag、夹紧后的 `Cache-Control`（workerd 用真实时钟，该 CRL 已过
   `nextUpdate` → `max-age=60`）、显式 `Content-Length`，体 sha256 等于夹具。
 - `tests/http/crls-upload.test.ts`（迁自 `worker-aia-cdp@5b570aa:tests/web/api-client.test.ts` 第 3 例，重复上传改为 200 `unchanged`）：
   multipart 文件字段、字符串 PEM 字段、三种原始类型；`text/plain` 与缺 `Content-Type` → 415 + `details.received`；缺字段、空体 → 400；超限（带与不带 `Content-Length`）→ 413；
   令牌已设：无 / 错 → 401 + `WWW-Authenticate`，畸形头 → 400，正确 → 201；令牌未设不需鉴权；状态表每行至少一例；
   信封形状、`Cache-Control: no-store`、500 不泄漏文本。
-- `tests/integration/node-e2e.test.ts`（本切片部分）：临时目录 fs 存储起真实服务，CLI `import` → `config apply` →
+- `tests/integration/node-e2e.test.ts`（本切片部分）：临时目录 fs 存储起真实服务，两侧都用上传令牌文件，CLI `import` → `config apply` →
   `aia publish crls/root-ca/full-01.der` created → 再发 unchanged（退出 0）→ `full-02.der` updated → 再发 `full-01.der`
-  stale（退出 1）→ `GET` 路径表 DER 的 sha256 与 `full-02.der` 一致。retire 部分见切片 6。
+  stale（退出 1）→ `GET` 路径表 DER 的 ETag、长度、sha256 与 `full-02.der` 一致；不带令牌 401；重启后该 CRL 仍是 current。retire 部分见切片 6。
+- `tests/integration/cli.test.ts`（`publish`）：按字节选类型、未设令牌不发头；逐文件 updated / unchanged / 失败与退出 1；失败行的 details；
+  `--json`；令牌来自 `AIA_UPLOAD_TOKEN`、`_FILE` 或 `--token-file`；缺令牌时每个文件 401；两个变量同设、空或畸形令牌在发送前拒绝；
+  连不上服务时继续下一个文件。
+- `tests/core/store-keys.test.ts`：`crlBlobKey` / `crlVersionName` 的格式（时间段、号段、`none`）都过 `assertStoreKey`；
+  `tests/http/client.test.ts`：`hc<AppType>` 以 multipart 字段 `crl` 上传，201 与 422 的体按状态收窄（切片 5b 的上传卡片）。
 
 ## 出口条件
 
@@ -257,14 +291,16 @@
 - `AIA_TEST_R2=1 pnpm exec vitest run --project storage` 通过（含 `publish-stores.test.ts` 的 r2 组）。
 - `pnpm run ci:worker` 含 Worker 冒烟的 CRL 发布与下载段。
 - `grep -rnE '\.verify\(|setEngine' src/core src/http` 无结果。
-- 本地 `wrangler dev`（`.dev.vars` 含管理令牌）：`AIA_URL=http://127.0.0.1:8787 node src/cli/aia.ts import …` + `config apply`
+- 本地 `wrangler dev`（`.dev.vars` 含管理令牌；`.dev.vars.example` 只有管理令牌，上传不需令牌，`.dev.vars` 加 `AIA_UPLOAD_TOKEN` 后才要求）：`AIA_URL=http://127.0.0.1:8787 node src/cli/aia.ts import …` + `config apply`
   后，`aia publish crls/root-ca/full-01.der crls/issuing-ca-1/full-01.der` 均 created，再发均 unchanged（workerd 上 ECDSA + RSA 验签）。
 - 手动 Windows 验证（PowerShell 7，服务为本机 Node 或 Docker 镜像，fs 存储，已导入证书并应用配置，`AIA_UPLOAD_TOKEN` 已设；
   夹具 CRL 改扩展名为 `.crl` 放入测试 SourceDir），逐条记录退出码与日志摘录到 `docs/operations.md`：
   1. `full-01` + `delta-01` → Created 2，退出 0，账本 2 条；2. 再跑 → Skipped 2，服务端无上传请求；3. 删账本再跑 → Unchanged 2；
   4. 用 `full-02` 覆盖 full 文件 → Updated；5. 再放入 `full-01` 的副本 → `stale_crl`，其余文件照常处理，Failed 1，退出 1；
   6. `full-01.pem` 单独 → Unchanged；7. 错令牌 → 401 退出 1；令牌文件缺失、`http://` 带令牌、SourceDir 缺失 → 上传前退出 1。
-  生产 CA 上的事件触发运行属于切换（见切片 7）。
+  生产 CA 上的事件触发运行属于切换（见切片 7）。2026-10-20 已做：Windows 11 上的 PowerShell 7.6.6 对 WSL2 里的 Node 运行时，全部按预期，
+  记录见 `docs/operations.md`。第 6 条要求 `full-01` 仍是当前 full CRL，所以单独用一个 SourceDir 与账本、在第 3 条之后跑（顺序 1、2、3、6、4、5、7）；
+  第 5 条让副本最先处理并同时换上 `delta-02`，"其余文件照常处理"因此含一次真实上传。
 
 ## 风险与对策
 
@@ -274,7 +310,7 @@
   同时发布都可能撞限；无法与其他存储故障区分，Miniflare 也不模拟。对策：助手 `-UploadIntervalMs 1000`，失败由下次触发或定时补扫补上。
 - config 与 catalog 分属两个对象：每次尝试都重读两者再解析目标，剩余竞争窗口（发布中目标被删）记入 plan §5.5（步骤 12），跨对象
   一致性见切片 2。
-- `z.union([z.file(), z.string()])` 的 OpenAPI / form 校验未验证：步骤 8 先验证，失败退到处理器校验。
+- `z.union([z.file(), z.string()])` 的 OpenAPI / form 校验：已在步骤 8 验证（生成为 binary string，表单校验器校验它，缺失或重复字段 400）。
 - 测试误写字面字节或大小：重生成夹具（步骤 1）后这类测试会失败；评审时检查只读 `manifest`。
 - 事件触发时读到半写文件：`FileShare.Read` + 重试；读到截断内容服务端回 `invalid_crl`，助手记失败，下次补上。
 - UI 上传在设置 `AIA_UPLOAD_TOKEN` 后不可用：本切片只在文档写明，处理见切片 5b。

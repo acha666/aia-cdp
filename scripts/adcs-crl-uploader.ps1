@@ -53,7 +53,7 @@
     catalog object, so a full and a delta CRL published together must not arrive back to back.
 
 .EXAMPLE
-    pwsh.exe -NoProfile -NonInteractive -File C:\ProgramData\PKI\crl-uploader\adcs-crl-uploader.ps1 -UploadUri https://pki.example.com/api/v1/crls -UploadTokenFile C:\ProgramData\PKI\crl-uploader\upload-token.txt
+    pwsh.exe -NoProfile -NonInteractive -File "C:\Program Files\aia-cdp\adcs-crl-uploader.ps1" -UploadUri https://pki.example.com/api/v1/crls -UploadTokenFile C:\ProgramData\PKI\crl-uploader\upload-token.txt
 #>
 [CmdletBinding()]
 param(

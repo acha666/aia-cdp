@@ -33,7 +33,9 @@
    没有 baseline，比退役前更旧的 CRL 也被当作 `created`。
 4. **历史**：`listHistory(deps, targetId)` 各 `list` 一次 `history/<targetId>/` 与 `blobs/crls/<targetId>/`；条目 = 有同名标记的 blob
    ∪ catalog 的 `current`（切片 4 步骤 6 的定义）。`thisUpdate`、`crlNumber`、`sha256` 从键名解出（键格式见切片 4 步骤 2），`size` 取自
-   blob 的 `list`，`current` = 与 catalog 当前 `sha256` 相等；按 `thisUpdate` 降序、同时间按 CRL 号（BigInt）降序。不逐个读 blob 或标记
+   blob 的 `list`，`current` = 与 catalog 当前 `sha256` 相等；标记与 current 可能同名并存（切片 4 步骤 6：写了被取代 current 的标记
+   而 catalog 写输掉，即 `concurrent_update` 或重读后终态），按版本名合并成一条 `current: true`，不重复列出；按 `thisUpdate` 降序、同时间按
+   CRL 号（BigInt）降序。不逐个读 blob 或标记
    （Workers 的子请求数与 CPU 撑不住）。解析不了的键跳过并记 warn；无标记的孤儿 blob 不列出（C8）；目标未知且两个前缀都为空 →
    `not_found`。`getHistoryBlob(deps, targetId, sha256)` 只对上述条目 `get` 其 blob 并重算摘要，不等 → `internal` 并记日志（存储或恢复后的
    损坏可见）。
