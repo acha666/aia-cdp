@@ -125,6 +125,27 @@ export function resolveDownload(
   };
 }
 
+/**
+ * The reverse of resolveDownload: the paths that serve a certificate or a target (`downloads` of
+ * the upload response, plan §7.1, and of slice 5a's lists). Every config path mapped to
+ * `reference`, in code-unit order, each DER path followed by its `<path>.pem`; [] without
+ * config.json. Only path table entries, never a store key (§10 #2).
+ */
+export function downloadPaths(config: Config | null, reference: ConfigPath): string[] {
+  if (config === null) {
+    return [];
+  }
+  const matches = ([, entry]: [string, ConfigPath]) =>
+    "certificate" in reference
+      ? "certificate" in entry && entry.certificate === reference.certificate
+      : "target" in entry && entry.target === reference.target;
+  return Object.entries(config.paths)
+    .filter(matches)
+    .map(([path]) => path)
+    .sort()
+    .flatMap((path) => [path, `${path}${PEM_SUFFIX}`]);
+}
+
 // Header policy ----------------------------------------------------------------------------------
 
 /** The headers of a found download; a 304 carries only ETag and Cache-Control of them. */

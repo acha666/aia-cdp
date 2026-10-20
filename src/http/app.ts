@@ -10,6 +10,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { createErrorHandler, onMethodNotAllowed, validationHook } from "./errors.ts";
 import { createLogger, requestLog } from "./log.ts";
 import { adminRoutes } from "./routes/admin.ts";
+import { crlRoutes } from "./routes/crls.ts";
 import { downloadRoutes } from "./routes/downloads.ts";
 import { healthRoutes } from "./routes/health.ts";
 import type { AppDeps, AppEnv } from "./types.ts";
@@ -31,7 +32,8 @@ export function createApp(deps: AppDeps) {
   app.notFound(uiFallback(deps));
 
   // Order (plan §7.3): secureHeaders → request log → methodNotAllowed → (admin: token check,
-  // bearerAuth, bodyLimit in routes/admin.ts; uploads: slice 4) → routes.
+  // bearerAuth, bodyLimit in routes/admin.ts; CRL upload: optional bearerAuth, media type gate,
+  // bodyLimit as route middleware in routes/crls.ts) → routes.
   app.use(secureHeaders({ strictTransportSecurity: false }));
   app.use(requestLog(deps, log));
   app.use(methodNotAllowed({ app, onMethodNotAllowed }));
@@ -51,7 +53,7 @@ export function createApp(deps: AppDeps) {
   // public routes join the chain; the admin routes are served and documented, but stay out of the
   // web client's types (slice 5a step 8). The download routes (/ca/*, /crl/*, /dcrl/*) are a plain
   // Hono app: neither in AppType nor in the OpenAPI document.
-  const routes = app.route("/api/v1", healthRoutes(deps));
+  const routes = app.route("/api/v1", healthRoutes(deps)).route("/api/v1", crlRoutes(deps));
   app.route("/api/v1", adminRoutes(deps));
   app.route("/", downloadRoutes(deps));
   return routes;

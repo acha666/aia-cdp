@@ -362,7 +362,9 @@ describe("applyConfig", () => {
     const { ids, config } = baseline();
     await putCatalog(store, {
       ...(await catalogOf(store)),
-      targets: { [ids.full]: { current: currentCrl("crls/issuing-ca-1/full-01.der", ids.full) } },
+      targets: {
+        [ids.full]: { current: await currentCrl("crls/issuing-ca-1/full-01.der", ids.full) },
+      },
     });
     expect(await apply(store, config)).toMatchObject({ sha256: expect.any(String) as unknown });
     store.writes.length = 0;
@@ -444,7 +446,7 @@ describe("applyConfig", () => {
       await putCatalog(store, {
         ...(await catalogOf(store)),
         targets: {
-          [ids.full]: { current: currentCrl("crls/issuing-ca-1/full-01.der", ids.full) },
+          [ids.full]: { current: await currentCrl("crls/issuing-ca-1/full-01.der", ids.full) },
           [ids.delta]: { current: null },
         },
       });
@@ -480,7 +482,9 @@ describe("applyConfig", () => {
       const targetId = crypto.randomUUID();
       await putCatalog(store, {
         ...(await catalogOf(store)),
-        targets: { [targetId]: { current: currentCrl("crls/root-ca/full-01.der", targetId) } },
+        targets: {
+          [targetId]: { current: await currentCrl("crls/root-ca/full-01.der", targetId) },
+        },
       });
       expect(rules(issuesOf(await apply(store, JSON.parse(MINIMAL_CONFIG))))).toEqual([
         ["V8", ["targets", targetId]],

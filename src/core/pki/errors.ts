@@ -17,7 +17,8 @@ export const PKI_PARSE_REASONS = [
   // Decodable, but not a certificate / CRL (PKIjs rejected the structure), or one with a value the
   // catalog format cannot hold.
   "structure",
-  // An extension the service reads (SKI, AKI, CRL Number, Delta CRL Indicator) is malformed.
+  // An extension the service reads (SKI, AKI, CRL Number, Delta CRL Indicator, AD CS Next CRL
+  // Publish, Issuing Distribution Point) is malformed.
   "extension_value",
   // A PEM boundary whose label is not the kind's (CERTIFICATE / X509 CRL).
   "pem_label",

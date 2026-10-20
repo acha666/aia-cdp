@@ -26,11 +26,11 @@
 
 | # | 问题 | 推荐默认 |
 | --- | --- | --- |
-| 1 | SHA-1 签名的 CRL | 接受（分发服务不是校验器，旧实现也接受） |
-| 2 | 只含 `distributionPoint` 的关键 IDP（AD CS 的 CDP 选项） | 接受；`onlyContains*`、`onlySomeReasons`、`indirectCRL` 仍 `scoped_crl_unsupported` |
-| 3 | 无 AKI 或 AKI 无 `keyIdentifier` | `issuer_not_found` + `details.reason = "missing_aki"` |
-| 4 | 多张证书共用 SKI（同钥续期）时的签发者选择 | 按目标配置的签发者验签；`applyConfig` 拒绝同 kind 且签发者 SKI 相同的两个目标；上传不再产生 `issuer_mismatch` |
-| 5 | 外层与 TBS 内签名算法不一致 | `invalid_crl`（`signature_algorithm_mismatch`） |
+| 1 | SHA-1 签名的 CRL | 已确认（2026-10-20）：接受（分发服务不是校验器，旧实现也接受） |
+| 2 | 只含 `distributionPoint` 的关键 IDP（AD CS 的 CDP 选项） | 已确认（2026-10-20）：接受；`onlyContains*`、`onlySomeReasons`、`indirectCRL` 仍 `scoped_crl_unsupported` |
+| 3 | 无 AKI 或 AKI 无 `keyIdentifier` | 已确认（2026-10-20）：`issuer_not_found` + `details.reason = "missing_aki"`；keyIdentifier 存在但为空 → `invalid_crl` / `extension_value`（同证书摘要，不属此问） |
+| 4 | 多张证书共用 SKI（同钥续期）时的签发者选择 | 已确认（2026-10-20）：按目标配置的签发者验签；`applyConfig` 拒绝同 kind 且签发者 SKI 相同的两个目标；上传不再产生 `issuer_mismatch` |
+| 5 | 外层与 TBS 内签名算法不一致 | 已确认（2026-10-20）：`invalid_crl`（`signature_algorithm_mismatch`） |
 
 不阻塞开工的规划默认值：5 分钟边界"恰好 5 分钟接受"、1 + 3 次重试、状态码表、同号更晚 `thisUpdate` 为 `updated`、两侧无号比
 `thisUpdate`、history 标记、blob 键带 CRL 号、不设 20 octet 上限。
@@ -39,14 +39,14 @@
 
 | # | 问题 | 推荐默认 |
 | --- | --- | --- |
-| 1 | 状态阈值 / 即将过期规则 | 同切片 5b 第 2 项，须在 5a 开工前定：`/api/v1/stats` 不含时间相关字段（列表项总带 `current.summary.nextPublish`，不受此项影响） |
+| 1 | 状态阈值 / 即将过期规则 | 已确认（2026-10-20，同切片 5b 第 2 项）：`/api/v1/stats` 不含时间相关字段（列表项总带 `current.summary.nextPublish`，不受此项影响） |
 
 ## 切片 5b
 
 | # | 问题 | 推荐默认 |
 | --- | --- | --- |
-| 1 | CSP | 采纳切片 5b 步骤 10 的策略，经 `secureHeaders` 的 `contentSecurityPolicy` 以响应头下发（两条运行时同一份），预绘制主题脚本用 hash 放行；冒烟出现违规只放宽 `style-src` |
-| 2 | 状态阈值 vs AD CS 节奏（旧 80% 规则与"7 天内"都会误报） | 有 `nextPublish` 时 `now` 超过它 1 h 仍未更新才算 stale；没有时沿用 80%（剩余不足 20%）；"即将过期"改为客户端计算的"需关注"（stale + expired + unknown），stats 不加时间字段；证书 `expiring` 阈值为剩余不足有效期 10% |
+| 1 | CSP | 已确认（2026-10-20）：采纳切片 5b 步骤 10 的策略，经 `secureHeaders` 的 `contentSecurityPolicy` 以响应头下发（两条运行时同一份），预绘制主题脚本用 hash 放行；冒烟出现违规只放宽 `style-src` |
+| 2 | 状态阈值 vs AD CS 节奏（旧 80% 规则与"7 天内"都会误报） | 已确认（2026-10-20）：有 `nextPublish` 时 `now` 超过它 1 h 仍未更新才算 stale；没有时沿用 80%（剩余不足 20%）；"即将过期"改为客户端计算的"需关注"（stale + expired + unknown），stats 不加时间字段；证书 `expiring` 阈值为剩余不足有效期 10% |
 
 第 2 项取"时间相关数只在客户端算"：plan §7.1 的 stats 本来就没有时间字段，5b 步骤 11 的构建插件禁止 web 在运行时导入 `src/core`（因此不做
 服务端 `src/core/status.ts` 与 stats 的 `expired` / `expiringSoon`），且客户端计算消除了服务端与浏览器时钟不一致；1 h 宽限保留。

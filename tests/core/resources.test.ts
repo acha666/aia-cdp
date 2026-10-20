@@ -3,7 +3,12 @@ import { checkConfigState, checkConfigStatic } from "../../src/core/admin.ts";
 import { CatalogSchema, certificateBlobKey, ConfigSchema } from "../../src/core/catalog.ts";
 import type { Catalog, Config, ConfigTarget, CrlKind } from "../../src/core/catalog.ts";
 import { derToPem, PEM_BLOCK_MARKERS } from "../../src/core/pki/pem.ts";
-import { downloadHeaders, ifNoneMatchHit, resolveDownload } from "../../src/core/resources.ts";
+import {
+  downloadHeaders,
+  downloadPaths,
+  ifNoneMatchHit,
+  resolveDownload,
+} from "../../src/core/resources.ts";
 import type { DownloadResolution, FoundDownload } from "../../src/core/resources.ts";
 import { fixture, manifest, NOW } from "../fixtures/pki.ts";
 import { cert, certificateEntry, currentCrl } from "../helpers/catalog.ts";
@@ -55,8 +60,11 @@ const certificates = Object.fromEntries(
   )
 );
 
-const FULL_CURRENT = { ...currentCrl(FULL_01, ids.full), publishedAt: PUBLISHED_AT.toISOString() };
-const DELTA_CURRENT = currentCrl(DELTA_01, ids.delta);
+const FULL_CURRENT = {
+  ...(await currentCrl(FULL_01, ids.full)),
+  publishedAt: PUBLISHED_AT.toISOString(),
+};
+const DELTA_CURRENT = await currentCrl(DELTA_01, ids.delta);
 
 /**
  * root-ca under four paths (one nested, one without a suffix), issuing-ca-1 with a full (full-01,
@@ -123,7 +131,7 @@ function body(path: string, der: Uint8Array): Uint8Array {
 }
 
 /** The found download of a one-target state whose current CRL is the fixture `file`. */
-function crlDownload(file: string, kind: CrlKind): FoundDownload {
+async function crlDownload(file: string, kind: CrlKind): Promise<FoundDownload> {
   const id = crypto.randomUUID();
   const path = kind === "full" ? "/crl/x.crl" : "/dcrl/x.crl";
   const single = ConfigSchema.parse({
@@ -135,7 +143,7 @@ function crlDownload(file: string, kind: CrlKind): FoundDownload {
   const state = CatalogSchema.parse({
     version: 1,
     certificates,
-    targets: { [id]: { current: currentCrl(file, id) } },
+    targets: { [id]: { current: await currentCrl(file, id) } },
   });
   return found(resolveDownload(single, state, path));
 }
@@ -420,25 +428,25 @@ describe("downloadHeaders", () => {
       downloadHeaders(download, now)["Cache-Control"];
     const maxAge = (seconds: number) => `public, max-age=${seconds}, must-revalidate`;
 
-    it("is 300 without nextUpdate", () => {
-      const download = crlDownload("crls/issuing-ca-1/full-no-next-update.der", "full");
+    it("is 300 without nextUpdate", async () => {
+      const download = await crlDownload("crls/issuing-ca-1/full-no-next-update.der", "full");
       expect(download.nextUpdate).toBeNull();
       expect(cacheControl(download, NOW)).toBe(maxAge(300));
     });
 
-    it("is 60 once nextUpdate has passed (was 0)", () => {
-      const download = crlDownload(DELTA_01, "delta");
+    it("is 60 once nextUpdate has passed (was 0)", async () => {
+      const download = await crlDownload(DELTA_01, "delta");
       expect(download.nextUpdate?.getTime()).toBeLessThan(NOW.getTime());
       expect(cacheControl(download, NOW)).toBe(maxAge(60));
     });
 
-    it("is at most 3600 for a far nextUpdate (was unbounded)", () => {
-      const download = crlDownload("crls/issuing-ca-1/full-future.der", "full");
+    it("is at most 3600 for a far nextUpdate (was unbounded)", async () => {
+      const download = await crlDownload("crls/issuing-ca-1/full-future.der", "full");
       expect(cacheControl(download, NOW)).toBe(maxAge(3600));
     });
 
-    it("counts whole seconds until nextUpdate between the bounds", () => {
-      const download = crlDownload(FULL_01, "full");
+    it("counts whole seconds until nextUpdate between the bounds", async () => {
+      const download = await crlDownload(FULL_01, "full");
       const nextUpdate = download.nextUpdate?.getTime() ?? Number.NaN;
       const before = (ms: number) => new Date(nextUpdate - ms);
       const cases: [ms: number, seconds: number][] = [
@@ -507,5 +515,56 @@ describe("ifNoneMatchHit", () => {
     }
     expect(ifNoneMatchHit(undefined, etag)).toBe(false);
     expect(ifNoneMatchHit(null, etag)).toBe(false);
+  });
+});
+
+describe("downloadPaths", () => {
+  it("lists a target's paths in code-unit order, each DER path followed by its .pem", () => {
+    expect(downloadPaths(config, { target: ids.full })).toEqual([
+      "/crl/issuing-ca-1.crl",
+      "/crl/issuing-ca-1.crl.pem",
+      "/crl/issuing-ca-1.der",
+      "/crl/issuing-ca-1.der.pem",
+    ]);
+    expect(downloadPaths(config, { target: ids.delta })).toEqual([
+      "/dcrl/issuing-ca-1.crl",
+      "/dcrl/issuing-ca-1.crl.pem",
+    ]);
+  });
+
+  it("lists a certificate's paths the same way", () => {
+    expect(downloadPaths(config, { certificate: ROOT.sha256 })).toEqual([
+      "/ca/root",
+      "/ca/root.pem",
+      "/ca/root-ca.crt",
+      "/ca/root-ca.crt.pem",
+      "/ca/root.cer",
+      "/ca/root.cer.pem",
+      "/ca/sub/root-ca.crt",
+      "/ca/sub/root-ca.crt.pem",
+    ]);
+  });
+
+  it("lists exactly the path table entries of the reference", () => {
+    for (const reference of [
+      ...Object.keys(config.targets).map((target) => ({ target })),
+      ...Object.keys(config.certificates).map((certificate) => ({ certificate })),
+    ]) {
+      const paths = downloadPaths(config, reference);
+      const owned = Object.entries(config.paths).filter(
+        ([, entry]) => JSON.stringify(entry) === JSON.stringify(reference)
+      );
+      expect(paths).toHaveLength(2 * owned.length);
+      for (const [path] of owned) {
+        expect(paths).toContain(path);
+        expect(paths).toContain(`${path}.pem`);
+      }
+    }
+  });
+
+  it("lists nothing for an unmapped reference or without config.json", () => {
+    expect(downloadPaths(config, { target: crypto.randomUUID() })).toEqual([]);
+    expect(downloadPaths(config, { certificate: ISSUING_2.sha256 })).toEqual([]);
+    expect(downloadPaths(null, { target: ids.full })).toEqual([]);
   });
 });

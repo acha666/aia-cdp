@@ -6,6 +6,11 @@
   },
   "components": {
     "securitySchemes": {
+      "uploadBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "AIA_UPLOAD_TOKEN (optional: while it is unset, uploads need no token)"
+      },
       "adminBearer": {
         "type": "http",
         "scheme": "bearer",
@@ -86,6 +91,634 @@
         "required": [
           "status",
           "checks"
+        ]
+      },
+      "PublishedCrl": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "created",
+              "updated",
+              "unchanged"
+            ]
+          },
+          "target": {
+            "type": "string",
+            "pattern": "^[0-9a-f-]+$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "full",
+              "delta"
+            ]
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "crlNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:0|[1-9][0-9]*)$"
+          },
+          "baseCrlNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:0|[1-9][0-9]*)$"
+          },
+          "thisUpdate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextUpdate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "issuer": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "downloads": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "outcome",
+          "target",
+          "kind",
+          "sha256",
+          "crlNumber",
+          "baseCrlNumber",
+          "thisUpdate",
+          "nextUpdate",
+          "issuer",
+          "downloads"
+        ]
+      },
+      "BadRequestError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "bad_request"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "UnauthorizedError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "unauthorized"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "CrlConflictError": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "stale_crl",
+                      "conflict",
+                      "non_orderable"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object",
+                    "properties": {
+                      "current": {
+                        "$ref": "#/components/schemas/CurrentCrlVersion"
+                      }
+                    },
+                    "required": [
+                      "current"
+                    ]
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "details"
+                ]
+              }
+            },
+            "required": [
+              "error"
+            ]
+          },
+          {
+            "$ref": "#/components/schemas/ConcurrentUpdateError"
+          }
+        ]
+      },
+      "CurrentCrlVersion": {
+        "type": "object",
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "crlNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:0|[1-9][0-9]*)$"
+          },
+          "thisUpdate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "sha256",
+          "crlNumber",
+          "thisUpdate"
+        ]
+      },
+      "ConcurrentUpdateError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "concurrent_update"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "PayloadTooLargeError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "payload_too_large"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "CrlMediaTypeError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "unsupported_media_type"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object",
+                "properties": {
+                  "received": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "accepted": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "multipart/form-data",
+                        "application/pkix-crl",
+                        "application/x-pem-file",
+                        "application/octet-stream"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "received",
+                  "accepted"
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "details"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "CrlRejectedError": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "invalid_crl"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object",
+                    "properties": {
+                      "reason": {
+                        "type": "string",
+                        "enum": [
+                          "der",
+                          "trailing_bytes",
+                          "time",
+                          "structure",
+                          "extension_value",
+                          "pem_label",
+                          "pem_blocks",
+                          "pem_base64",
+                          "signature_algorithm_mismatch"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "reason"
+                    ]
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "details"
+                ]
+              }
+            },
+            "required": [
+              "error"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "not_yet_valid"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object",
+                    "properties": {
+                      "thisUpdate": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "thisUpdate"
+                    ]
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "details"
+                ]
+              }
+            },
+            "required": [
+              "error"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "unknown_critical_extension",
+                      "scoped_crl_unsupported"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object",
+                    "properties": {
+                      "oid": {
+                        "type": "string"
+                      },
+                      "serialNumber": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "oid"
+                    ]
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "details"
+                ]
+              }
+            },
+            "required": [
+              "error"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "issuer_not_found"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "enum": [
+                              "missing_aki"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "reason"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "authorityKeyId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "authorityKeyId"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "details"
+                ]
+              }
+            },
+            "required": [
+              "error"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "target_not_configured"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "full",
+                          "delta"
+                        ]
+                      },
+                      "certificates": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "certificates"
+                    ]
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "details"
+                ]
+              }
+            },
+            "required": [
+              "error"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "invalid_signature",
+                      "unsupported_algorithm"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object",
+                    "properties": {
+                      "algorithm": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "algorithm"
+                    ]
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "details"
+                ]
+              }
+            },
+            "required": [
+              "error"
+            ]
+          }
+        ]
+      },
+      "InternalError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "internal"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "CrlUpload": {
+        "type": "object",
+        "properties": {
+          "crl": {
+            "type": "string",
+            "format": "binary",
+            "description": "The CRL: a DER or PEM file, or PEM text"
+          }
+        },
+        "required": [
+          "crl"
         ]
       },
       "ImportedCertificate": {
@@ -179,114 +812,6 @@
           "sha1"
         ],
         "additionalProperties": false
-      },
-      "BadRequestError": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "bad_request"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "details": {}
-            },
-            "required": [
-              "code",
-              "message"
-            ]
-          }
-        },
-        "required": [
-          "error"
-        ]
-      },
-      "UnauthorizedError": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "unauthorized"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "details": {}
-            },
-            "required": [
-              "code",
-              "message"
-            ]
-          }
-        },
-        "required": [
-          "error"
-        ]
-      },
-      "ConcurrentUpdateError": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "concurrent_update"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "details": {}
-            },
-            "required": [
-              "code",
-              "message"
-            ]
-          }
-        },
-        "required": [
-          "error"
-        ]
-      },
-      "PayloadTooLargeError": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "payload_too_large"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "details": {}
-            },
-            "required": [
-              "code",
-              "message"
-            ]
-          }
-        },
-        "required": [
-          "error"
-        ]
       },
       "UnsupportedMediaTypeError": {
         "type": "object",
@@ -684,6 +1209,146 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthUnavailable"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/crls": {
+      "post": {
+        "operationId": "uploadCrl",
+        "summary": "Publish a CRL",
+        "description": "One CRL, DER or a single X509 CRL PEM block, as the raw body or as the field `crl` of a multipart form (a file, or PEM text); the format is recognized from the bytes. It goes to the target that the configuration binds to its issuer (found by the Authority Key Identifier) and its kind (full or delta), once the extension policy, the issuer's signature and the comparison with the target's current CRL accept it. `Authorization: Bearer <AIA_UPLOAD_TOKEN>` is needed only while that token is set.",
+        "security": [
+          {},
+          {
+            "uploadBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/CrlUpload"
+              }
+            },
+            "application/pkix-crl": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/x-pem-file": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated; or `unchanged`: the same bytes are current, nothing was written",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedCrl"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Published to a target without a current CRL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedCrl"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed Authorization header; the field `crl` missing, repeated or empty; an empty body; or a malformed multipart body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "AIA_UPLOAD_TOKEN is set, and the token is missing or wrong",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Not newer than the target's current CRL (`details.current`): stale_crl, conflict (other bytes for the same CRL Number and thisUpdate) or non_orderable (a CRL Number on one side only); or concurrent_update (the catalog kept changing: retry)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrlConflictError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is larger than AIA_MAX_UPLOAD_BYTES",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PayloadTooLargeError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The Content-Type is missing or not one of the request body's media types",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrlMediaTypeError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Not a CRL this service publishes: the code and `details` say why",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrlRejectedError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The store failed (the error is logged, never sent); retry later",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
                 }
               }
             }

@@ -5,8 +5,11 @@ import { hc } from "hono/client";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { createApp } from "../../src/http/app.ts";
 import type { AppType } from "../../src/http/app.ts";
+import { MemoryStore } from "../../src/storage/memory.ts";
+import { fixture, manifest } from "../fixtures/pki.ts";
 import { MINIMAL_CONFIG, patchStore, putText, testDeps } from "../helpers/app.ts";
 import type { TestOverrides } from "../helpers/app.ts";
+import { setupPublish } from "../helpers/publish.ts";
 
 function client(overrides: TestOverrides = {}) {
   const app = createApp(testDeps(overrides));
@@ -54,5 +57,46 @@ describe("hc<AppType>", () => {
       status: "unhealthy",
       checks: { store: "error", configuration: "unknown" },
     });
+  });
+  // The upload card of slice 5b posts through this client.
+  it("posts a CRL as the multipart field crl and narrows the 201 and 422 bodies", async () => {
+    const store = new MemoryStore();
+    const setup = await setupPublish(store);
+    const crls = client({ store }).api.v1.crls;
+    const file = "crls/root-ca/full-01.der";
+    const der = new File([fixture(file)], "root-ca.crl");
+    const res = await crls.$post({ form: { crl: der } });
+    expect(res.status).toBe(201);
+    if (res.status !== 201) {
+      throw new Error(`unexpected status ${res.status}`);
+    }
+    const body = await res.json();
+    expectTypeOf(body.outcome).toEqualTypeOf<"created" | "updated" | "unchanged">();
+    expectTypeOf(body.nextUpdate).toEqualTypeOf<string | null>();
+    // @ts-expect-error -- the body is typed from the route's 201 schema, not any
+    expectTypeOf(body).toBeAny();
+    expect(body).toMatchObject({
+      outcome: "created",
+      target: setup.target("root-ca", "full"),
+      sha256: manifest.crls.find((crl) => crl.file === file)?.sha256,
+    });
+
+    const rejected = await crls.$post({ form: { crl: "not a CRL" } });
+    expect(rejected.status).toBe(422);
+    if (rejected.status !== 422) {
+      throw new Error(`unexpected status ${rejected.status}`);
+    }
+    const error = (await rejected.json()).error;
+    expectTypeOf(error.code).toEqualTypeOf<
+      | "invalid_crl"
+      | "not_yet_valid"
+      | "unknown_critical_extension"
+      | "scoped_crl_unsupported"
+      | "issuer_not_found"
+      | "target_not_configured"
+      | "invalid_signature"
+      | "unsupported_algorithm"
+    >();
+    expect(error).toMatchObject({ code: "invalid_crl", details: { reason: "der" } });
   });
 });

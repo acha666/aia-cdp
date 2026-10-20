@@ -1,6 +1,6 @@
 # aia-cdp：新项目规划（2026-10-17）
 
-状态：设计文档，2026-10-17 定稿，之后按 owner 决策与评审修订（经过见 git 历史）。切片 1 已完成（`main` 的 `0b391cc`），下一个是切片 2。
+状态：设计文档，2026-10-17 定稿，之后按 owner 决策与评审修订（经过见 git 历史）。切片 1–4 已完成（见 `main` 的合并提交），下一个是切片 5a。
 分步实施计划（每个切片的步骤、测试、可执行的出口条件、待 owner 确认项）在 `docs/implementation/`；本文与之冲突时以后者为准，规则由各切片的
 "文档同步"步骤写回本文。
 
@@ -180,7 +180,7 @@ aia-cdp/
 | `AIA_STATIC_DIR`                     | `./dist/web`         | UI 构建产物                                          |
 | `AIA_ADMIN_TOKEN` / `_FILE`          | 无                   | 未设置时管理接口返回 503 `admin_disabled`            |
 | `AIA_UPLOAD_TOKEN` / `_FILE`         | 无                   | 未设置时上传不需要令牌                               |
-| `AIA_MAX_UPLOAD_BYTES`               | `10485760`           | `bodyLimit`                                          |
+| `AIA_MAX_UPLOAD_BYTES`               | `1048576`            | `bodyLimit`；1 MiB ≈ 25 000 个吊销条目，也是解码内存的上界（§5.5） |
 | `AIA_TRUST_PROXY`                    | `false`              | 为真时请求日志加 `client`：Node 取 `X-Forwarded-For` 最右一项（最近一跳代理追加的），Workers 取 `CF-Connecting-IP`；不是 IP 字面量就省略 |
 | `AIA_LOG_FORMAT`                     | `json`               | `json` / `pretty`                                    |
 
@@ -217,7 +217,8 @@ HTTPS 跳转（AIA/CDP 客户端只走明文 HTTP）。
 ### 4.3 日志
 
 一个自写的小中间件：每请求一行 JSON（method、path、status、ms、可选 client），
-每次发布 / 导入尝试一行（targetId 或 certificateId、outcome 或 reason、sha256）。
+每次发布 / 导入尝试一行（targetId 或 certificateId、outcome 或 reason、sha256；发布另有 kind、crlNumber、thisUpdate、expired、
+attempts、ms、detail，字段规则见 implementation 切片 4 步骤 6）。
 Node 写 stdout，Workers 用 `console.log`（Workers Logs 自动收集）。不记录令牌、请求体和查询串；
 `AIA_LOG_FORMAT=pretty` 只把同一内容排成一行人读文本（只有不含空格、`"`、`=` 的可打印 ASCII 裸写，其余 JSON 编码并转义控制字符）。
 `client` 的来源由入口经 `deps.clientIpHeader` 选定（§4.2 的 `AIA_TRUST_PROXY` 行）。
@@ -255,7 +256,9 @@ history/<targetId>/<与 blob 同名>.json                不可变；历史标�
 ```
 
 CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段是十进制 CRL 号、无号时为 `none`；键只由 `crlBlobKey()`
-生成（implementation 切片 4 步骤 2）。键全部由服务生成（hex、uuid、十进制、固定名），不存在操作员命名的键，
+生成（implementation 切片 4 步骤 2）。号进文件名，所以 CRL Number 与 Delta 指示的内容至多 48 octet（116 位十进制）：最长名字 202 字节，
+fs 适配器的临时文件 `.<名字>.<uuid>.tmp` 244 字节，都在单个名字 255 字节以内（R2 键上限 1024）；更长的号拒为 `invalid_crl`
+（`extension_value`）。这只给"不设 20 octet 上限"的默认值加了上界，RFC 5280 的 20 octet 仍不强制。键全部由服务生成（hex、uuid、十进制、固定名），不存在操作员命名的键，
 因此不需要键编码、长度、大小写规则；三个适配器仍防御性地用 `assertStoreKey` 校验每个键（§5.4）。
 
 ### 5.2 `config.json`（操作员）
@@ -321,7 +324,9 @@ CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段
 catalog 只存当前指针，大小与资源数成正比，不随发布次数增长。历史 = `history/<uuid>/` 下的标记
 （被取代或退役的 current 原样记录，或切片 7 导入的旧版本；键名与 blob 同名，自带 `thisUpdate`、CRL 号与摘要）∪ catalog 的 `current`；
 `blobs/crls/<uuid>/` 下没有标记的孤儿 blob（发布竞争失败或崩溃留下）不算历史（C8）。管理接口各 `list` 一次两个前缀即可列出，
-不逐个读对象。
+不逐个读对象。发布写的标记体是被取代的 `current` 记录原样，不带时间（退役写同样的形状，切片 7 的导入另带 `importedAt`）；发布写了
+标记而 catalog 写输掉时，被标记的版本仍是 current，列历史时按版本名把标记与 current 合并成一条。标记不记取代时间：create-only 的
+标记可能来自最终 `concurrent_update` 的调用，那时写下的时间之后永远改不掉；某版本被取代的时间就是取代它的那一版的 `publishedAt`。
 
 格式（implementation 切片 2 步骤 4、切片 4 步骤 2）：证书 id、`sha1`、key id 小写 hex（key id 与 CN 缺失为 `null`），target id
 小写 UUID；`serialNumber` 大写 hex，保留 INTEGER 内容字节的前导 `00`；时间为 `toISOString()`（含 `.000Z`）；
@@ -366,11 +371,12 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 
 1. 按字节识别 PEM/DER，得到 DER 与 `sha256`。
 2. 解析 AKI、CRL 号、delta 指示、扩展、时间；时间解码失败、`thisUpdate` 超前 5 分钟以上、
-   未识别的关键扩展、关键 IDP 各是独立拒绝原因。
+   未识别的关键扩展、作用域 IDP 各是独立拒绝原因。
 3. 读 `config.json` 与 `catalog.json`（各一次 `get`，记下 catalog 的 ETag）。
 4. 用 AKI 在 catalog 的证书摘要里找 SKI 相等的证书，再在 config 里找绑定它且 kind 匹配的目标。
-   找不到证书是 `issuer_not_found`，证书存在但无目标是 `target_not_configured`。
-5. 读签发者 DER（按已知键），验签。
+   无 AKI `keyIdentifier` 或找不到证书是 `issuer_not_found`，证书存在但无目标是 `target_not_configured`；两个匹配目标只会来自绕过
+   规则 V6 手写的 config，按服务端故障 500。
+5. 读签发者 DER（按已知键），用目标配置的签发者验签（同 SKI 的续期证书不影响选择）；结果在重试间按签发者复用。
 6. 与 `targets[id].current` 比较：`sha256` 相等即 `unchanged`，不写；否则按 catalog 里的
    `crlNumber` / `thisUpdate` 摘要判新鲜度，不必再读当前 DER。
 7. `put` blob（内容寻址，`ifNoneMatch: "*"`，已存在即视为成功，幂等）。
@@ -379,9 +385,20 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
    1 s 退避），之后返回 `concurrent_update`。
 9. 返回 `created`（之前无 current）或 `updated`。
 
+CRL 的大小：解码按输入设 asn1js 的限额（节点数与内容长度都取输入字节数），唯一的上界是 `AIA_MAX_UPLOAD_BYTES`。内存约每 10 000 个
+吊销条目 100 MB 堆（Node 实测：10 000 条目 410 KB 需 96–128 MB 堆、0.5 s；100 000 条目 4 MB 需 1 GB、4.7 s；10 MiB 约 249 000 条目
+需 3 GB、12.8 s）。Workers 的隔离区 128 MB，实际可支持约 5 000 条目（≈ 200 KB），10 000 在边缘，与上限无关；Node 受堆上限约束。
+上传默认不要令牌而解码先于任何检查，畸形输入（全 NULL 的 SEQUENCE）每 MiB 约需 384 MB 堆，10 MiB 需约 3 GB，超过堆上限即整个 Node
+进程退出。所以默认上限是 1 MiB（≈ 25 000 条目；评审后改的规划默认值，原为 10 MiB）；需要更大 CRL 的部署调高它，并应设
+`AIA_UPLOAD_TOKEN`，让只有持令牌的人能送来大体。实测数字见 implementation 切片 4 的风险。线上 CRL 目前 0 个条目。
+
 第 7 步后崩溃只留下一个无人引用、不进历史的 blob，无害；第 8 步 catalog 写成功即完成，不存在"权威写成功但
-派生写失败"的状态。R2 对单键每秒一次写的限制只落在 `catalog.json` 上：超限报错不是前置条件失败，服务端不重试（500），
-AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
+派生写失败"的状态。第 1–6 步的拒绝与 `unchanged` 零写入；输掉的竞争只留下本次 blob 与旧 current 的标记（§5.3）。R2 对单键每秒一次写
+的限制只落在 `catalog.json` 上：超限报错不是前置条件失败，服务端不重试（500），AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
+
+config 与 catalog 是两个对象，catalog 的条件写不覆盖 config。每次尝试都重读两者再解析目标，剩下的窗口是发布读到 config 之后、
+catalog 写成功之前目标被删（`config apply`）：catalog 会留下 config 里已没有的目标的 current（无路径引用、不可下载；切片 6 的 retire
+允许清理这种残留）。不为此加跨对象锁：管理操作（导入、改配置、退役、删除）单人串行，删目标前先停该 CA 的发布任务（切片 6 手册）。
 
 `importCertificate` 同理：解析、生成完整摘要、写 blob、条件更新 catalog；重复导入 `unchanged`。
 `applyConfig` 校验 §5.2 规则后用 `ifMatch` 替换 `config.json`，首次用 `ifNoneMatch: "*"`；只写 `config.json`，不写 catalog，
@@ -396,21 +413,34 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 
 - 身份：证书 `certificateId` = DER 的 SHA-256；CRL 目标 `targetId` = 创建时分配的 UUID；
   内容版本 = `contentSha256`。CN、文件名不参与身份、授权和路径。
-- 验证：AKI/SKI 匹配 + 签名验证；`issuer_mismatch` 指 AKI 解析到的证书不是该目标配置的
-  签发者（默认上传按目标配置的签发者验签、不产生此码，只留给切片 7 的临时历史导入，C5；见 implementation 切片 4
-  开工前需 owner 确认第 4 项）；不比较签发者名称、不检查 `cRLSign` 和签发者有效期；Ed25519/Ed448 报
-  `unsupported_algorithm`。验签方式（B21）：先过扩展与时钟策略，再按算法白名单（OID 判定，名单外
-  → `unsupported_algorithm`，不只 EdDSA），最后对收到的 TBS 字节调
+- 验证：AKI/SKI 匹配 + 签名验证。CRL 没有 AKI `keyIdentifier` → `issuer_not_found`（`details.reason = "missing_aki"`，implementation
+  切片 4 owner 确认 3）；keyIdentifier 存在但为空 → `invalid_crl` / `extension_value`（同证书摘要：空 key id 不标识任何密钥）；
+  外层 `signatureAlgorithm` 与 TBS 内 `signature` 收到的字节不同（OID 或参数）→ `invalid_crl`（`signature_algorithm_mismatch`，
+  owner 确认 5；比较收到的字节而不是重编码，外层不在签名之内）。严格 DER 含 X.690 的内容规则
+  （INTEGER 最短、OID 子标识符不以 0x80 开头、NULL 无内容、BOOLEAN 为 00 / FF），所以没有人能改写外层算法造出 OpenSSL 读不了、
+  却先成为 current 的变体。ECDSA 签名本身可延展：`(r, n − s)` 是另一份 OpenSSL 也验得过的合法 CRL，谁先上传谁成为 current，CA 的原始
+  字节随后得 `conflict`（只是 409 的麻烦，不是完整性问题）。`issuer_mismatch` 指 AKI 解析到的证书不是该目标配置的签发者：上传按目标配置的
+  签发者验签、不产生此码（owner 确认 4），只留给切片 7 的临时历史导入（C5）。不比较签发者名称、不检查 `cRLSign` 和签发者有效期。
+  验签方式（B21）：先过扩展与时钟策略，再在任何密码学调用之前按 OID 白名单判定：sha1/256/384/512WithRSAEncryption、RSASSA-PSS
+  （哈希同这四种、MGF1 用同一哈希、`trailerField = 1`）、ecdsa-with-SHA1/256/384/512（签发者曲线 P-256 / P-384 / P-521）；SHA-1 接受
+  （owner 确认 1，分发服务不是校验器）；名单外（Ed25519 / Ed448、SHA-224、DSA、SM2、MD5 等）→ `unsupported_algorithm`。参数与签名值
+  同样先查：PKCS#1 v1.5 / ECDSA 的参数须缺省或 NULL，PSS 参数不合上述条件、`id-RSASSA-PSS` 受限密钥、名单外曲线或显式曲线参数 →
+  `unsupported_algorithm`；签名族与签发者密钥不符、BIT STRING 有未用位、ECDSA 签名不是严格 DER → `invalid_signature`（PKIjs 会放过
+  非严格 DER 的 ECDSA 签名与 MGF1 哈希不符的 PSS 签名）。最后对收到的 TBS 字节调
   `pkijs.getCrypto(true).verifyWithPublicKey(tbsView, signatureValue, issuerSpki, signatureAlgorithm)`。不用 PKIjs
   `crl.verify()`：它比较签发者名称，并对其自有名单外的关键扩展静默返回 false（旧实现即如此，见 §10 末的 C1–C4）；
-  不调 `pkijs.setEngine`（pkijs 3 从 `globalThis.crypto` 自动初始化）。白名单、SHA-1 取舍与策略表见 implementation 切片 4。
+  不调 `pkijs.setEngine`（pkijs 3 从 `globalThis.crypto` 自动初始化）。细则见 implementation 切片 4 步骤 4。
 - 新鲜度：先比字节（相等 → `unchanged`），再比 CRL 号，再比 `thisUpdate`；号相等且
-  `thisUpdate` 相等但字节不同 → `conflict`；CRL 号只在一侧存在 → `non_orderable`；更旧 → `stale_crl`。
-- 时钟：注入的 `now` 是唯一时间源；`thisUpdate` 超前 5 分钟以上拒绝 `not_yet_valid`；
+  `thisUpdate` 相等但字节不同 → `conflict`；CRL 号只在一侧存在 → `non_orderable`；更旧 → `stale_crl`。号按 BigInt、时间按 epoch ms
+  比较（不比字符串）；同号而 `thisUpdate` 更晚 → `updated`，两侧都无号只比 `thisUpdate`；`nextUpdate` 不参与；full 与 delta 目标各比各的
+  （AD CS 两者共用一个号计数器）；只读 catalog 的 `current.summary`，不读当前 DER（表见 implementation 切片 4 步骤 5）。
+- 时钟：注入的 `now` 是唯一时间源；`thisUpdate` 超前 5 分钟以上拒绝 `not_yet_valid`（恰好 5 分钟接受）；
   `nextUpdate` 已过去的 CRL 接受并记录日志。
 - 扩展：识别列表为 `2.5.29.20`、`2.5.29.27`（delta 指示）、`2.5.29.35`、`2.5.29.46`、`2.5.29.18`（IAN）、
-  `1.3.6.1.5.5.7.1.1`（AIA）与 AD CS 私有 `1.3.6.1.4.1.311.21.1 / .4 / .14`；识别与关键性无关，标了关键也接受（M14）。`2.5.29.28`（IDP）非关键接受、关键视为作用域 CRL，拒绝 `scoped_crl_unsupported`
-  （只含 `distributionPoint` 的关键 IDP 见 implementation 切片 4 开工前需 owner 确认第 2 项，推荐接受）；其他未识别关键扩展拒绝 `unknown_critical_extension`。
+  `1.3.6.1.5.5.7.1.1`（AIA）与 AD CS 私有 `1.3.6.1.4.1.311.21.1 / .4 / .14`；识别与关键性无关，标了关键也接受（M14）。`2.5.29.28`（IDP）不论关键性都读：
+  只含 `distributionPoint` 接受（AD CS 的 CDP 选项，implementation 切片 4 owner 确认 2），含 `onlyContains*`、`onlySomeReasons`、`indirectCRL`
+  即作用域 CRL，拒绝 `scoped_crl_unsupported`，畸形 IDP（含 RFC 5280 禁止的空 IDP）为 `invalid_crl`；其他未识别关键扩展拒绝
+  `unknown_critical_extension`。同一扩展出现两次 → `invalid_crl`（X.509 每个扩展至多一次）。
   条目扩展同样检查：reasonCode、invalidityDate、holdInstructionCode 接受，certificateIssuer（间接 CRL）→
   `scoped_crl_unsupported`，其他关键 → `unknown_critical_extension`。未识别的非关键扩展保留原始字节在详情里展示。
   策略表见 implementation 切片 4 步骤 3。
@@ -446,7 +476,7 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 | `GET /api/v1/certificates/{id}`   | 详情：主体 / 签发者、有效期、SKI/AKI、指纹、签名算法（含参数）、扩展、`downloads`、`targets` | 200 / 404 |
 | `GET /api/v1/crls`                | 每个目标一项，`current` 为摘要或 `null`                | 200                                                     |
 | `GET /api/v1/crls/{targetId}`     | 详情：签发者证书 id、CRL 号、base 号、时间、吊销条目、扩展、`downloads` | 200 / 404                      |
-| `POST /api/v1/crls`               | 上传 CRL：multipart 字段 `crl`，或原始 body（`application/pkix-crl` / `application/x-pem-file` / `application/octet-stream`） | 201 created；200 updated / unchanged；400 / 401 / 409 / 413 / 415 / 422 |
+| `POST /api/v1/crls`               | 上传 CRL：multipart 字段 `crl`，或原始 body（`application/pkix-crl` / `application/x-pem-file` / `application/octet-stream`） | 201 created；200 updated / unchanged；400 / 401 / 409 / 413 / 415 / 422 / 500 |
 | `GET /api/v1/stats`               | `{ certificates, targets: { full, delta }, published: { full, delta }, totalRevocations, derBytes }`：`totalRevocations` 为已发布 full CRL 的 `revokedCount` 之和（无已发布 full 时 `null`），`derBytes` 为证书与各 current CRL 的字节数；不含时间相关字段（"需关注"数由 UI 用客户端时钟算，§8） | 200                                             |
 | `GET /api/v1/openapi.json`        | 运行时从路由表生成（`getOpenAPI31Document`），按进程 / isolate 缓存；与提交的 `docs/openapi.json` 深等（§7.3） | 200，`public, max-age=300`               |
 
@@ -459,7 +489,20 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
   "downloads": ["/crl/issuing-ca-1.crl", "/crl/issuing-ca-1.crl.pem"] }
 ```
 
-`thisUpdate` 必填、`nextUpdate` 可空；`baseCrlNumber` 与签发者证书 id `issuer` 见 M16。
+`thisUpdate` 必填、`nextUpdate` 可空；`baseCrlNumber` 与签发者证书 id `issuer` 见 M16；200 与 201 是同一个 schema。媒体类型忽略参数与
+大小写，内容一律按字节识别（DER 或一个 X509 CRL PEM 块）。失败的状态与 `details`：
+
+| 状态 | 码与 `details` |
+| --- | --- |
+| 400 | `bad_request`：字段 `crl` 缺失、重复或为空，空体，畸形 multipart 或 multipart `Content-Type` 带 `boundary` 以外的参数，畸形 `Authorization`（B9） |
+| 401 | `unauthorized` + `WWW-Authenticate`（只在设了 `AIA_UPLOAD_TOKEN` 时） |
+| 409 | `stale_crl`、`conflict`、`non_orderable`：`{ current: { sha256, crlNumber, thisUpdate } }`；`concurrent_update`：无 |
+| 413 | `payload_too_large`（`AIA_MAX_UPLOAD_BYTES`，无 `Content-Length` 的流式体也算） |
+| 415 | `unsupported_media_type`：`{ received, accepted }`，`received` 为小写、不带参数的媒体类型，缺失或空头为 `null` |
+| 422 | `invalid_crl` `{ reason }`；`not_yet_valid` `{ thisUpdate }`；`unknown_critical_extension`、`scoped_crl_unsupported` `{ oid, serialNumber? }`（序列号只对条目扩展）；`issuer_not_found` `{ reason: "missing_aki" }` 或 `{ authorityKeyId }`；`target_not_configured` `{ kind, certificates }`；`invalid_signature`、`unsupported_algorithm` `{ algorithm }` |
+| 500 | `internal`，不含异常文本（OpenAPI 里只有这条路由声明 500） |
+
+OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
 
 ### 7.2 管理路由（`Authorization: Bearer <AIA_ADMIN_TOKEN>`）
 
@@ -486,14 +529,18 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
   `config_invalid`、`referenced`、`invalid_crl`、`invalid_certificate`、`not_yet_valid`、
   `unknown_critical_extension`、`scoped_crl_unsupported`、`unsupported_algorithm`、
   `issuer_not_found`、`target_not_configured`、`invalid_signature`、`issuer_mismatch`、
-  `stale_crl`、`conflict`、`non_orderable`、`concurrent_update`、`internal`。默认下 `issuer_mismatch` 只由切片 7 的临时历史导入
-  路由产生，随该路由在 `slice/7-cleanup` 删除（§6）。
+  `stale_crl`、`conflict`、`non_orderable`、`concurrent_update`、`internal`。`issuer_mismatch` 只由切片 7 的临时历史导入
+  路由产生，随该路由在 `slice/7-cleanup` 删除（§6）。`details.reason`：`invalid_certificate` / `invalid_crl` 为 `der`、`trailing_bytes`、
+  `time`、`structure`、`extension_value`、`pem_label`、`pem_blocks`、`pem_base64`，`invalid_crl` 另有 `signature_algorithm_mismatch`；
+  `issuer_not_found` 为 `missing_aki`（否则 `details.authorityKeyId`）。
 - 中间件顺序：`secureHeaders({ strictTransportSecurity: false })`（§6）→ 请求日志 →
   `methodNotAllowed({ app, onMethodNotAllowed })`（`hono/method-not-allowed`，hono ≥ 4.13.0；`onMethodNotAllowed` 产出
   `method_not_allowed` 信封 + `Allow`，GET 路由自动含 HEAD；下载前缀为纯文本，§4.4）→
-  `/api/v1/admin/*` 的 `bearerAuth` → `POST /api/v1/crls` 的可选 `bearerAuth` + `bodyLimit` →
+  `/api/v1/admin/*` 的 `bearerAuth` → `POST /api/v1/crls` 的路由级 middleware（可选 `bearerAuth` → 媒体类型闸 → `bodyLimit`，都在
+  zod-openapi 的校验器之前，匿名或类型不符的上传不读体）→
   路由 → `app.onError` 统一 500 信封，不泄漏异常文本。`bearerAuth`、`bodyLimit` 等抛出的 `HTTPException` 由 `onError` 换成
-  信封（库文本换成自己的文案，保留 `WWW-Authenticate`、`Allow`、`Retry-After`）。
+  信封（库文本换成自己的文案，保留 `WWW-Authenticate`、`Allow`、`Retry-After`）。处理器抛错时日志依次是该操作自己的一行（如
+  `publish` 的 `reason: "internal"`）→ `unhandled_error` → `request`。
 - OpenAPI（B11）：`GET /api/v1/openapi.json` 在运行时由路由表生成（`getOpenAPI31Document`），每个 app 实例首次请求时序列化并缓存，
   `max-age=300`；`scripts/generate-openapi.ts` 用同一调用写出提交的 `docs/openapi.json`，`--check`（`pnpm run openapi:check`）是
   CI 的漂移检查，测试断言运行时文档深等于该文件且每个 operation 都有 `operationId` 与 `summary`。服务端不读该文件：从 `src`
@@ -501,13 +548,19 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 
 ### 7.4 CLI
 
-`aia` 读取 `AIA_URL` 与 `AIA_ADMIN_TOKEN(_FILE)`，子命令：
+`aia` 读取 `AIA_URL` 与当前命令的令牌：管理命令用 `AIA_ADMIN_TOKEN(_FILE)`，`publish` 用 `AIA_UPLOAD_TOKEN(_FILE)`（可无，服务端只在
+设了令牌时要求）；`--token-file` 优先于两个变量，指当前命令的令牌。令牌只经 `https://` 发送，或经 `http://` 发往回环主机（`localhost`、
+`127.0.0.0/8`、`[::1]`：Docker exec 与开发）；带令牌而 URL 是其他主机的 `http://` 是用法错误（退出 2，不发任何请求），除非加
+`--allow-insecure-http`（对应助手的 `-AllowInsecureHttp`）：生产主机为 AIA/CDP 下载提供明文 HTTP 且不跳转，`AIA_URL=http://<主机>`
+能连上服务并把令牌明文发出。不带令牌的命令（`health`、服务端未设令牌时的 `publish`）不检查。子命令：
 `import <file...>`、`config show | validate <file> | apply <file>`、`new-target-id`（打印
 `crypto.randomUUID()`：目标 UUID 由工具分配，没有建目标接口）、`publish <file...>`
-（走公开上传路由，可带 `AIA_UPLOAD_TOKEN`）、`history <targetId>`、`retire <targetId>`、
+（走公开上传路由，按字节选 `application/pkix-crl` / `application/x-pem-file` 发原始体，逐个文件处理，created / updated / unchanged
+之外都算该文件失败）、`history <targetId>`、`retire <targetId>`、
 `delete-certificate <id>`、`health`。`config validate` 离线只跑静态规则（V1–V3、V4 / V6 的静态部分，
 与服务端共用 `checkConfigStatic`），不连服务、不要令牌；状态与迁移规则（V4–V9 其余部分）由服务端在
-apply 时判定，以服务端为准。参数解析用 `parseArgs`，输出为表格或 `--json`。
+apply 时判定，以服务端为准。参数解析用 `parseArgs`，输出为每个文件（块）一行加汇总行，或 `--json`；退出码 0 成功、1 失败（或服务
+不健康）、2 用法错误。
 
 ## 8. 前端
 
@@ -553,12 +606,16 @@ owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-
 
 ## 9. AD CS 助手
 
-`scripts/adcs-crl-uploader.ps1` 重写要点：仅 PowerShell 7；`Invoke-RestMethod -Method Post
--ContentType application/pkix-crl -Body <bytes>`（PEM 文件用 `application/x-pem-file`，见 implementation 切片 4 步骤 11），不再手搓 multipart；新增
-`-UploadTokenFile`（令牌从受保护文件读，不进任务命令行）；按字节识别 PEM/DER；
-created / updated / unchanged 都算成功；本地摘要账本 `published.json`（路径 → sha256）跳过
-已发布文件；从未被接受的文件返回 `stale_crl` 算失败（CA 产出了比已发布更旧的东西）；
-退出码 0 / 1；事件 68/69/70 触发与定时补扫不变。改动用一次手动 Windows 运行验证并记录。
+`scripts/adcs-crl-uploader.ps1` 重写要点（implementation 切片 4 步骤 11；安装、计划任务与 Windows 验证记录见 `docs/operations.md`）：
+仅 PowerShell 7；按字节识别（首字节 `0x30` → `application/pkix-crl`，含 X509 CRL PEM 块 → `application/x-pem-file`，都不是即失败、
+不上传），`Invoke-RestMethod -Method Post -Body <bytes> -SkipHttpErrorCheck` 发原始体，不再手搓 multipart、不按扩展名判格式、
+不调 `certutil`；`-UploadTokenFile`（令牌从受保护文件读，不进任务命令行与日志；带令牌而 URI 为 `http://` 时拒绝，除非
+`-AllowInsecureHttp`）；按 `outcome` / `error.code` 判定，created / updated / unchanged 都算成功；本地账本 `published.json`（文件路径 →
+被接受字节的 sha256，连同接受它们的 `-UploadUri`）跳过已发布文件，缺失、损坏或属于另一个 URI 时按空处理（同一 URI 上恢复或回滚服务后
+删除它）；网络与 TLS 错误记整条异常链；从未被接受的文件返回 `stale_crl` 算失败（CA 产出了比已发布更旧的东西）；
+以 `FileShare.Read` 读、`IOException` 重试（CA 可能正在写）；两次上传之间隔 `-UploadIntervalMs`（R2 单键写速率，§5.5）；单文件失败
+不影响其余；SourceDir 或令牌文件缺失在任何上传之前退出 1；退出码 0 / 1；事件 68/69/70 触发与定时补扫不变（`MultipleInstances IgnoreNew`）。
+2026-10-20 用 Windows 上的 PowerShell 7.6 对本机 Node 服务手动验证过（不是真实 CA）；生产 CA 上的运行在切换时验证（§13）。
 
 ## 10. 要补齐的旧实现缺陷
 
@@ -599,7 +656,7 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 | # | 线上实际行为 | 新项目 |
 | --- | --- | --- |
 | C1 | 验签用 PKIjs `crl.verify({ issuerCertificate })`，它要求 CRL 签发者名称等于证书主体，名称不同即 400 `invalid_signature` | 不比较名称：`verifyWithPublicKey` 只看签名（§6） |
-| C2 | 不是"无策略"：PKIjs 有隐藏的已知扩展闸——关键的 AD CS `1.3.6.1.4.1.311.21.1 / .4 / .14` 被拒成 `invalid_signature`；关键 IDP 反被接受（作用域 CRL 会被发布）；关键 IAN / AIA 接受；条目扩展从不检查 | 显式策略表，识别与关键性无关，条目扩展也检查；关键 IDP → `scoped_crl_unsupported` |
+| C2 | 不是"无策略"：PKIjs 有隐藏的已知扩展闸——关键的 AD CS `1.3.6.1.4.1.311.21.1 / .4 / .14` 被拒成 `invalid_signature`；关键 IDP 反被接受（作用域 CRL 会被发布）；关键 IAN / AIA 接受；条目扩展从不检查 | 显式策略表，识别与关键性无关，条目扩展也检查；作用域 IDP（不论关键性）→ `scoped_crl_unsupported`，只含 `distributionPoint` 的接受，空 IDP 为 `invalid_crl` |
 | C3 | 同号同 `thisUpdate` 而字节不同 → 409 `stale_crl`；CRL 号只在一侧时回退比 `thisUpdate`，更晚即接受。#4 只覆盖了字节相同 | 前者 `conflict`，后者 `non_orderable`（§6） |
 | C4 | 所有不可验算法（Ed25519、Ed448、SHA-224 的 RSA / ECDSA、DSA、SM2、MD5）都报 400 `invalid_signature` | 白名单外一律 `unsupported_algorithm`，不只 EdDSA |
 
@@ -618,14 +675,15 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
   需要 bash 与 OpenSSL ≥ 3.0（不是 LibreSSL），只在开发与 CI，运行时不需要。测试里的摘要、key id、序列号、大小一律从文件或
   manifest 读（每次重新生成都换密钥，ECDSA / PSS 签名与摘要全变），`now` 注入 `manifest.now`。场景覆盖 created / updated / unchanged / stale /
   conflict / non_orderable / 坏签名 / 伪造 AKI / 未知关键扩展 / 作用域 IDP / 未来 `thisUpdate` / 过期 / delta / EdDSA / PSS /
-  无 AKI / 畸形时间 / AD CS 形态（C11；用例矩阵见 implementation 附录 D）。不用线上工件（决策 13）。
+  无 AKI / 畸形时间 / SHA-1 / AD CS 形态（C11；用例矩阵见 implementation 附录 D）；切片 4 起 `tests/core/publish.test.ts` 对 manifest 的
+  31 个 CRL 的首次上传、17 个场景与 6 个无效输入逐条断言（证书 13 张）。不用线上工件（决策 13）。
 - 存储一致性：同一套用例对 memory 与 fs 每次运行（r2 适配器另用假桶每次运行）；真 r2 在 `AIA_TEST_R2=1`（`pnpm run test:r2`）下经
   `getPlatformProxy({ configPath: "wrangler.jsonc", persist: false })` 运行，`ci:worker` 包含它且要求 passed 而不是 skipped。
 - Node 集成：在临时目录起真实服务与 fs 存储，走 CLI import → config apply → 上传 →
-  列表 / 详情 → DER / PEM / HEAD / 304 下载 → 重复上传 unchanged → 过期拒绝 → retire → 404。
+  列表 / 详情 → DER / PEM / HEAD / 304 下载 → 重复上传 unchanged → 旧 CRL 被拒（stale_crl）→ retire → 404。
 - Worker：`wrangler deploy --dry-run --outdir dist/worker`（先 `vite build`）；`createTestHarness` 对 dry-run 产物跑与运行时无关的
-  `scripts/smoke.sh`，再经管理接口导入并应用配置，查下载的 GET / HEAD / 304 / 405（与 Node 集成测试比对同一组头）；`wrangler dev` 冒烟是
-  切片出口里的人工步骤。
+  `scripts/smoke.sh`，再经管理接口导入并应用配置，查下载的 GET / HEAD / 304 / 405（与 Node 集成测试比对同一组头）；切片 4 起经
+  `POST /api/v1/crls` 在 workerd 上发布并验签（ECDSA P-384、RSA PKCS#1 v1.5、RSASSA-PSS、SHA-1）。`wrangler dev` 冒烟是切片出口里的人工步骤。
 - Docker：`docker build --check`、构建镜像、启动、健康检查 `healthy` 而 API 报 `degraded`、非 root、经镜像内 CLI `aia import` 与
   `config apply` 后 health `healthy`，下载 `/ca/root-ca.crt` 及其 `.pem`（GET 体等于夹具、`ETag` 与 `Content-Length`，HEAD 同头，
   `If-None-Match` → 304），`docker stop` < 5 s。

@@ -96,16 +96,20 @@ const CatalogCertificate = z.strictObject({
   summary: CertificateSummarySchema,
 });
 
-// Slice 4 step 2 completes the CRL summary with buildCrlSummary: revokedCount becomes non-null and
-// nextPublish is added.
-const CrlSummary = z.strictObject({
-  crlNumber: Decimal.nullable(),
-  baseCrlNumber: Decimal.nullable(),
-  thisUpdate: Timestamp,
-  nextUpdate: Timestamp.nullable(),
-  revokedCount: z.number().int().nonnegative().nullable(),
-  sha1: Sha1Hex,
-});
+/** Built by buildCrlSummary (src/core/summary/catalog-summary.ts). */
+export const CrlSummarySchema = z
+  .strictObject({
+    crlNumber: Decimal.nullable(),
+    baseCrlNumber: Decimal.nullable(),
+    thisUpdate: Timestamp,
+    nextUpdate: Timestamp.nullable(),
+    /** Always known once published (§10 #7): "unknown" is only a target without a current CRL. */
+    revokedCount: z.number().int().nonnegative(),
+    sha1: Sha1Hex,
+    /** AD CS Next CRL Publish (1.3.6.1.4.1.311.21.4), null without the extension. */
+    nextPublish: Timestamp.nullable(),
+  })
+  .meta({ id: "CrlSummary" });
 
 const CurrentCrl = z.strictObject({
   sha256: Sha256Hex,
@@ -114,7 +118,7 @@ const CurrentCrl = z.strictObject({
   publishedAt: Timestamp,
   /** Id of the certificate that verified the signature. */
   verifier: Sha256Hex,
-  summary: CrlSummary,
+  summary: CrlSummarySchema,
 });
 
 const CatalogTarget = z.strictObject({ current: CurrentCrl.nullable() });
@@ -254,29 +258,23 @@ export interface UpdateCatalogOptions {
   backoffMs?: readonly number[];
 }
 
-/**
- * Read-modify-write of catalog.json under the store's precondition: `ifMatch` with the ETag that
- * was read, or `ifNoneMatch: "*"` while the catalog is missing. `mutate` must be pure: on a lost
- * race (precondition-failed) it runs again on the re-read catalog after the next backoff, so
- * whatever the other writer added is kept. A mutation without `next` ends the loop without a
- * write. After 1 + backoffMs.length lost attempts → concurrent_update.
- *
- * A throwing `put` is not retried (it may have taken effect, and R2's per-key write rate limit is
- * not a precondition failure); neither is an invalid `next`, which throws instead of being written.
- * An invalid stored catalog throws InvalidStoredObjectError.
- */
-export async function updateCatalog<R>(
+type UpdateResult<R> = { result: R } | { error: "concurrent_update" };
+
+// The loop of updateCatalog and updateState: `read` returns what `mutate` sees and the catalog ETag
+// the write is conditional on.
+async function writeCatalogLoop<S, R>(
   store: ObjectStore,
-  mutate: (catalog: Catalog) => CatalogMutation<R>,
+  read: () => Promise<{ seen: S; etag: string | null }>,
+  mutate: (seen: S) => CatalogMutation<R> | Promise<CatalogMutation<R>>,
   { sleep, backoffMs = CATALOG_BACKOFF_MS }: UpdateCatalogOptions
-): Promise<{ result: R } | { error: "concurrent_update" }> {
+): Promise<UpdateResult<R>> {
   for (let attempt = 0; attempt <= backoffMs.length; attempt++) {
     const wait = backoffMs[attempt - 1];
     if (wait !== undefined) {
       await sleep(wait);
     }
-    const { catalog, etag } = await readCatalog(store);
-    const mutation = mutate(catalog);
+    const { seen, etag } = await read();
+    const mutation = await mutate(seen);
     if (!("next" in mutation)) {
       return { result: mutation.result };
     }
@@ -290,4 +288,47 @@ export async function updateCatalog<R>(
     }
   }
   return { error: "concurrent_update" };
+}
+
+/**
+ * Read-modify-write of catalog.json under the store's precondition: `ifMatch` with the ETag that
+ * was read, or `ifNoneMatch: "*"` while the catalog is missing. `mutate` must be pure: on a lost
+ * race (precondition-failed) it runs again on the re-read catalog after the next backoff, so
+ * whatever the other writer added is kept. A mutation without `next` ends the loop without a
+ * write. After 1 + backoffMs.length lost attempts → concurrent_update.
+ *
+ * A throwing `put` is not retried (it may have taken effect, and R2's per-key write rate limit is
+ * not a precondition failure); neither is an invalid `next`, which throws instead of being written.
+ * An invalid stored catalog throws InvalidStoredObjectError.
+ */
+export function updateCatalog<R>(
+  store: ObjectStore,
+  mutate: (catalog: Catalog) => CatalogMutation<R>,
+  options: UpdateCatalogOptions
+): Promise<UpdateResult<R>> {
+  const read = async () => {
+    const { catalog, etag } = await readCatalog(store);
+    return { seen: catalog, etag };
+  };
+  return writeCatalogLoop(store, read, mutate, options);
+}
+
+/**
+ * updateCatalog for a mutation that also needs config.json (publishCrl resolves its target there):
+ * every attempt starts with readState, and the catalog write is conditional on the catalog ETag
+ * of that read. `mutate` may be async and may write other objects before it returns `next`, as
+ * long as those writes are create-only: they stay when the catalog write is lost, and the next
+ * attempt runs `mutate` again on the re-read state. Otherwise as updateCatalog (also throws
+ * InvalidStoredObjectError for an invalid stored config).
+ */
+export function updateState<R>(
+  store: ObjectStore,
+  mutate: (state: State) => Promise<CatalogMutation<R>>,
+  options: UpdateCatalogOptions
+): Promise<UpdateResult<R>> {
+  const read = async () => {
+    const state = await readState(store);
+    return { seen: state, etag: state.catalogEtag };
+  };
+  return writeCatalogLoop(store, read, mutate, options);
 }

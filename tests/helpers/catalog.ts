@@ -1,11 +1,14 @@
 // Catalog values built from the fixtures (implementation §2.5: digests, key ids and sizes come from
 // the files or manifest.json, never from literals).
-import { createHash } from "node:crypto";
 import type { Catalog, CatalogCertificate, Config, CurrentCrl } from "../../src/core/catalog.ts";
 import { CATALOG_KEY, certificateBlobKey, CONFIG_KEY, encodeJson } from "../../src/core/catalog.ts";
-import { parseCertificate } from "../../src/core/pki/parsers.ts";
+import { parseCertificate, parseCRL } from "../../src/core/pki/parsers.ts";
+import { crlBlobKey } from "../../src/core/publish.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
-import { buildCertificateSummary } from "../../src/core/summary/catalog-summary.ts";
+import {
+  buildCertificateSummary,
+  buildCrlSummary,
+} from "../../src/core/summary/catalog-summary.ts";
 import { fixture, manifest, NOW } from "../fixtures/pki.ts";
 import type { ManifestCertificate, ManifestCrl } from "../fixtures/pki.ts";
 
@@ -45,27 +48,20 @@ export async function certificateEntry(
 }
 
 /**
- * A `current` record for a CRL fixture, verified by its issuer. Only the catalog format matters
- * here (the blob is not written); slice 4's publishCrl produces the real thing.
+ * The `current` record publishCrl writes for a CRL fixture verified by its issuer, published at
+ * NOW: blob key and summary come from crlBlobKey and buildCrlSummary (the blob is not written).
  */
-export function currentCrl(file: string, targetId: string): CurrentCrl {
+export async function currentCrl(file: string, targetId: string): Promise<CurrentCrl> {
   const entry = crl(file);
   const der = fixture(file);
-  const iso = (value: string) => new Date(value).toISOString();
+  const summary = await buildCrlSummary(parseCRL(der), der);
   return {
     sha256: entry.sha256,
-    key: `blobs/crls/${targetId}/${entry.sha256}.der`,
+    key: crlBlobKey(targetId, summary, entry.sha256),
     size: der.byteLength,
     publishedAt: NOW.toISOString(),
     verifier: cert(entry.issuer).sha256,
-    summary: {
-      crlNumber: entry.crlNumber,
-      baseCrlNumber: entry.baseCrlNumber,
-      thisUpdate: iso(entry.thisUpdate),
-      nextUpdate: entry.nextUpdate === null ? null : iso(entry.nextUpdate),
-      revokedCount: entry.revoked,
-      sha1: createHash("sha1").update(der).digest("hex"),
-    },
+    summary,
   };
 }
 

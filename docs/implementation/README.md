@@ -1,6 +1,6 @@
 # aia-cdp 实施计划：总则与索引
 
-状态：切片 1–3 已完成（切片 1 = `main` 的 `0b391cc`；切片 2、3 见 `main` 上的 `Merge slice/2-catalog-import`、`Merge slice/3-downloads`），下一个是切片 4。owner 决策 D1–D12 已定，B1–B22 是规划默认值、可推翻（§0）；各切片未决事项列在
+状态：切片 1–4 已完成（切片 1 = `main` 的 `0b391cc`；切片 2、3、4 见 `main` 上的 `Merge slice/2-catalog-import`、`Merge slice/3-downloads`、`Merge slice/4-publish`），下一个是切片 5a。owner 决策 D1–D12 已定，B1–B22 是规划默认值、可推翻（§0）；各切片未决事项列在
 该切片的"开工前需 owner 确认"，汇总见附录 C。设计文档是 `docs/plan.md`；二者冲突时以本目录为准，并在同一分支回写 plan.md。
 
 | 文件 | 内容 |
@@ -30,7 +30,7 @@
 
 ## 0. 决策与默认值
 
-owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 2026-10-19 切片 1 开工前，D11、D12 为 2026-10-19 切片 2 开工前；切片 2 另两项按推荐默认确认，见附录 C）：
+owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 2026-10-19 切片 1 开工前，D11、D12 为 2026-10-19 切片 2 开工前；切片 2 另两项、切片 4 五项、切片 5a / 5b 两项（2026-10-20）按推荐默认确认，见附录 C）：
 
 | # | 事项 | owner 决定 |
 | --- | --- | --- |
@@ -208,8 +208,8 @@ canary 都放过；依赖的 `/// <reference types="node" />` 会让 `process` �
 - 失败体 `{ "error": { "code", "message", "details"? } }`，每个状态码一个 schema，code 枚举按路由收窄；成功体直接返回资源，不包
   `{ data }`。异常文本与栈只进日志；未预期错误一律 500 `internal` + 固定文案。
 - `details.reason` 词表：`invalid_certificate` / `invalid_crl` 用 `der`、`trailing_bytes`、`time`、`structure`、`extension_value`、
-  `pem_label`、`pem_blocks`、`pem_base64`（切片 2）；CRL 另有 `signature_algorithm_mismatch`（切片 4）；`issuer_not_found` 另有
-  `missing_aki`（切片 4 默认）。新增取值同步 `docs/api.md` 的码表（切片 6 的 docs-consistency 测试检查）。
+  `pem_label`、`pem_blocks`、`pem_base64`（切片 2）；CRL 另有 `signature_algorithm_mismatch`（切片 4 owner 确认 5）；`issuer_not_found` 另有
+  `missing_aki`（切片 4 owner 确认 3）。新增取值同步 `docs/api.md` 的码表（切片 6 的 docs-consistency 测试检查）。
 - 头：API JSON（含错误）`Cache-Control: no-store`；`/api/v1/openapi.json` `public, max-age=300`。HTTP `ETag` 永远来自内容 sha256
   （下载 DER `"<sha256>"`、PEM `"<sha256>-pem"`，管理 config `"<sha256(存储字节)>"`）；store ETag 只回传给同一适配器，绝不外露（B14）。
 - 保留前缀与 UI 兜底的完整规则见 plan §4.4：`/api/*` 未命中 → JSON 404 `not_found`；`/ca/`、`/crl/`、`/dcrl/` 下未命中 → `text/plain` 404

@@ -95,6 +95,8 @@ history / retire / delete（切片 6）；页面、vue-query、扩展渲染块�
    `createRoute` 写 `operationId`（`listCertificates`、`getCertificate`、`listCrlTargets`、`getCrlTarget`、`getStats`）、`summary`、`tags`，
    措辞参考 `worker-aia-cdp@5b570aa:src/contracts/api.ts`（响应字段对照 `worker-aia-cdp@5b570aa:docs/templates/api-responses.example.json`，仅参考 v2 形状）；
    只声明实际可能出现的 200 / 400 / 404 / 500（500 由 `onError` 产出）；所有响应 `Cache-Control: no-store`（§10 #17）；HEAD 走自动 HEAD。
+   `security` 若写成元素形状不同的数组（如上传路由的 `[{}, { uploadBearer: [] }]`），须显式标成 `Record<string, string[]>[]`：推断出的
+   联合类型让 `createRoute` 退回约束类型、丢掉路由的字面量类型（`AppType` 随之变宽，切片 4 的 `crls.ts` 已这样写）。
    旧 `worker-aia-cdp@5b570aa:src/worker/api/v2/{certificates,crls}/{list,detail}.ts` 与 `stats.ts` 只作语义参考：
    `search`、分页、`include=`、`storage`、`relationships: {}`、`ctx.waitUntil` 回填全部不迁。
 
@@ -177,6 +179,8 @@ HTTP 用例照总则 §2.5，需要类型化 body 时用 `hono/testing` 的 `tes
 | `.meta({ id })` 进全局注册表：重复 id 或两份 zod 会出错 | id 唯一性测试；出口 7 |
 
 ## 开工前需 owner 确认
+
+2026-10-20 已确认：取推荐默认（附录 C）。
 
 1. **状态阈值 / 即将过期规则**：即切片 5b 开工前需 owner 确认第 2 项（推荐默认在那里），须在本切片开工前定：它决定
    `/api/v1/stats` 是否含时间相关字段（推荐：不含）。CRL 列表项总带 `current.summary.nextPublish`，不受它影响。

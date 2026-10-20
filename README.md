@@ -2,11 +2,13 @@
 
 X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloudflare Workers + R2 或 Node 24 + 本地磁盘（Docker）。
 
-当前状态：切片 3（下载）——在切片 1 的骨架（两条运行时、ObjectStore 与 memory / fs / r2 适配器、health、OpenAPI、UI 占位、
-测试夹具、Docker 镜像与本地 CI 脚本）与切片 2 的 catalog/config 与导入（PKI 解析、`config.json` / `catalog.json` 的 schema 与规则 V1–V9、
-管理接口与 CLI `aia`）之上，按配置的路径表提供 `/ca/`、`/crl/`、`/dcrl/` 下载：DER 原样、`<路径>.pem` 读取时派生，摘要 `ETag` 与 304、
-GET 与 HEAD 都带 `Content-Length`，`Content-Type` 与 `Cache-Control` 按种类（CRL 的 `max-age` 夹紧在 60–3600 s），未命中与方法不符为纯文本
-404 / 405。CRL 发布从切片 4 起（在此之前 CRL 路径都是 404）。完整的使用与运维文档在切片 6。
+当前状态：切片 4（发布）——在切片 1 的骨架（两条运行时、ObjectStore 与 memory / fs / r2 适配器、health、OpenAPI、UI 占位、
+测试夹具、Docker 镜像与本地 CI 脚本）、切片 2 的 catalog/config 与导入（PKI 解析、`config.json` / `catalog.json` 的 schema 与规则 V1–V9、
+管理接口与 CLI `aia`）与切片 3 的下载（按路径表提供 `/ca/`、`/crl/`、`/dcrl/`，`.pem` 读取时派生，摘要 `ETag` 与 304，纯文本 404 / 405）
+之上，加了 CRL 发布：`POST /api/v1/crls`（multipart 字段 `crl` 或原始 DER / PEM 体，可选上传令牌 `AIA_UPLOAD_TOKEN`）按 AKI 与 kind 找到
+配置的目标，经扩展与时钟策略、算法白名单验签与新鲜度比较，结果为 created / updated / unchanged 或带原因的拒绝，被取代的版本留下 history
+标记；CLI `aia publish`；Windows AD CS 上的助手 `scripts/adcs-crl-uploader.ps1`（安装与计划任务见 [docs/operations.md](docs/operations.md)）。
+完整的使用与运维文档在切片 6。
 
 - [docs/plan.md](docs/plan.md)：设计文档（决策、存储模型、领域规则、API、切片划分）。
 - [docs/implementation/](docs/implementation/README.md)：分步实施计划。`README.md` 是总则（决策、完成定义、通用约定），每个切片一份文件
@@ -40,13 +42,15 @@ pnpm run ci:docker
 - `pnpm run dev:web`：Vite 开发服务器（5173），把 `/api/`、`/ca/`、`/crl/`、`/dcrl/` 代理到 127.0.0.1:8787。
 - `pnpm run dev:node`：直接运行 Node 源码，端口 8787，数据目录 `.data/`。
 - `pnpm run dev:worker`：先 `build:web`，再 `wrangler dev`（127.0.0.1:8787，本地 R2）。管理令牌来自 `.dev.vars`
-  （`cp .dev.vars.example .dev.vars`）；`dev:node` 则在命令前加 `AIA_ADMIN_TOKEN=dev-admin-token`。
+  （`cp .dev.vars.example .dev.vars`；上传不需令牌，除非在 `.dev.vars` 加 `AIA_UPLOAD_TOKEN`）；`dev:node` 则在命令前加 `AIA_ADMIN_TOKEN=dev-admin-token`。
 - `AIA_URL=http://127.0.0.1:8787 AIA_ADMIN_TOKEN=dev-admin-token pnpm run seed:dev`：经 CLI 导入夹具里的根 CA 与两个签发 CA，
   并在尚无配置时应用一份示例配置；可重复执行（再跑全部 unchanged，已有配置不动）。`pnpm run reset:dev` 删除本地数据
   （`.wrangler/state`、`.data`）。
 
-CLI：`pnpm aia <命令>`（镜像内为 `node dist/server/cli/aia.js <命令>`），读 `AIA_URL` 与 `AIA_ADMIN_TOKEN_FILE` / `AIA_ADMIN_TOKEN`，
-`pnpm aia --help` 列出子命令。`pnpm aia config validate docs/config.example.json` 离线校验示例配置（不需要服务与令牌）。
+CLI：`pnpm aia <命令>`（镜像内为 `node dist/server/cli/aia.js <命令>`），读 `AIA_URL` 与当前命令的令牌：import / config 用
+`AIA_ADMIN_TOKEN_FILE` / `AIA_ADMIN_TOKEN`，`publish <file...>` 用 `AIA_UPLOAD_TOKEN_FILE` / `AIA_UPLOAD_TOKEN`（服务端未设上传令牌时可不给）；
+`--token-file` 优先于两个变量。令牌只经 `https://` 发送，经 `http://` 只发往 `localhost`、`127.0.0.0/8` 与 `[::1]`；其他主机要加
+`--allow-insecure-http`，否则是用法错误、不发请求。退出码 0 成功、1 失败、2 用法错误；`pnpm aia --help` 列出子命令。`pnpm aia config validate docs/config.example.json` 离线校验示例配置（不需要服务与令牌）。
 
 测试夹具 `tests/fixtures/pki/` 入库，由 `tests/fixtures/generate-test-data.sh` 生成；vitest 的 globalSetup 只校验它与脚本一致
 （`--check`），不会改写。改了脚本就 `pnpm run fixtures` 重新生成并提交（每次生成都用新密钥，签名、摘要、key id 全变）。

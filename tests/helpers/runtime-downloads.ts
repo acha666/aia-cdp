@@ -5,7 +5,8 @@
 // (workerd, createTestHarness) both compare against these values, so passing both means the two
 // runtimes agree. The PEM is OpenSSL's certs/root-ca.pem, which derToPem reproduces byte for byte
 // (tests/core/pki/pem.test.ts). Imports only node:crypto and the fixture reader, since the Worker
-// smoke loads it too.
+// smoke loads it too. Slice 4 adds the root CA's published full CRL (rootCaCrlDownloads), which the
+// Worker smoke checks after publishing it through POST /api/v1/crls.
 import { createHash } from "node:crypto";
 import { fixture, manifest } from "../fixtures/pki.ts";
 
@@ -87,4 +88,61 @@ export function comparedHeaders(
     ComparedHeader,
     string | null
   >;
+}
+
+/** The root CA's full CRL path; `${ROOT_CA_CRL_PATH}.pem` is its PEM. */
+export const ROOT_CA_CRL_PATH = "/crl/root-ca.crl";
+
+/** The CRL the Worker smoke publishes to the root CA's full target. */
+export const ROOT_CA_CRL = "crls/root-ca/full-01.der";
+
+function crlEntry(file: string) {
+  const entry = manifest.crls.find((crl) => crl.file === file);
+  if (entry === undefined) {
+    throw new Error(`tests/fixtures/pki/manifest.json has no CRL ${file}`);
+  }
+  return entry;
+}
+
+/**
+ * The CRL Cache-Control at `now` (slice 3 step 3, written out again rather than imported): max-age
+ * is the whole seconds until nextUpdate clamped to [60, 3600], 300 without nextUpdate. On a
+ * runtime with the real clock ROOT_CA_CRL is long past its nextUpdate: max-age=60.
+ */
+export function crlCacheControl(nextUpdate: string | null, now: Date): string {
+  const seconds =
+    nextUpdate === null
+      ? 300
+      : Math.min(3600, Math.max(60, Math.floor((Date.parse(nextUpdate) - now.getTime()) / 1000)));
+  return `public, max-age=${seconds}, must-revalidate`;
+}
+
+/** ROOT_CA_CRL under ROOT_CA_CRL_PATH and its `.pem` (OpenSSL's crls/root-ca/full-01.pem). */
+export function rootCaCrlDownloads(now: Date): RuntimeDownload[] {
+  const entry = crlEntry(ROOT_CA_CRL);
+  const der = fixture(entry.file);
+  const pem = fixture(entry.file.replace(/\.der$/, ".pem"));
+  const cacheControl = crlCacheControl(entry.nextUpdate, now);
+  return [
+    {
+      path: ROOT_CA_CRL_PATH,
+      headers: {
+        ETag: `"${entry.sha256}"`,
+        "Content-Length": String(der.byteLength),
+        "Content-Type": "application/pkix-crl",
+        "Cache-Control": cacheControl,
+      },
+      bodySha256: sha256Of(der),
+    },
+    {
+      path: `${ROOT_CA_CRL_PATH}.pem`,
+      headers: {
+        ETag: `"${entry.sha256}-pem"`,
+        "Content-Length": String(pem.byteLength),
+        "Content-Type": "application/x-pem-file",
+        "Cache-Control": cacheControl,
+      },
+      bodySha256: sha256Of(pem),
+    },
+  ];
 }

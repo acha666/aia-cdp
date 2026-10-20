@@ -33,7 +33,11 @@
    没有 baseline，比退役前更旧的 CRL 也被当作 `created`。
 4. **历史**：`listHistory(deps, targetId)` 各 `list` 一次 `history/<targetId>/` 与 `blobs/crls/<targetId>/`；条目 = 有同名标记的 blob
    ∪ catalog 的 `current`（切片 4 步骤 6 的定义）。`thisUpdate`、`crlNumber`、`sha256` 从键名解出（键格式见切片 4 步骤 2），`size` 取自
-   blob 的 `list`，`current` = 与 catalog 当前 `sha256` 相等；按 `thisUpdate` 降序、同时间按 CRL 号（BigInt）降序。不逐个读 blob 或标记
+   blob 的 `list`，`current` = 与 catalog 当前 `sha256` 相等；标记与 current 可能同名并存（切片 4 步骤 6：写了被取代 current 的标记
+   而 catalog 写输掉，即 `concurrent_update` 或重读后终态），按版本名合并成一条 `current: true`，不重复列出；按 `thisUpdate` 降序、同时间按
+   CRL 号（BigInt）降序。标记体是被取代 `current` 的记录原样、不带时间（切片 4 步骤 6）：一个版本被取代的时间是取代它的那一版（列表里
+   紧随其后的已发布版本）的 `publishedAt`，退役的时间是 `retired.at`；条目要展示取代时间时从后一版的记录（其标记体或 catalog 的
+   `current`）取，被取代版本自己的标记里没有。不逐个读 blob 或标记
    （Workers 的子请求数与 CPU 撑不住）。解析不了的键跳过并记 warn；无标记的孤儿 blob 不列出（C8）；目标未知且两个前缀都为空 →
    `not_found`。`getHistoryBlob(deps, targetId, sha256)` 只对上述条目 `get` 其 blob 并重算摘要，不等 → `internal` 并记日志（存储或恢复后的
    损坏可见）。
@@ -85,13 +89,13 @@
     | 反向代理 | 上传与管理路由的限速在代理做（plan §6）；`AIA_TRUST_PROXY` 只在 Node 前面有代理设置或追加 `X-Forwarded-For` 时打开（日志取最右一项）；代理体积上限 ≥ `AIA_MAX_UPLOAD_BYTES` |
     | 令牌 | `openssl rand -hex 32` 生成；Node 用 `AIA_*_TOKEN_FILE`，启动时读，轮换 = 换文件 + 重启；文件属主 uid 1000、`0400`、只读挂载；助手的令牌文件用 `icacls` 限权；CLI 用 `AIA_ADMIN_TOKEN_FILE`；令牌不进命令行与日志 |
     | 数据目录 | 绑定挂载须 `chown 1000:1000` 或 `--user <属主 uid>`（否则 health 503 `EACCES`）；总是显式 `-v …:/data`，避免匿名卷；不以 root 运行 |
-    | 备份与恢复 | fs：先复制 `config.json`、`catalog.json`，再复制 `blobs/` 与 `history/`（blob 与标记不可变且先于 catalog 写入，快照引用的对象必在）；恢复 = 停服务 → 替换目录 → chown → 启动 → health。R2：按 owner 确认 3 的默认，操作员保存 `aia config show --json` 输出与 CA 证书文件，恢复 = import → config apply → 助手重跑或 `aia publish`，历史不能经 API 恢复 |
+    | 备份与恢复 | fs：先复制 `config.json`、`catalog.json`，再复制 `blobs/` 与 `history/`（blob 与标记不可变且先于 catalog 写入，快照引用的对象必在）；恢复 = 停服务 → 替换目录 → chown → 启动 → health。R2：按 owner 确认 3 的默认，操作员保存 `aia config show --json` 输出与 CA 证书文件，恢复 = import → config apply → 助手重跑或 `aia publish`，历史不能经 API 恢复；任何恢复之后删除各 CA 上助手的 `published.json`（账本按 `-UploadUri` 记，同一 URI 后面的服务状态变了它看不出，会把当前 CRL 全部 Skipped；切片 4） |
     | AD CS 计划任务（并入切片 4 的初稿） | `certutil -setreg CA\LogLevel 4` 后重启 CertSvc；CA 的本地 CDP 发布项写入助手的 SourceDir；任务 = 事件 68/69/70 触发 + 定时补扫、`MultipleInstances IgnoreNew`（每签发者一个发布者，`worker-aia-cdp@5b570aa:docs/architecture.md:122-124`）、运行账户对 SourceDir 与令牌文件只读、对日志与账本可写；动作 `pwsh.exe -NoProfile -NonInteractive -File …\adcs-crl-uploader.ps1 -UploadUri https://<host>/api/v1/crls -UploadTokenFile …`；参数、顺序与退出码以切片 4 的脚本为准（M24） |
     | 根 CRL | 离线 OpenSSL 签发、约半年有效；在 `nextUpdate` 前重签并 `aia publish`（review §2.2 #3）；到期提示阈值见切片 5b |
     | Worker CPU 与大 CRL | 切片 5a 的 10 000 条吊销详情构建实测；偏大时 `wrangler.jsonc` 设 `limits.cpu_ms`（旧 `limits.cpu_seconds` 是无效键），否则写明可接受的条目数上限 |
     | 退役与删除 | 先停该 CA 的计划任务 → `aia retire` → `aia config apply` 删路径与目标 → 需要时 `aia delete-certificate`；管理操作单人串行 |
-    | 迁移与切换 | 前检：访问日志里 `by-keyid` / `archive` URL 是否在用（`worker-aia-cdp@5b570aa:docs/templates/migration-inventory.example.json:49-52`）、桶与历史枚举通道（C9，见切片 7）；步骤按 plan §13，切换时同时替换助手脚本并先放好令牌文件（C10）；预期头变化照切片 3 步骤 6 的表（旧记录见同文件 `:110` 起；C6、C7、M18、§10 #3）；域内机器上 `certutil -URL` 与 `certutil -verify -urlfetch` 冒烟 |
-    | 回滚 | 路由指回 `aia-cdp-worker`；换回旧助手脚本与 `/api/v2/crls` 的 `UploadUri`（新助手读不了 v2 响应）；手动跑一次旧助手，补上切换窗口里只发到新服务的 CRL；旧对象从未改动 |
+    | 迁移与切换 | 前检：访问日志里 `by-keyid` / `archive` URL 是否在用（`worker-aia-cdp@5b570aa:docs/templates/migration-inventory.example.json:49-52`）、桶与历史枚举通道（C9，见切片 7）；步骤按 plan §13，切换时同时替换助手脚本并先放好令牌文件（C10），首跑前删除演练或旧部署在同一 URI 上留下的 `published.json`；预期头变化照切片 3 步骤 6 的表（旧记录见同文件 `:110` 起；C6、C7、M18、§10 #3）；域内机器上 `certutil -URL` 与 `certutil -verify -urlfetch` 冒烟 |
+    | 回滚 | 路由指回 `aia-cdp-worker`；换回旧助手脚本与 `/api/v2/crls` 的 `UploadUri`（新助手读不了 v2 响应）；手动跑一次旧助手，补上切换窗口里只发到新服务的 CRL；旧对象从未改动；再次切到新服务前删除新助手的 `published.json`（同一 URI，见"备份与恢复"） |
 
 12. **放弃文档站**：不迁移 `worker-aia-cdp@5b570aa:.github/workflows/pages.yml`、`redocly.yaml`、`scripts/generate-docs-index.ts`，
     不装 `@redocly/cli`。原因：redocly 给 lockfile 带进 react 19、redoc、styled-components、mobx、OpenTelemetry；运行时 `openapi.json`

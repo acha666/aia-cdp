@@ -1,9 +1,10 @@
-import { fromBER, OctetString } from "asn1js";
+import { OctetString, Sequence } from "asn1js";
+import type { BaseBlock } from "asn1js";
 import * as pkijs from "pkijs";
-import { Asn1TimeError, assertWellFormed } from "./asn1.ts";
+import { Asn1TimeError, assertWellFormed, decodeBer, readStrictTime } from "./asn1.ts";
 import { PkiParseError } from "./errors.ts";
 import type { PkiKind } from "./errors.ts";
-import { readExtensionValue, readCRLInteger } from "./extensions.ts";
+import { readCRLInteger, readExtensionSchema } from "./extensions.ts";
 import { toHex } from "./conversion.ts";
 
 const LABELS: Record<PkiKind, string> = { certificate: "certificate", crl: "CRL" };
@@ -13,7 +14,7 @@ const LABELS: Record<PkiKind, string> = { certificate: "certificate", crl: "CRL"
 // byteLength (the old callers passed `bytes.buffer` and decoded whatever surrounded the view).
 function decodeDer(der: ArrayBuffer | Uint8Array, kind: PkiKind) {
   const label = LABELS[kind];
-  const asn1 = fromBER(der);
+  const asn1 = decodeBer(der);
   if (asn1.offset === -1) {
     throw new PkiParseError(kind, "der", `Bad ${label} DER: ${asn1.result.error}`);
   }
@@ -53,10 +54,40 @@ export function parseCertificate(der: ArrayBuffer | Uint8Array): pkijs.Certifica
   return construct("certificate", () => new pkijs.Certificate({ schema }));
 }
 
+/**
+ * A CRL from parseCRL: PKIjs's object plus the octets of its two AlgorithmIdentifiers as received
+ * (asn1js's valueBeforeDecodeView, a view of its copy of the input, like PKIjs's own tbsView). The
+ * upload policy compares these (M11): the outer one is outside the signature, and comparing
+ * re-encodings would hide what asn1js normalizes (slice 4 review C2).
+ */
+export interface ReceivedCrl extends pkijs.CertificateRevocationList {
+  /** The outer signatureAlgorithm of the CertificateList, outside the signature. */
+  signatureAlgorithmView: Uint8Array;
+  /** The signature field of the TBSCertList. */
+  signatureView: Uint8Array;
+}
+
+/** The first SEQUENCE of a constructed value: the TBSCertList's signature (version is an INTEGER). */
+function firstSequence(block: BaseBlock | undefined): BaseBlock | undefined {
+  return block instanceof Sequence
+    ? block.valueBlock.value.find((child) => child instanceof Sequence)
+    : undefined;
+}
+
 /** Throws PkiParseError (kind "crl", reason der / trailing_bytes / time / structure). */
-export function parseCRL(der: ArrayBuffer | Uint8Array): pkijs.CertificateRevocationList {
+export function parseCRL(der: ArrayBuffer | Uint8Array): ReceivedCrl {
   const schema = decodeDer(der, "crl");
-  return construct("crl", () => new pkijs.CertificateRevocationList({ schema }));
+  const crl = construct("crl", () => new pkijs.CertificateRevocationList({ schema }));
+  // PKIjs accepted the shape: SEQUENCE { tbsCertList SEQUENCE, signatureAlgorithm, signature }.
+  const [tbs, outer] = schema instanceof Sequence ? schema.valueBlock.value : [];
+  const inner = firstSequence(tbs);
+  if (outer === undefined || inner === undefined) {
+    throw new PkiParseError("crl", "structure", "Bad CRL structure: no AlgorithmIdentifier");
+  }
+  return Object.assign(crl, {
+    signatureAlgorithmView: outer.valueBeforeDecodeView,
+    signatureView: inner.valueBeforeDecodeView,
+  });
 }
 
 /** The first CN in RDN order; undefined when absent or when its value is not a string type. */
@@ -70,18 +101,26 @@ export function getCN(cert: pkijs.Certificate): string | undefined {
   return getCommonName(cert.subject);
 }
 
+/**
+ * The Subject Key Identifier, lowercase hex; undefined without the extension. Throws when its value
+ * is not exactly one primitive OCTET STRING.
+ */
 export function getSKIHex(cert: pkijs.Certificate): string | undefined {
   const extension = cert.extensions?.find((ext) => ext.extnID === "2.5.29.14");
   if (!extension) {
     return undefined;
   }
-  return toHex(readExtensionValue(extension, OctetString).valueBlock.valueHexView);
+  const value = readExtensionSchema(extension);
+  if (!(value instanceof OctetString) || value.idBlock.isConstructed) {
+    throw new Error("Invalid extension 2.5.29.14");
+  }
+  return toHex(value.valueBlock.valueHexView);
 }
 
 /**
  * keyIdentifier of the Authority Key Identifier in `extensions` (`cert.extensions` or
  * `crl.crlExtensions?.extensions`), lowercase hex; undefined without the extension or without a
- * keyIdentifier. Throws when the extension is present but malformed.
+ * keyIdentifier. Throws when the extension is present but malformed, trailing bytes included.
  */
 export function getAuthorityKeyIdHex(
   extensions: pkijs.Extension[] | undefined
@@ -90,7 +129,8 @@ export function getAuthorityKeyIdHex(
   if (!extension) {
     return undefined;
   }
-  const key = readExtensionValue(extension, pkijs.AuthorityKeyIdentifier).keyIdentifier;
+  const schema = readExtensionSchema(extension);
+  const key = new pkijs.AuthorityKeyIdentifier({ schema }).keyIdentifier;
   return key ? toHex(key.valueBlock.valueHexView) : undefined;
 }
 
@@ -109,4 +149,18 @@ function getCRLInteger(crl: pkijs.CertificateRevocationList, oid: string): bigin
 
 export function isDeltaCRL(crl: pkijs.CertificateRevocationList): boolean {
   return getDeltaBaseCRLNumber(crl) !== undefined;
+}
+
+/** AD CS Next CRL Publish: when the CA will publish its next CRL (before nextUpdate). */
+export const NEXT_CRL_PUBLISH_OID = "1.3.6.1.4.1.311.21.4";
+
+/**
+ * The AD CS Next CRL Publish time; undefined without the extension. Its value must be exactly one
+ * UTCTime / GeneralizedTime in the RFC 5280 form (AD CS writes a UTCTime): anything else throws.
+ */
+export function getNextCRLPublish(crl: pkijs.CertificateRevocationList): Date | undefined {
+  const extension = crl.crlExtensions?.extensions.find(
+    (ext) => ext.extnID === NEXT_CRL_PUBLISH_OID
+  );
+  return extension ? readStrictTime(readExtensionSchema(extension)).date : undefined;
 }

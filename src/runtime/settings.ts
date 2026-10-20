@@ -51,11 +51,14 @@ const SettingsSchema = z.object({
   AIA_STATIC_DIR: nonEmpty("must not be empty").default("./dist/web"),
   AIA_ADMIN_TOKEN: bearerToken.optional(),
   AIA_UPLOAD_TOKEN: bearerToken.optional(),
+  // 1 MiB, about 25 000 revoked entries. The CRL decoder's limits follow the input, so this is
+  // also the bound on its memory: about 384 MB of heap for the worst 1 MiB body, about 3 GB for
+  // 10 MiB, which ends a Node process (plan §5.5). Larger CRLs: raise it and set AIA_UPLOAD_TOKEN.
   AIA_MAX_UPLOAD_BYTES: integer(
     1,
     Number.MAX_SAFE_INTEGER,
     "must be a positive integer (bytes)"
-  ).default(10_485_760),
+  ).default(1_048_576),
   AIA_TRUST_PROXY: z
     .enum(["true", "false"], 'must be "true" or "false"')
     .transform((value) => value === "true")

@@ -1,14 +1,15 @@
-// aia: the command-line client of the admin API (plan §7.4, implementation slice 2 step 9). A
-// thin HTTP client on node:util parseArgs and fetch, with no dependencies of its own. From the core
-// it shares isDerSequence / splitPemBlocks (the API takes one certificate per request, so a PEM
-// bundle goes block by block) and the static config rules (`config validate` runs offline).
+// aia: the command-line client of the admin API and the CRL upload route (plan §7.4,
+// implementation slice 2 step 9, slice 4 step 9). A thin HTTP client on node:util parseArgs and
+// fetch, with no dependencies of its own. From the core it shares isDerSequence / splitPemBlocks
+// (the API takes one certificate per request, so a PEM bundle goes block by block) and the static
+// config rules (`config validate` runs offline).
 //
 //   node src/cli/aia.ts <command> …          (pnpm aia …; Node runs the source)
 //   node dist/server/cli/aia.js <command> …  (the Docker image)
 //
 // main(argv, io) does all I/O through `io`, so tests inject fetch = app.request. Exit codes: 0
-// success, 1 the operation failed (or the service is not healthy), 2 usage error. The admin token
-// is never printed.
+// success, 1 the operation failed (or the service is not healthy), 2 usage error. Tokens are never
+// printed, and go over plain http:// only to a loopback host or with --allow-insecure-http.
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { parseArgs } from "node:util";
@@ -37,12 +38,19 @@ Commands:
   config apply <file>     Validate, then replace config.json (If-Match: the ETag of a fresh GET;
                           If-None-Match: * for the first configuration)
   new-target-id           Print a new target id (a random UUID)
+  publish <file...>       Publish CRLs, DER or PEM, one upload per file: created, updated and
+                          unchanged succeed; anything else (stale_crl, ...) fails that file
   health                  Exit 0 only if the service reports healthy
 
 Options:
   --url <url>             Service base URL (default: $AIA_URL)
-  --token-file <file>     File holding the admin token (default: $AIA_ADMIN_TOKEN_FILE,
-                          else the token in $AIA_ADMIN_TOKEN)
+  --token-file <file>     File holding the token of the command. import and config: the admin
+                          token (default: $AIA_ADMIN_TOKEN_FILE, else $AIA_ADMIN_TOKEN).
+                          publish: the upload token (default: $AIA_UPLOAD_TOKEN_FILE, else
+                          $AIA_UPLOAD_TOKEN, else none: the service needs it only when set)
+  --allow-insecure-http   Send the token over plain http:// to a host other than localhost,
+                          127.0.0.0/8 or [::1] (refused otherwise: it would cross the network
+                          in clear text)
   --json                  Print results as JSON on stdout (errors stay text on stderr)
   -h, --help              Show this help
 
@@ -52,6 +60,7 @@ Exit codes: 0 success, 1 failure or not healthy, 2 usage error.
 const OPTIONS = {
   url: { type: "string" },
   "token-file": { type: "string" },
+  "allow-insecure-http": { type: "boolean" },
   json: { type: "boolean" },
   help: { type: "boolean", short: "h" },
 } as const;
@@ -71,10 +80,10 @@ interface Context {
   json: boolean;
   /** --url, else AIA_URL. */
   url: string | undefined;
-  /** --token-file, else AIA_ADMIN_TOKEN_FILE. */
+  /** --token-file: wins over both variables of the command's token. */
   tokenFile: string | undefined;
-  /** Whether --token-file was given (it then wins over both variables). */
-  tokenFileFlag: boolean;
+  /** --allow-insecure-http: a token may go over http:// to any host. */
+  allowInsecureHttp: boolean;
 }
 
 /** Runs one command line (without `node` and the script). Resolves to the exit code. */
@@ -96,13 +105,12 @@ export async function main(argv: readonly string[], io: CliIo): Promise<number> 
       io.stdout(USAGE);
       return 0;
     }
-    const tokenFile = values["token-file"];
     const ctx: Context = {
       io,
       json: values.json === true,
       url: values.url ?? io.env.AIA_URL,
-      tokenFile: tokenFile ?? io.env.AIA_ADMIN_TOKEN_FILE,
-      tokenFileFlag: tokenFile !== undefined,
+      tokenFile: values["token-file"],
+      allowInsecureHttp: values["allow-insecure-http"] === true,
     };
     return await run(ctx, positionals);
   } catch (error) {
@@ -149,6 +157,11 @@ async function run(ctx: Context, positionals: string[]): Promise<number> {
     case "new-target-id":
       expectArgs(args, 0, "new-target-id");
       return newTargetId(ctx);
+    case "publish":
+      if (args.length === 0) {
+        throw new UsageError("publish needs at least one file");
+      }
+      return publishFiles(ctx, args);
     case "health":
       expectArgs(args, 0, "health");
       return health(ctx);
@@ -209,8 +222,8 @@ const REQUEST_TIMEOUT_MS = 30_000;
 // here as well, because fetch rejects an invalid header value with a message that quotes it.
 const BEARER_TOKEN = /^[A-Za-z0-9._~+/-]+=*$/;
 
-/** The base URL without a trailing slash; a path prefix (behind a proxy) is kept. */
-function serviceUrl(ctx: Context): string {
+/** --url / AIA_URL, parsed: an http:// or https:// URL. */
+function parsedServiceUrl(ctx: Context): URL {
   if (ctx.url === undefined || ctx.url === "") {
     throw new UsageError("no service URL: pass --url or set AIA_URL");
   }
@@ -223,40 +236,96 @@ function serviceUrl(ctx: Context): string {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new UsageError("--url / AIA_URL must be an http:// or https:// URL");
   }
+  return url;
+}
+
+/** The base URL without a trailing slash; a path prefix (behind a proxy) is kept. */
+function serviceUrl(ctx: Context): string {
+  const url = parsedServiceUrl(ctx);
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 
-/** `Authorization` (and `Accept`) for the admin routes. Messages name the source, never the token. */
-async function adminHeaders(ctx: Context): Promise<Record<string, string>> {
+/**
+ * localhost, 127.0.0.0/8 or [::1]: the Docker exec and development setups. The URL parser has
+ * normalized the host already (127.1 → 127.0.0.1, [0:0:0:0:0:0:0:1] → [::1], case).
+ */
+function isLoopback(hostname: string): boolean {
+  return (
+    hostname === "localhost" || hostname === "[::1]" || /^127(?:\.[0-9]{1,3}){3}$/.test(hostname)
+  );
+}
+
+/**
+ * A token goes over https://, or over http:// to a loopback host, unless --allow-insecure-http.
+ * The production host answers plain HTTP with no redirect (AIA / CDP clients need it), so
+ * http://<host> reaches the service and would put the token on the wire in clear text.
+ */
+function checkTokenTransport(ctx: Context, name: string): void {
+  const url = parsedServiceUrl(ctx);
+  if (url.protocol === "http:" && !isLoopback(url.hostname) && !ctx.allowInsecureHttp) {
+    throw new UsageError(
+      `refusing to send the ${name} token over http:// to ${url.host}: use https://, ` +
+        "or pass --allow-insecure-http"
+    );
+  }
+}
+
+/** The admin token (import, config) or the upload token (publish). */
+type TokenVariable = "AIA_ADMIN_TOKEN" | "AIA_UPLOAD_TOKEN";
+
+const TOKEN_NAMES: Record<TokenVariable, string> = {
+  AIA_ADMIN_TOKEN: "admin",
+  AIA_UPLOAD_TOKEN: "upload",
+};
+
+/**
+ * The command's bearer token, from --token-file, else `<variable>_FILE`, else `<variable>`
+ * (trimmed); undefined when none of them is set. Both variables set, an unreadable file, an
+ * empty or malformed token, or a token that checkTokenTransport refuses is a usage error.
+ * Messages name the source, never the token.
+ */
+async function bearerToken(ctx: Context, variable: TokenVariable): Promise<string | undefined> {
   const { env } = ctx.io;
+  const name = TOKEN_NAMES[variable];
+  const fileVariable = `${variable}_FILE`;
+  const file = ctx.tokenFile ?? env[fileVariable];
   let token: string | undefined;
   let source: string;
-  if (ctx.tokenFile !== undefined && ctx.tokenFile !== "") {
-    if (!ctx.tokenFileFlag && env.AIA_ADMIN_TOKEN !== undefined) {
-      throw new UsageError("set either AIA_ADMIN_TOKEN or AIA_ADMIN_TOKEN_FILE, not both");
+  if (file !== undefined && file !== "") {
+    if (ctx.tokenFile === undefined && env[variable] !== undefined) {
+      throw new UsageError(`set either ${variable} or ${fileVariable}, not both`);
     }
-    source = `the token file ${ctx.tokenFile}`;
+    source = `the token file ${file}`;
     try {
-      token = new TextDecoder().decode(await ctx.io.readFile(ctx.tokenFile)).trim();
+      token = new TextDecoder().decode(await ctx.io.readFile(file)).trim();
     } catch (error) {
       throw new UsageError(`cannot read ${source}: ${reasonOf(error)}`);
     }
   } else {
-    source = "AIA_ADMIN_TOKEN";
-    token = env.AIA_ADMIN_TOKEN?.trim();
+    source = variable;
+    token = env[variable]?.trim();
   }
+  if (token === "") {
+    throw new UsageError(`the ${name} token in ${source} is empty`);
+  }
+  if (token !== undefined && !BEARER_TOKEN.test(token)) {
+    throw new UsageError(
+      `the ${name} token in ${source} has characters a bearer token cannot have ` +
+        "(letters, digits and - . _ ~ + / only, optionally ending in =)"
+    );
+  }
+  if (token !== undefined) {
+    checkTokenTransport(ctx, name);
+  }
+  return token;
+}
+
+/** `Authorization` (and `Accept`) for the admin routes: the admin token is required. */
+async function adminHeaders(ctx: Context): Promise<Record<string, string>> {
+  const token = await bearerToken(ctx, "AIA_ADMIN_TOKEN");
   if (token === undefined) {
     throw new UsageError(
       "no admin token: pass --token-file, or set AIA_ADMIN_TOKEN_FILE or AIA_ADMIN_TOKEN"
-    );
-  }
-  if (token === "") {
-    throw new UsageError(`the admin token in ${source} is empty`);
-  }
-  if (!BEARER_TOKEN.test(token)) {
-    throw new UsageError(
-      `the admin token in ${source} has characters a bearer token cannot have ` +
-        "(letters, digits and - . _ ~ + / only, optionally ending in =)"
     );
   }
   return { Authorization: `Bearer ${token}`, Accept: "application/json" };
@@ -481,6 +550,148 @@ async function importFiles(ctx: Context, files: string[]): Promise<number> {
   } else {
     ctx.io.stdout(
       `${summary.created} created, ${summary.unchanged} unchanged, ${summary.failed} failed\n`
+    );
+  }
+  return summary.failed === 0 ? 0 : 1;
+}
+
+// publish ----------------------------------------------------------------------------------------
+
+/** The 200 / 201 body of POST /api/v1/crls (src/http/schemas.ts PublishedCrl). */
+interface Published {
+  outcome: "created" | "updated" | "unchanged";
+  target: string;
+  kind: string;
+  crlNumber: string | null;
+}
+
+const OUTCOMES: ReadonlySet<unknown> = new Set(["created", "updated", "unchanged"]);
+
+function isPublished(value: unknown): value is Published & Record<string, unknown> {
+  const body = value as Partial<Record<keyof Published, unknown>> | null;
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    OUTCOMES.has(body.outcome) &&
+    typeof body.target === "string" &&
+    typeof body.kind === "string"
+  );
+}
+
+/** One line of the publish report (`--json`: the array `results`). */
+type PublishResult = { file: string } & (
+  | ({ ok: true } & Published & Record<string, unknown>)
+  | { ok: false; error: { message: string } & Partial<HttpError> }
+);
+
+/**
+ * The media type of a CRL file, from the bytes as the service recognizes them (toDer): one DER
+ * SEQUENCE, else text with a PEM boundary. Anything else goes as application/pkix-crl for the
+ * service to report (invalid_crl). The body is sent as is: a PEM bundle is the service's
+ * pem_blocks, never split here.
+ */
+function crlMediaType(bytes: Uint8Array): string {
+  if (!isDerSequence(bytes) && new TextDecoder().decode(bytes).includes("-----BEGIN ")) {
+    return "application/x-pem-file";
+  }
+  return "application/pkix-crl";
+}
+
+/** A failure's details beyond `reason` (which describeHttp prints), for the text report. */
+function detailsText(details: unknown): string {
+  if (typeof details !== "object" || details === null) {
+    return "";
+  }
+  const parts = Object.entries(details).flatMap(([key, value]) => {
+    if (key === "reason") {
+      return [];
+    }
+    const current = value as { crlNumber?: unknown; thisUpdate?: unknown } | null;
+    if (key === "current" && typeof current?.thisUpdate === "string") {
+      const number =
+        typeof current.crlNumber === "string" ? `CRL Number ${current.crlNumber}` : "no CRL Number";
+      return [`current: ${number}, thisUpdate ${current.thisUpdate}`];
+    }
+    return [`${key} ${typeof value === "string" ? value : JSON.stringify(value)}`];
+  });
+  return parts.length === 0 ? "" : ` (${parts.join("; ")})`;
+}
+
+async function publishOne(
+  ctx: Context,
+  url: string,
+  headers: Record<string, string>,
+  file: string
+): Promise<PublishResult> {
+  try {
+    let bytes: Uint8Array;
+    try {
+      bytes = await ctx.io.readFile(file);
+    } catch (error) {
+      throw new Failure(`cannot read the file: ${reasonOf(error)}`);
+    }
+    const res = await send(ctx, url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": crlMediaType(bytes) },
+      body: bytes,
+    });
+    if (res.status !== 200 && res.status !== 201) {
+      const error = await httpError(res, url);
+      const message = `${describeHttp(error)}${detailsText(error.details)}`;
+      return { file, ok: false, error: { ...error, message } };
+    }
+    const body = await jsonOf(res, url);
+    if (!isPublished(body)) {
+      throw new Failure(`HTTP ${res.status}, but the body is not an upload result`);
+    }
+    return { file, ok: true, ...body };
+  } catch (error) {
+    if (error instanceof Failure) {
+      return { file, ok: false, error: { message: error.message } };
+    }
+    throw error;
+  }
+}
+
+/** Each file is one upload; one failing does not stop the others. */
+async function publishFiles(ctx: Context, files: string[]): Promise<number> {
+  const url = `${serviceUrl(ctx)}/api/v1/crls`;
+  const token = await bearerToken(ctx, "AIA_UPLOAD_TOKEN");
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    ...(token === undefined ? {} : { Authorization: `Bearer ${token}` }),
+  };
+  const results: PublishResult[] = [];
+  for (const file of files) {
+    const result = await publishOne(ctx, url, headers, file);
+    results.push(result);
+    if (ctx.json) {
+      continue;
+    }
+    if (result.ok) {
+      const number = result.crlNumber === null ? "(no CRL Number)" : `#${result.crlNumber}`;
+      ctx.io.stdout(
+        `${result.outcome.padEnd(10)} ${result.target}  ${result.kind} ${number}  ${file}\n`
+      );
+    } else {
+      ctx.io.stderr(`${"failed".padEnd(10)} ${file}: ${result.error.message}\n`);
+    }
+  }
+
+  const count = (outcome: string) =>
+    results.filter((result) => (result.ok ? result.outcome : "failed") === outcome).length;
+  const summary = {
+    created: count("created"),
+    updated: count("updated"),
+    unchanged: count("unchanged"),
+    failed: count("failed"),
+  };
+  if (ctx.json) {
+    printJson(ctx.io, { results, ...summary });
+  } else {
+    ctx.io.stdout(
+      `${summary.created} created, ${summary.updated} updated, ${summary.unchanged} unchanged, ` +
+        `${summary.failed} failed\n`
     );
   }
   return summary.failed === 0 ? 0 : 1;
