@@ -35,6 +35,8 @@
     "dev:node": "mkdir -p .data && PORT=8787 AIA_DATA_DIR=.data node src/runtime/node.ts",
     "dev:worker": "pnpm run build:web && WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true wrangler dev --ip 127.0.0.1 --port 8787",
     "aia": "node src/cli/aia.ts",
+    "seed:dev": "node scripts/seed-dev.ts",
+    "reset:dev": "rm -rf .wrangler/state .data",
     "smoke:node": "bash scripts/node-smoke.sh",
     "smoke:worker": "node scripts/worker-smoke.ts",
     "verify": "pnpm run check && pnpm run test && pnpm run build",
