@@ -25,7 +25,7 @@
 1. **夹具补充**（`tests/fixtures/generate-test-data.sh`）。
    - 新增 `certs/issuing-ca-1-renamed`：与 `issuing-ca-1` 同钥同 SKI、subject CN 不同，`import:false`，供 C1 用例；
      `issuing-ca-1-renewed` 的 subject 与原证书相同，不能替代。
-   - owner 确认 1 选接受 SHA-1 时：加 `crls/issuing-ca-1/full-sha1`（`-md sha1`），先确认 OpenSSL 3.0 能签。
+   - owner 确认 1 选了接受 SHA-1：加 `crls/issuing-ca-1/full-sha1`（`-md sha1`），先确认 OpenSSL 3.0 能签。
    - 条目扩展关键性、内外签名算法不一致两类不做夹具（`openssl ca` 产不出）：测试解析现有 CRL 后改 pkijs 对象再调策略函数；
      策略在验签之前，不需要重签。
    - manifest 的 CRL 条目加 `nextPublish`（`full-adcs`、`delta-adcs` 取脚本的 `NEXT_PUBLISH`，即 `2026-01-10T12:00:00Z`、
@@ -253,6 +253,8 @@
 - UI 上传在设置 `AIA_UPLOAD_TOKEN` 后不可用：本切片只在文档写明，处理见切片 5b。
 
 ## 开工前需 owner 确认
+
+2026-10-20 已确认：五项均取推荐默认（附录 C）。
 
 1. SHA-1 签名的 CRL（`sha1WithRSAEncryption`、`ecdsa-with-SHA1`）：推荐接受（分发服务不是校验器，旧实现也接受）；否则 `unsupported_algorithm`。
 2. 只含 `distributionPoint` 的关键 IDP（AD CS 的 CDP 选项 'Include in the IDP extension of issued CRLs'，夹具 `full-idp-dp-only`）：推荐接受

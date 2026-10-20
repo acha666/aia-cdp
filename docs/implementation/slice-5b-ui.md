@@ -173,6 +173,8 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
 
 ## 开工前需 owner 确认
 
+2026-10-20 已确认：两项均取推荐默认（附录 C）。
+
 1. **CSP**。推荐：采纳步骤 10 的策略，以响应头下发（`secureHeaders` 的 `contentSecurityPolicy`，两条运行时同一份），预绘制主题脚本用
    hash 放行；冒烟出现违规时只放宽 `style-src`。备选：不加 CSP，仍保留其余 `secureHeaders` 默认值与 `strictTransportSecurity: false`。
 2. **状态阈值**（须在切片 5a 开工前定，切片 5a 的 owner 项指向这里）。旧 80% 规则让健康的 AD CS full CRL 每周约 24 h 显示 Stale
