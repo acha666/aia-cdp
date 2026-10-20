@@ -3,6 +3,8 @@ import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
 import { PkiParseError } from "../../src/core/pki/errors.ts";
 import type { PkiKind, PkiParseReason } from "../../src/core/pki/errors.ts";
+import { parseCRL } from "../../src/core/pki/parsers.ts";
+import { fixture } from "../fixtures/pki.ts";
 
 /**
  * `{ kind, reason }` of the PkiParseError that `run` throws or rejects with, so a test compares
@@ -166,4 +168,29 @@ export function padOid(algorithm: Uint8Array): Uint8Array {
 export function nullWithContents(algorithm: Uint8Array): Uint8Array {
   const [oid] = algorithmParts(algorithm);
   return tlv(0x30, [...tlv(0x06, oid), 0x05, 0x01, 0x00]);
+}
+
+/** The fixture CRL whose entries crlWithEntries copies (two entries with entry extensions). */
+export const ENTRIES_SOURCE = "crls/issuing-ca-1/full-03.der";
+
+/**
+ * ENTRIES_SOURCE with `count` revoked entries: its own in turn, each under serial 1, 2, …, `count`.
+ * Every fixture CRL has at most 2 entries, and the v2 builder returned a page of 10, so the CRL
+ * detail (slice 5a) is checked on these. Re-encoded from the fields with toSchema(true), like
+ * worker-aia-cdp@5b570aa:tests/worker/extension-parsers.test.ts:647: the signature no longer
+ * matches, which building the detail does not check.
+ */
+export function crlWithEntries(count: number): Uint8Array<ArrayBuffer> {
+  const crl = parseCRL(fixture(ENTRIES_SOURCE));
+  const entries = crl.revokedCertificates ?? [];
+  crl.revokedCertificates = Array.from({ length: count }, (_, index) => {
+    const entry = entries[index % entries.length]!;
+    return new pkijs.RevokedCertificate({
+      userCertificate: new asn1.Integer({ value: index + 1 }),
+      revocationDate: entry.revocationDate,
+      crlEntryExtensions: entry.crlEntryExtensions,
+    });
+  });
+  // PKIjs types CertificateRevocationList.toSchema() as any.
+  return new Uint8Array((crl.toSchema(true) as asn1.Sequence).toBER(false));
 }
