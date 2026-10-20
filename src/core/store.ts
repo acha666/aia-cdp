@@ -13,7 +13,11 @@ export interface PutOptions {
 export type PutResult = { ok: true; etag: string } | { ok: false; reason: "precondition-failed" };
 
 export interface ObjectStore {
-  get(key: string): Promise<{ bytes: Uint8Array; etag: string } | null>;
+  /**
+   * `bytes` is backed by an ArrayBuffer (B3), so it goes to WebCrypto and into a Response body as
+   * it is; it may be a view into a larger buffer.
+   */
+  get(key: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; etag: string } | null>;
   head(key: string): Promise<{ etag: string; size: number } | null>;
   put(key: string, bytes: Uint8Array, opts?: PutOptions): Promise<PutResult>;
   /** Admin only. */

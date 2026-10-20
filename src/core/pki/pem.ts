@@ -52,6 +52,18 @@ export function derToPem(
   return `${beginMarker}\n${lines.join("\n")}\n${endMarker}\n`;
 }
 
+/**
+ * Length in bytes (the text is ASCII) of derToPem's output for `derSize` ≥ 1 bytes of DER, without
+ * encoding them (M22): the markers, the base64 body, one LF per 64-column line and the LFs after
+ * the BEGIN and END lines. Downloads take a PEM HEAD's Content-Length from it, and the `-pem` ETag
+ * stands for this exact format: a change to derToPem's line width or line ending must change the
+ * ETag suffix as well (implementation slice 3 step 1).
+ */
+export function pemLength(derSize: number, markers: PemBlockMarkers): number {
+  const base64 = 4 * Math.ceil(derSize / 3);
+  return markers.begin.length + markers.end.length + base64 + Math.ceil(base64 / 64) + 2;
+}
+
 // Upload input (M7, plan §10 #13). The format is always recognized from the bytes; the request's
 // content type only gates 415. Storage keys are never consulted (the old helper went by a `.pem`
 // key suffix), and a bundle is rejected instead of silently using its first block.

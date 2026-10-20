@@ -1,8 +1,8 @@
 // Catalog values built from the fixtures (implementation §2.5: digests, key ids and sizes come from
 // the files or manifest.json, never from literals).
 import { createHash } from "node:crypto";
-import type { Catalog, CatalogCertificate, CurrentCrl } from "../../src/core/catalog.ts";
-import { CATALOG_KEY, certificateBlobKey, encodeJson } from "../../src/core/catalog.ts";
+import type { Catalog, CatalogCertificate, Config, CurrentCrl } from "../../src/core/catalog.ts";
+import { CATALOG_KEY, certificateBlobKey, CONFIG_KEY, encodeJson } from "../../src/core/catalog.ts";
 import { parseCertificate } from "../../src/core/pki/parsers.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { buildCertificateSummary } from "../../src/core/summary/catalog-summary.ts";
@@ -74,5 +74,13 @@ export async function putCatalog(store: ObjectStore, catalog: Catalog): Promise<
   const result = await store.put(CATALOG_KEY, encodeJson(catalog));
   if (!result.ok) {
     throw new Error(`put ${CATALOG_KEY}: ${result.reason}`);
+  }
+}
+
+/** Writes config.json in the canonical format, unconditionally (no V1–V9, unlike applyConfig). */
+export async function putConfig(store: ObjectStore, config: Config): Promise<void> {
+  const result = await store.put(CONFIG_KEY, encodeJson(config));
+  if (!result.ok) {
+    throw new Error(`put ${CONFIG_KEY}: ${result.reason}`);
   }
 }

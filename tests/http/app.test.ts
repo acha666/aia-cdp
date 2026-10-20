@@ -72,18 +72,31 @@ describe("reserved prefixes", () => {
 
   it.each([
     ["GET", "/ca/x.crt"],
-    ["POST", "/ca/x.crt"],
+    ["HEAD", "/ca/x.crt"],
     ["GET", "/crl/missing.crl"],
-    ["POST", "/crl/missing.crl"],
     ["GET", "/dcrl/x.crl"],
-    ["POST", "/dcrl/x.crl"],
   ])("%s %s → text/plain 404 Not Found", async (method, path) => {
     const { app, stub } = setup();
     const res = await app.request(path, { method });
     expect(res.status).toBe(404);
     expect(res.headers.get("Content-Type")).toMatch(/^text\/plain/);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.text()).toBe("Not Found");
+    expect(await res.text()).toBe(method === "HEAD" ? "" : "Not Found");
+    expect(stub.requests).toEqual([]);
+  });
+
+  // Slice 1 answered these 404 too; the download routes (slice 3) make them 405 (M19).
+  it.each([
+    ["POST", "/ca/x.crt"],
+    ["POST", "/crl/missing.crl"],
+    ["POST", "/dcrl/x.crl"],
+  ])("%s %s → text/plain 405 Method Not Allowed", async (method, path) => {
+    const { app, stub } = setup();
+    const res = await app.request(path, { method });
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Allow")).toBe("GET, HEAD");
+    expect(res.headers.get("Content-Type")).toMatch(/^text\/plain/);
+    expect(await res.text()).toBe("Method Not Allowed");
     expect(stub.requests).toEqual([]);
   });
 
@@ -100,17 +113,25 @@ describe("reserved prefixes", () => {
     }
   );
 
-  it.each(["/crl%2fissuing", "/crl%2Fx.crl", "//crl/x.crl", "/ca%2fx.crt", "///dcrl//x.crl"])(
-    "GET %s → text/plain 404, not the UI",
-    async (path) => {
-      const { app, stub } = setup();
-      const res = await app.request(`http://localhost${path}`);
-      expect(res.status).toBe(404);
-      expect(res.headers.get("Content-Type")).toMatch(/^text\/plain/);
-      expect(await res.text()).toBe("Not Found");
-      expect(stub.requests).toEqual([]);
-    }
-  );
+  // The bare prefixes are download routes too (slice 3): //ca and /%2Fdcrl are spellings of them.
+  it.each([
+    "/crl%2fissuing",
+    "/crl%2Fx.crl",
+    "//crl/x.crl",
+    "/ca%2fx.crt",
+    "///dcrl//x.crl",
+    "//ca",
+    "//crl",
+    "//dcrl",
+    "/%2Fdcrl",
+  ])("GET %s → text/plain 404, not the UI", async (path) => {
+    const { app, stub } = setup();
+    const res = await app.request(`http://localhost${path}`);
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Content-Type")).toMatch(/^text\/plain/);
+    expect(await res.text()).toBe("Not Found");
+    expect(stub.requests).toEqual([]);
+  });
 
   it("matches the normalised path only for the prefixes: routing still sees the raw path", async () => {
     const { app, stub } = setup();
@@ -443,6 +464,7 @@ describe("request log", () => {
       ["GET", "/api/v1/test/boom", 500],
       ["GET", "/api/v1/missing", 404],
       ["GET", "/crl/missing.crl", 404],
+      ["POST", "/crl/missing.crl", 405],
       ["GET", `/crls/${UUID}`, 200],
       ["PUT", "/", 404],
     ];

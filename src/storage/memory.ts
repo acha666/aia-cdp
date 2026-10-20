@@ -13,7 +13,7 @@ interface StoredObject {
 export class MemoryStore implements ObjectStore {
   readonly #objects = new Map<string, StoredObject>();
 
-  async get(key: string): Promise<{ bytes: Uint8Array; etag: string } | null> {
+  async get(key: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; etag: string } | null> {
     assertStoreKey(key);
     const object = this.#objects.get(key);
     return object ? { bytes: object.bytes.slice(), etag: object.etag } : null;

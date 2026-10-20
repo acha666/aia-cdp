@@ -6,7 +6,7 @@
 
 | 编号 | 缺陷（简） | 处理 |
 | --- | --- | --- |
-| §10 #1 | 下载无 304、无 `Content-Length`、`ETag` 无引号 | 切片 3 步骤 3–4（摘要 `ETag`、`ifNoneMatchHit` 先于读 blob、显式 `Content-Length`）；测试 `tests/http/downloads.test.ts`、`tests/integration/downloads.test.ts` |
+| §10 #1 | 下载无 304、HEAD 无 `Content-Length`、`ETag` 无引号 | 切片 3 步骤 3–4（摘要 `ETag`、`ifNoneMatchHit` 先于读 blob、显式 `Content-Length`）；测试 `tests/http/downloads.test.ts`、`tests/integration/downloads.test.ts` |
 | §10 #2 | 下载暴露 `archive/`、`by-keyid/` 与任意对象；详情接受归档 id | 切片 3 步骤 2（只走路径表，内部键不可达）；切片 5a 步骤 6（id 参数格式，归档形 id → 400）；切片 5b 步骤 6（UI 对非法 id 不发请求）；切片 7 步骤 8（按访问日志决定是否给旧 URL 加路径） |
 | §10 #3 | CRL `max-age` 无上限、过期后为 0 | 切片 3 步骤 3（夹紧 [60 s, 3600 s]，无 `nextUpdate` 300 s） |
 | §10 #4 | 相同 CRL 重复上传 409 | 切片 4 步骤 5（`unchanged` 200）；切片 5b 步骤 7（`unchanged` 是成功文案） |
@@ -76,7 +76,7 @@
 | M16 | 上传结果带 `baseCrlNumber` 与签发者 | 切片 4 步骤 8；切片 5b 步骤 7 |
 | M17 | `Content-Disposition` filename 与路径字符集 | 切片 2 步骤 6（V2）；切片 3 步骤 3 |
 | M18 | 下载 `Last-Modified` | 切片 3 步骤 3（保留，默认值） |
-| M19 | 下载错误纯文本 | 切片 1 步骤 4（404）；切片 3 步骤 4–5（404 带 `no-store`，405 带 `Allow`） |
+| M19 | 下载错误纯文本 | 切片 1 步骤 4（404）；切片 3 步骤 4–5（404 / 405 带 `no-store`，405 另带 `Allow`） |
 | M20 | 下载路径精确匹配、`%2F`、畸形 `%` | 切片 3 步骤 2 |
 | M21 | 证书摘要格式与可空 | 切片 2 步骤 4 |
 | M22 | PEM 输出格式（64 列、LF、结尾换行） | 切片 3 步骤 1 |

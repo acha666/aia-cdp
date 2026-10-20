@@ -2,9 +2,11 @@
 
 X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloudflare Workers + R2 或 Node 24 + 本地磁盘（Docker）。
 
-当前状态：切片 2（catalog/config 与导入）——在切片 1 的骨架（两条运行时、ObjectStore 与 memory / fs / r2 适配器、health、OpenAPI、UI 占位、
-测试夹具、Docker 镜像与本地 CI 脚本）之上，加了 PKI 解析、`config.json` / `catalog.json` 的 schema 与规则 V1–V9、管理接口
-（导入证书、读写配置）与 CLI `aia`（import / config / new-target-id / health）；下载从切片 3 起，CRL 发布从切片 4 起。完整的使用与运维文档在切片 6。
+当前状态：切片 3（下载）——在切片 1 的骨架（两条运行时、ObjectStore 与 memory / fs / r2 适配器、health、OpenAPI、UI 占位、
+测试夹具、Docker 镜像与本地 CI 脚本）与切片 2 的 catalog/config 与导入（PKI 解析、`config.json` / `catalog.json` 的 schema 与规则 V1–V9、
+管理接口与 CLI `aia`）之上，按配置的路径表提供 `/ca/`、`/crl/`、`/dcrl/` 下载：DER 原样、`<路径>.pem` 读取时派生，摘要 `ETag` 与 304、
+GET 与 HEAD 都带 `Content-Length`，`Content-Type` 与 `Cache-Control` 按种类（CRL 的 `max-age` 夹紧在 60–3600 s），未命中与方法不符为纯文本
+404 / 405。CRL 发布从切片 4 起（在此之前 CRL 路径都是 404）。完整的使用与运维文档在切片 6。
 
 - [docs/plan.md](docs/plan.md)：设计文档（决策、存储模型、领域规则、API、切片划分）。
 - [docs/implementation/](docs/implementation/README.md)：分步实施计划。`README.md` 是总则（决策、完成定义、通用约定），每个切片一份文件

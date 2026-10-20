@@ -1,6 +1,6 @@
 # aia-cdp 实施计划：总则与索引
 
-状态：切片 1、2 已完成（切片 1 = `main` 的 `0b391cc`；切片 2 见 `main` 上的 `Merge slice/2-catalog-import`），下一个是切片 3。owner 决策 D1–D12 已定，B1–B22 是规划默认值、可推翻（§0）；各切片未决事项列在
+状态：切片 1–3 已完成（切片 1 = `main` 的 `0b391cc`；切片 2、3 见 `main` 上的 `Merge slice/2-catalog-import`、`Merge slice/3-downloads`），下一个是切片 4。owner 决策 D1–D12 已定，B1–B22 是规划默认值、可推翻（§0）；各切片未决事项列在
 该切片的"开工前需 owner 确认"，汇总见附录 C。设计文档是 `docs/plan.md`；二者冲突时以本目录为准，并在同一分支回写 plan.md。
 
 | 文件 | 内容 |
