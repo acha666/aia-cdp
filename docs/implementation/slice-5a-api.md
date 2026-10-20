@@ -29,7 +29,7 @@ history / retire / delete（切片 6）；页面、vue-query、扩展渲染块�
    - 必填化总会产出的字段：`SubjectPublicKeyInfo.parsed`（L170）、`TBSCertList.version`（L597）、`ECPublicKey.point.x/y`；
      v1 详情包装（步骤 6）里 `signatureAlgorithm` / `signatureValue` 必填（`include=` 已删，§10 #8、#28）；
    - `RevokedCertificatesSchema`（L589–594）改为 `{ count, items }`，在 `TBSCertList` 中必填；
-   - 抽出具名 `DistributionPointNameSchema`，`DistributionPoint` 与 IDP 共用（派生 schema 不继承 id）；
+   - 抽出具名 `DistributionPointNameSchema`（id `DistributionPointName`），`DistributionPoint` 与 IDP 共用（派生 schema 不继承 id）；
    - 在定义处挂 `.meta({ id })`：`Name`、`Time`、`GeneralName`、`DistributionPoint`、`AlgorithmIdentifier`、`SignatureValue`、
      `SubjectPublicKeyInfo`、`Extension`、`Extensions`、`TBSCertificate`、`TBSCertList`、`RevokedCertificate` 与 41 个 `*Value`
      （全部成员有 id 才生成 `discriminator.mapping`）；`types.ts` 另导出 `type ExtensionType = ParsedExtensionValue["extensionType"]`。
