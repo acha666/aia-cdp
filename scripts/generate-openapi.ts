@@ -23,7 +23,11 @@ const app = createApp({
   clientIpHeader: "x-forwarded-for",
   log: () => undefined,
 });
-const json = `${JSON.stringify(app.getOpenAPI31Document(OPENAPI_CONFIG), null, 2)}\n`;
+// The time the runtime spends on the first GET /api/v1/openapi.json (slice 5a exit condition 9).
+const started = performance.now();
+const doc = app.getOpenAPI31Document(OPENAPI_CONFIG);
+const generated = `generated in ${(performance.now() - started).toFixed(1)} ms`;
+const json = `${JSON.stringify(doc, null, 2)}\n`;
 
 if (process.argv.includes("--check")) {
   let current: string | undefined;
@@ -36,9 +40,9 @@ if (process.argv.includes("--check")) {
     process.stderr.write("docs/openapi.json is out of date: run `pnpm run openapi`\n");
     process.exitCode = 1;
   } else {
-    process.stdout.write("docs/openapi.json is up to date\n");
+    process.stdout.write(`docs/openapi.json is up to date (${generated})\n`);
   }
 } else {
   writeFileSync(target, json);
-  process.stdout.write("wrote docs/openapi.json\n");
+  process.stdout.write(`wrote docs/openapi.json (${generated})\n`);
 }
