@@ -56,12 +56,14 @@ export interface SetupOptions {
   certificates?: readonly string[];
   /** Default DEFAULT_TARGETS; each gets a fresh UUID and targetPath. */
   targets?: readonly TargetSpec[];
+  /** Edits config.json before it is applied (certificate labels and paths: slice 5a's views). */
+  configure?: (config: Config) => void;
 }
 
 /** Imports the certificates, then applies the first config.json (If-None-Match: *). */
 export async function setupPublish(
   store: ObjectStore,
-  { certificates = IMPORTED, targets = DEFAULT_TARGETS }: SetupOptions = {}
+  { certificates = IMPORTED, targets = DEFAULT_TARGETS, configure }: SetupOptions = {}
 ): Promise<PublishSetup> {
   for (const name of certificates) {
     const imported = await importCertificate({ store, now: () => NOW }, fixture(cert(name).der));
@@ -84,6 +86,7 @@ export async function setupPublish(
       config.paths[ISSUING_FULL_ALIAS] = { target: id };
     }
   }
+  configure?.(config);
   const applied = await applyConfig({ store }, ConfigSchema.parse(config), { ifNoneMatch: "*" });
   if ("error" in applied) {
     throw new Error(`applyConfig: ${JSON.stringify(applied)}`);

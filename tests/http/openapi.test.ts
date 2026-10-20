@@ -1,6 +1,8 @@
 // GET /api/v1/openapi.json (B11): generated from the route registry at run time, cached per app
 // instance, and identical to the committed docs/openapi.json (scripts/generate-openapi.ts). The
-// operationId / summary check replaces the old redocly lint.
+// rules of worker-aia-cdp@5b570aa:redocly.yaml are assertions here (slice 5a step 9): a unique
+// operationId, a summary and declared tags on every operation, security on every admin
+// operation, no unused component, and the size budget of slice 5a exit condition 9.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../src/http/app.ts";
@@ -9,13 +11,20 @@ import { testDeps } from "../helpers/app.ts";
 interface Operation {
   operationId?: unknown;
   summary?: unknown;
+  tags?: unknown;
+  security?: Record<string, string[]>[];
   responses?: Record<string, { content?: Record<string, { schema?: unknown }> }>;
 }
 
 interface OpenApiDocument {
   openapi: string;
+  tags?: { name: string; description?: string }[];
   paths: Record<string, Record<string, Operation>>;
+  components: Record<string, Record<string, unknown>>;
 }
+
+/** Slice 5a exit condition 9 (default): bytes of the document as served. */
+const SIZE_BUDGET = 100_000;
 
 const HTTP_METHODS = new Set(["get", "put", "post", "delete", "options", "head", "patch", "trace"]);
 
@@ -77,6 +86,121 @@ describe("GET /api/v1/openapi.json", () => {
     }
     const ids = all.map(([, operation]) => operation.operationId);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("tags every operation with tags the document declares", async () => {
+    const { doc } = await served();
+    const declared = (doc.tags ?? []).map((tag) => tag.name);
+    expect(new Set(declared).size).toBe(declared.length);
+    const used = new Set<string>();
+    for (const [name, operation] of operations(doc)) {
+      expect(operation.tags, name).toEqual([expect.any(String)]);
+      for (const tag of operation.tags as string[]) {
+        expect(declared, name).toContain(tag);
+        used.add(tag);
+      }
+    }
+    expect([...used].sort()).toEqual([...declared].sort());
+  });
+
+  it("declares security on every admin operation, with a defined scheme", async () => {
+    const { doc } = await served();
+    const schemes = Object.keys(doc.components.securitySchemes ?? {});
+    const admin = operations(doc).filter(([name]) => name.includes(" /api/v1/admin/"));
+    expect(admin.length).toBeGreaterThan(0);
+    for (const [name, operation] of admin) {
+      expect(operation.security, name).toEqual([{ adminBearer: [] }]);
+    }
+    for (const [name, operation] of operations(doc)) {
+      for (const requirement of operation.security ?? []) {
+        for (const scheme of Object.keys(requirement)) {
+          expect(schemes, name).toContain(scheme);
+        }
+      }
+    }
+  });
+
+  it("references every component and resolves every $ref", async () => {
+    const { doc } = await served();
+    const refs = new Set<string>();
+    const visit = (node: unknown): void => {
+      if (Array.isArray(node)) {
+        node.forEach(visit);
+      } else if (node !== null && typeof node === "object") {
+        for (const [key, value] of Object.entries(node)) {
+          if (key === "$ref" && typeof value === "string") {
+            refs.add(value);
+          } else {
+            visit(value);
+          }
+        }
+      }
+    };
+    visit(doc.paths);
+    visit(doc.components);
+    for (const ref of refs) {
+      const [, , kind = "", name = ""] = ref.split("/");
+      expect(Object.hasOwn(doc.components[kind] ?? {}, name), ref).toBe(true);
+    }
+    for (const [kind, entries] of Object.entries(doc.components)) {
+      if (kind === "securitySchemes") {
+        continue;
+      }
+      for (const name of Object.keys(entries)) {
+        expect(refs, `unused #/components/${kind}/${name}`).toContain(
+          `#/components/${kind}/${name}`
+        );
+      }
+    }
+    // Security schemes are referenced by name from the operations' requirements.
+    const required = new Set(
+      operations(doc).flatMap(([, operation]) =>
+        (operation.security ?? []).flatMap((requirement) => Object.keys(requirement))
+      )
+    );
+    expect([...required].sort()).toEqual(Object.keys(doc.components.securitySchemes ?? {}).sort());
+  });
+
+  it(`stays within ${SIZE_BUDGET} bytes as served`, async () => {
+    const { text } = await served();
+    expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(SIZE_BUDGET);
+  });
+
+  it.each([
+    ["/api/v1/certificates", "listCertificates", ["200", "500"]],
+    ["/api/v1/certificates/{id}", "getCertificate", ["200", "400", "404", "500"]],
+    ["/api/v1/crls", "listCrlTargets", ["200", "500"]],
+    ["/api/v1/crls/{targetId}", "getCrlTarget", ["200", "400", "404", "500"]],
+    ["/api/v1/stats", "getStats", ["200", "500"]],
+  ])(
+    "documents GET %s as %s with exactly the statuses it can answer",
+    async (path, id, statuses) => {
+      const { doc } = await served();
+      const operation = doc.paths[path]?.get;
+      expect(operation?.operationId).toBe(id);
+      expect(operation?.security).toBeUndefined();
+      expect(Object.keys(operation?.responses ?? {})).toEqual(statuses);
+      const schemaOf = (status: string) =>
+        operation?.responses?.[status]?.content?.["application/json"]?.schema;
+      expect(schemaOf("500")).toEqual({ $ref: "#/components/schemas/InternalError" });
+      if (statuses.includes("404")) {
+        expect(schemaOf("400")).toEqual({ $ref: "#/components/schemas/BadRequestError" });
+        expect(schemaOf("404")).toEqual({ $ref: "#/components/schemas/NotFoundError" });
+      }
+    }
+  );
+
+  it("names the extension variants, so that the extensionType discriminator has a mapping", async () => {
+    const { doc } = await served();
+    const extension = doc.components.schemas?.Extension as {
+      properties: {
+        parsed: { oneOf: unknown[]; discriminator: { propertyName: string; mapping: object } };
+      };
+    };
+    const { oneOf, discriminator } = extension.properties.parsed;
+    expect(oneOf).toHaveLength(41);
+    expect(discriminator.propertyName).toBe("extensionType");
+    expect(Object.keys(discriminator.mapping)).toHaveLength(41);
   });
 
   it("deep-equals the committed docs/openapi.json", async () => {

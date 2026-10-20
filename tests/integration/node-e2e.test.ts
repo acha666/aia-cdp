@@ -3,7 +3,8 @@
 // and AIA_UPLOAD_TOKEN_FILE, driven by `node src/cli/aia.ts` children: import ×3 → config apply →
 // health healthy → downloads (slice 3: GET / HEAD / 304, unpublished CRL 404) → publish (slice 4:
 // root-ca full-01 created, again unchanged, full-02 updated, full-01 stale; the path table serves
-// full-02) → restart → the same ETags, every re-import unchanged. Also scripts/seed-dev.ts, twice.
+// full-02) → the read routes (slice 5a: lists, details, stats, HEAD) → restart → the same ETags,
+// every re-import unchanged. Also scripts/seed-dev.ts, twice.
 import { spawn } from "node:child_process";
 import type { ChildProcess, ChildProcessByStdio } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -312,6 +313,77 @@ describe("aia against node src/runtime/node.ts on the fs store", { timeout: TIME
     const body = new Uint8Array(await res.arrayBuffer());
     expect(res.headers.get("Content-Length")).toBe(String(body.byteLength));
     expect(await sha256Hex(body)).toBe(sha256);
+  });
+
+  // Slice 5a: what the public read routes say about the same state, over a real socket.
+  it("reads the certificates, targets and stats back through the API, GET and HEAD", async () => {
+    const base = `http://127.0.0.1:${server.port}/api/v1`;
+    /** A 200 JSON body, no-store; typed as far as these checks need. */
+    const read = async <T>(path: string): Promise<T> => {
+      const res = await fetch(`${base}${path}`);
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get("Content-Type"), path).toMatch(/^application\/json/);
+      expect(res.headers.get("Cache-Control"), path).toBe("no-store");
+      return (await res.json()) as T;
+    };
+    const config = JSON.parse(await readFile(join(dataDir, "config.json"), "utf8")) as Config;
+    const rootTarget = Object.keys(config.targets).find(
+      (id) => config.targets[id]?.issuer === cert("root-ca").sha256
+    );
+
+    const certificates =
+      await read<{ id: string; label: string | null; downloads: string[] }[]>("/certificates");
+    expect(certificates.map((item) => item.id)).toEqual(
+      CAS.map((name) => cert(name).sha256).sort()
+    );
+    for (const name of CAS) {
+      expect(certificates.find((item) => item.id === cert(name).sha256)).toMatchObject({
+        label: name,
+        downloads: [`/ca/${name}.crt`, `/ca/${name}.crt.pem`],
+      });
+    }
+    const root = await read<{
+      fingerprints: { sha256: string };
+      tbsCertificate: { serialNumber: { hex: string } };
+    }>(`/certificates/${cert("root-ca").sha256.toUpperCase()}`);
+    expect(root.fingerprints.sha256).toBe(cert("root-ca").sha256);
+    expect(root.tbsCertificate.serialNumber.hex).toBe(cert("root-ca").serial);
+
+    const targets = await read<{ targetId: string; current: { sha256: string } | null }[]>("/crls");
+    expect(targets.map((item) => item.targetId)).toEqual(Object.keys(config.targets).sort());
+    for (const item of targets) {
+      expect(item.current?.sha256 ?? null).toBe(
+        item.targetId === rootTarget ? crlEntry(ROOT_FULL_02).sha256 : null
+      );
+    }
+    const detail = await read<{
+      current: { verifier: string; tbsCertList: { revokedCertificates: { count: number } } };
+    }>(`/crls/${rootTarget}`);
+    expect(detail.current.verifier).toBe(cert("root-ca").sha256);
+    expect(detail.current.tbsCertList.revokedCertificates.count).toBe(
+      crlEntry(ROOT_FULL_02).revoked
+    );
+
+    const sizes = await Promise.all(
+      [...CAS.map((name) => cert(name).der), ROOT_FULL_02].map(
+        async (file) => (await readFile(fixturePath(file))).byteLength
+      )
+    );
+    expect(await read("/stats")).toEqual({
+      certificates: CAS.length,
+      targets: { full: CAS.length, delta: 0 },
+      published: { full: 1, delta: 0 },
+      totalRevocations: crlEntry(ROOT_FULL_02).revoked,
+      derBytes: sizes.reduce((sum, size) => sum + size, 0),
+    });
+
+    for (const path of ["/certificates", `/crls/${rootTarget}`, "/stats"]) {
+      const head = await fetch(`${base}${path}`, { method: "HEAD" });
+      expect(head.status, path).toBe(200);
+      expect(head.headers.get("Cache-Control"), path).toBe("no-store");
+      expect(head.headers.get("Content-Type"), path).toMatch(/^application\/json/);
+      expect(await head.text(), path).toBe("");
+    }
   });
 
   it("refuses an upload without the upload token", async () => {
