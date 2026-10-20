@@ -136,7 +136,7 @@
       一个 octet 且为 00 / FF（§11.1）→ `der`；规则在共用的解码里，证书同样适用（线上 3 张 CA 证书与 5 份 CRL 已逐一核对仍可解析、
       发布）。asn1js 的 `fromBER` 限额按输入设（节点数与内容长度上限都取输入字节数，评审 C1）：asn1js 3.1.0 默认 10 000 个节点，
       一个带 reasonCode 的条目占 8 个，约 1 250 个吊销条目的合法 CRL 曾被拒为 `der`；现在唯一的上界是 `AIA_MAX_UPLOAD_BYTES`
-      （内存代价见风险）。读 AKI、CRL Number、Delta 指示，值非法（M2：须恰好一个 INTEGER，tag 2、非空、≥ 0、至多 48 octet，BigInt
+      （默认 1 MiB，内存代价见风险）。读 AKI、CRL Number、Delta 指示，值非法（M2：须恰好一个 INTEGER，tag 2、非空、≥ 0、至多 48 octet，BigInt
       读取；不加 RFC 5280 的 20 octet 上限，见步骤 2）→ `invalid_crl`，`reason = "extension_value"`；AKI 存在而 `keyIdentifier` 为空、
       CRL 扩展重复同样是 `extension_value`（同证书摘要：空 key id 不标识任何密钥），摘要不合 catalog 格式为 `structure`。kind：带合法
       Delta 指示即 `delta`（M6）。
@@ -207,37 +207,43 @@
 
 9. **CLI**（`src/cli/aia.ts`）：`aia publish <file...>` 读 `AIA_URL`；上传令牌按 `--token-file` → `AIA_UPLOAD_TOKEN_FILE` →
    `AIA_UPLOAD_TOKEN` → 无（路由只在设了令牌时要求）。`--token-file` 是当前命令的令牌：import / config 为管理令牌，publish 为上传令牌；
-   两个变量同时设、空令牌或非 bearer 字符 → 用法错误（两种令牌共用 `bearerToken` 的规则与文案）。按字节选类型发原始体：单个 DER
-   SEQUENCE 为 `application/pkix-crl`，含 PEM 边界的文本为 `application/x-pem-file`（原样发送，bundle 由服务端报 `pem_blocks`），
-   其余按 `application/pkix-crl` 交服务端报错。逐个文件处理互不影响：每文件一行（结果、目标、kind、CRL 号、文件；失败行带 HTTP 状态、
-   码、`details.reason` 与其余 details，如 `stale_crl` 的当前 CRL 号与 thisUpdate）加汇总行，或 `--json` 的
-   `{ results, created, updated, unchanged, failed }`。created / updated / unchanged 之外（含读不了文件、连不上服务、体不是上传结果）都算
-   该文件失败；有失败退出 1，用法错误 2。根 CA 的离线 CRL 走这条路（review §2.2-3）。
+   两个变量同时设、空令牌或非 bearer 字符 → 用法错误（两种令牌共用 `bearerToken` 的规则与文案）。令牌经 `http://` 只发往回环主机
+   （`localhost`、`127.0.0.0/8`、`[::1]`），其他主机须加 `--allow-insecure-http`，否则用法错误、不发请求（评审：生产主机的下载走明文
+   HTTP、不跳转，`AIA_URL=http://pki.acha.top` 会把令牌明文发出；与助手的 `-AllowInsecureHttp` 对应；切片 2 的管理命令同样适用）。
+   按字节选类型发原始体：单个 DER SEQUENCE 为 `application/pkix-crl`，含 PEM 边界的文本为 `application/x-pem-file`（原样发送，
+   bundle 由服务端报 `pem_blocks`），其余按 `application/pkix-crl` 交服务端报错。逐个文件处理互不影响：每文件一行（结果、目标、kind、
+   CRL 号、文件；失败行带 HTTP 状态、码、`details.reason` 与其余 details，如 `stale_crl` 的当前 CRL 号与 thisUpdate）加汇总行，或
+   `--json` 的 `{ results, created, updated, unchanged, failed }`。created / updated / unchanged 之外（含读不了文件、连不上服务、
+   体不是上传结果）都算该文件失败；有失败退出 1，用法错误 2。根 CA 的离线 CRL 走这条路（review §2.2-3）。
 10. **OpenAPI**：`node scripts/generate-openapi.ts` 重写 `docs/openapi.json`，`--check` 无漂移。
 11. **AD CS 助手**（`scripts/adcs-crl-uploader.ps1`，重写 `worker-aia-cdp@5b570aa:scripts/adcs-crl-uploader.ps1`；§10 #20、M24）。
     - 保留：`#Requires -Version 7.0`、`$ErrorActionPreference = 'Stop'`、`Write-Log` 格式 `[yyyy-MM-dd HH:mm:ss.fffK][LEVEL]`
-      与"日志永不抛错"、`SourceDir` / `LogPath` 默认值、发现 `*.crl` `*.dcrl` `*.pem`（非递归）、按 `LastWriteTimeUtc` 升序、
-      `X` 存在时跳过 `X.pem`、单文件失败不影响其余、无文件 WARN 且退出 0、汇总行。
+      （评审后按 InvariantCulture 格式化：fi-FI 一类区域的时间分隔符是 `.`）与"日志永不抛错"、`SourceDir` / `LogPath` 默认值、
+      发现 `*.crl` `*.dcrl` `*.pem`（非递归）、按 `LastWriteTimeUtc` 升序、`X` 存在时跳过 `X.pem`、单文件失败不影响其余、无文件 WARN 且退出 0、汇总行。
     - 删除：PS5 分支（`SkipHttpErrorCheck` 探测、`GetResponseStream`）、手搓 multipart、`Test-CrlValid`（`certutil -dump`）、
       按扩展名判格式、`New-Item SourceDir`（缺目录改为退出 1）、`data.id` 判定。
     - 新增参数：`-UploadUri`（默认 `https://aia.example.com/api/v1/crls`）、`-UploadTokenFile`、`-LedgerPath`
       （默认 `C:\ProgramData\PKI\crl-uploader\published.json`）、`-TimeoutSec 60`、`-AllowInsecureHttp`、
       `-UploadIntervalMs 1000`（两次实际上传之间的间隔，压住 catalog 单键每秒一次写，见风险）。`-TimeoutSec` 限 1–3600、
       `-UploadIntervalMs` 限 0–600000（参数校验失败 `pwsh -File` 退出 1）；`-UploadUri` 须是绝对 `http://` / `https://` URI，否则退出 1。
+      `[CmdletBinding(PositionalBinding = $false)]`：参数只能按名字传，未加引号的带空格路径不会把后半截绑到别的参数上（评审）。
     - 令牌：`(Get-Content -LiteralPath $f -Raw).Trim()`，缺失或空 → 退出 1；另须是 RFC 6750 b64token（与 settings 对 `AIA_UPLOAD_TOKEN`
       的要求相同；非法头值会被请求异常的文本原样引用），否则退出 1；带令牌且 URI 为 `http://` 时拒绝，除非 `-AllowInsecureHttp`；
       令牌永不进日志与命令行。不给 `-UploadTokenFile` 就不发 `Authorization`。发送用 `-Authentication Bearer -Token <SecureString>`，
       `http://` 且 `-AllowInsecureHttp` 时加 `-AllowUnencryptedAuthentication`（PowerShell 自己也拒绝明文发令牌）。
     - 每个文件：`FileShare.Read` 打开，`IOException` 重试（共 5 次、间隔 1 s；事件触发时 CA 可能正在写）；对读到的字节
       `Get-FileHash -InputStream … -Algorithm SHA256`（不再开一次文件，摘要与上传的字节必然一致）；账本是"文件完整路径（不分大小写）→
-      被接受字节的 SHA-256"，该路径的值相等 → Skipped，跳过的 `X.pem` 也记 Skipped。账本按路径而不是摘要集合：同一字节换个文件名
-      （误放的旧副本）仍上传并得到 `stale_crl`（出口条件第 5 条）。首字节 `0x30` → `application/pkix-crl`，含 `-----BEGIN X509 CRL-----`
+      被接受字节的 SHA-256"，并记下这些字节是哪个 `-UploadUri`（规范化的绝对 URI）接受的：`{ uploadUri, files }`；为另一个 URI 写的
+      账本按空处理并 WARN，下一次成功时按当前 URI 改写（评审：换 URI 后全部 Skipped，新服务收不到当前 CRL；同一 URI 上恢复或回滚服务
+      后删账本，见 `docs/operations.md`）。该路径的值相等 → Skipped，跳过的 `X.pem` 也记 Skipped。账本按路径而不是摘要集合：
+      同一字节换个文件名（误放的旧副本）仍上传并得到 `stale_crl`（出口条件第 5 条）。首字节 `0x30` → `application/pkix-crl`，含 `-----BEGIN X509 CRL-----`
       → `application/x-pem-file`，否则失败且不上传；`Invoke-RestMethod -Method Post -ContentType <type> -Body <bytes> -SkipHttpErrorCheck
       -StatusCodeVariable status -TimeoutSec`。
     - 判定看 `outcome` / `error.code`，不只看状态：200 / 201 且 created / updated / unchanged 成功并写账本（临时文件 + `Move-Item -Force`；
       账本损坏或缺失按空处理并 WARN；写不进去则该文件记失败，下次重发得 unchanged）；`stale_crl` 失败（账本说明该摘要从未被接受，
       plan §9）；401 失败并提示 `-UploadTokenFile`（带了令牌说令牌错，没带说需要令牌）；其余码（日志带 `message` 与 `details`）、5xx、
-      非上传结果的体、网络错误、超时都失败。`Invoke-RestMethod` 把 ISO 时间解析成 `DateTime`，日志按 ISO UTC 重新格式化。
+      非上传结果的体、网络错误、超时都失败；异常记整条 `InnerException` 链（`外层 -> 内层`），TLS 与连接错误的原因只在内层（评审）。
+      `Invoke-RestMethod` 把 ISO 时间解析成 `DateTime`，日志按 ISO UTC 重新格式化。
     - 汇总 `Created / Updated / Unchanged / Skipped / Failed`；有失败退出 1，否则 0。手动 Windows 验证（出口条件）的环境、顺序、各条
       退出码与日志摘录记在 `docs/operations.md`。
     - 事件 68/69/70 与定时补扫在两个仓库里都只有 README 文字、没有任务定义：本切片把触发器、`MultipleInstances IgnoreNew`、
@@ -300,15 +306,17 @@
   `application/pkix-crl`、`"<sha256>"` / `"<sha256>-pem"` ETag、夹紧后的 `Cache-Control`（workerd 用真实时钟，该 CRL 已过
   `nextUpdate` → `max-age=60`）、显式 `Content-Length`，体 sha256 等于夹具。
 - `tests/http/crls-upload.test.ts`（迁自 `worker-aia-cdp@5b570aa:tests/web/api-client.test.ts` 第 3 例，重复上传改为 200 `unchanged`）：
-  multipart 文件字段、字符串 PEM 字段、三种原始类型；`text/plain` 与缺 `Content-Type` → 415 + `details.received`；缺字段、空体 → 400；超限（带与不带 `Content-Length`）→ 413；
-  令牌已设：无 / 错 → 401 + `WWW-Authenticate`，畸形头 → 400，正确 → 201；令牌未设不需鉴权；状态表每行至少一例；
-  信封形状、`Cache-Control: no-store`、500 不泄漏文本。
+  multipart 文件字段、字符串 PEM 字段、三种原始类型；`text/plain` 与缺 `Content-Type` → 415 + `details.received`；缺字段、空体 → 400；超限（带与不带 `Content-Length`）→ 413，
+  默认上限 1 MiB，超出它的全 NULL SEQUENCE 在解码前 413（没有 `publish` 日志行）；令牌已设：无 / 错 → 401 + `WWW-Authenticate`，
+  畸形头 → 400，正确 → 201；令牌未设不需鉴权；状态表每行至少一例；信封形状、`Cache-Control: no-store`、500 不泄漏文本。
 - `tests/integration/node-e2e.test.ts`（本切片部分）：临时目录 fs 存储起真实服务，两侧都用上传令牌文件，CLI `import` → `config apply` →
   `aia publish crls/root-ca/full-01.der` created → 再发 unchanged（退出 0）→ `full-02.der` updated → 再发 `full-01.der`
   stale（退出 1）→ `GET` 路径表 DER 的 ETag、长度、sha256 与 `full-02.der` 一致；不带令牌 401；重启后该 CRL 仍是 current。retire 部分见切片 6。
 - `tests/integration/cli.test.ts`（`publish`）：按字节选类型、未设令牌不发头；逐文件 updated / unchanged / 失败与退出 1；失败行的 details；
-  `--json`；令牌来自 `AIA_UPLOAD_TOKEN`、`_FILE` 或 `--token-file`；缺令牌时每个文件 401；两个变量同设、空或畸形令牌在发送前拒绝；
-  连不上服务时继续下一个文件。
+  `--json`；令牌来自 `AIA_UPLOAD_TOKEN`、`_FILE` 或 `--token-file`，`--token-file` 胜过错的 `AIA_UPLOAD_TOKEN_FILE` /
+  `AIA_ADMIN_TOKEN_FILE`；请求体与文件逐字节相同，两块的 PEM 原样发出、得 `422 invalid_crl (pem_blocks)` 且退出 1；缺令牌时每个文件 401；
+  两个变量同设、空或畸形令牌在发送前拒绝；令牌经 `http://` 发往非回环主机时退出 2 且零请求，回环主机与 `--allow-insecure-http` 照发，
+  无令牌不检查；连不上服务时继续下一个文件。
 - `tests/core/store-keys.test.ts`：`crlBlobKey` / `crlVersionName` 的格式（时间段、号段、`none`）都过 `assertStoreKey`；
   `tests/http/client.test.ts`：`hc<AppType>` 以 multipart 字段 `crl` 上传，201 与 422 的体按状态收窄（切片 5b 的上传卡片）。
 
@@ -327,7 +335,8 @@
   6. `full-01.pem` 单独 → Unchanged；7. 错令牌 → 401 退出 1；令牌文件缺失、`http://` 带令牌、SourceDir 缺失 → 上传前退出 1。
   生产 CA 上的事件触发运行属于切换（见切片 7）。2026-10-20 已做：Windows 11 上的 PowerShell 7.6.6 对 WSL2 里的 Node 运行时，全部按预期，
   记录见 `docs/operations.md`。第 6 条要求 `full-01` 仍是当前 full CRL，所以单独用一个 SourceDir 与账本、在第 3 条之后跑（顺序 1、2、3、6、4、5、7）；
-  第 5 条让副本最先处理并同时换上 `delta-02`，"其余文件照常处理"因此含一次真实上传。
+  第 5 条让副本最先处理并同时换上 `delta-02`，"其余文件照常处理"因此含一次真实上传。评审修复后用修复后的脚本整套重跑，另加第 8 条：
+  同一账本、`-UploadUri` 换成另一个端口上的服务 → WARN 后照常上传（修复前全部 Skipped），记录同上。
 
 ## 风险与对策
 
@@ -355,11 +364,12 @@
 
   约每 10 000 条目 100 MB 堆（asn1js 节点树 + PKIjs 对象）。本地 workerd 不执行 128 MB 隔离区上限，以上尺寸全部 201；按 Node 的堆需求与
   workerd 的 RSS 增量估计，Workers 上可支持约 5 000 条目（≈ 200 KB），10 000 条目已在 128 MB 边缘，50 000 必然超限（生产上该请求报
-  内存超限，未在 Cloudflare 上验证）。Node 上的上限是堆：默认堆（本机 4 GB）下 10 MiB 的合法 CRL 也能发布。风险：上传默认不要令牌，
-  解码先于任何检查，10 MiB 的"全 NULL 的 SEQUENCE"（524 万个节点）在 Node 上需约 3 GB 堆（峰值 RSS 3.2 GB，堆上限 ≤ 2 GB 时进程以
-  heap out of memory 退出，整个服务停摆；本地 workerd 运行时同样崩溃重启），1 MiB 的同类输入需 384 MB、2 MiB 需 768 MB。修复前
-  asn1js 的 1 万节点默认值意外挡住了它（代价是拒收真实的大 CRL）。待定（不在本次修复中决定）：建议把 `AIA_MAX_UPLOAD_BYTES` 默认值降到
-  1 MiB（≈ 25 000 条目，最坏输入约 400 MB 堆），需要更大 CRL 的部署显式调高并设 `AIA_UPLOAD_TOKEN`；或保留 10 MiB 而要求 Node 部署设置令牌。
+  内存超限，未在 Cloudflare 上验证）。Node 上的上限是堆：调高上传上限后，默认堆（本机 4 GB）下 10 MiB 的合法 CRL 也能发布。风险：上传默认
+  不要令牌，解码先于任何检查，10 MiB 的"全 NULL 的 SEQUENCE"（524 万个节点）在 Node 上需约 3 GB 堆（峰值 RSS 3.2 GB，堆上限 ≤ 2 GB 时
+  进程以 heap out of memory 退出，整个服务停摆；本地 workerd 运行时同样崩溃重启），1 MiB 的同类输入需 384 MB、2 MiB 需 768 MB。修复前
+  asn1js 的 1 万节点默认值意外挡住了它（代价是拒收真实的大 CRL）。决定（2026-10-20，评审修复；改的是规划默认值，不是 owner 决策）：
+  `AIA_MAX_UPLOAD_BYTES` 默认值由 10 MiB 降到 1 MiB（≈ 25 000 条目，最坏输入约 384 MB 堆，超限的体在解码之前 413）；需要更大 CRL 的部署
+  显式调高，并应设 `AIA_UPLOAD_TOKEN`；Workers 实际可用约 5 000 条目（上表），与上限无关。
 
 ## 开工前需 owner 确认
 

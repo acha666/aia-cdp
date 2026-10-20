@@ -82,7 +82,7 @@
    - 演练 A（Node + fs）：`AIA_DATA_DIR=$(mktemp -d)`，`node --enable-source-maps dist/server/runtime/node.js`，对线上源站只读地跑步骤 1–7。清空目录再跑一次；在已导入的目录上第二次 `apply`，结果全部 `unchanged`。
    - 演练 B（Workers）：`wrangler.jsonc` 加 `env.rehearsal`（Worker `aia-cdp-rehearsal`；`r2_buckets` 不继承，要在 env 里重写，自动置备新桶），`wrangler deploy --env rehearsal`，经 workers.dev 地址跑步骤 6–7。再对 `GET /api/v1/crls` 与一条下载路径各计时 20 次取中位数（切片 5a 留下的 R2 真实延迟），
      据此定 plan §5.6 的备忘开不开，结果写进 operations.md 迁移章。结束后 `wrangler delete --env rehearsal`；演练桶在 dashboard 清空后删除，或留给下一次演练。
-   - 演练 C（CryptoAPI）：在内网主机用 Docker 镜像起服务（`-p 80:8080`，数据来自演练 A）。测试用入域 Windows 机在 hosts 里把 `pki.acha.top` 指过去，跑步骤 10 的冒烟；再用改写后的助手把 CertEnroll 里的当前文件传给这台主机，期望 `unchanged`。最后把 hosts 改回，用 `certutil` 再验一次旧站——这就是回滚演练。
+   - 演练 C（CryptoAPI）：在内网主机用 Docker 镜像起服务（`-p 80:8080`，数据来自演练 A）。测试用入域 Windows 机在 hosts 里把 `pki.acha.top` 指过去，跑步骤 10 的冒烟；再用改写后的助手把 CertEnroll 里的当前文件传给这台主机，期望 `unchanged`；助手的账本按 `-UploadUri` 记、看不出 hosts 把同一主机名指到了演练主机，所以演练用单独的 `-LedgerPath`，或演练后删除该账本，否则正式切换时这些文件会被 Skipped（切片 4）。最后把 hosts 改回，用 `certutil` 再验一次旧站——这就是回滚演练。
    - 日志核对（`by-keyid` / `archive` URL 是否保留，§10 #2）：在旧 Worker 的 Workers Logs（旧配置已开 `observability.logs.enabled`）里查近 30 天的 `/crl/by-keyid/`、`/dcrl/by-keyid/` 与 `/archive/` 请求。有真实客户端在用，就给对应 URL 加路径条目（§5.2 允许）；否则这些 URL 切换后返回 404。
    - 演练结果（时间、命令、输出摘要）写进 `docs/operations.md` 的迁移章。
 9. **生产切换**（按 owner 确认 2、3 的推荐写）：
@@ -91,7 +91,7 @@
    3. 准备 CA 主机：新助手放进旁路目录；令牌文件用 `icacls` 设成只有任务账户能读；保留旧脚本和旧任务动作的副本供回滚。CertEnroll 里应只有当前文件，否则助手首跑可能遇到 `stale_crl` 而退出 1（plan §9）。
    4. 冻结：禁用 AD CS 上传计划任务，重跑 `apply` 和 `verify`，追平冻结前新发布的 CRL。
    5. 切域：在 dashboard 把 pki.acha.top 从 `aia-cdp-worker` 移到 `aia-cdp`。期间每秒跑一次 `curl -s -o /dev/null -w '%{http_code}' http://pki.acha.top/crl/AchaRootCA.crl`，记下不可用时长。
-   6. 替换助手（C10）：旧脚本只把含 `$resp.data.id` 的响应当成功（`worker-aia-cdp@5b570aa:scripts/adcs-crl-uploader.ps1:240-249`），v1 的每次上传都会被记成失败，所以只改 `UploadUri` 不够，必须换脚本（改写在切片 4，§10 #20；这里只安装）。任务动作改为 `-UploadUri https://pki.acha.top/api/v1/crls -UploadTokenFile <file>`。先手动跑一次，期望 `unchanged` 或 `updated`、退出码 0（按 LastWriteTimeUtc 从旧到新，M24），再启用任务。安装照 `docs/operations.md` 的"AD CS 助手"一节，同时核对其中标"未核对"的项（事件号与日志、CDP 文件位置、运行账户与 ACL、计划任务注册），核对后改掉标记。
+   6. 替换助手（C10）：旧脚本只把含 `$resp.data.id` 的响应当成功（`worker-aia-cdp@5b570aa:scripts/adcs-crl-uploader.ps1:240-249`），v1 的每次上传都会被记成失败，所以只改 `UploadUri` 不够，必须换脚本（改写在切片 4，§10 #20；这里只安装）。任务动作改为 `-UploadUri https://pki.acha.top/api/v1/crls -UploadTokenFile <file>`。首跑前确认默认 `-LedgerPath` 上没有演练或旧部署留下的 `published.json`（同一 URI 的账本会把文件全部 Skipped），再手动跑一次，期望 `unchanged` 或 `updated`、退出码 0（按 LastWriteTimeUtc 从旧到新，M24），再启用任务。安装照 `docs/operations.md` 的"AD CS 助手"一节，同时核对其中标"未核对"的项（事件号与日志、CDP 文件位置、运行账户与 ACL、代理、计划任务注册），核对后改掉标记。核对触发器时，除旧部署的 Application 日志事件 68/69/70（含义与所在日志都未核对）外，一并查 Security 日志的 AD CS 审核事件 4872（"Certificate Services published the certificate revocation list (CRL)"；需在 CA 属性的"审核"页勾选"吊销证书和发布 CRL"，并在审核策略里开启"审核证书服务"的成功事件）：手动 `certutil -CRL` 发布一次 full 与 delta，看哪个事件每次都出现，任务的事件触发器用它。
    7. 跑步骤 10 的冒烟；在 UI 打开总览和 5 个 CRL 目标的详情。
    8. 观察：下一次 AD CS 定时发布后，助手日志应出现 `updated`，`GET /api/v1/crls` 里的 CRL 号前进。根 CRL 的 `nextUpdate` 是 2026-11-07 00:00 UTC，换发后用 `aia publish` 发到新服务。
 10. **CryptoAPI 冒烟**：证明 C6、C7、C13、M18 和 §10 #1/#3 带来的头部变化不影响真实客户端。
@@ -104,6 +104,7 @@
 12. **回滚手册**（写进 `docs/operations.md`，演练 C 验证过）：
     - 操作：dashboard 把域名移回 `aia-cdp-worker` → 任务动作和脚本换回旧副本 → 手动跑一次旧助手（旧服务对相同字节返回 409，是已知旧行为，无害）→ 切换窗口内只发到新服务的根 CRL，经旧 UI 重传。
     - 推荐方案下新服务用独立的桶，旧对象从没被写过，回滚不需要修数据。
+    - 回滚后若再切回新服务（同一 `-UploadUri`），先删除新助手的 `published.json`；新服务从备份恢复过也一样（切片 4，`docs/operations.md`）。
     - 保留期：旧 Worker 和旧桶保留到两张签发 CA 各走完一个 full CRL 周期（约 8 天），且根 CRL 已在新服务换发。之后由 owner 手工删除：独立桶方案删旧 Worker 和整个桶；共享桶方案只删 `ca/`、`crl/`、`dcrl/` 三个前缀。
 
 ## 测试

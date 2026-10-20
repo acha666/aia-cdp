@@ -28,7 +28,7 @@
 | --- | --- | --- |
 | 1 | SHA-1 签名的 CRL | 已确认（2026-10-20）：接受（分发服务不是校验器，旧实现也接受） |
 | 2 | 只含 `distributionPoint` 的关键 IDP（AD CS 的 CDP 选项） | 已确认（2026-10-20）：接受；`onlyContains*`、`onlySomeReasons`、`indirectCRL` 仍 `scoped_crl_unsupported` |
-| 3 | 无 AKI 或 AKI 无 `keyIdentifier` | 已确认（2026-10-20）：`issuer_not_found` + `details.reason = "missing_aki"` |
+| 3 | 无 AKI 或 AKI 无 `keyIdentifier` | 已确认（2026-10-20）：`issuer_not_found` + `details.reason = "missing_aki"`；keyIdentifier 存在但为空 → `invalid_crl` / `extension_value`（同证书摘要，不属此问） |
 | 4 | 多张证书共用 SKI（同钥续期）时的签发者选择 | 已确认（2026-10-20）：按目标配置的签发者验签；`applyConfig` 拒绝同 kind 且签发者 SKI 相同的两个目标；上传不再产生 `issuer_mismatch` |
 | 5 | 外层与 TBS 内签名算法不一致 | 已确认（2026-10-20）：`invalid_crl`（`signature_algorithm_mismatch`） |
 

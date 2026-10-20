@@ -180,7 +180,7 @@ aia-cdp/
 | `AIA_STATIC_DIR`                     | `./dist/web`         | UI 构建产物                                          |
 | `AIA_ADMIN_TOKEN` / `_FILE`          | 无                   | 未设置时管理接口返回 503 `admin_disabled`            |
 | `AIA_UPLOAD_TOKEN` / `_FILE`         | 无                   | 未设置时上传不需要令牌                               |
-| `AIA_MAX_UPLOAD_BYTES`               | `10485760`           | `bodyLimit`                                          |
+| `AIA_MAX_UPLOAD_BYTES`               | `1048576`            | `bodyLimit`；1 MiB ≈ 25 000 个吊销条目，也是解码内存的上界（§5.5） |
 | `AIA_TRUST_PROXY`                    | `false`              | 为真时请求日志加 `client`：Node 取 `X-Forwarded-For` 最右一项（最近一跳代理追加的），Workers 取 `CF-Connecting-IP`；不是 IP 字面量就省略 |
 | `AIA_LOG_FORMAT`                     | `json`               | `json` / `pretty`                                    |
 
@@ -387,9 +387,10 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 
 CRL 的大小：解码按输入设 asn1js 的限额（节点数与内容长度都取输入字节数），唯一的上界是 `AIA_MAX_UPLOAD_BYTES`。内存约每 10 000 个
 吊销条目 100 MB 堆（Node 实测：10 000 条目 410 KB 需 96–128 MB 堆、0.5 s；100 000 条目 4 MB 需 1 GB、4.7 s；10 MiB 约 249 000 条目
-需 3 GB、12.8 s）。Workers 的隔离区 128 MB，可支持约 5 000 条目（≈ 200 KB），10 000 在边缘；Node 受堆上限约束。上传默认不要令牌而
-解码先于任何检查，10 MiB 的畸形输入（全 NULL 的 SEQUENCE）需约 3 GB 堆，超过即整个 Node 进程退出：降低默认上限或要求令牌待定，
-数字与建议见 implementation 切片 4 的风险。线上 CRL 目前 0 个条目。
+需 3 GB、12.8 s）。Workers 的隔离区 128 MB，实际可支持约 5 000 条目（≈ 200 KB），10 000 在边缘，与上限无关；Node 受堆上限约束。
+上传默认不要令牌而解码先于任何检查，畸形输入（全 NULL 的 SEQUENCE）每 MiB 约需 384 MB 堆，10 MiB 需约 3 GB，超过堆上限即整个 Node
+进程退出。所以默认上限是 1 MiB（≈ 25 000 条目；评审后改的规划默认值，原为 10 MiB）；需要更大 CRL 的部署调高它，并应设
+`AIA_UPLOAD_TOKEN`，让只有持令牌的人能送来大体。实测数字见 implementation 切片 4 的风险。线上 CRL 目前 0 个条目。
 
 第 7 步后崩溃只留下一个无人引用、不进历史的 blob，无害；第 8 步 catalog 写成功即完成，不存在"权威写成功但
 派生写失败"的状态。第 1–6 步的拒绝与 `unchanged` 零写入；输掉的竞争只留下本次 blob 与旧 current 的标记（§5.3）。R2 对单键每秒一次写
@@ -413,8 +414,9 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 - 身份：证书 `certificateId` = DER 的 SHA-256；CRL 目标 `targetId` = 创建时分配的 UUID；
   内容版本 = `contentSha256`。CN、文件名不参与身份、授权和路径。
 - 验证：AKI/SKI 匹配 + 签名验证。CRL 没有 AKI `keyIdentifier` → `issuer_not_found`（`details.reason = "missing_aki"`，implementation
-  切片 4 owner 确认 3）；外层 `signatureAlgorithm` 与 TBS 内 `signature` 收到的字节不同（OID 或参数）→ `invalid_crl`
-  （`signature_algorithm_mismatch`，owner 确认 5；比较收到的字节而不是重编码，外层不在签名之内）。严格 DER 含 X.690 的内容规则
+  切片 4 owner 确认 3）；keyIdentifier 存在但为空 → `invalid_crl` / `extension_value`（同证书摘要：空 key id 不标识任何密钥）；
+  外层 `signatureAlgorithm` 与 TBS 内 `signature` 收到的字节不同（OID 或参数）→ `invalid_crl`（`signature_algorithm_mismatch`，
+  owner 确认 5；比较收到的字节而不是重编码，外层不在签名之内）。严格 DER 含 X.690 的内容规则
   （INTEGER 最短、OID 子标识符不以 0x80 开头、NULL 无内容、BOOLEAN 为 00 / FF），所以没有人能改写外层算法造出 OpenSSL 读不了、
   却先成为 current 的变体。ECDSA 签名本身可延展：`(r, n − s)` 是另一份 OpenSSL 也验得过的合法 CRL，谁先上传谁成为 current，CA 的原始
   字节随后得 `conflict`（只是 409 的麻烦，不是完整性问题）。`issuer_mismatch` 指 AKI 解析到的证书不是该目标配置的签发者：上传按目标配置的
@@ -547,7 +549,10 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
 ### 7.4 CLI
 
 `aia` 读取 `AIA_URL` 与当前命令的令牌：管理命令用 `AIA_ADMIN_TOKEN(_FILE)`，`publish` 用 `AIA_UPLOAD_TOKEN(_FILE)`（可无，服务端只在
-设了令牌时要求）；`--token-file` 优先于两个变量，指当前命令的令牌。子命令：
+设了令牌时要求）；`--token-file` 优先于两个变量，指当前命令的令牌。令牌只经 `https://` 发送，或经 `http://` 发往回环主机（`localhost`、
+`127.0.0.0/8`、`[::1]`：Docker exec 与开发）；带令牌而 URL 是其他主机的 `http://` 是用法错误（退出 2，不发任何请求），除非加
+`--allow-insecure-http`（对应助手的 `-AllowInsecureHttp`）：生产主机为 AIA/CDP 下载提供明文 HTTP 且不跳转，`AIA_URL=http://<主机>`
+能连上服务并把令牌明文发出。不带令牌的命令（`health`、服务端未设令牌时的 `publish`）不检查。子命令：
 `import <file...>`、`config show | validate <file> | apply <file>`、`new-target-id`（打印
 `crypto.randomUUID()`：目标 UUID 由工具分配，没有建目标接口）、`publish <file...>`
 （走公开上传路由，按字节选 `application/pkix-crl` / `application/x-pem-file` 发原始体，逐个文件处理，created / updated / unchanged
@@ -606,7 +611,8 @@ owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-
 不上传），`Invoke-RestMethod -Method Post -Body <bytes> -SkipHttpErrorCheck` 发原始体，不再手搓 multipart、不按扩展名判格式、
 不调 `certutil`；`-UploadTokenFile`（令牌从受保护文件读，不进任务命令行与日志；带令牌而 URI 为 `http://` 时拒绝，除非
 `-AllowInsecureHttp`）；按 `outcome` / `error.code` 判定，created / updated / unchanged 都算成功；本地账本 `published.json`（文件路径 →
-被接受字节的 sha256）跳过已发布文件，缺失或损坏按空处理；从未被接受的文件返回 `stale_crl` 算失败（CA 产出了比已发布更旧的东西）；
+被接受字节的 sha256，连同接受它们的 `-UploadUri`）跳过已发布文件，缺失、损坏或属于另一个 URI 时按空处理（同一 URI 上恢复或回滚服务后
+删除它）；网络与 TLS 错误记整条异常链；从未被接受的文件返回 `stale_crl` 算失败（CA 产出了比已发布更旧的东西）；
 以 `FileShare.Read` 读、`IOException` 重试（CA 可能正在写）；两次上传之间隔 `-UploadIntervalMs`（R2 单键写速率，§5.5）；单文件失败
 不影响其余；SourceDir 或令牌文件缺失在任何上传之前退出 1；退出码 0 / 1；事件 68/69/70 触发与定时补扫不变（`MultipleInstances IgnoreNew`）。
 2026-10-20 用 Windows 上的 PowerShell 7.6 对本机 Node 服务手动验证过（不是真实 CA）；生产 CA 上的运行在切换时验证（§13）。
@@ -674,7 +680,7 @@ owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-
 - 存储一致性：同一套用例对 memory 与 fs 每次运行（r2 适配器另用假桶每次运行）；真 r2 在 `AIA_TEST_R2=1`（`pnpm run test:r2`）下经
   `getPlatformProxy({ configPath: "wrangler.jsonc", persist: false })` 运行，`ci:worker` 包含它且要求 passed 而不是 skipped。
 - Node 集成：在临时目录起真实服务与 fs 存储，走 CLI import → config apply → 上传 →
-  列表 / 详情 → DER / PEM / HEAD / 304 下载 → 重复上传 unchanged → 过期拒绝 → retire → 404。
+  列表 / 详情 → DER / PEM / HEAD / 304 下载 → 重复上传 unchanged → 旧 CRL 被拒（stale_crl）→ retire → 404。
 - Worker：`wrangler deploy --dry-run --outdir dist/worker`（先 `vite build`）；`createTestHarness` 对 dry-run 产物跑与运行时无关的
   `scripts/smoke.sh`，再经管理接口导入并应用配置，查下载的 GET / HEAD / 304 / 405（与 Node 集成测试比对同一组头）；切片 4 起经
   `POST /api/v1/crls` 在 workerd 上发布并验签（ECDSA P-384、RSA PKCS#1 v1.5、RSASSA-PSS、SHA-1）。`wrangler dev` 冒烟是切片出口里的人工步骤。
