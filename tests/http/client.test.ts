@@ -1,11 +1,13 @@
 // The typed client the web app uses (hc<AppType>, src/web/client/api.ts), run against the app
-// in-process. The type assertions are checked by `pnpm run typecheck:node` (tsconfig.node.json
-// includes tests/): expectTypeOf is a no-op at run time.
+// in-process, with the web's unwrap (src/web/client/errors.ts) on the app's real bodies. The type
+// assertions are checked by `pnpm run typecheck:node` (tsconfig.node.json includes tests/):
+// expectTypeOf is a no-op at run time.
 import { hc } from "hono/client";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { createApp } from "../../src/http/app.ts";
 import type { AppType } from "../../src/http/app.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
+import { ApiError, unwrap } from "../../src/web/client/errors.ts";
 import { fixture, manifest } from "../fixtures/pki.ts";
 import { MINIMAL_CONFIG, patchStore, putText, testDeps } from "../helpers/app.ts";
 import type { TestOverrides } from "../helpers/app.ts";
@@ -98,5 +100,24 @@ describe("hc<AppType>", () => {
       | "unsupported_algorithm"
     >();
     expect(error).toMatchObject({ code: "invalid_crl", details: { reason: "der" } });
+  });
+
+  it("unwraps the app's 200 body and its error envelopes", async () => {
+    const store = new MemoryStore();
+    const setup = await setupPublish(store);
+    const v1 = client({ store }).api.v1;
+
+    const targets = await unwrap(await v1.crls.$get());
+    expectTypeOf(targets[0]!.issuer.subjectCN).toEqualTypeOf<string | null>();
+    expect(targets.map((target) => target.targetId)).toContain(setup.target("root-ca", "full"));
+
+    // A certificate of the manifest that is never imported (leaf certificates).
+    const unknown = manifest.certificates.find((certificate) => !certificate.import);
+    const notFound = unwrap(await v1.certificates[":id"].$get({ param: { id: unknown!.sha256 } }));
+    await expect(notFound).rejects.toThrow(ApiError);
+    await expect(notFound).rejects.toMatchObject({ code: "not_found", status: 404 });
+    await expect(
+      unwrap(await v1.crls[":targetId"].$get({ param: { targetId: "not-a-uuid" } }))
+    ).rejects.toMatchObject({ code: "bad_request", status: 400 });
   });
 });
