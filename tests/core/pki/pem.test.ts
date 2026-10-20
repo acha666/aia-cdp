@@ -29,7 +29,8 @@ it("PEM encoding handles large CRLs and sliced buffers without truncation", () =
   const bytes = buffer.subarray(3, buffer.length - 2);
   const { begin, end } = PEM_BLOCK_MARKERS.crl;
   const pem = derToPem(bytes, begin, end);
-  expect(extractPEMBlock(pem, begin, end)).toEqual(bytes);
+  // Buffer.compare instead of toEqual: a deep equality walk over 1 MiB takes seconds on CI runners.
+  expect(Buffer.compare(extractPEMBlock(pem, begin, end), bytes)).toBe(0);
   const lines = pem.trim().split("\n");
   expect(lines[0]).toBe(begin);
   expect(lines.at(-1)).toBe(end);
