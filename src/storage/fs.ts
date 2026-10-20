@@ -110,7 +110,7 @@ export class FsStore implements ObjectStore {
     return join(this.#root, ...key.split("/"));
   }
 
-  async #read(path: string): Promise<Uint8Array | null> {
+  async #read(path: string): Promise<Uint8Array<ArrayBuffer> | null> {
     try {
       const buffer = await readFile(path);
       return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
@@ -122,7 +122,7 @@ export class FsStore implements ObjectStore {
     }
   }
 
-  async get(key: string): Promise<{ bytes: Uint8Array; etag: string } | null> {
+  async get(key: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; etag: string } | null> {
     assertStoreKey(key);
     const bytes = await this.#read(this.#path(key));
     return bytes ? { bytes, etag: await sha256Hex(bytes) } : null;

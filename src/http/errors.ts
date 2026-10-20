@@ -109,12 +109,24 @@ export function createErrorHandler(log: Logger): ErrorHandler<AppEnv> {
   };
 }
 
-/** hono/method-not-allowed callback: the envelope plus `Allow` (GET routes include HEAD). */
+/**
+ * The paths of the download routes (routes/downloads.ts): `/ca`, `/crl`, `/dcrl` and everything
+ * under them, as Hono matches `/ca/*`; not `/cafoo` or the UI's `/crls/…`.
+ */
+const DOWNLOAD_ROUTE_PATH = /^\/(?:ca|crl|dcrl)(?:\/|$)/;
+
+/**
+ * hono/method-not-allowed callback, no-store with `Allow` (GET routes include HEAD, so a download
+ * path gets `GET, HEAD`): text/plain `Method Not Allowed` on the download routes (CryptoAPI and
+ * OpenSSL clients, M19), the envelope everywhere else. It only runs for a path some route
+ * matches: `/ca%2Fx` or `//crl/x` stay the reserved-prefix text 404 of ui.ts.
+ */
 export function onMethodNotAllowed(c: Context<AppEnv>, methods: string[]): Response {
-  return c.json(errorBody("method_not_allowed", ERROR_MESSAGES.method_not_allowed), 405, {
-    ...NO_STORE,
-    Allow: methods.join(", "),
-  });
+  const headers = { ...NO_STORE, Allow: methods.join(", ") };
+  if (DOWNLOAD_ROUTE_PATH.test(c.req.path)) {
+    return c.text("Method Not Allowed", 405, headers);
+  }
+  return c.json(errorBody("method_not_allowed", ERROR_MESSAGES.method_not_allowed), 405, headers);
 }
 
 /** 400 bad_request for a zod validation failure, with the target and the issues. */

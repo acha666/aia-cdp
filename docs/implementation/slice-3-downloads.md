@@ -77,8 +77,9 @@
    的返回类型按 B3 写，不在下载路径上复制。不支持 `Range`（忽略，200 全量，旧实现同）。旧 `worker.ts:79-83` 的"HEAD 读整对象"不保留。
 5. **挂载与 405（M19、C12）**。`src/http/app.ts`：注册阶段 `app.route("/", downloadRoutes(deps))`（首个请求后 SmartRouter 冻结）。
    `src/http/errors.ts` 的 `onMethodNotAllowed` 按路径分支：`/ca`、`/crl`、`/dcrl` 本身或其下 →
-   `c.text("Method Not Allowed", 405, { Allow: "GET, HEAD" })`，其余保持 JSON 信封。探针确认 `/ca/*` 也匹配 `/ca`，不匹配
-   `/cafoo`、`/crls/…`：`/crls/<uuid>` 仍走 UI，`POST /dcrl` → 405 `Allow: GET, HEAD`。切片 1 的保留前缀 notFound 留作兜底。
+   `c.text("Method Not Allowed", 405, { "Cache-Control": "no-store", Allow: "GET, HEAD" })`（`no-store` 显式写：`c.text` 会沿用
+   被替换的 404 的头），其余保持 JSON 信封。探针确认 `/ca/*` 也匹配 `/ca`，不匹配 `/cafoo`、`/crls/…`：`/crls/<uuid>` 仍走 UI，
+   `POST /dcrl` → 405 `Allow: GET, HEAD`。切片 1 的保留前缀 notFound 留作兜底：路由不匹配的拼写（`/ca%2Fx`、`//crl/x`）任何方法都是纯文本 404。
 6. **头差异记录**（本表是切片 6 `docs/operations.md` 与切片 7 切换说明的来源）：
 
    | 项 | 线上（`worker-aia-cdp@0ea3130`） | 新 | 依据 |
@@ -90,7 +91,7 @@
    | `Content-Type` | 按键后缀；PEM `text/plain; charset=utf-8` | 按种类；PEM `application/x-pem-file`（现有 `.crt` / `.crl` 路径的 DER 值不变） | C6 |
    | `Last-Modified` | R2 上传时间 | `importedAt` / `publishedAt`（切片 7 迁移后为导入时间） | M18 |
    | `Content-Disposition` | `attachment; filename="<原样>"` | 同形，filename 净化 | C13、M17 |
-   | 404 / 405 | 纯文本；405 无 `Allow` | 纯文本；404 带 `no-store`，405 带 `Allow: GET, HEAD` | M19 |
+   | 404 / 405 | 纯文本；405 无 `Allow` | 纯文本，`no-store`；405 另带 `Allow: GET, HEAD` | M19 |
    | 畸形 `%` / `%2F` | 400 / 解码为 `/` | 404 / 保留后 404 | M20 |
    | 安全头 | 无 | Hono `secureHeaders` 默认集，无 HSTS（含 `nosniff`、`Cross-Origin-Resource-Policy: same-origin`；CryptoAPI / OpenSSL 不看，浏览器顶层导航下载不受 CORP 影响） | B8 |
 

@@ -57,8 +57,10 @@ async function discard(res: Response): Promise<void> {
  * app.notFound: every request no route answered.
  *
  * - `/api`, `/api/*` → JSON envelope 404 `not_found`, no-store.
- * - `/ca/*`, `/crl/*`, `/dcrl/*` → text/plain 404, no-store (405 on these prefixes is slice 3).
- *   Both prefixes are matched on reservedPrefixPath(path).
+ * - `/ca/*`, `/crl/*`, `/dcrl/*` → text/plain 404, no-store. GET / HEAD on the routed spelling is
+ *   answered by the download routes themselves; this catches the spellings no route matches
+ *   (`/ca%2Fx`, `//crl/x`) and other methods. Both prefixes are matched on
+ *   reservedPrefixPath(path).
  * - other GET / HEAD → `deps.ui(req)`, copied (binding responses have immutable headers); a ui
  *   404, or text/html for a path whose last segment has a non-.html extension (the SPA fallback
  *   for a missing file), → text 404. Cache-Control: immutable only for a file under /assets/
@@ -66,7 +68,8 @@ async function discard(res: Response): Promise<void> {
  *   else no-cache, error statuses included (their status is kept).
  * - other methods, or no ui → text 404.
  *
- * A 404 on a registered path with another method becomes 405 in methodNotAllowed afterwards.
+ * A 404 on a registered path with another method becomes 405 in methodNotAllowed afterwards (text
+ * on the download routes, the envelope elsewhere: errors.ts onMethodNotAllowed).
  */
 export function uiFallback(deps: Pick<AppDeps, "ui">): NotFoundHandler<AppEnv> {
   return async (c) => {

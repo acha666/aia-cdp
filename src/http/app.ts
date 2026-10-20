@@ -10,6 +10,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { createErrorHandler, onMethodNotAllowed, validationHook } from "./errors.ts";
 import { createLogger, requestLog } from "./log.ts";
 import { adminRoutes } from "./routes/admin.ts";
+import { downloadRoutes } from "./routes/downloads.ts";
 import { healthRoutes } from "./routes/health.ts";
 import type { AppDeps, AppEnv } from "./types.ts";
 import { uiFallback } from "./ui.ts";
@@ -48,9 +49,11 @@ export function createApp(deps: AppDeps) {
 
   // The chained value carries the route types: AppType (hc<AppType>) is inferred from it. Only
   // public routes join the chain; the admin routes are served and documented, but stay out of the
-  // web client's types (slice 5a step 8).
+  // web client's types (slice 5a step 8). The download routes (/ca/*, /crl/*, /dcrl/*) are a plain
+  // Hono app: neither in AppType nor in the OpenAPI document.
   const routes = app.route("/api/v1", healthRoutes(deps));
   app.route("/api/v1", adminRoutes(deps));
+  app.route("/", downloadRoutes(deps));
   return routes;
 }
 

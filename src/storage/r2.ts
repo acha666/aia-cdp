@@ -43,7 +43,7 @@ export class R2Store implements ObjectStore {
     this.#bucket = bucket;
   }
 
-  async get(key: string): Promise<{ bytes: Uint8Array; etag: string } | null> {
+  async get(key: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; etag: string } | null> {
     assertStoreKey(key);
     const object = await this.#bucket.get(key);
     return object ? { bytes: new Uint8Array(await object.arrayBuffer()), etag: object.etag } : null;
