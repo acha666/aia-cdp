@@ -50,8 +50,8 @@ describe("generated PKI fixtures", () => {
 
   it("has the appendix D inventory", () => {
     expect(manifest.version).toBe(1);
-    expect(manifest.certificates).toHaveLength(12);
-    expect(manifest.crls).toHaveLength(30);
+    expect(manifest.certificates).toHaveLength(13);
+    expect(manifest.crls).toHaveLength(31);
     expect(manifest.invalid).toHaveLength(6);
     expect(manifest.scenarios).toHaveLength(17);
   });
@@ -97,6 +97,24 @@ describe("generated PKI fixtures", () => {
       serial: "2001",
       import: false,
     });
+    // Slice 4 step 1.
+    expect(manifest.certificates.find((c) => c.name === "issuing-ca-1-renamed")).toMatchObject({
+      issuer: "root-ca",
+      serial: "1004",
+      import: false,
+    });
+    expect(crl("crls/issuing-ca-1/full-idp-dp-only.der").expect).toBe("created");
+    expect(crl("crls/issuing-ca-1/full-sha1.der")).toMatchObject({
+      crlNumber: "21",
+      expect: "created",
+    });
+    const publishing = Object.fromEntries(
+      manifest.crls.filter((c) => c.nextPublish !== null).map((c) => [c.file, c.nextPublish])
+    );
+    expect(publishing).toEqual({
+      "crls/issuing-ca-1/full-adcs.der": "2026-01-10T12:00:00Z",
+      "crls/issuing-ca-1/delta-adcs.der": "2026-01-04T18:00:00Z",
+    });
   });
 
   it("declares what the files contain", () => {
@@ -115,6 +133,35 @@ describe("generated PKI fixtures", () => {
       crl("crls/issuing-ca-1/full-02.der").crlNumber
     );
     expect(out).toMatch(/lastUpdate=Jan {2}2 00:00:00 2026 GMT/);
+  });
+
+  it("signs full-sha1 with SHA-1 and gives issuing-ca-1-renamed the key but not the name", () => {
+    const sha1 = openssl(
+      "crl",
+      "-inform",
+      "DER",
+      "-noout",
+      "-text",
+      "-in",
+      fixturePath("crls/issuing-ca-1/full-sha1.der")
+    );
+    expect(sha1).toContain("Signature Algorithm: sha1WithRSAEncryption");
+    const probe = (name: string) =>
+      openssl(
+        "x509",
+        "-noout",
+        "-subject",
+        "-pubkey",
+        "-ext",
+        "subjectKeyIdentifier",
+        "-in",
+        fixturePath(`certs/${name}.pem`)
+      ).split("\n");
+    const [renamedSubject, ...renamedKey] = probe("issuing-ca-1-renamed");
+    const [subject, ...key] = probe("issuing-ca-1");
+    expect(renamedKey).toEqual(key);
+    expect(renamedKey.join("\n")).toContain("Subject Key Identifier");
+    expect(renamedSubject).not.toBe(subject);
   });
 
   it("contains no private key material", () => {

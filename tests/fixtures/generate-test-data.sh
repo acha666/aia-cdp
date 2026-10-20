@@ -467,16 +467,19 @@ cert_entry() { # NAME ISSUER KEY NOT_BEFORE NOT_AFTER IMPORT ROLE
     sha256 "$(sha256 "$STAGE/certs/$1.der")" role "$7")")
 }
 # crl_entry FILE ISSUER KIND NUMBER BASE THIS NEXT EXPECT NOTE [SIGNER]
-#   NUMBER/BASE/NEXT may be "-" for absent.
+#   NUMBER/BASE/NEXT may be "-" for absent. PUBLISH (environment, the
+#   GeneralizedTime form of THIS) is the Next CRL Publish value the CRL
+#   carries; unset for CRLs without that extension.
 crl_entry() {
-  local number=$4 base=$5 next=$7 signer=${10:-$2} revoked
+  local number=$4 base=$5 next=$7 signer=${10:-$2} publish='=null' revoked
   [[ $number =~ ^[0-9]+$ ]] || number='=null'
   [[ $base == - ]] && base='=null'
   if [[ $next == - ]]; then next='=null'; else next=$(iso "$next"); fi
+  [[ -n ${PUBLISH-} ]] && publish=$(iso "$PUBLISH")
   revoked=$(grep -c '^R' "$WORK/ca/$signer/index.txt" || true)
   CRLS+=("$(obj file "crls/$1" issuer "$2" signer "$signer" kind "$3" crlNumber "$number" \
-    baseCrlNumber "$base" thisUpdate "$(iso "$6")" nextUpdate "$next" revoked "=$revoked" \
-    expect "$8" sha256 "$(sha256 "$STAGE/crls/$1")" note "$9")")
+    baseCrlNumber "$base" thisUpdate "$(iso "$6")" nextUpdate "$next" nextPublish "$publish" \
+    revoked "=$revoked" expect "$8" sha256 "$(sha256 "$STAGE/crls/$1")" note "$9")")
 }
 invalid_entry() { INVALID+=("$(obj file "invalid/$1" expect invalid_crl note "$2")"); }
 emit() { # NAME ENTRY...
@@ -491,6 +494,7 @@ emit() { # NAME ENTRY...
 ROOT_SUBJ="/C=US/O=Example PKI/CN=Example Root CA (ECC P-384)"
 ICA1_SUBJ="/C=US/O=Example PKI/CN=Example Issuing CA 01 (RSA)"
 ICA2_SUBJ="/C=US/O=Example PKI/CN=Example Issuing CA 02 (RSA)"
+ICA1_RENAMED_SUBJ="/C=US/O=Example PKI/CN=Example Issuing CA 01 (RSA, renamed)"
 
 genkey root-ca p384
 ca_init root-ca 1000
@@ -511,6 +515,12 @@ ca_ready issuing-ca-2
 cp "$WORK/keys/issuing-ca-1.pem" "$WORK/keys/issuing-ca-1-renewed.pem"
 PREV_CA_HASH=$("$OPENSSL" dgst -sha1 -r "$STAGE/certs/issuing-ca-1.der" | cut -d' ' -f1) \
   issue issuing-ca-1-renewed root-ca ext_issuing_renewed 20251201000000Z 20351201000000Z "$ICA1_SUBJ"
+
+# The same key pair (and SKI) once more, under another subject CN: the CRLs of
+# issuing-ca-1 name an issuer this certificate is not, so only a check that
+# ignores issuer names (C1) verifies them with it.
+cp "$WORK/keys/issuing-ca-1.pem" "$WORK/keys/issuing-ca-1-renamed.pem"
+issue issuing-ca-1-renamed root-ca ext_issuing 20250101000000Z 20350101000000Z "$ICA1_RENAMED_SUBJ"
 
 # Rogue CA: own key, but the subject of issuing-ca-1.
 genkey rogue-ca rsa
@@ -540,6 +550,7 @@ cert_entry root-ca root-ca ec-p384 20250101000000Z 20450101000000Z true "offline
 cert_entry issuing-ca-1 root-ca rsa-2048 20250101000000Z 20350101000000Z true "AD CS style issuing CA"
 cert_entry issuing-ca-2 root-ca rsa-2048 20250101000000Z 20350101000000Z true "second issuing CA"
 cert_entry issuing-ca-1-renewed root-ca rsa-2048 20251201000000Z 20351201000000Z false "same key and SKI as issuing-ca-1"
+cert_entry issuing-ca-1-renamed root-ca rsa-2048 20250101000000Z 20350101000000Z false "same key and SKI as issuing-ca-1, other subject CN"
 cert_entry rogue-ca rogue-ca rsa-2048 20250101000000Z 20350101000000Z false "never imported; subject equals issuing-ca-1"
 cert_entry ed25519-ca ed25519-ca ed25519 20250101000000Z 20350101000000Z true "unsupported_algorithm issuer"
 cert_entry ed448-ca ed448-ca ed448 20250101000000Z 20350101000000Z true "unsupported_algorithm issuer"
@@ -591,7 +602,7 @@ crl_entry $I1/full-no-number.der $I1 full - - 20260103060000Z 20260110060000Z cr
   "no CRL Number: non_orderable against any numbered current CRL and back"
 crl $I1 noext 20260103060000Z 20260110060000Z - $I1/full-no-aki.der
 crl_entry $I1/full-no-aki.der $I1 full - - 20260103060000Z 20260110060000Z issuer_not_found \
-  "no CRL extensions at all (no AKI); plan does not name the code yet"
+  "no CRL extensions at all (no AKI): details.reason missing_aki"
 
 # Edge cases: numbers above the base sequence and thisUpdate after full-03,
 # so each one would be "updated" if its check were missing.
@@ -609,8 +620,8 @@ crl_entry $I1/full-unknown-noncritical.der $I1 full 13 - $EDGE $EDGE_NEXT create
 crl $I1 14 $EDGE $EDGE_NEXT crl_ext_idp_scoped $I1/full-idp-scoped.der
 crl_entry $I1/full-idp-scoped.der $I1 full 14 - $EDGE $EDGE_NEXT scoped_crl_unsupported "critical IDP, onlyContainsUserCerts"
 crl $I1 15 $EDGE $EDGE_NEXT crl_ext_idp_dp_only $I1/full-idp-dp-only.der
-crl_entry $I1/full-idp-dp-only.der $I1 full 15 - $EDGE $EDGE_NEXT scoped_crl_unsupported \
-  "critical IDP naming only the DP (AD CS option); rejected under plan section 6, owner to confirm"
+crl_entry $I1/full-idp-dp-only.der $I1 full 15 - $EDGE $EDGE_NEXT created \
+  "critical IDP naming only the DP (AD CS option): accepted (slice 4 owner answer 2)"
 crl $I1 16 $EDGE $EDGE_NEXT crl_ext $I1/full-pss.der \
   -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:digest -sigopt rsa_mgf1_md:sha256
 crl_entry $I1/full-pss.der $I1 full 16 - $EDGE $EDGE_NEXT created "RSASSA-PSS SHA-256, MGF1 SHA-256, salt 32"
@@ -623,11 +634,19 @@ resign "$STAGE/crls/$I1/full-bad-time.der" "$WORK/keys/$I1.pem" sha256 \
   " 17 0d$(text_bytes "${EDGE:2}")" " 17 0b$(text_bytes "${EDGE:2:10}Z")"
 crl_entry $I1/full-bad-time.der $I1 full 18 - $EDGE $EDGE_NEXT invalid_crl \
   "thisUpdate UTCTime without seconds, validly signed"
-NEXT_PUBLISH=260110120000Z crl $I1 19 20260103115000Z 20260111001000Z crl_ext_adcs_full $I1/full-adcs.der
-crl_entry $I1/full-adcs.der $I1 full 19 - 20260103115000Z 20260111001000Z created \
+ADCS_FULL_PUBLISH=20260110120000Z ADCS_DELTA_PUBLISH=20260104180000Z
+NEXT_PUBLISH=${ADCS_FULL_PUBLISH:2} crl $I1 19 20260103115000Z 20260111001000Z crl_ext_adcs_full $I1/full-adcs.der
+PUBLISH=$ADCS_FULL_PUBLISH crl_entry $I1/full-adcs.der $I1 full 19 - 20260103115000Z 20260111001000Z created \
   "AD CS extension set: CA Version, Next CRL Publish, Freshest CRL, CRL Self CDP"
-NEXT_PUBLISH=260104180000Z BASE_CRL_NUMBER=19 crl $I1 20 20260103175000Z 20260105061000Z crl_ext_adcs_delta $I1/delta-adcs.der
-crl_entry $I1/delta-adcs.der $I1 delta 20 19 20260103175000Z 20260105061000Z created "AD CS delta extension set"
+NEXT_PUBLISH=${ADCS_DELTA_PUBLISH:2} BASE_CRL_NUMBER=19 \
+  crl $I1 20 20260103175000Z 20260105061000Z crl_ext_adcs_delta $I1/delta-adcs.der
+PUBLISH=$ADCS_DELTA_PUBLISH crl_entry $I1/delta-adcs.der $I1 delta 20 19 20260103175000Z 20260105061000Z created \
+  "AD CS delta extension set"
+# SHA-1 signatures are accepted (slice 4 owner answer 1). The later -md wins.
+crl $I1 21 $EDGE $EDGE_NEXT crl_ext $I1/full-sha1.der -md sha1
+[[ $("$OPENSSL" crl -inform DER -in "$STAGE/crls/$I1/full-sha1.der" -noout -text) == \
+  *'Signature Algorithm: sha1WithRSAEncryption'* ]] || die "full-sha1.der is not signed with SHA-1"
+crl_entry $I1/full-sha1.der $I1 full 21 - $EDGE $EDGE_NEXT created "sha1WithRSAEncryption"
 crl $I1 30 20990101000000Z 20990108000000Z crl_ext $I1/full-future.der
 crl_entry $I1/full-future.der $I1 full 30 - 20990101000000Z 20990108000000Z not_yet_valid \
   "thisUpdate 2099 (GeneralizedTime): future for any clock"

@@ -25,7 +25,9 @@
 1. **夹具补充**（`tests/fixtures/generate-test-data.sh`）。
    - 新增 `certs/issuing-ca-1-renamed`：与 `issuing-ca-1` 同钥同 SKI、subject CN 不同，`import:false`，供 C1 用例；
      `issuing-ca-1-renewed` 的 subject 与原证书相同，不能替代。
-   - owner 确认 1 选了接受 SHA-1：加 `crls/issuing-ca-1/full-sha1`（`-md sha1`），先确认 OpenSSL 3.0 能签。
+   - owner 确认 1 选了接受 SHA-1：加 `crls/issuing-ca-1/full-sha1`（`-md sha1`），先确认 OpenSSL 3.0 能签。已确认：OpenSSL 3.5.5
+     直接签（安全级别只约束 TLS，无需本地覆盖）；生成器再用 `openssl crl -text` 核对签名算法，签不出或不是 SHA-1 即失败。
+   - owner 确认 2 接受只含 `distributionPoint` 的关键 IDP：`full-idp-dp-only` 的 `expect` 改为 `created`。
    - 条目扩展关键性、内外签名算法不一致两类不做夹具（`openssl ca` 产不出）：测试解析现有 CRL 后改 pkijs 对象再调策略函数；
      策略在验签之前，不需要重签。
    - manifest 的 CRL 条目加 `nextPublish`（`full-adcs`、`delta-adcs` 取脚本的 `NEXT_PUBLISH`，即 `2026-01-10T12:00:00Z`、
@@ -189,8 +191,8 @@
   带 / 不带毫秒的同一时刻。
 - `tests/core/publish.test.ts`（MemoryStore 包一层写日志；先 `importCertificate` 所有 `import:true` 证书，`applyConfig` 为
   issuing-ca-1/2 的 full + delta、root-ca、ed25519-ca、ed448-ca 建目标）：
-  - `test.each(manifest.crls)` 首次上传结果等于 `expect`（`full-idp-dp-only` 的 `expect` 是 `scoped_crl_unsupported`，与 owner 确认 2
-    的默认"接受"不同，单独断言；`full-no-aki` 的 `expect` 已是 `issuer_not_found`，另断言 `details.reason = "missing_aki"`）；
+  - `test.each(manifest.crls)` 首次上传结果等于 `expect`（`full-idp-dp-only` 的 `expect` 已随步骤 1 改为 `created`（owner 确认 2），
+    不再单独断言；`full-no-aki` 的 `expect` 已是 `issuer_not_found`，另断言 `details.reason = "missing_aki"`）；
     `test.each(manifest.scenarios)` 17 条（含 `full-02-conflict`、`root-ca/full-02-resigned` → `conflict`，`full-no-number` 双向
     `non_orderable`，`full-04-older-time` 号优先）；`test.each(manifest.invalid)` → `invalid_crl`；`full-bad-time.der` →
     `reason = "time"`；合成的畸形 CRL Number / Delta / AKI（迁自 `worker-aia-cdp@5b570aa:tests/worker/pki-values.test.ts:159-179`）→ `invalid_crl`。

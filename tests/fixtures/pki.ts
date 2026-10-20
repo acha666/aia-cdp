@@ -58,6 +58,8 @@ export interface ManifestCrl {
   thisUpdate: string;
   /** null when the CRL has no nextUpdate. */
   nextUpdate: string | null;
+  /** AD CS Next CRL Publish (1.3.6.1.4.1.311.21.4); null when the CRL has no such extension. */
+  nextPublish: string | null;
   revoked: number;
   expect: CrlExpect;
   sha256: string;
