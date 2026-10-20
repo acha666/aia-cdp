@@ -12,6 +12,11 @@ import { pkiError } from "../../helpers/pki.ts";
 
 const CRL = fixture("crls/root-ca/full-01.der");
 
+/** Octets from hex pairs separated by spaces. */
+function bytes(hex: string): Uint8Array {
+  return Uint8Array.from(hex.trim().split(/\s+/), (pair) => Number.parseInt(pair, 16));
+}
+
 /** A primitive with arbitrary content bytes; asn1js time classes would re-encode their fields. */
 function rawTime(tagNumber: 23 | 24, raw: string): asn1.Primitive {
   return new asn1.Primitive({
@@ -106,17 +111,22 @@ describe("strict RFC 5280 times", () => {
 });
 
 describe("assertWellFormed", () => {
+  // assertWellFormed checks decoded trees: the identifier and length octets are part of the rules.
+  function decodedSequence(...value: asn1.BaseBlock[]): asn1.Sequence {
+    return asn1.fromBER(new asn1.Sequence({ value }).toBER(false)).result as asn1.Sequence;
+  }
+
   it("reports a time asn1js could not convert as Asn1TimeError", () => {
     // asn1js only sets block.error for a UTCTime without seconds; fromBER still succeeds.
-    const time = decodedTime(23, "2605080000Z");
-    expect(time.error).not.toBe("");
-    expect(() => assertWellFormed(new asn1.Sequence({ value: [time] }))).toThrow(Asn1TimeError);
+    const sequence = decodedSequence(rawTime(23, "2605080000Z"));
+    expect(sequence.valueBlock.value[0]?.error).not.toBe("");
+    expect(() => assertWellFormed(sequence)).toThrow(Asn1TimeError);
   });
 
   it("reports any other decoder error as a plain Error", () => {
-    const integer = new asn1.Integer({ value: 1 });
-    integer.error = "synthetic decoder error";
-    const run = () => assertWellFormed(new asn1.Sequence({ value: [integer] }));
+    const sequence = decodedSequence(new asn1.Integer({ value: 1 }));
+    sequence.valueBlock.value[0]!.error = "synthetic decoder error";
+    const run = () => assertWellFormed(sequence);
     expect(run).toThrow(/ASN\.1 decode error: synthetic decoder error/);
     expect(run).not.toThrow(Asn1TimeError);
   });
@@ -128,4 +138,51 @@ describe("assertWellFormed", () => {
       expect(() => assertWellFormed(asn1.fromBER(fixture(file)).result)).not.toThrow();
     }
   );
+
+  // asn1js decodes all of these without an error (X.690 §8 and §10).
+  it.each([
+    ["the indefinite length", "30 80 02 01 01 00 00"],
+    ["a long-form length below 128", "04 81 03 01 02 03"],
+    ["a leading zero length octet", `04 82 00 80 ${"00 ".repeat(128)}`],
+    ["a low tag number in the high-tag-number form", "1f 02 01 05"],
+    ["a constructed OCTET STRING", "24 03 04 01 aa"],
+    ["a constructed BIT STRING", "23 04 03 02 00 aa"],
+    ["an empty INTEGER", "30 02 02 00"],
+    ["an empty ENUMERATED", "0a 00"],
+    ["an empty OBJECT IDENTIFIER", "06 00"],
+    ["a BIT STRING without its unused-bits octet", "03 00"],
+    ["an empty BOOLEAN", "01 00"],
+    ["BER inside a SEQUENCE", "30 06 04 81 01 aa 05 00"],
+    // An Extension's extnValue holds DER by definition (RFC 5280 §4.1), so it is checked too.
+    ["BER inside an extension value", "30 0b 06 03 55 1d 0e 04 04 04 81 01 aa"],
+  ])("rejects %s as a plain Error", (_, hex) => {
+    const decoded = asn1.fromBER(bytes(hex));
+    expect(decoded.offset).toBe(bytes(hex).byteLength);
+    const run = () => assertWellFormed(decoded.result);
+    expect(run).toThrow(/^Not DER: /);
+    expect(run).not.toThrow(Asn1TimeError);
+  });
+
+  it("checks a time inside an extension value (AD CS Next CRL Publish)", () => {
+    // Extension { 1.3.6.1.4.1.311.21.4, OCTET STRING { UTCTime "2605080000Z" } }
+    const hex =
+      "30 1a 06 09 2b 06 01 04 01 82 37 15 04 04 0d 17 0b 32 36 30 35 30 38 30 30 30 30 5a";
+    expect(() => assertWellFormed(asn1.fromBER(bytes(hex)).result)).toThrow(Asn1TimeError);
+  });
+
+  // Only the contents of a constructed value and of an extension value are DER by definition: key
+  // ids, hashes, keys and signatures are opaque, whatever asn1js made of them on speculation.
+  it.each([
+    ["a long-form length that is needed", `04 81 80 ${"00 ".repeat(128)}`],
+    ["an OCTET STRING holding BER", "04 03 04 81 00"],
+    ["an OCTET STRING holding an empty INTEGER", "04 02 02 00"],
+    ["a BIT STRING holding a broken UTCTime", `03 15 00 17 12 ${"41 ".repeat(18)}`],
+    // Subject Key Identifier { OCTET STRING (20) { 17 12 … } }: an opaque key id in a DER value.
+    [
+      "an SKI whose key id decodes as a broken UTCTime",
+      `30 1d 06 03 55 1d 0e 04 16 04 14 17 12 ${"41 ".repeat(18)}`,
+    ],
+  ])("accepts %s", (_, hex) => {
+    expect(() => assertWellFormed(asn1.fromBER(bytes(hex)).result)).not.toThrow();
+  });
 });

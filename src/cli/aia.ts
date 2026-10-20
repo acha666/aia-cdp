@@ -271,6 +271,18 @@ async function send(ctx: Context, url: string, init: RequestInit): Promise<Respo
   }
 }
 
+/**
+ * The body of a response from `url` as text. Every body is read through here: one that fails
+ * after the headers (a reset connection, the timeout firing mid-body) is a Failure too.
+ */
+async function readText(res: Response, url: string): Promise<string> {
+  try {
+    return await res.text();
+  } catch (error) {
+    throw new Failure(`cannot read the response from ${url}: ${reasonOf(error)}`);
+  }
+}
+
 /** A non-success response: the error envelope's fields, or the status line without one. */
 interface HttpError {
   status: number;
@@ -279,8 +291,8 @@ interface HttpError {
   details?: unknown;
 }
 
-async function httpError(res: Response): Promise<HttpError> {
-  const text = await res.text();
+async function httpError(res: Response, url: string): Promise<HttpError> {
+  const text = await readText(res, url);
   try {
     const { error } = JSON.parse(text) as { error?: Record<string, unknown> };
     if (typeof error?.code === "string" && typeof error.message === "string") {
@@ -305,9 +317,10 @@ function describeHttp(error: HttpError): string {
 }
 
 /** The JSON body of a success response; a body that is not JSON is a Failure. */
-async function jsonOf(res: Response): Promise<unknown> {
+async function jsonOf(res: Response, url: string): Promise<unknown> {
+  const text = await readText(res, url);
   try {
-    return await res.json();
+    return JSON.parse(text) as unknown;
   } catch {
     throw new Failure(`HTTP ${res.status}, but the body is not JSON`);
   }
@@ -409,10 +422,10 @@ async function importOne(
       body: upload.body,
     });
     if (res.status !== 200 && res.status !== 201) {
-      const error = await httpError(res);
+      const error = await httpError(res, url);
       return { ...where, ok: false, error: { ...error, message: describeHttp(error) } };
     }
-    const body = (await jsonOf(res)) as Imported & Record<string, unknown>;
+    const body = (await jsonOf(res, url)) as Imported & Record<string, unknown>;
     return { ...where, ok: true, ...body };
   } catch (error) {
     if (error instanceof Failure) {
@@ -483,7 +496,7 @@ async function configShow(ctx: Context): Promise<number> {
   const url = configUrl(ctx);
   const res = await send(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
   if (res.status === 404) {
-    await res.arrayBuffer();
+    await readText(res, url);
     // A result, not only an error: scripts (seed-dev) tell "nothing yet" from a failure by it.
     if (ctx.json) {
       printJson(ctx.io, { etag: null, config: null });
@@ -492,11 +505,11 @@ async function configShow(ctx: Context): Promise<number> {
     return 1;
   }
   if (!res.ok) {
-    throw new Failure(describeHttp(await httpError(res)));
+    throw new Failure(describeHttp(await httpError(res, url)));
   }
   const etag = res.headers.get("ETag");
   // As stored, also when an out-of-band write broke it: the GET exists to allow repairs.
-  const text = await res.text();
+  const text = await readText(res, url);
   if (!ctx.json) {
     ctx.io.stdout(text.endsWith("\n") ? text : `${text}\n`);
     return 0;
@@ -553,18 +566,18 @@ async function configApply(ctx: Context, file: string): Promise<number> {
   const current = await send(ctx, url, { method: "GET", headers });
   let precondition: Record<string, string>;
   if (current.status === 404) {
-    await current.arrayBuffer();
+    await readText(current, url);
     precondition = { "If-None-Match": "*" };
   } else if (current.ok) {
     const etag = current.headers.get("ETag");
-    await current.arrayBuffer();
+    await readText(current, url);
     if (etag === null) {
       throw new Failure(`GET ${url} answered without an ETag`);
     }
     precondition = { "If-Match": etag };
   } else {
     throw new Failure(
-      `cannot read the current configuration: ${describeHttp(await httpError(current))}`
+      `cannot read the current configuration: ${describeHttp(await httpError(current, url))}`
     );
   }
 
@@ -575,7 +588,7 @@ async function configApply(ctx: Context, file: string): Promise<number> {
   });
   if (res.status === 200) {
     const etag = res.headers.get("ETag");
-    const config = await jsonOf(res);
+    const config = await jsonOf(res, url);
     if (ctx.json) {
       printJson(ctx.io, { etag, config });
     } else {
@@ -583,7 +596,7 @@ async function configApply(ctx: Context, file: string): Promise<number> {
     }
     return 0;
   }
-  const error = await httpError(res);
+  const error = await httpError(res, url);
   // Not retried: the configuration that is there now may be one the operator has not seen.
   if (res.status === 412) {
     throw new Failure(
@@ -620,7 +633,7 @@ interface Health {
 async function health(ctx: Context): Promise<number> {
   const url = `${serviceUrl(ctx)}/api/v1/health`;
   const res = await send(ctx, url, { method: "GET", headers: { Accept: "application/json" } });
-  const text = await res.text();
+  const text = await readText(res, url);
   let body: Partial<Health> | undefined;
   try {
     body = JSON.parse(text) as Partial<Health>;

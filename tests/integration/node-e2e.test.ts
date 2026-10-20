@@ -4,7 +4,7 @@
 // healthy → restart → the same ETag, every re-import unchanged. Also scripts/seed-dev.ts, twice.
 // Slices 3 and 4 continue this file (downloads, publish).
 import { spawn } from "node:child_process";
-import type { ChildProcessByStdio } from "node:child_process";
+import type { ChildProcess, ChildProcessByStdio } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,7 +39,8 @@ interface Server {
   stop: () => Promise<number | null>;
 }
 
-const servers = new Set<Server>();
+/** Every server process from its spawn on, so that afterAll ends it even if it never listened. */
+const processes = new Set<{ child: ChildProcess; closed: Promise<unknown> }>();
 let scratch: string;
 
 beforeAll(async () => {
@@ -47,13 +48,25 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  for (const server of servers) {
-    if (server.child.exitCode === null && server.child.signalCode === null) {
-      server.child.kill("SIGKILL");
+  for (const { child, closed } of processes) {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
     }
+    // No data directory is removed under a running server.
+    await closed;
   }
   await rm(scratch, { recursive: true, force: true });
 });
+
+/** The port of a complete stdout line that is the `listening` log record. */
+function listeningPort(line: string): number | undefined {
+  try {
+    const record = JSON.parse(line) as { msg?: unknown; port?: unknown };
+    return record.msg === "listening" && typeof record.port === "number" ? record.port : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Starts the Node entry with exactly `env` (plus PATH); resolves once it is listening. */
 async function startServer(env: Record<string, string>): Promise<Server> {
@@ -62,40 +75,46 @@ async function startServer(env: Record<string, string>): Promise<Server> {
     env: { PATH: process.env.PATH ?? "", PORT: "0", AIA_STATIC_DIR: scratch, ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  let output = "";
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stderr.on("data", (chunk: string) => {
-    output += chunk;
-  });
   const closed = new Promise<number | null>((resolve) => {
     child.once("close", (code) => {
       resolve(code);
     });
   });
+  processes.add({ child, closed });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
   const port = await new Promise<number>((resolve, reject) => {
+    let scanned = 0;
     child.stdout.on("data", (chunk: string) => {
-      output += chunk;
-      const match = /"msg":"listening","port":(\d+)/.exec(output);
-      if (match) {
-        resolve(Number(match[1]));
+      stdout += chunk;
+      // Complete lines only: a chunk may end in the middle of one.
+      const end = stdout.lastIndexOf("\n") + 1;
+      for (const line of stdout.slice(scanned, end).split("\n")) {
+        const found = listeningPort(line);
+        if (found !== undefined) {
+          resolve(found);
+        }
       }
+      scanned = Math.max(scanned, end);
     });
     void closed.then((code) => {
-      reject(new Error(`server exited with ${code} before listening\n${output}`));
+      reject(new Error(`server exited with ${code} before listening\n${stdout}${stderr}`));
     });
   });
-  const server: Server = {
+  return {
     child,
     port,
-    output: () => output,
+    output: () => stdout + stderr,
     stop: async () => {
       child.kill("SIGTERM");
       return closed;
     },
   };
-  servers.add(server);
-  return server;
 }
 
 /** Runs a Node script to completion with exactly `env` (plus PATH). */

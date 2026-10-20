@@ -14,7 +14,8 @@ export const PKI_PARSE_REASONS = [
   "trailing_bytes",
   // A UTCTime / GeneralizedTime not in the only form RFC 5280 permits.
   "time",
-  // Decodable, but not a certificate / CRL (PKIjs rejected the structure).
+  // Decodable, but not a certificate / CRL (PKIjs rejected the structure), or one with a value the
+  // catalog format cannot hold.
   "structure",
   // An extension the service reads (SKI, AKI, CRL Number, Delta CRL Indicator) is malformed.
   "extension_value",

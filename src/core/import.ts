@@ -1,7 +1,13 @@
 // Certificate import (plan §5.5, implementation slice 2 step 5; §10 #5, #14; M1, M9, M23).
 // There is one commit point, the catalog write: no companion objects, no edge cache. Importing does
 // not authorize anything: a certificate only becomes an issuer once a config target names it.
-import { certificateBlobKey, readCatalog, realSleep, updateCatalog } from "./catalog.ts";
+import {
+  CertificateSummarySchema,
+  certificateBlobKey,
+  readCatalog,
+  realSleep,
+  updateCatalog,
+} from "./catalog.ts";
 import type { CatalogCertificate } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { PkiParseError } from "./pki/errors.ts";
@@ -40,10 +46,18 @@ interface Parsed {
 }
 
 // toDer → parseCertificate (strict DER, RFC 5280 times) → summary; every PkiParseError is a 422.
+// The summary is checked against the catalog format here, before the blob write: a value the
+// catalog cannot hold would otherwise only fail in updateCatalog, after it (a 500 and a blob).
 async function parse(bytes: Uint8Array): Promise<Parsed | PkiParseError> {
   try {
     const der = toDer(bytes, "certificate");
     const summary = await buildCertificateSummary(parseCertificate(der), der);
+    const checked = CertificateSummarySchema.safeParse(summary);
+    if (!checked.success) {
+      return new PkiParseError("certificate", "structure", "No catalog form for the summary", {
+        cause: checked.error,
+      });
+    }
     return { der, summary };
   } catch (error) {
     if (error instanceof PkiParseError) {

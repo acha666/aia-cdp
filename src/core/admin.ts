@@ -20,6 +20,8 @@ import {
   encodeJson,
   JSON_CONTENT_TYPE,
   readCatalog,
+  Sha256Hex,
+  TargetId,
 } from "./catalog.ts";
 import type { Catalog, Config, CrlKind } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
@@ -59,12 +61,13 @@ const PATH_PREFIX = /^\/(ca|crl|dcrl)\//;
 
 const KIND_BY_PREFIX: Record<string, CrlKind> = { crl: "full", dcrl: "delta" };
 
+const PATH_SYNTAX_MESSAGE =
+  "Expected /ca/, /crl/ or /dcrl/ followed by segments of [A-Za-z0-9._~-] " +
+  "(no empty segment, trailing /, % or other character)";
+
 function pathSyntaxProblem(path: string): string | undefined {
   if (!PATH_SYNTAX.test(path)) {
-    return (
-      "Expected /ca/, /crl/ or /dcrl/ followed by segments of [A-Za-z0-9._~-] " +
-      "(no empty segment, trailing /, % or other character)"
-    );
+    return PATH_SYNTAX_MESSAGE;
   }
   if (path.split("/").some((segment) => segment === "." || segment === "..")) {
     return "A path segment must not be . or ..";
@@ -138,11 +141,8 @@ function staticIssues(config: Config): ConfigIssue[] {
   return issues;
 }
 
-/**
- * The V1 issues of a failed ConfigSchema parse. Also used by the HTTP route, whose JSON body is
- * validated against ConfigSchema before applyConfig runs.
- */
-export function schemaIssues(error: z.ZodError): ConfigIssue[] {
+/** The V1 issues of a failed ConfigSchema parse. */
+function schemaIssues(error: z.ZodError): ConfigIssue[] {
   return error.issues.map((issue) => ({
     path: issue.path.map((key) => (typeof key === "symbol" ? String(key) : key)),
     rule: "V1",
@@ -154,14 +154,42 @@ export function schemaIssues(error: z.ZodError): ConfigIssue[] {
   }));
 }
 
+// zod's records skip an own "__proto__" key without checking the key or its value (a guard against
+// prototype pollution), so ConfigSchema alone would accept such a document and drop the entry.
+// JSON.parse makes the key an ordinary property: report it as its map's other keys would be, V1
+// for an id that is not one, V2 for a path.
+function protoKeyIssues(value: unknown): ConfigIssue[] {
+  if (typeof value !== "object" || value === null) {
+    return [];
+  }
+  const issues: ConfigIssue[] = [];
+  const keySchemas = { certificates: Sha256Hex, targets: TargetId } as const;
+  for (const map of ["certificates", "targets", "paths"] as const) {
+    const record = own(value as Record<string, unknown>, map);
+    if (typeof record !== "object" || record === null || !Object.hasOwn(record, "__proto__")) {
+      continue;
+    }
+    const path = [map, "__proto__"];
+    if (map === "paths") {
+      issues.push({ path, rule: "V2", message: PATH_SYNTAX_MESSAGE });
+    } else {
+      const parsed = keySchemas[map].safeParse("__proto__");
+      const problems = parsed.success ? [] : parsed.error.issues.map((issue) => issue.message);
+      issues.push({ path, rule: "V1", message: `Invalid key: ${problems.join("; ")}` });
+    }
+  }
+  return issues;
+}
+
 // V1, then the other static rules on a schema-valid document. `config` is undefined when V1 fails:
 // the other rules need a well-formed document and do not run.
 function staticLayer(value: unknown): { config: Config | undefined; issues: ConfigIssue[] } {
+  const protoKeys = protoKeyIssues(value);
   const parsed = ConfigSchema.safeParse(value);
   if (parsed.success) {
-    return { config: parsed.data, issues: staticIssues(parsed.data) };
+    return { config: parsed.data, issues: [...protoKeys, ...staticIssues(parsed.data)] };
   }
-  return { config: undefined, issues: schemaIssues(parsed.error) };
+  return { config: undefined, issues: [...protoKeys, ...schemaIssues(parsed.error)] };
 }
 
 /**
@@ -306,7 +334,7 @@ export interface ValidationContext {
 export function validateConfig(value: unknown, context: ValidationContext): ConfigCheck {
   const { config, issues } = staticLayer(value);
   if (config === undefined) {
-    return { ok: false, issues };
+    return { ok: false, issues: byRule(issues) };
   }
   const all = byRule([
     ...issues,

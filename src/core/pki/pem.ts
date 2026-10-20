@@ -62,8 +62,10 @@ const PEM_LABELS: Record<PkiKind, string> = { certificate: "CERTIFICATE", crl: "
 // An encapsulation boundary: `-----BEGIN <label>-----` or `-----END <label>-----`.
 const BOUNDARY = /-----(BEGIN|END) ([^\r\n]*?)-----/g;
 
-// Canonical base64 once whitespace is removed: full quads, `=` padding only at the end.
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+// Canonical base64 once whitespace is removed: full quads (the length is checked apart), `=`
+// padding only at the end. No repeated group: V8 runs one out of regexp stack on a body of a few
+// MiB, which is below the upload limit.
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 interface Boundary {
   type: "BEGIN" | "END";
@@ -151,7 +153,7 @@ export function toDer(bytes: Uint8Array, kind: PkiKind): Uint8Array {
     throw new PkiParseError(kind, "pem_blocks", `Expected exactly one complete ${label} PEM block`);
   }
   const body = text.slice(begin.end, end.start).replace(/\s/g, "");
-  if (!BASE64.test(body)) {
+  if (body.length % 4 !== 0 || !BASE64.test(body)) {
     throw new PkiParseError(kind, "pem_base64", `Invalid base64 in the ${label} PEM block`);
   }
   return Uint8Array.from(atob(body), (char) => char.charCodeAt(0));

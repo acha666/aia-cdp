@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CATALOG_KEY,
   CatalogSchema,
@@ -10,21 +10,36 @@ import {
 } from "../../src/core/catalog.ts";
 import { importCertificate } from "../../src/core/import.ts";
 import type { ImportResult } from "../../src/core/import.ts";
+import { parseCertificate } from "../../src/core/pki/parsers.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
+import { buildCertificateSummary } from "../../src/core/summary/catalog-summary.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { fixture, fixturePath, NOW } from "../fixtures/pki.ts";
-import { putText } from "../helpers/app.ts";
+import { patchStore, putText } from "../helpers/app.ts";
 import { cert, certificateEntry, putCatalog } from "../helpers/catalog.ts";
+import { berVariants, withEmptySerial, withSkiPrefix } from "../helpers/pki.ts";
 import { flakyStore, puts, recordingStore } from "../helpers/store.ts";
 
 // importCertificate (slice 2 step 5): the second half of case 1 of
 // worker-aia-cdp@5b570aa:tests/worker/r2-summary.test.ts (summary written at import), plus the
 // zero-write rule (M9), the concurrent import and the orphan blob (C8).
 
+// buildCertificateSummary stays the real one unless a case makes it return a summary the catalog
+// format cannot hold.
+vi.mock(import("../../src/core/summary/catalog-summary.ts"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, buildCertificateSummary: vi.fn(actual.buildCertificateSummary) };
+});
+
 const noSleep = async () => undefined;
 
-function importInto(store: ObjectStore, bytes: Uint8Array, now: Date = NOW) {
-  return importCertificate({ store, now: () => now, sleep: noSleep }, bytes);
+function importInto(
+  store: ObjectStore,
+  bytes: Uint8Array,
+  now: Date = NOW,
+  sleep: (ms: number) => Promise<void> = noSleep
+) {
+  return importCertificate({ store, now: () => now, sleep }, bytes);
 }
 
 function text(path: string): string {
@@ -82,7 +97,18 @@ describe("importCertificate", () => {
     expect(store.writes).toEqual([]);
   });
 
-  it.each([
+  // `aia import chain.pem` always sends PEM: the id, size, summary and blob describe the DER.
+  it("imports PEM with the entry and blob of its DER", async () => {
+    const store = new MemoryStore();
+    const { id, entry } = await certificateEntry("issuing-ca-1");
+    const pem = new TextEncoder().encode(text(cert("issuing-ca-1").pem));
+    expect(await importInto(store, pem)).toEqual({ outcome: "created", id, entry });
+    expect((await store.get(certificateBlobKey(id)))!.bytes).toEqual(
+      fixture(cert("issuing-ca-1").der)
+    );
+  });
+
+  it.each<[string, () => Uint8Array, string]>([
     ["invalid/garbage.txt", () => fixture("invalid/garbage.txt"), "der"],
     ["invalid/empty.bin", () => fixture("invalid/empty.bin"), "der"],
     ["a CRL", () => fixture("crls/issuing-ca-1/full-01.der"), "structure"],
@@ -93,6 +119,14 @@ describe("importCertificate", () => {
       "pem_blocks",
     ],
     ["a broken notBefore", () => withBrokenNotBefore("issuing-ca-1"), "time"],
+    ["an empty serialNumber", () => withEmptySerial(fixture(cert("issuing-ca-1").der)), "der"],
+    ...berVariants(fixture(cert("issuing-ca-1").der)).map(
+      ([variant, bytes]): [string, () => Uint8Array, string] => [
+        `BER with ${variant}`,
+        () => bytes,
+        "der",
+      ]
+    ),
   ])("rejects %s without writing", async (_, bytes, reason) => {
     const store = recordingStore();
     expect(await importInto(store, bytes())).toEqual({
@@ -102,9 +136,47 @@ describe("importCertificate", () => {
     expect(store.writes).toEqual([]);
   });
 
+  it("rejects a summary the catalog format cannot hold before writing anything", async () => {
+    const real = vi.mocked(buildCertificateSummary).getMockImplementation()!;
+    vi.mocked(buildCertificateSummary).mockImplementationOnce(async (certificate, der) => ({
+      ...(await real(certificate, der)),
+      serialNumber: "",
+    }));
+    const store = recordingStore();
+    expect(await importInto(store, fixture(cert("root-ca").der))).toEqual({
+      error: "invalid_certificate",
+      details: { reason: "structure" },
+    });
+    expect(store.writes).toEqual([]);
+  });
+
   it("ends two concurrent imports of one certificate as created + unchanged", async () => {
     const base = new MemoryStore();
-    const store = recordingStore(base);
+    // The first four catalog reads are released in pairs: both imports pass the early check, then
+    // both read the catalog for their write before either writes. Without the barrier, one import
+    // could finish before the other one's early check (WebCrypto runs on the thread pool).
+    const waiting: (() => void)[] = [];
+    let reads = 0;
+    const barrier = patchStore(
+      {
+        get: async (key) => {
+          if (key === CATALOG_KEY && reads < 4) {
+            reads++;
+            await new Promise<void>((release) => {
+              waiting.push(release);
+              if (waiting.length === 2) {
+                waiting.splice(0).forEach((resume) => {
+                  resume();
+                });
+              }
+            });
+          }
+          return base.get(key);
+        },
+      },
+      base
+    );
+    const store = recordingStore(barrier);
     const der = fixture(cert("root-ca").der);
     const results = await Promise.all([importInto(store, der), importInto(store, der)]);
     const outcomes = results.map((result) => ("outcome" in result ? result.outcome : result.error));
@@ -114,9 +186,24 @@ describe("importCertificate", () => {
       expect(result).toMatchObject({ id, entry });
     }
     expect((await storedCatalog(base)).certificates).toEqual({ [id]: entry });
-    // Both got past the first catalog read: the loser found the entry inside the retry.
-    const catalogPuts = puts(store).filter((put) => put.key === CATALOG_KEY);
-    expect(catalogPuts.map((put) => put.ok)).toEqual([true, false]);
+    // Both wrote create-only: one blob put was already there, and the loser of the catalog write
+    // found the entry when it read the catalog again.
+    expect(puts(store).map((put) => [put.key, put.ok])).toEqual([
+      [certificateBlobKey(id), true],
+      [certificateBlobKey(id), false],
+      [CATALOG_KEY, true],
+      [CATALOG_KEY, false],
+    ]);
+  });
+
+  it("imports a certificate whose key id would decode as a broken UTCTime", async () => {
+    const der = withSkiPrefix(fixture(cert("issuing-ca-1").der), [0x17, 0x12]);
+    const summary = await buildCertificateSummary(parseCertificate(der), der);
+    expect(summary.subjectKeyId).toMatch(/^1712/);
+    expect(await importInto(new MemoryStore(), der)).toMatchObject({
+      outcome: "created",
+      entry: { summary },
+    });
   });
 
   it("imports EdDSA CA certificates", async () => {
@@ -151,8 +238,18 @@ describe("importCertificate", () => {
     await putCatalog(base, emptyCatalog());
     const store = recordingStore(flakyStore(base, { failIfMatch: 4 }));
     const id = cert("root-ca").sha256;
-    const result: ImportResult = await importInto(store, fixture(cert("root-ca").der));
+    const sleeps: number[] = [];
+    const sleep = async (ms: number) => {
+      sleeps.push(ms);
+    };
+    const result: ImportResult = await importInto(store, fixture(cert("root-ca").der), NOW, sleep);
     expect(result).toEqual({ error: "concurrent_update", id });
+    // 1 attempt + 3 retries (plan §5.5), with the backoff of step 4 in between.
+    expect(sleeps).toEqual([250, 500, 1000]);
+    expect(puts(store).map((put) => [put.key, put.ok])).toEqual([
+      [certificateBlobKey(id), true],
+      ...Array.from({ length: 4 }, () => [CATALOG_KEY, false]),
+    ]);
     expect(await storedCatalog(base)).toEqual(emptyCatalog());
     expect(await base.head(certificateBlobKey(id))).not.toBeNull();
   });

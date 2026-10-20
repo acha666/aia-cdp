@@ -13,7 +13,13 @@ import {
   parseCRL,
 } from "../../../src/core/pki/parsers.ts";
 import { fixture, manifest } from "../../fixtures/pki.ts";
-import { extension, pkiError } from "../../helpers/pki.ts";
+import {
+  berVariants,
+  extension,
+  pkiError,
+  withEmptySerial,
+  withSkiPrefix,
+} from "../../helpers/pki.ts";
 
 // Parser parts of worker-aia-cdp@5b570aa:tests/worker/pki-values.test.ts:55, :75 and :149 (their
 // builder and upload assertions move to slices 4 and 5a), plus what slice 2 changed: typed errors,
@@ -124,6 +130,36 @@ describe("parseCertificate / parseCRL", () => {
       reason: "time",
     });
   });
+
+  // Strict DER (M1): a BER re-encoding of the unsigned outer SEQUENCE leaves the TBS and the
+  // signature intact, and would import one CA under several ids.
+  describe.each([
+    ["certificate", "certs/issuing-ca-1.der", parseCertificate],
+    ["crl", "crls/issuing-ca-1/full-01.der", parseCRL],
+  ] as const)("%s", (kind, file, parse) => {
+    it.each(berVariants(fixture(file)))("rejects %s as a DER error", async (_, bytes) => {
+      expect(await pkiError(() => parse(bytes))).toEqual({ kind, reason: "der" });
+    });
+  });
+
+  it("rejects an empty serialNumber INTEGER as a DER error", async () => {
+    const der = withEmptySerial(fixture("certs/issuing-ca-1.der"));
+    expect(await pkiError(() => parseCertificate(der))).toEqual({
+      kind: "certificate",
+      reason: "der",
+    });
+  });
+
+  // asn1js decodes the content of every primitive OCTET / BIT STRING on speculation. A key id
+  // starting with 17 12 decodes as a broken UTCTime, which must not reject the certificate.
+  it.each(["17 12", "18 12", "30 12", "04 81", "02 00"])(
+    "ignores what a key identifier starting with %s would decode as",
+    (hex) => {
+      const prefix = hex.split(" ").map((pair) => Number.parseInt(pair, 16));
+      const der = withSkiPrefix(fixture("certs/issuing-ca-1.der"), prefix);
+      expect(getSKIHex(parseCertificate(der))?.slice(0, 4)).toBe(hex.replace(" ", ""));
+    }
+  );
 });
 
 describe("getCommonName", () => {

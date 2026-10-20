@@ -105,6 +105,22 @@ async function applyMinimal(app: App): Promise<string> {
   return res.headers.get("ETag") ?? "";
 }
 
+/** A 1 KiB body that records whether anyone read it (highWaterMark 0: pull() runs only then). */
+function lazyBody(): { body: ReadableStream<Uint8Array>; pulled: () => boolean } {
+  let pulled = false;
+  const body = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        pulled = true;
+        controller.enqueue(new Uint8Array(1024));
+        controller.close();
+      },
+    },
+    { highWaterMark: 0 }
+  );
+  return { body, pulled: () => pulled };
+}
+
 describe("admin gate", () => {
   const routes: [method: string, path: string][] = [
     ["POST", CERTIFICATES],
@@ -129,18 +145,7 @@ describe("admin gate", () => {
 
   it("answers 503 before reading an oversized body", async () => {
     const { app } = setup({ settings: { adminToken: undefined, maxUploadBytes: 16 } });
-    let pulled = false;
-    // highWaterMark 0: pull() runs only when someone reads the body.
-    const body = new ReadableStream<Uint8Array>(
-      {
-        pull(controller) {
-          pulled = true;
-          controller.enqueue(new Uint8Array(1024));
-          controller.close();
-        },
-      },
-      { highWaterMark: 0 }
-    );
+    const { body, pulled } = lazyBody();
     const res = await app.request(CERTIFICATES, {
       method: "POST",
       body,
@@ -149,7 +154,45 @@ describe("admin gate", () => {
     });
     expect(res.status).toBe(503);
     expect(await errorOf(res)).toMatchObject({ code: "admin_disabled" });
-    expect(pulled).toBe(false);
+    expect(pulled()).toBe(false);
+  });
+
+  // The gate order of step 8: authentication comes before bodyLimit, so an anonymous client never
+  // gets its body read, nor a 413 that tells it anything about the limit.
+  it("answers 401 before reading an oversized body", async () => {
+    const { app } = setup({ settings: { maxUploadBytes: 16 } });
+    const { body, pulled } = lazyBody();
+    const res = await app.request(CERTIFICATES, {
+      method: "POST",
+      body,
+      headers: { "Content-Type": "application/pkix-cert" },
+      duplex: "half",
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get("WWW-Authenticate")).toBe('Bearer realm=""');
+    expect(await errorOf(res)).toEqual({ code: "unauthorized", message: "Unauthorized" });
+    expect(pulled()).toBe(false);
+  });
+
+  it.each<[string, Record<string, string>, string]>([
+    ["no token", {}, 'Bearer realm=""'],
+    ["a wrong token", { Authorization: "Bearer wrong-token" }, 'Bearer error="invalid_token"'],
+  ])("answers an oversized body with %s with 401, not 413", async (_, auth, challenge) => {
+    const { app, deps } = setup({ settings: { maxUploadBytes: 16 } });
+    for (const [method, path, contentType] of [
+      ["POST", CERTIFICATES, "application/pkix-cert"],
+      ["PUT", CONFIG, "application/json"],
+    ] as const) {
+      const res = await app.request(path, {
+        method,
+        body: method === "POST" ? der("root-ca") : `${MINIMAL_CONFIG}${" ".repeat(64)}`,
+        headers: { ...auth, "Content-Type": contentType, "If-None-Match": "*" },
+      });
+      expect(res.status).toBe(401);
+      expect(res.headers.get("WWW-Authenticate")).toBe(challenge);
+      expect(await errorOf(res)).toMatchObject({ code: "unauthorized" });
+    }
+    expect(await deps.store.list("")).toEqual([]);
   });
 
   it.each(routes.slice(0, 3))(
@@ -297,6 +340,10 @@ describe("POST /api/v1/admin/certificates", () => {
     const { app } = setup();
     const pem = await post(app, text(cert("root-ca").pem), "application/octet-stream");
     expect(pem.status).toBe(201);
+    // The size and summary of the DER, not of the PEM text.
+    const { id, entry } = await certificateEntry("root-ca");
+    const { size, importedAt, summary } = entry;
+    expect(await pem.json()).toEqual({ outcome: "created", id, size, importedAt, summary });
     const derBody = await post(app, der("issuing-ca-2"), "Application/PKIX-Cert; x=1");
     expect(derBody.status).toBe(201);
     expect(await derBody.json()).toMatchObject({ id: cert("issuing-ca-2").sha256 });
@@ -408,6 +455,17 @@ describe("POST /api/v1/admin/certificates", () => {
     expect(logRecords(deps).filter((line) => line.msg === "import")).toEqual([
       { level: "warn", msg: "import", reason },
     ]);
+  });
+
+  it("answers a PEM body of several MiB under the upload limit with 422, not 500", async () => {
+    const { app, deps } = setup();
+    const lines = Array.from({ length: (5 * 1024 * 1024) / 64 }, () => "A".repeat(64));
+    const pem = `-----BEGIN CERTIFICATE-----\n${lines.join("\n")}\n-----END CERTIFICATE-----\n`;
+    expect(pem.length).toBeLessThan(deps.settings.maxUploadBytes);
+    const res = await post(app, pem, "application/x-pem-file");
+    expect(res.status).toBe(422);
+    // Zero bytes: an end-of-contents octet pair, then more of them.
+    expect(await errorOf(res)).toMatchObject({ details: { reason: "trailing_bytes" } });
   });
 
   it("answers 409 concurrent_update when every catalog write is lost", async () => {
@@ -542,14 +600,17 @@ describe("PUT /api/v1/admin/config", () => {
     ["an uppercase digest", (etag) => etag.toUpperCase()],
     ["the digest of other bytes", () => etagOf(MINIMAL_CONFIG)],
   ])("answers If-Match with %s with 412 precondition_failed", async (_, make) => {
-    const { app, deps } = setup();
+    const store = recordingStore();
+    const { app } = setup({ store });
     const etag = await applyMinimal(app);
+    store.writes.length = 0;
     const res = await put(app, '{"version":1,"certificates":{},"targets":{},"paths":{}}', {
       "If-Match": await make(etag),
     });
     expect(res.status).toBe(412);
     expect(await errorOf(res)).toMatchObject({ code: "precondition_failed" });
-    expect((await deps.store.get(CONFIG_KEY))?.bytes).toEqual(minimalBytes());
+    // Not even a write of the same bytes.
+    expect(store.writes).toEqual([]);
   });
 
   it("answers If-Match while nothing is configured with 412", async () => {
@@ -566,6 +627,29 @@ describe("PUT /api/v1/admin/config", () => {
     const res = await put(app, MINIMAL_CONFIG, { "If-None-Match": "*" });
     expect(res.status).toBe(412);
     expect(await errorOf(res)).toMatchObject({ code: "precondition_failed" });
+  });
+
+  // Step 6: the precondition is compared with the stored bytes before V1–V9 (RFC 9110 §13.2.1:
+  // preconditions before the content), also when the body already fails the schema.
+  it.each<[string, boolean, () => Promise<Record<string, string>>]>([
+    ["a stale If-Match", true, async () => ({ "If-Match": await etagOf(MINIMAL_CONFIG) })],
+    ["If-None-Match: * once a configuration exists", true, async () => ({ "If-None-Match": "*" })],
+    [
+      "If-Match while nothing is configured",
+      false,
+      async () => ({ "If-Match": await etagOf(minimalBytes()) }),
+    ],
+  ])("answers %s with 412 before validating the body", async (_, configured, headers) => {
+    const store = recordingStore();
+    const { app } = setup({ store });
+    if (configured) {
+      await applyMinimal(app);
+    }
+    store.writes.length = 0;
+    const res = await put(app, '{"version":2}', await headers());
+    expect(res.status).toBe(412);
+    expect(await errorOf(res)).toMatchObject({ code: "precondition_failed" });
+    expect(store.writes).toEqual([]);
   });
 
   it.each<[string, string | null, string | undefined]>([
@@ -614,6 +698,20 @@ describe("PUT /api/v1/admin/config", () => {
       ["V1", []],
     ]);
     expect(issues[1]?.message).toBe('Unrecognized key: "pahts"');
+    expect(await deps.store.get(CONFIG_KEY)).toBeNull();
+  });
+
+  it("answers a __proto__ path, which the schema's records would drop, with 422 (V2)", async () => {
+    const { app, deps } = setup();
+    const body = `{"version":1,"certificates":{},"targets":{},"paths":{"__proto__":{"certificate":"${cert("root-ca").sha256}"}}}`;
+    const res = await put(app, body, { "If-None-Match": "*" });
+    expect(res.status).toBe(422);
+    const error = await errorOf(res);
+    expect(error.code).toBe("config_invalid");
+    const issues = (error.details as { issues: ConfigIssue[] }).issues;
+    expect(issues.map((issue) => [issue.rule, issue.path])).toEqual([
+      ["V2", ["paths", "__proto__"]],
+    ]);
     expect(await deps.store.get(CONFIG_KEY)).toBeNull();
   });
 

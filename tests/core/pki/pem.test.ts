@@ -135,6 +135,17 @@ describe("toDer", () => {
       });
     }
   });
+
+  // A regexp with a repeated group overflowed V8's regexp stack from about 5 MiB of base64, below
+  // the default AIA_MAX_UPLOAD_BYTES (a 500 instead of a 422).
+  it("checks a base64 body of several MiB", () => {
+    const size = 6 * 1024 * 1024;
+    const lines = Array.from({ length: size / 64 }, () => "A".repeat(64)).join("\n");
+    const pem = `-----BEGIN CERTIFICATE-----\n${lines}\n-----END CERTIFICATE-----\n`;
+    const der = toDer(encode(pem), "certificate");
+    expect(der.byteLength).toBe((size / 4) * 3);
+    expect(der.every((byte) => byte === 0)).toBe(true);
+  });
 });
 
 describe("splitPemBlocks", () => {

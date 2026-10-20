@@ -8,12 +8,12 @@
 // (AIA_MAX_UPLOAD_BYTES, 413). Failures are thrown as ApiError / HTTPException, so onError writes
 // every envelope (no-store) and the handlers only return successes.
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import type { TypedResponse } from "hono";
+import type { Context, TypedResponse } from "hono";
 import { bearerAuth } from "hono/bearer-auth";
 import { bodyLimit } from "hono/body-limit";
 import { createMiddleware } from "hono/factory";
 import type { JSONParsed } from "hono/utils/types";
-import { applyConfig, schemaIssues } from "../../core/admin.ts";
+import { applyConfig } from "../../core/admin.ts";
 import type { ConfigIssue, ConfigPrecondition } from "../../core/admin.ts";
 import { CONFIG_KEY, ConfigSchema, encodeJson } from "../../core/catalog.ts";
 import type { Config } from "../../core/catalog.ts";
@@ -217,7 +217,8 @@ function configInvalid(issues: ConfigIssue[]): ApiError {
 }
 
 // 428 and the malformed-If-Match 412 come from the headers alone: answered before the body is
-// parsed or validated.
+// parsed. Every other 412 needs the stored bytes, and applyConfig compares them before V1–V9, so a
+// body that fails the schema still gets the 412 first (see the route's hook).
 const requirePrecondition = createMiddleware<AppEnv>(async (c, next) => {
   configPrecondition(c.req.raw.headers);
   await next();
@@ -363,23 +364,28 @@ export function adminRoutes(deps: AppDeps) {
     return configResponse(stored.bytes, await sha256Hex(stored.bytes));
   });
 
+  // The body as JSON.parse gave it (Hono caches the text), not the validator's output: applyConfig
+  // runs V1 itself, and the schema's records drop a "__proto__" key that V1 / V2 must report.
+  const apply = async (c: Context<AppEnv>) => {
+    const result = await applyConfig(
+      deps,
+      await c.req.json(),
+      configPrecondition(c.req.raw.headers)
+    );
+    if ("error" in result) {
+      throw result.error === "precondition_failed"
+        ? preconditionFailed()
+        : configInvalid(result.details.issues);
+    }
+    return configResponse(encodeJson(result.config), result.sha256);
+  };
+
   admin.openapi(
     applyConfigRoute,
-    async (c) => {
-      const result = await applyConfig(
-        deps,
-        c.req.valid("json"),
-        configPrecondition(c.req.raw.headers)
-      );
-      if ("error" in result) {
-        throw result.error === "precondition_failed"
-          ? preconditionFailed()
-          : configInvalid(result.details.issues);
-      }
-      return configResponse(encodeJson(result.config), result.sha256);
-    },
-    // ConfigSchema validates the body before the handler runs: its failure is config_invalid
-    // (rule V1, as from applyConfig), not the default 400.
+    async (c) => apply(c),
+    // ConfigSchema validates the body before the handler runs. A failure goes to applyConfig all
+    // the same, which compares the stored precondition first (412) and then reports the schema
+    // failure as config_invalid (rule V1), not as the default 400.
     (result, c) => {
       if (result.success) {
         return undefined;
@@ -392,7 +398,7 @@ export function adminRoutes(deps: AppDeps) {
       if (c.req.header("Content-Type") === undefined) {
         throw new ApiError(400, "bad_request", "Expected a JSON body");
       }
-      throw configInvalid(schemaIssues(result.error));
+      return apply(c);
     }
   );
 

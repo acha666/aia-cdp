@@ -76,6 +76,19 @@ function service(overrides: TestOverrides = {}) {
 
 type Service = ReturnType<typeof service>;
 
+/**
+ * A response whose body fails while it is read, as after a connection reset or when the request
+ * timeout fires mid-body.
+ */
+function brokenResponse(status: number): Response {
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.error(new Error("socket reset"));
+    },
+  });
+  return new Response(body, { status, headers: { "Content-Type": "application/json" } });
+}
+
 /** A fetch that must not be called. */
 const offline: CliIo["fetch"] = () => {
   throw new Error("this command must not touch the network");
@@ -290,6 +303,15 @@ describe("health", () => {
     expect(run.stderr).toMatch(/did not answer with a health report \(HTTP 502\)/);
   });
 
+  it.each([200, 503])("exits 1 when the body of a %i cannot be read", async (status) => {
+    const run = await aia(["health"], { env: ENV, fetch: async () => brokenResponse(status) });
+    expect(run).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: "aia: cannot read the response from http://aia.test/api/v1/health: socket reset\n",
+    });
+  });
+
   it("keeps a path prefix of --url, which wins over AIA_URL", async () => {
     const urls: string[] = [];
     const run = await aia(["health", "--url", "https://pki.example/aia//"], {
@@ -464,6 +486,26 @@ describe("import", () => {
     expect(run.stdout).toBe("0 created, 0 unchanged, 1 failed\n");
   });
 
+  it.each([201, 502])(
+    "goes on with the next file when the body of a %i cannot be read",
+    async (status) => {
+      const svc = service();
+      const files = ["root-ca", "issuing-ca-1", "issuing-ca-2"].map((name) =>
+        fixturePath(cert(name).der)
+      );
+      let calls = 0;
+      const fetch: CliIo["fetch"] = async (url, init) =>
+        calls++ === 0 ? brokenResponse(status) : svc.fetch(url, init);
+      const run = await aia(["import", ...files], { env: ENV, fetch });
+      expect(run.code).toBe(1);
+      expect(run.stderr).toBe(
+        `failed     ${files[0]}: cannot read the response from ` +
+          "http://aia.test/api/v1/admin/certificates: socket reset\n"
+      );
+      expect(run.stdout.trimEnd().split("\n").at(-1)).toBe("2 created, 0 unchanged, 1 failed");
+    }
+  );
+
   it("goes on with the next file when the service cannot be reached", async () => {
     const files = ["root-ca", "issuing-ca-1"].map((name) => fixturePath(cert(name).der));
     const run = await aia(["import", ...files], {
@@ -591,6 +633,19 @@ describe("config show", () => {
     expect(json.stderr).toMatch(/the stored config\.json is not JSON/);
   });
 
+  it.each([200, 404, 500])("exits 1 when the body of a %i cannot be read", async (status) => {
+    const run = await aia(["config", "show"], {
+      env: ENV,
+      fetch: async () => brokenResponse(status),
+    });
+    expect(run).toEqual({
+      code: 1,
+      stdout: "",
+      stderr:
+        "aia: cannot read the response from http://aia.test/api/v1/admin/config: socket reset\n",
+    });
+  });
+
   it("exits 1 with the service's error", async () => {
     const disabled = service({ settings: { adminToken: undefined } });
     const run = await against(disabled, ["config", "show"]);
@@ -668,6 +723,25 @@ describe("config apply", () => {
       expect.stringMatching(/^ {2}V4 {2}targets\["[0-9a-f-]{36}"\]\.issuer: Certificate /),
     ]);
     expect(await storedConfig(svc)).toBeUndefined();
+  });
+
+  it.each([
+    ["GET", 200],
+    ["GET", 404],
+    ["PUT", 200],
+    ["PUT", 422],
+  ])("exits 1 when the body of the %s's %i cannot be read", async (method, status) => {
+    const svc = service();
+    const file = await configFile("broken.json", JSON.parse(MINIMAL_CONFIG));
+    const fetch: CliIo["fetch"] = async (url, init) =>
+      init.method === method ? brokenResponse(status) : svc.fetch(url, init);
+    const run = await aia(["config", "apply", file], { env: ENV, fetch });
+    expect(run).toEqual({
+      code: 1,
+      stdout: "",
+      stderr:
+        "aia: cannot read the response from http://aia.test/api/v1/admin/config: socket reset\n",
+    });
   });
 
   it("reports 412 when the config changed between GET and PUT, and does not retry", async () => {
