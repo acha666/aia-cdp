@@ -1,0 +1,144 @@
+// A CA made in the test process (a WebCrypto P-256 key, a self-signed PKIjs certificate) and the
+// CRLs it signs, for shapes the committed fixtures cannot hold: thousands of revoked entries
+// (slice 4 review C1) or a CRL Number at its length limit (C5). Its certificate goes through
+// importCertificate and applyConfig like any fixture CA; every time derives from NOW.
+import type { webcrypto } from "node:crypto";
+import * as asn1 from "asn1js";
+import * as pkijs from "pkijs";
+import { applyConfig } from "../../src/core/admin.ts";
+import { ConfigSchema } from "../../src/core/catalog.ts";
+import { importCertificate } from "../../src/core/import.ts";
+import type { ObjectStore } from "../../src/core/store.ts";
+import { NOW } from "../fixtures/pki.ts";
+
+const HOUR = 3_600_000;
+
+export interface GeneratedCa {
+  /** DER of the self-signed CA certificate. */
+  der: Uint8Array;
+  /** Its Subject Key Identifier: the SHA-1 of the public key bits. */
+  keyId: Uint8Array;
+  commonName: string;
+  privateKey: webcrypto.CryptoKey;
+}
+
+const nameOf = (commonName: string) =>
+  new pkijs.RelativeDistinguishedNames({
+    typesAndValues: [
+      new pkijs.AttributeTypeAndValue({
+        type: "2.5.4.3",
+        value: new asn1.Utf8String({ value: commonName }),
+      }),
+    ],
+  });
+
+const extension = (
+  extnID: string,
+  value: { toBER(sizeOnly?: boolean): ArrayBuffer },
+  critical = false
+) => new pkijs.Extension({ extnID, critical, extnValue: value.toBER(false) });
+
+const utcTime = (offsetMs: number) =>
+  new pkijs.Time({ type: 0, value: new Date(NOW.getTime() + offsetMs) });
+
+export async function generateCa(commonName = "Generated Test CA"): Promise<GeneratedCa> {
+  const { privateKey, publicKey } = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"]
+  );
+  const certificate = new pkijs.Certificate();
+  certificate.version = 2;
+  certificate.serialNumber = new asn1.Integer({ value: 1 });
+  certificate.issuer = nameOf(commonName);
+  certificate.subject = nameOf(commonName);
+  certificate.notBefore = utcTime(-24 * HOUR);
+  certificate.notAfter = utcTime(365 * 24 * HOUR);
+  await certificate.subjectPublicKeyInfo.importKey(publicKey);
+  const keyId = new Uint8Array(
+    await crypto.subtle.digest(
+      "SHA-1",
+      certificate.subjectPublicKeyInfo.subjectPublicKey.valueBlock.valueHexView
+    )
+  );
+  certificate.extensions = [
+    extension("2.5.29.19", new pkijs.BasicConstraints({ cA: true }).toSchema(), true),
+    extension("2.5.29.14", new asn1.OctetString({ valueHex: keyId })),
+  ];
+  await certificate.sign(privateKey, "SHA-256");
+  // true encodes the TBS from the fields: the bytes just signed.
+  const der = new Uint8Array(certificate.toSchema(true).toBER(false));
+  return { der, keyId, commonName, privateKey };
+}
+
+export interface CrlOptions {
+  /** CRL Number (default 1). */
+  crlNumber?: bigint;
+  /** thisUpdate as an offset from NOW in ms (default an hour before). */
+  thisUpdateMs?: number;
+  /**
+   * Revoked entries (default none), each with a reasonCode: AD CS writes one for every revocation
+   * that has a reason.
+   */
+  revoked?: number;
+}
+
+/** A full CRL of `ca`, nextUpdate a week after NOW, as DER. */
+export async function signCrl(
+  ca: GeneratedCa,
+  { crlNumber = 1n, thisUpdateMs = -HOUR, revoked = 0 }: CrlOptions = {}
+): Promise<Uint8Array> {
+  const crl = new pkijs.CertificateRevocationList();
+  crl.version = 1;
+  crl.issuer = nameOf(ca.commonName);
+  crl.thisUpdate = utcTime(thisUpdateMs);
+  crl.nextUpdate = utcTime(7 * 24 * HOUR);
+  if (revoked > 0) {
+    const revocationDate = utcTime(-2 * HOUR);
+    const reasonCode = extension("2.5.29.21", new asn1.Enumerated({ value: 1 }));
+    crl.revokedCertificates = Array.from(
+      { length: revoked },
+      (_, index) =>
+        new pkijs.RevokedCertificate({
+          // Nine-octet serials, as many CAs write them.
+          userCertificate: asn1.Integer.fromBigInt(2n ** 64n + BigInt(index)),
+          revocationDate,
+          crlEntryExtensions: new pkijs.Extensions({ extensions: [reasonCode] }),
+        })
+    );
+  }
+  crl.crlExtensions = new pkijs.Extensions({
+    extensions: [
+      extension(
+        "2.5.29.35",
+        new pkijs.AuthorityKeyIdentifier({
+          keyIdentifier: new asn1.OctetString({ valueHex: ca.keyId }),
+        }).toSchema()
+      ),
+      extension("2.5.29.20", asn1.Integer.fromBigInt(crlNumber)),
+    ],
+  });
+  await crl.sign(ca.privateKey, "SHA-256");
+  // true: encode from the fields (decoding the signed TBS again would meet asn1js's node limit).
+  return new Uint8Array((crl.toSchema(true) as asn1.Sequence).toBER(false));
+}
+
+/** Imports `ca` and applies a config.json with one full target for it; returns the target id. */
+export async function setupGeneratedCa(store: ObjectStore, ca: GeneratedCa): Promise<string> {
+  const imported = await importCertificate({ store, now: () => NOW }, ca.der);
+  if (!("outcome" in imported)) {
+    throw new Error(`import: ${imported.error}`);
+  }
+  const targetId = crypto.randomUUID();
+  const config = ConfigSchema.parse({
+    version: 1,
+    certificates: {},
+    targets: { [targetId]: { issuer: imported.id, kind: "full", label: ca.commonName } },
+    paths: { "/crl/generated-ca.crl": { target: targetId } },
+  });
+  const applied = await applyConfig({ store }, config, { ifNoneMatch: "*" });
+  if ("error" in applied) {
+    throw new Error(`applyConfig: ${JSON.stringify(applied)}`);
+  }
+  return targetId;
+}

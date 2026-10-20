@@ -3,10 +3,11 @@
 // (buildCertificateMetadata, buildCrlMetadata); ensureSummaryMetadata, the metadata merge and
 // SUMMARY_VERSION are not migrated: a summary is always built whole and replaces the previous one,
 // so there is one implementation of each summary.
-import type { Certificate, CertificateRevocationList } from "pkijs";
+import type { Certificate, CertificateRevocationList, Extension } from "pkijs";
 import { sha1Hex, toHex } from "../pki/conversion.ts";
 import { PkiParseError } from "../pki/errors.ts";
 import type { PkiKind } from "../pki/errors.ts";
+import { repeatedExtension } from "../pki/extensions.ts";
 import {
   getAuthorityKeyIdHex,
   getCN,
@@ -60,6 +61,14 @@ function readExtension<T>(kind: PkiKind, name: string, read: () => T): T {
   }
 }
 
+/** Rejects a repeated extension: the readers below take the first instance of an OID. */
+function assertSingleInstances(kind: PkiKind, extensions: Extension[] | undefined): void {
+  const oid = repeatedExtension(extensions);
+  if (oid !== undefined) {
+    throw new PkiParseError(kind, "extension_value", `Repeated extension ${oid}`);
+  }
+}
+
 // The old code skipped a malformed SKI / AKI silently (M5); here it rejects the certificate. An
 // empty key id is rejected too: it cannot identify a key, and the catalog format requires hex.
 function readKeyId(name: string, read: () => string | undefined): string | null {
@@ -72,13 +81,14 @@ function readKeyId(name: string, read: () => string | undefined): string | null 
 
 /**
  * Summary of a certificate parsed by parseCertificate (so its times are valid RFC 5280 times) from
- * `der`. Throws PkiParseError (kind "certificate", reason "extension_value") when the Subject or
- * Authority Key Identifier extension is present but malformed.
+ * `der`. Throws PkiParseError (kind "certificate", reason "extension_value") when an extension
+ * occurs twice, or the Subject or Authority Key Identifier extension is present but malformed.
  */
 export async function buildCertificateSummary(
   cert: Certificate,
   der: Uint8Array
 ): Promise<CertificateSummary> {
+  assertSingleInstances("certificate", cert.extensions);
   return {
     subjectCN: getCN(cert) ?? null,
     issuerCN: getCommonName(cert.issuer) ?? null,
@@ -96,16 +106,18 @@ export async function buildCertificateSummary(
 /**
  * Summary of a CRL parsed by parseCRL (so its times are valid RFC 5280 times) from `der`, in the
  * catalog format of `current.summary`. Throws PkiParseError (kind "crl", reason "extension_value")
- * when the CRL Number, the Delta CRL Indicator (M2: an INTEGER ≥ 0, no size limit) or the AD CS
- * Next CRL Publish is present but malformed. A Next CRL Publish that is not exactly one RFC 5280
- * time is rejected like any other malformed extension the service reads, not stored as null:
- * slice 5b's status rule depends on it, and the CA that wrote it is misconfigured. (A time inside
- * the value that is not in the RFC 5280 form already fails parseCRL with reason "time".)
+ * when a CRL extension occurs twice, or the CRL Number, the Delta CRL Indicator (M2: exactly one
+ * INTEGER ≥ 0, not longer than MAX_CRL_NUMBER_OCTETS) or the AD CS Next CRL Publish is present
+ * but malformed. A Next CRL Publish that is not exactly one RFC 5280 time is rejected like any
+ * other malformed extension the service reads, not stored as null: slice 5b's status rule depends
+ * on it, and the CA that wrote it is misconfigured. (A time inside the value that is not in the
+ * RFC 5280 form already fails parseCRL with reason "time".)
  */
 export async function buildCrlSummary(
   crl: CertificateRevocationList,
   der: Uint8Array
 ): Promise<CrlSummary> {
+  assertSingleInstances("crl", crl.crlExtensions?.extensions);
   const crlNumber = readExtension("crl", "CRL Number", () => getCRLNumber(crl));
   const base = readExtension("crl", "Delta CRL Indicator", () => getDeltaBaseCRLNumber(crl));
   const nextPublish = readExtension("crl", "Next CRL Publish", () => getNextCRLPublish(crl));

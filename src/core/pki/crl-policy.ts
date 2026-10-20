@@ -3,9 +3,10 @@
 // bypasses PKIjs's own CRL check and with it PKIjs's list of critical extensions (C2): this table
 // is the only extension gate.
 import { Constructed, Sequence } from "asn1js";
-import type { CertificateRevocationList, Extension } from "pkijs";
+import type { Extension } from "pkijs";
 import { toHex } from "./conversion.ts";
 import { readExtensionSchema } from "./extensions.ts";
+import type { ReceivedCrl } from "./parsers.ts";
 
 /** How far thisUpdate may lie ahead of the clock: exactly five minutes is still accepted. */
 export const MAX_CLOCK_SKEW_MS = 300_000;
@@ -63,23 +64,23 @@ export type CrlPolicyResult =
       detail: string;
     };
 
-function sameDer(
-  a: { toSchema(): { toBER(sizeOnly?: boolean): ArrayBuffer } },
-  b: { toSchema(): { toBER(sizeOnly?: boolean): ArrayBuffer } }
-): boolean {
-  return toHex(a.toSchema().toBER(false)) === toHex(b.toSchema().toBER(false));
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  return a.byteLength === b.byteLength && a.every((octet, index) => octet === b[index]);
 }
 
 /**
  * The context tag numbers of an IssuingDistributionPoint (RFC 5280 §5.2.5: distributionPoint [0],
  * onlyContainsUserCerts [1], onlyContainsCACerts [2], onlySomeReasons [3], indirectCRL [4],
  * onlyContainsAttributeCerts [5], in that order, each at most once). Throws when the value is not
- * such a SEQUENCE.
+ * such a SEQUENCE, or is an empty one (§5.2.5: conforming issuers MUST NOT write that).
  */
 function idpFields(extension: Extension): number[] {
   const value = readExtensionSchema(extension);
   if (!(value instanceof Sequence)) {
     throw new Error("IssuingDistributionPoint is not a SEQUENCE");
+  }
+  if (value.valueBlock.value.length === 0) {
+    throw new Error("IssuingDistributionPoint is an empty SEQUENCE");
   }
   const tags = value.valueBlock.value.map((field) => {
     const { tagClass, tagNumber } = field.idBlock;
@@ -105,8 +106,10 @@ function serialOf(serial: { valueBlock: { valueHexView: Uint8Array } }): string 
 /**
  * The upload policy, in this order, the first violation winning:
  *
- * 1. The outer signatureAlgorithm and the TBS signature must be the same DER, OID and parameters
- *    (RFC 5280 §5.1.1.2; M11, owner answer 5) → invalid_crl / signature_algorithm_mismatch.
+ * 1. The outer signatureAlgorithm and the TBS signature must be the same octets as received, OID
+ *    and parameters (RFC 5280 §5.1.1.2; M11, owner answer 5) → invalid_crl /
+ *    signature_algorithm_mismatch. Received, not re-encoded: the outer one is outside the signature,
+ *    and asn1js would re-encode some non-DER forms canonically (slice 4 review C2).
  * 2. Clock, in epoch milliseconds: thisUpdate more than MAX_CLOCK_SKEW_MS after `now` →
  *    not_yet_valid; a nextUpdate before `now` is accepted with `expired: true`.
  * 3. CRL extensions in their order: the recognized ones are accepted critical or not. The Issuing
@@ -115,21 +118,22 @@ function serialOf(serial: { valueBlock: { valueHexView: Uint8Array } }): string 
  *    indirectCRL) → scoped_crl_unsupported, also when the IDP is not marked critical, against RFC
  *    5280 which requires it to be: the service keeps one full and one delta CRL per issuer, and a
  *    partition published as the issuer's CRL would read as complete to a client that skips a
- *    non-critical IDP; a malformed IDP → invalid_crl / extension_value. Any other extension:
- *    critical → unknown_critical_extension, otherwise accepted (its bytes stay in the blob).
+ *    non-critical IDP; a malformed IDP, an empty one included → invalid_crl / extension_value. Any
+ *    other extension: critical → unknown_critical_extension, otherwise accepted (its bytes stay in
+ *    the blob).
  * 4. Entry extensions (M13): reasonCode, invalidityDate and holdInstructionCode are accepted
  *    critical or not; certificateIssuer (an indirect CRL) → scoped_crl_unsupported; any other
  *    critical one → unknown_critical_extension with the entry's serial number.
  *
  * Pure: nothing but `crl` and `now` is read, and the signature is not checked.
  */
-export function checkCrlPolicy(crl: CertificateRevocationList, now: Date): CrlPolicyResult {
-  if (!sameDer(crl.signatureAlgorithm, crl.signature)) {
+export function checkCrlPolicy(crl: ReceivedCrl, now: Date): CrlPolicyResult {
+  if (!sameBytes(crl.signatureAlgorithmView, crl.signatureView)) {
     return {
       ok: false,
       error: "invalid_crl",
       details: { reason: "signature_algorithm_mismatch" },
-      detail: `signatureAlgorithm ${crl.signatureAlgorithm.algorithmId} differs from the TBS signature ${crl.signature.algorithmId} or its parameters`,
+      detail: `signatureAlgorithm ${toHex(crl.signatureAlgorithmView)} differs from the TBS signature ${toHex(crl.signatureView)}`,
     };
   }
 

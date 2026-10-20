@@ -119,6 +119,18 @@ export function formatGeneralizedTime(date: Date): string {
   return `${match.slice(1).join("")}Z`;
 }
 
+/**
+ * asn1js's fromBER with limits that scale with the input. asn1js 3.1.0 caps a decoding at 10 000
+ * nodes and 16 MiB of contents by default, and a CRL entry with a reasonCode takes 8 nodes, so a
+ * valid CRL with some 1 250 such entries failed as `der` (slice 4 review C1). Every node has its own
+ * identifier and length octets, at least two, so an input holds at most half as many nodes as it
+ * has octets, and no contents longer than itself: the only bound left is the input's size, which
+ * the upload limit sets. The nesting depth keeps asn1js's default of 100 (a CRL nests about 10).
+ */
+export function decodeBer(bytes: Uint8Array | ArrayBuffer): ReturnType<typeof fromBER> {
+  return fromBER(bytes, { maxNodes: bytes.byteLength, maxContentLength: bytes.byteLength });
+}
+
 function children(block: BaseBlock): BaseBlock[] {
   const value: unknown = (block.valueBlock as { value?: unknown }).value;
   return Array.isArray(value)
@@ -130,6 +142,7 @@ const UNIVERSAL = 1;
 const BOOLEAN = 1;
 const INTEGER = 2;
 const BIT_STRING = 3;
+const NULL = 5;
 const OBJECT_IDENTIFIER = 6;
 const ENUMERATED = 10;
 const SEQUENCE = 16;
@@ -162,9 +175,44 @@ function lengthOctets(length: number): number {
   return octets;
 }
 
-// asn1js decodes BER and only warns, if at all, about what DER forbids. Re-encoding the unsigned
-// outer SEQUENCE this way keeps the TBS and the signature intact, so without these checks one
-// certificate could be imported under several ids (M1).
+/**
+ * The contents rules of the universal primitives X.509 uses, on the contents octets as received:
+ * BOOLEAN one octet 00 or FF (X.690 §8.2.1, §11.1); INTEGER and ENUMERATED in the fewest octets,
+ * their first nine bits neither all 0 nor all 1 (§8.3.2, §8.4); NULL without contents (§8.8.2);
+ * no OBJECT IDENTIFIER subidentifier led by 0x80 (§8.19.2).
+ */
+function contentsProblem(tagNumber: number, contents: Uint8Array): string | undefined {
+  const [first = 0, second = 0] = contents;
+  switch (tagNumber) {
+    case BOOLEAN:
+      return contents.length === 1 && (first === 0x00 || first === 0xff)
+        ? undefined
+        : "BOOLEAN other than one octet 00 or FF";
+    case INTEGER:
+    case ENUMERATED: {
+      const redundant = (first === 0x00 && second < 0x80) || (first === 0xff && second >= 0x80);
+      return contents.length > 1 && redundant ? "integer not in its shortest form" : undefined;
+    }
+    case NULL:
+      return contents.length === 0 ? undefined : "NULL with contents";
+    case OBJECT_IDENTIFIER: {
+      // A subidentifier starts at the first octet and after each octet with bit 8 clear.
+      const padded = contents.some(
+        (octet, index) =>
+          octet === 0x80 && (index === 0 || ((contents[index - 1] ?? 0) & 0x80) === 0)
+      );
+      return padded ? "subidentifier not in its shortest form" : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+// asn1js decodes BER and only warns, if at all, about what DER forbids, and re-encodes what it
+// decoded in DER. Re-encoding the unsigned outer SEQUENCE of a certificate this way keeps the TBS
+// and the signature intact, so without these checks one certificate could be imported under
+// several ids (M1); the unsigned outer AlgorithmIdentifier of a CRL could carry an OID padded with
+// 0x80 or a NULL with contents, which OpenSSL cannot load (slice 4 review C2).
 function derProblem(block: BaseBlock): string | undefined {
   const { idBlock, lenBlock } = block;
   if (idBlock.blockLength !== identifierOctets(idBlock.tagNumber)) {
@@ -183,6 +231,13 @@ function derProblem(block: BaseBlock): string | undefined {
     }
     if (!idBlock.isConstructed && NON_EMPTY.has(idBlock.tagNumber) && lenBlock.length === 0) {
       return "empty contents";
+    }
+    if (!idBlock.isConstructed) {
+      // The value as received: the octets after the identifier and length octets.
+      const contents = block.valueBeforeDecodeView.subarray(
+        idBlock.blockLength + lenBlock.blockLength
+      );
+      return contentsProblem(idBlock.tagNumber, contents);
     }
   }
   return undefined;
@@ -238,7 +293,10 @@ export function assertWellFormed(root: BaseBlock): void {
     }
     if (block.idBlock.isConstructed) {
       const blocks = children(block);
-      stack.push(...blocks);
+      // Not push(...blocks): a spread of some 250 000 arguments overflows the call stack.
+      for (const child of blocks) {
+        stack.push(child);
+      }
       const value = extensionValue(block, blocks);
       if (value !== undefined) {
         stack.push(value);
@@ -354,7 +412,7 @@ const DUMP_LIMITS = { maxLines: 200, maxDepth: 12 };
  * the bytes are not decodable, so callers fall back to raw hex.
  */
 export function dumpAsn1(bytes: Uint8Array | ArrayBuffer): Asn1Line[] | undefined {
-  const parsed = fromBER(bytes);
+  const parsed = decodeBer(bytes);
   if (parsed.offset === -1 || parsed.result.error !== "") {
     return undefined;
   }

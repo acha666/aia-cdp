@@ -1,6 +1,6 @@
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyConfig } from "../../src/core/admin.ts";
 import {
   CATALOG_KEY,
@@ -14,7 +14,9 @@ import {
 import type { Catalog, CrlKind, CurrentCrl } from "../../src/core/catalog.ts";
 import { sha256Hex } from "../../src/core/digest.ts";
 import { importCertificate } from "../../src/core/import.ts";
+import { SIGNATURE_ALG_NAMES } from "../../src/core/pki/constants.ts";
 import { PKI_PARSE_REASONS } from "../../src/core/pki/errors.ts";
+import { MAX_CRL_NUMBER_OCTETS } from "../../src/core/pki/extensions.ts";
 import { parseCertificate, parseCRL } from "../../src/core/pki/parsers.ts";
 import { crlBlobKey, crlHistoryKey, crlVersionName, publishCrl } from "../../src/core/publish.ts";
 import type { CurrentVersion, PublishLogRecord } from "../../src/core/publish.ts";
@@ -27,7 +29,8 @@ import { MemoryStore } from "../../src/storage/memory.ts";
 import { fixture, manifest, NOW } from "../fixtures/pki.ts";
 import type { ManifestCrl } from "../fixtures/pki.ts";
 import { cert, currentCrl, putConfig } from "../helpers/catalog.ts";
-import { extension } from "../helpers/pki.ts";
+import { generateCa, setupGeneratedCa, signCrl } from "../helpers/generated-ca.ts";
+import { extension, nullWithContents, padOid, withOuterAlgorithm } from "../helpers/pki.ts";
 import {
   IMPORTED,
   ISSUING_FULL_ALIAS,
@@ -52,9 +55,19 @@ const FULL_01 = "crls/issuing-ca-1/full-01.der";
 const FULL_02 = "crls/issuing-ca-1/full-02.der";
 const FULL_03 = "crls/issuing-ca-1/full-03.der";
 const DELTA_01 = "crls/issuing-ca-1/delta-01.der";
+const ROOT_FULL_01 = "crls/root-ca/full-01.der";
 const AKI_OID = "2.5.29.35";
 const CRL_NUMBER_OID = "2.5.29.20";
 const DELTA_INDICATOR_OID = "2.5.29.27";
+/** A private OID (appendix D, IANA example enterprise number). */
+const UNKNOWN_OID = "1.3.6.1.4.1.32473.99";
+
+/** The engine whose verifyWithPublicKey checks every signature (B21). */
+const engine = pkijs.getCrypto(true);
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 /** The manifest entry of a CRL fixture; a `.pem` file stands for its `.der`. */
 function crlEntry(file: string): ManifestCrl {
@@ -131,6 +144,16 @@ const replacing =
     replacement,
   ];
 
+/** An extension whose extnValue is exactly `octets`. */
+const rawExtension = (oid: string, octets: number[]) =>
+  new pkijs.Extension({ extnID: oid, extnValue: Uint8Array.from(octets).buffer });
+
+/** full-01's extension `oid` with one octet after its value: one DER value plus a trailing byte. */
+const withTrailingByte = (oid: string) => (extensions: pkijs.Extension[]) =>
+  extensions.map((ext) =>
+    ext.extnID === oid ? rawExtension(oid, [...ext.extnValue.valueBlock.valueHexView, 0]) : ext
+  );
+
 describe("publishCrl: the first upload of each manifest CRL", () => {
   it.each(manifest.crls.map((crl) => [crl.file, crl.expect, crl] as const))(
     "%s → %s",
@@ -190,10 +213,9 @@ describe("publishCrl: the manifest scenarios", () => {
       expect(result).toMatchObject({ outcome, targetId, current });
       expect(await currentOf(base, targetId)).toEqual(current);
       if (before !== null) {
-        expect(await json(base, crlHistoryKey(targetId, before.summary, before.sha256))).toEqual({
-          ...before,
-          supersededAt: NOW.toISOString(),
-        });
+        expect(await json(base, crlHistoryKey(targetId, before.summary, before.sha256))).toEqual(
+          before
+        );
       }
       return;
     }
@@ -261,8 +283,9 @@ describe("publishCrl: input that is not a CRL", () => {
     expect(store.writes).toEqual([]);
   });
 
-  // M2: an INTEGER ≥ 0 (tag 2, not empty) for the CRL Number and the Delta CRL Indicator, a
-  // decodable AKI with a non-empty keyIdentifier.
+  // M2: exactly one INTEGER ≥ 0 (tag 2, not empty, at most MAX_CRL_NUMBER_OCTETS octets) for the
+  // CRL Number and the Delta CRL Indicator, exactly one AKI with a non-empty keyIdentifier, and no
+  // extension twice (slice 4 review C3, C5).
   it.each([
     [
       "CRL Number NULL",
@@ -273,6 +296,41 @@ describe("publishCrl: input that is not a CRL", () => {
       "CRL Number -1",
       replacing(CRL_NUMBER_OID, extension(CRL_NUMBER_OID, new asn1.Integer({ value: -1 }))),
       /Invalid CRL Number/,
+    ],
+    ["CRL Number with a trailing byte", withTrailingByte(CRL_NUMBER_OID), /Invalid CRL Number/],
+    [
+      "CRL Number one octet over the limit",
+      replacing(
+        CRL_NUMBER_OID,
+        extension(
+          CRL_NUMBER_OID,
+          asn1.Integer.fromBigInt(2n ** BigInt(8 * MAX_CRL_NUMBER_OCTETS - 1))
+        )
+      ),
+      /Invalid CRL Number/,
+    ],
+    [
+      "Delta CRL Indicator with a trailing byte",
+      replacing(DELTA_INDICATOR_OID, rawExtension(DELTA_INDICATOR_OID, [0x02, 0x01, 0x01, 0x00])),
+      /Invalid Delta CRL Indicator/,
+    ],
+    ["AKI with a trailing byte", withTrailingByte(AKI_OID), /Invalid Authority Key Identifier/],
+    [
+      "the CRL Number twice",
+      (extensions: pkijs.Extension[]) => [
+        ...extensions,
+        extension(CRL_NUMBER_OID, new asn1.Integer({ value: 100 })),
+      ],
+      /Repeated extension 2\.5\.29\.20/,
+    ],
+    [
+      "an extension the service does not read twice",
+      (extensions: pkijs.Extension[]) => [
+        ...extensions,
+        extension(UNKNOWN_OID, new asn1.Null()),
+        extension(UNKNOWN_OID, new asn1.Null()),
+      ],
+      /Repeated extension 1\.3\.6\.1\.4\.1\.32473\.99/,
     ],
     [
       "Delta CRL Indicator NULL",
@@ -311,6 +369,48 @@ describe("publishCrl: input that is not a CRL", () => {
   // a validly signed CRL only in the replaced extension.
   it("re-encodes the unedited full-01 to the fixture's bytes (control)", () => {
     expect(reencoded((extensions) => extensions)).toEqual(fixture(FULL_01));
+  });
+});
+
+// C2 of the slice 4 review: the outer signatureAlgorithm is outside the signature. asn1js decodes an
+// OID subidentifier padded with 0x80 and a NULL with contents and re-encodes both canonically, so
+// before the DER rules a third party could make such a variant of a genuine CRL current first (no
+// upload token by default), one OpenSSL cannot load, and lock the CA's own bytes out as conflict.
+describe("publishCrl: a rewritten outer signatureAlgorithm", () => {
+  it.each([
+    [FULL_01, "an OID padded with 0x80", padOid],
+    [FULL_01, "a NULL with contents", nullWithContents],
+    [ROOT_FULL_01, "an OID padded with 0x80", padOid],
+    [ROOT_FULL_01, "an added NULL with contents", nullWithContents],
+  ])("rejects %s with %s as invalid_crl, then takes the genuine file", async (file, _, rewrite) => {
+    const { base } = await fresh();
+    const store = recordingStore(base);
+    const variant = withOuterAlgorithm(fixture(file), rewrite);
+    expect(variant).not.toEqual(fixture(file));
+    expect((await publish(store, variant)).result).toEqual({
+      error: "invalid_crl",
+      details: { reason: "der" },
+    });
+    expect(store.writes).toEqual([]);
+    expect((await publishFile(store, file)).result).toMatchObject({ outcome: "created" });
+  });
+});
+
+describe("publishCrl: the signature before the freshness (step 6 before step 7)", () => {
+  // Only the Worker smoke's upload order pinned this before (slice 4 review, tests C8).
+  it("answers invalid_signature, not stale_crl, for a broken CRL older than the current one", async () => {
+    const { base } = await fresh();
+    const broken = "crls/issuing-ca-1/full-broken-sig.der";
+    const newer = "crls/issuing-ca-1/full-pss.der";
+    expect(BigInt(crlEntry(newer).crlNumber!)).toBeGreaterThan(BigInt(crlEntry(broken).crlNumber!));
+    expect((await publishFile(base, newer)).result).toMatchObject({ outcome: "created" });
+    const store = recordingStore(base);
+    const algorithm = parseCRL(fixture(broken)).signatureAlgorithm.algorithmId;
+    expect((await publishFile(store, broken)).result).toEqual({
+      error: "invalid_signature",
+      details: { algorithm: SIGNATURE_ALG_NAMES[algorithm] },
+    });
+    expect(store.writes).toEqual([]);
   });
 });
 
@@ -478,7 +578,10 @@ describe("publishCrl: issuer and target (M3, M4, M23, C5)", () => {
       expect(applied).not.toHaveProperty("error");
       await importCertificate({ store: base, now: () => NOW }, fixture(cert("issuing-ca-2").der));
     };
+    const verify = vi.spyOn(engine, "verifyWithPublicKey");
     const run = await publishFile(racingStore(base, rival), FULL_01);
+    // Step 6.6: the retry resolved another issuer, so it verified again (same key, other id).
+    expect(verify).toHaveBeenCalledTimes(2);
     expect(run.result).toEqual({
       outcome: "created",
       targetId: second,
@@ -602,7 +705,8 @@ describe("publishCrl: what an upload writes", () => {
     ]);
     // History = markers ∪ current (plan §5.3): { full-01 marker, full-02 current }.
     expect(await keys(base, `history/${targetId}/`)).toEqual([marker]);
-    expect(await json(base, marker)).toEqual({ ...first, supersededAt: NOW.toISOString() });
+    // The superseded record verbatim, without a time of its own (slice 4 review C6).
+    expect(await json(base, marker)).toEqual(first);
     expect(await currentOf(base, targetId)).toEqual(second);
     // Blob and marker share the version name, so a list of both prefixes pairs them.
     const name = crlVersionName(first.summary, first.sha256);
@@ -649,13 +753,24 @@ describe("publishCrl: concurrent writers (plan §5.5)", () => {
   ] as const)("re-reads after a rival published %s → %s", async (_, outcome, rivalFile) => {
     const { base, setup } = await fresh();
     const targetId = setup.target("issuing-ca-1", "full");
-    const store = recordingStore(racingStore(base, () => publishFile(base, rivalFile)));
+    const verify = vi.spyOn(engine, "verifyWithPublicKey");
+    let rivalVerifications = 0;
+    const store = recordingStore(
+      racingStore(base, async () => {
+        const before = verify.mock.calls.length;
+        await publishFile(base, rivalFile);
+        rivalVerifications = verify.mock.calls.length - before;
+      })
+    );
     const run = await publishFile(store, FULL_02);
     const ours = await currentCrl(FULL_02, targetId);
     const rival = await currentCrl(rivalFile, targetId);
 
     expect(run.sleeps).toEqual([250]);
     expect(run.record.attempts).toBe(2);
+    // Step 6.6: the retry resolved the same issuer and reused the first attempt's check.
+    expect(rivalVerifications).toBe(1);
+    expect(verify.mock.calls.length - rivalVerifications).toBe(1);
     expect(await base.head(ours.key)).not.toBeNull();
     const written = puts(store).map((put) => [put.key, put.ok]);
     switch (outcome) {
@@ -721,9 +836,11 @@ describe("publishCrl: concurrent writers (plan §5.5)", () => {
     ).toBe(true);
     expect((await base.get(CATALOG_KEY))!.bytes).toEqual(before!.bytes);
     // Left behind: the orphan blob, and the marker of full-01, which stays current (a history
-    // listing pairs them by name, plan §5.3).
+    // listing pairs them by name, plan §5.3). The marker holds no time: whenever full-01 is really
+    // superseded, its existing marker is still right (slice 4 review C6).
     expect(await base.head(second.key)).not.toBeNull();
     expect(await currentOf(base, targetId)).toEqual(first);
+    expect(await json(base, marker)).toEqual(first);
   });
 });
 
@@ -800,5 +917,94 @@ describe("publishCrl: the publish log line (plan §4.3)", () => {
       ms: expect.any(Number) as unknown,
       detail: expect.stringMatching(/^der: /) as unknown,
     });
+  });
+
+  // C7 of the slice 4 review: a field the call does not know at its end is left out, also when an
+  // earlier attempt knew it.
+  it("logs no targetId when the retry no longer finds the target", async () => {
+    const { base } = await fresh({
+      certificates: ["root-ca", "issuing-ca-1"],
+      targets: [{ issuer: "issuing-ca-1", kind: "full" }],
+    });
+    // Between this call's state read and its catalog write: the operator removes every target,
+    // and an import changes the catalog, so the catalog write is lost.
+    const rival = async () => {
+      const stored = await base.get(CONFIG_KEY);
+      const applied = await applyConfig(
+        { store: base },
+        { version: 1, certificates: {}, targets: {}, paths: {} },
+        { ifMatch: await sha256Hex(stored!.bytes) }
+      );
+      expect(applied).not.toHaveProperty("error");
+      await importCertificate({ store: base, now: () => NOW }, fixture(cert("issuing-ca-2").der));
+    };
+    const entry = crlEntry(FULL_01);
+    const run = await publishFile(racingStore(base, rival), FULL_01);
+    expect(run.result).toEqual({
+      error: "target_not_configured",
+      details: { kind: "full", certificates: [cert("issuing-ca-1").sha256] },
+    });
+    expect(run.record).toEqual({
+      level: "warn",
+      msg: "publish",
+      kind: "full",
+      reason: "target_not_configured",
+      sha256: entry.sha256,
+      crlNumber: entry.crlNumber,
+      thisUpdate: new Date(entry.thisUpdate).toISOString(),
+      expired: false,
+      attempts: 2,
+      ms: expect.any(Number) as unknown,
+      detail: expect.stringMatching(/^No full target names certificate /) as unknown,
+    });
+  });
+});
+
+// CRLs a CA made in the test signs (tests/helpers/generated-ca.ts): shapes the fixtures cannot hold.
+describe("publishCrl: CRLs of a generated CA", () => {
+  const ca = generateCa();
+
+  // C1 of the slice 4 review: asn1js 3.1.0 limits a decoding to 10 000 nodes by default, and an
+  // entry with a reasonCode takes 8, so about 1 250 such entries made a valid CRL invalid_crl / der.
+  it("publishes a CRL with 3000 revoked entries, each with a reasonCode", async () => {
+    const base = new MemoryStore();
+    const targetId = await setupGeneratedCa(base, await ca);
+    const der = await signCrl(await ca, { revoked: 3000 });
+    const { result } = await publish(base, der);
+    expect(result).toMatchObject({
+      outcome: "created",
+      targetId,
+      current: { size: der.byteLength, summary: { revokedCount: 3000 } },
+    });
+  });
+
+  // C5: the number is part of the blob and marker names, and a file system allows 255 octets,
+  // also for the fs adapter's temporary file `.<name>.<uuid>.tmp` (tests/storage writes one).
+  it("publishes a CRL Number of MAX_CRL_NUMBER_OCTETS octets and refuses one more", async () => {
+    const base = new MemoryStore();
+    const targetId = await setupGeneratedCa(base, await ca);
+    const largest = 2n ** BigInt(8 * MAX_CRL_NUMBER_OCTETS - 1) - 1n;
+    expect(asn1.Integer.fromBigInt(largest).valueBlock.valueHexView).toHaveLength(
+      MAX_CRL_NUMBER_OCTETS
+    );
+    const over = await signCrl(await ca, { crlNumber: largest + 1n });
+    const store = recordingStore(base);
+    const refused = await publish(store, over);
+    expect(refused.result).toEqual({
+      error: "invalid_crl",
+      details: { reason: "extension_value" },
+    });
+    expect(refused.record.detail).toMatch(/Invalid CRL Number/);
+    expect(store.writes).toEqual([]);
+
+    const { result } = await publish(base, await signCrl(await ca, { crlNumber: largest }));
+    expect(result).toMatchObject({
+      outcome: "created",
+      targetId,
+      current: { summary: { crlNumber: largest.toString() } },
+    });
+    const { current } = result as { current: CurrentCrl };
+    const name = crlVersionName(current.summary, current.sha256);
+    expect(`.${name}.json.${crypto.randomUUID()}.tmp`.length).toBeLessThanOrEqual(255);
   });
 });

@@ -9,14 +9,16 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PlatformProxy } from "wrangler";
 import { CATALOG_KEY, CatalogSchema, decodeJson } from "../../src/core/catalog.ts";
 import type { CurrentCrl } from "../../src/core/catalog.ts";
+import { MAX_CRL_NUMBER_OCTETS } from "../../src/core/pki/extensions.ts";
 import { crlHistoryKey } from "../../src/core/publish.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { FsStore } from "../../src/storage/fs.ts";
 import { R2Store } from "../../src/storage/r2.ts";
 import type { R2BucketLike } from "../../src/storage/r2.ts";
-import { fixture, manifest, NOW } from "../fixtures/pki.ts";
+import { fixture, manifest } from "../fixtures/pki.ts";
 import { currentCrl } from "../helpers/catalog.ts";
-import { publishFile, racingStore, setupPublish } from "../helpers/publish.ts";
+import { generateCa, setupGeneratedCa, signCrl } from "../helpers/generated-ca.ts";
+import { publish, publishFile, racingStore, setupPublish } from "../helpers/publish.ts";
 import { puts, recordingStore } from "../helpers/store.ts";
 
 const FULL_01 = "crls/issuing-ca-1/full-01.der";
@@ -64,10 +66,8 @@ function describePublish(name: string, factory: () => ObjectStore | Promise<Obje
       expect(result).toMatchObject({ outcome: "updated", current: second });
       expect(await currentOf(store, targetId)).toEqual(second);
       expect(await keys(store, `history/${targetId}/`)).toEqual([marker]);
-      expect(decodeJson((await store.get(marker))!.bytes)).toEqual({
-        ...first,
-        supersededAt: NOW.toISOString(),
-      });
+      // The superseded record verbatim (slice 4 review C6).
+      expect(decodeJson((await store.get(marker))!.bytes)).toEqual(first);
       expect(await keys(store, `blobs/crls/${targetId}/`)).toEqual([first.key, second.key]);
     });
 
@@ -130,6 +130,28 @@ afterAll(async () => {
 });
 
 describePublish("fs", async () => new FsStore(await mkdtemp(join(parent, "case-"))));
+
+// C5 of the slice 4 review: the CRL Number is part of the blob and history marker file names, and
+// a file system allows a name 255 octets. The longest number the service takes fits both.
+describe("publishCrl on fs: the longest CRL Number", () => {
+  it("publishes it, and supersedes it with a marker named after it", async () => {
+    const store = new FsStore(await mkdtemp(join(parent, "case-")));
+    const ca = await generateCa();
+    const targetId = await setupGeneratedCa(store, ca);
+    const largest = 2n ** BigInt(8 * MAX_CRL_NUMBER_OCTETS - 1) - 1n;
+    // Same number, later thisUpdate: updated (slice 4 step 5, row 4).
+    const first = await signCrl(ca, { crlNumber: largest, thisUpdateMs: -2 * 3_600_000 });
+    const second = await signCrl(ca, { crlNumber: largest });
+    expect((await publish(store, first)).result).toMatchObject({ outcome: "created" });
+    const { result } = await publish(store, second);
+    expect(result).toMatchObject({ outcome: "updated" });
+    const [marker, ...more] = await keys(store, `history/${targetId}/`);
+    expect(more).toEqual([]);
+    expect(marker?.split("/").at(-1)).toContain(`-${largest}-`);
+    const [blob] = await keys(store, `blobs/crls/${targetId}/`);
+    expect(blob?.split("/").at(-1)).toContain(`-${largest}-`);
+  });
+});
 
 describe.runIf(process.env.AIA_TEST_R2 === "1")("publishCrl via getPlatformProxy", () => {
   let proxy: PlatformProxy<{ STORE: R2BucketLike }> | undefined;

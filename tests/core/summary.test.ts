@@ -3,6 +3,7 @@ import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
 import { describe, expect, it } from "vitest";
 import { CrlSummarySchema } from "../../src/core/catalog.ts";
+import { MAX_CRL_NUMBER_OCTETS } from "../../src/core/pki/extensions.ts";
 import {
   getAuthorityKeyIdHex,
   NEXT_CRL_PUBLISH_OID,
@@ -119,18 +120,50 @@ describe("buildCertificateSummary", () => {
     expect((await buildCertificateSummary(cert, der)).subjectCN).toBeNull();
   });
 
-  // M5: the old code skipped a malformed SKI / AKI silently.
+  /** An extension `oid` of issuing-ca-1 with one octet after its value (slice 4 review C3). */
+  function withTrailingByte(oid: string) {
+    const der = fixture(entry("issuing-ca-1").der);
+    const cert = parseCertificate(der);
+    const found = cert.extensions?.find((ext) => ext.extnID === oid);
+    if (!found) {
+      throw new Error(`issuing-ca-1 has no ${oid}`);
+    }
+    const bytes = Uint8Array.from([...found.extnValue.valueBlock.valueHexView, 0]);
+    return new pkijs.Extension({ extnID: oid, extnValue: bytes.buffer });
+  }
+
+  // M5: the old code skipped a malformed SKI / AKI silently. Slice 4 review C3: the SKI and AKI
+  // are exactly one value, as a CRL's AKI is (getAuthorityKeyIdHex serves both).
   it.each([
-    ["a malformed SKI", SKI, new asn1.Null()],
-    ["a malformed AKI", AKI, new asn1.Null()],
-    ["an empty SKI", SKI, new asn1.OctetString({ valueHex: new ArrayBuffer(0) })],
-  ])("rejects %s as extension_value", async (_case, oid, value) => {
+    ["a malformed SKI", SKI, () => extension(SKI, new asn1.Null())],
+    ["a malformed AKI", AKI, () => extension(AKI, new asn1.Null())],
+    [
+      "an empty SKI",
+      SKI,
+      () => extension(SKI, new asn1.OctetString({ valueHex: new ArrayBuffer(0) })),
+    ],
+    ["an SKI with a trailing byte", SKI, () => withTrailingByte(SKI)],
+    ["an AKI with a trailing byte", AKI, () => withTrailingByte(AKI)],
+  ])("rejects %s as extension_value", async (_case, oid, replacement) => {
     const der = fixture(entry("issuing-ca-1").der);
     const cert = parseCertificate(der);
     cert.extensions = [
       ...(cert.extensions ?? []).filter((ext) => ext.extnID !== oid),
-      extension(oid, value),
+      replacement(),
     ];
+    expect(await pkiError(() => buildCertificateSummary(cert, der))).toEqual({
+      kind: "certificate",
+      reason: "extension_value",
+    });
+  });
+
+  // RFC 5280 §4.2: a certificate includes each extension at most once.
+  it.each([SKI, "2.5.29.19"])("rejects extension %s twice as extension_value", async (oid) => {
+    const der = fixture(entry("issuing-ca-1").der);
+    const cert = parseCertificate(der);
+    const found = cert.extensions?.find((ext) => ext.extnID === oid);
+    expect(found).toBeDefined();
+    cert.extensions = [...(cert.extensions ?? []), found!];
     expect(await pkiError(() => buildCertificateSummary(cert, der))).toEqual({
       kind: "certificate",
       reason: "extension_value",
@@ -245,26 +278,57 @@ describe("buildCrlSummary", () => {
     });
   });
 
-  // M2: an INTEGER ≥ 0 (tag 2, not empty), read as BigInt without a size limit.
+  // M2: exactly one INTEGER ≥ 0 (tag 2, not empty), read as BigInt, beyond RFC 5280's 20 octets
+  // up to MAX_CRL_NUMBER_OCTETS (slice 4 review C3, C5).
   it.each([
     ["CRL Number", "2.5.29.20", "crls/issuing-ca-1/full-01.der"],
     ["Delta CRL Indicator", "2.5.29.27", "crls/issuing-ca-1/delta-01.der"],
   ])(
     "rejects a malformed %s as extension_value and keeps a large one",
     async (_name, oid, file) => {
-      for (const value of [new asn1.Integer({ value: -1 }), new asn1.OctetString()]) {
-        const { crl, der } = withExtension(file, oid, extension(oid, value));
+      const largest = 2n ** BigInt(8 * MAX_CRL_NUMBER_OCTETS - 1) - 1n;
+      const one = new asn1.Integer({ value: 1 }).toBER(false);
+      for (const replacement of [
+        extension(oid, new asn1.Integer({ value: -1 })),
+        extension(oid, new asn1.OctetString()),
+        extension(oid, asn1.Integer.fromBigInt(largest + 1n)),
+        new pkijs.Extension({
+          extnID: oid,
+          extnValue: Uint8Array.from([...new Uint8Array(one), 0]).buffer,
+        }),
+      ]) {
+        const { crl, der } = withExtension(file, oid, replacement);
         expect(await pkiError(() => buildCrlSummary(crl, der))).toEqual({
           kind: "crl",
           reason: "extension_value",
         });
       }
-      const large = 2n ** 100n + 123n;
-      const { crl, der } = withExtension(file, oid, extension(oid, asn1.Integer.fromBigInt(large)));
-      const summary = await buildCrlSummary(crl, der);
-      expect(oid === "2.5.29.20" ? summary.crlNumber : summary.baseCrlNumber).toBe(
-        large.toString()
-      );
+      for (const large of [2n ** 100n + 123n, largest]) {
+        const { crl, der } = withExtension(
+          file,
+          oid,
+          extension(oid, asn1.Integer.fromBigInt(large))
+        );
+        const summary = await buildCrlSummary(crl, der);
+        expect(oid === "2.5.29.20" ? summary.crlNumber : summary.baseCrlNumber).toBe(
+          large.toString()
+        );
+      }
     }
   );
+
+  it("rejects a CRL extension that occurs twice as extension_value", async () => {
+    const file = "crls/issuing-ca-1/full-adcs.der";
+    const der = fixture(file);
+    const crl = parseCRL(der);
+    const extensions = crl.crlExtensions?.extensions ?? [];
+    for (const repeated of extensions) {
+      crl.crlExtensions = new pkijs.Extensions({ extensions: [...extensions, repeated] });
+      expect(await pkiError(() => buildCrlSummary(crl, der)), repeated.extnID).toEqual({
+        kind: "crl",
+        reason: "extension_value",
+      });
+    }
+    expect(extensions.length).toBeGreaterThan(3);
+  });
 });

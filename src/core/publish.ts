@@ -3,7 +3,6 @@
 // companions, no edge cache (§10 #5, #6). Rewrite of the core of
 // worker-aia-cdp@5b570aa:src/worker/api/v2/crls/upload.ts and of the issuer lookup in
 // src/worker/r2/certificates.ts; the HTTP route maps the result (slice 4 step 8).
-import type { CertificateRevocationList } from "pkijs";
 import {
   CrlSummarySchema,
   encodeJson,
@@ -18,6 +17,7 @@ import { checkCrlPolicy } from "./pki/crl-policy.ts";
 import { PkiParseError } from "./pki/errors.ts";
 import type { PkiParseReason } from "./pki/errors.ts";
 import { getAuthorityKeyIdHex, parseCertificate, parseCRL } from "./pki/parsers.ts";
+import type { ReceivedCrl } from "./pki/parsers.ts";
 import { toDer } from "./pki/pem.ts";
 import { verifyCrlSignature } from "./pki/verify.ts";
 import type { SignatureCheck } from "./pki/verify.ts";
@@ -62,11 +62,14 @@ export function crlHistoryKey(
 }
 
 /**
- * Body of a history marker written when a publish supersedes `current`: that record as it was,
- * plus when it was superseded (slice 6's retire writes the same shape; slice 7's history import
- * has `importedAt` instead).
+ * Body of a history marker written when a publish supersedes `current`: that record verbatim
+ * (slice 6's retire writes the same). No time of its own: a marker is create-only and may come from
+ * a call whose catalog write was then lost (concurrent_update) while the version stayed current, so
+ * a time written then would stay wrong forever (slice 4 review C6). When the version was superseded
+ * is the `publishedAt` of the version that superseded it, which slice 6 derives when it lists the
+ * history.
  */
-export type HistoryMarker = CurrentCrl & { supersededAt: string };
+export type HistoryMarker = CurrentCrl;
 
 // Freshness (step 5; C3, M15) ----------------------------------------------------------------------
 
@@ -246,7 +249,7 @@ interface Trace {
 interface ParsedCrl {
   der: Uint8Array;
   sha256: string;
-  crl: CertificateRevocationList;
+  crl: ReceivedCrl;
   summary: CrlSummary;
   /** keyIdentifier of the Authority Key Identifier; undefined without one. */
   aki: string | undefined;
@@ -345,7 +348,7 @@ async function verifyWithIssuer(
   store: ObjectStore,
   state: State,
   issuer: string,
-  crl: CertificateRevocationList
+  crl: ReceivedCrl
 ): Promise<SignatureCheck> {
   const entry = state.catalog.certificates[issuer];
   if (entry === undefined) {
@@ -396,8 +399,8 @@ async function publish(
   // Steps 4–9 run once per attempt on the state read for it. The signature only depends on the
   // issuer's key (the id is the digest of its certificate), so a retry verifies again only when it
   // resolved another issuer. Blob and marker are create-only and immutable: each is put at most once
-  // per call, and an existing one (precondition-failed) has the same bytes, or, for a marker an
-  // earlier attempt or a concurrent publish wrote, records the same superseded version.
+  // per call, and an existing one (precondition-failed) has the same bytes: the blob key holds its
+  // digest, and a marker is the superseded current record, which every writer reads alike.
   const checks = new Map<string, SignatureCheck>();
   const written = new Set<string>();
   const putOnce = async (key: string, body: Uint8Array, contentType: string) => {
@@ -408,6 +411,10 @@ async function publish(
   };
   const attempt = async (state: State): Promise<CatalogMutation<PublishResult>> => {
     trace.attempts++;
+    // What an earlier attempt learned does not describe this one (step 6: fields the call does
+    // not know at its end are left out).
+    delete trace.targetId;
+    delete trace.detail;
     const resolved = resolveTarget(state, aki, kind);
     if ("failure" in resolved) {
       trace.detail = resolved.detail;
@@ -452,7 +459,7 @@ async function publish(
     await putOnce(key, der, CRL_CONTENT_TYPE);
     const publishedAt = now.toISOString();
     if (current !== null) {
-      const marker: HistoryMarker = { ...current, supersededAt: publishedAt };
+      const marker: HistoryMarker = current;
       await putOnce(
         crlHistoryKey(targetId, current.summary, current.sha256),
         encodeJson(marker),

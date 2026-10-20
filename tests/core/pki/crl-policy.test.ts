@@ -8,15 +8,16 @@ import {
   MAX_CLOCK_SKEW_MS,
 } from "../../../src/core/pki/crl-policy.ts";
 import { parseCRL } from "../../../src/core/pki/parsers.ts";
+import type { ReceivedCrl } from "../../../src/core/pki/parsers.ts";
 import { fixture, manifest, NOW } from "../../fixtures/pki.ts";
 import type { ManifestCrl } from "../../fixtures/pki.ts";
 import { cert } from "../../helpers/catalog.ts";
-import { extension } from "../../helpers/pki.ts";
+import { extension, padOid } from "../../helpers/pki.ts";
 
 // checkCrlPolicy (slice 4 step 3; C2, M11, M13, M14, §10 #12, owner answers 2 and 5). Fixtures
-// cover what `openssl ca` can produce; entry extension criticality and an outer / inner algorithm
-// mismatch are made by changing the parsed PKIjs object, which is fine because the policy runs
-// before the signature check.
+// cover what `openssl ca` can produce; entry extension criticality is made by changing the parsed
+// PKIjs object, and an outer / inner algorithm mismatch by changing the received AlgorithmIdentifier
+// octets that parseCRL exposes, which is fine because the policy runs before the signature check.
 
 const FULL_01 = "crls/issuing-ca-1/full-01.der";
 const ADCS = "crls/issuing-ca-1/full-adcs.der";
@@ -36,7 +37,7 @@ const crlOf = (file: string) => parseCRL(fixture(file));
 const at = (iso: string, deltaMs = 0) => new Date(Date.parse(iso) + deltaMs);
 
 /** `crl` with `added` appended to its CRL extensions. */
-function withCrlExtension(crl: pkijs.CertificateRevocationList, added: pkijs.Extension) {
+function withCrlExtension(crl: ReceivedCrl, added: pkijs.Extension) {
   crl.crlExtensions = new pkijs.Extensions({
     extensions: [...(crl.crlExtensions?.extensions ?? []), added],
   });
@@ -256,13 +257,9 @@ describe("CRL extensions", () => {
         NOW
       );
 
-    it.each([true, false])(
-      "accepts only a distributionPoint, or nothing (critical: %s)",
-      (critical) => {
-        expect(check(idp(0), critical)).toEqual(OK);
-        expect(check(idp(), critical)).toEqual(OK);
-      }
-    );
+    it.each([true, false])("accepts only a distributionPoint (critical: %s)", (critical) => {
+      expect(check(idp(0), critical)).toEqual(OK);
+    });
 
     // Not RFC 5280 (an IDP must be critical), but a partition is never the issuer's whole CRL.
     it.each([
@@ -282,6 +279,8 @@ describe("CRL extensions", () => {
     });
 
     it.each([
+      // RFC 5280 §5.2.5: conforming issuers MUST NOT write an empty IDP (slice 4 review C4).
+      ["nothing (an empty SEQUENCE)", idp()],
       ["an INTEGER", new asn1.Integer({ value: 1 })],
       ["a universal field", new asn1.Sequence({ value: [new asn1.Boolean({ value: true })] })],
       ["fields out of order", idp(1, 0)],
@@ -369,20 +368,30 @@ describe("signature algorithm (M11, owner answer 5)", () => {
     details: { reason: "signature_algorithm_mismatch" },
   };
 
+  /** The DER of an AlgorithmIdentifier, as an AlgorithmIdentifier field of an upload would hold. */
+  const algorithmDer = (algorithmId: string, algorithmParams?: asn1.BaseBlock) =>
+    new Uint8Array(
+      new pkijs.AlgorithmIdentifier({
+        algorithmId,
+        ...(algorithmParams === undefined ? {} : { algorithmParams }),
+      })
+        .toSchema()
+        .toBER(false)
+    );
+
   it("rejects an outer signatureAlgorithm with another OID", () => {
     const crl = crlOf(FULL_01);
-    crl.signatureAlgorithm = new pkijs.AlgorithmIdentifier({
-      algorithmId: "1.2.840.113549.1.1.12",
-      algorithmParams: new asn1.Null(),
-    });
+    crl.signatureAlgorithmView = algorithmDer("1.2.840.113549.1.1.12", new asn1.Null());
     expect(checkCrlPolicy(crl, NOW)).toMatchObject(mismatch);
   });
 
-  it("rejects the same OID with other parameters (NULL against absent)", () => {
-    const crl = crlOf(FULL_01);
-    expect(crl.signatureAlgorithm.algorithmParams).toBeInstanceOf(asn1.Null);
-    crl.signature = new pkijs.AlgorithmIdentifier({ algorithmId: crl.signature.algorithmId });
-    expect(checkCrlPolicy(crl, NOW)).toMatchObject(mismatch);
+  it("rejects the same OID with other parameters (NULL against absent), on either side", () => {
+    for (const side of ["signatureAlgorithmView", "signatureView"] as const) {
+      const crl = crlOf(FULL_01);
+      expect(crl.signatureAlgorithm.algorithmParams).toBeInstanceOf(asn1.Null);
+      crl[side] = algorithmDer(crl.signature.algorithmId);
+      expect(checkCrlPolicy(crl, NOW), side).toMatchObject(mismatch);
+    }
   });
 
   it("compares the RSASSA-PSS parameters too", () => {
@@ -390,10 +399,24 @@ describe("signature algorithm (M11, owner answer 5)", () => {
     expect(checkCrlPolicy(crl, NOW)).toEqual(OK);
     const params = new pkijs.RSASSAPSSParams({ schema: crl.signatureAlgorithm.algorithmParams });
     params.saltLength = 20;
-    crl.signatureAlgorithm = new pkijs.AlgorithmIdentifier({
-      algorithmId: crl.signatureAlgorithm.algorithmId,
-      algorithmParams: params.toSchema(),
+    crl.signatureAlgorithmView = algorithmDer(
+      crl.signatureAlgorithm.algorithmId,
+      params.toSchema()
+    );
+    expect(checkCrlPolicy(crl, NOW)).toMatchObject(mismatch);
+  });
+
+  // C2 of the slice 4 review: asn1js decodes an OID subidentifier padded with 0x80 as the same OID
+  // and re-encodes it canonically, so a comparison of re-encodings took the two as equal.
+  it("compares the octets as received, not their re-encodings", () => {
+    const crl = crlOf(FULL_01);
+    crl.signatureAlgorithmView = padOid(crl.signatureAlgorithmView);
+    const reencoded = (algorithm: pkijs.AlgorithmIdentifier) =>
+      new Uint8Array(algorithm.toSchema().toBER(false));
+    const decoded = new pkijs.AlgorithmIdentifier({
+      schema: asn1.fromBER(crl.signatureAlgorithmView).result,
     });
+    expect(reencoded(decoded)).toEqual(reencoded(crl.signature));
     expect(checkCrlPolicy(crl, NOW)).toMatchObject(mismatch);
   });
 });
@@ -401,7 +424,7 @@ describe("signature algorithm (M11, owner answer 5)", () => {
 describe("order: the first violation wins", () => {
   it("checks the algorithms before the clock", () => {
     const crl = crlOf("crls/issuing-ca-1/full-future.der");
-    crl.signature = new pkijs.AlgorithmIdentifier({ algorithmId: crl.signature.algorithmId });
+    crl.signatureView = padOid(crl.signatureView);
     expect(checkCrlPolicy(crl, NOW)).toMatchObject({ error: "invalid_crl" });
   });
 

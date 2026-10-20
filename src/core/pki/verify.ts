@@ -5,9 +5,9 @@
 // list (C2). Here the key is whichever certificate the target names, the extension policy
 // (crl-policy.ts) has already run, and PKIjs only does the cryptography, on the engine it installs
 // from globalThis.crypto by itself (B21: the engine is never replaced).
-import { Any, fromBER, Integer, Null, ObjectIdentifier, Sequence } from "asn1js";
+import { Any, Integer, Null, ObjectIdentifier, Sequence } from "asn1js";
 import * as pkijs from "pkijs";
-import { assertWellFormed } from "./asn1.ts";
+import { assertWellFormed, decodeBer } from "./asn1.ts";
 import { CURVE_NAMES, HASH_ALG_NAMES, KEY_ALG_NAMES, SIGNATURE_ALG_NAMES } from "./constants.ts";
 import { toDigestInput } from "./conversion.ts";
 
@@ -115,7 +115,7 @@ function pssProblem(params: unknown): string | undefined {
  * would verify under several encodings, which OpenSSL refuses as well.
  */
 function ecdsaSignatureProblem(signature: Uint8Array, orderLength: number): string | undefined {
-  const parsed = fromBER(signature);
+  const parsed = decodeBer(signature);
   if (parsed.offset !== signature.byteLength) {
     return "The ECDSA signature is not one DER value";
   }

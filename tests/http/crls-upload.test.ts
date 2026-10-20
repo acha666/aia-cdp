@@ -532,6 +532,27 @@ describe("POST /api/v1/crls: the status table", () => {
     ]);
   });
 
+  // Step 6 (the signature) before step 7 (freshness): a broken CRL older than the current one is
+  // 422 invalid_signature, never 409 stale_crl (slice 4 review, tests C8).
+  it("answers 422 invalid_signature for a broken CRL older than the current one", async () => {
+    const broken = "crls/issuing-ca-1/full-broken-sig.der";
+    const newer = "crls/issuing-ca-1/full-pss.der";
+    expect(BigInt(crlEntry(newer).crlNumber!)).toBeGreaterThan(BigInt(crlEntry(broken).crlNumber!));
+    const { app, base } = await service();
+    expect((await uploadFile(app, newer)).status).toBe(201);
+    const before = await base.list("");
+    const catalog = await base.get(CATALOG_KEY);
+    const res = await uploadFile(app, broken);
+    expect(res.status).toBe(422);
+    expect(await errorOf(res)).toEqual({
+      code: "invalid_signature",
+      message: "The CRL's signature does not verify with the issuer's key",
+      details: { algorithm: algorithmOf(broken) },
+    });
+    expect(await base.list("")).toEqual(before);
+    expect((await base.get(CATALOG_KEY))?.bytes).toEqual(catalog?.bytes);
+  });
+
   it("answers 422 target_not_configured with the kind and the matching certificates", async () => {
     const { app } = await service({
       setup: { targets: [{ issuer: "issuing-ca-1", kind: "full" }] },
