@@ -43,7 +43,10 @@
    - CRL 摘要：`src/core/summary/catalog-summary.ts` 加 `buildCrlSummary(crl, der)`（源 `worker-aia-cdp@5b570aa:src/worker/r2/summary.ts`，
      只取字段推导）→ `{ crlNumber, baseCrlNumber, thisUpdate, nextUpdate, revokedCount, sha1, nextPublish }`，格式同切片 2 步骤 4 与
      plan §5.3：`revokedCount` 非空整数（§10 #7 见切片 5a）；`nextPublish` 取 Next CRL Publish（`1.3.6.1.4.1.311.21.4`），缺失为 `null`，
-     供切片 5b 的状态规则。整份替换，不合并。
+     供切片 5b 的状态规则。整份替换，不合并。CRL Number、Delta 指示、Next CRL Publish 存在但畸形 → 抛 `PkiParseError`（`invalid_crl`，
+     `reason = "extension_value"`）：Next CRL Publish 须恰好是一个 RFC 5280 形式的 UTCTime / GeneralizedTime（多余字节、别的类型都算畸形），
+     与严格 DER 一致，不当作 `null` 静默存下（5b 的状态规则依赖它）；值内时间格式错误在 `parseCRL` 已按 `reason = "time"` 拒绝。
+     `crlVersionName(summary, sha256)`（`<时间>-<号>-<sha256>`）同时给 blob 键与第 6 步的 history 标记命名。
    - 切片 2 的 `CatalogSchema` 是严格对象：补全 CRL 摘要字段后，切片 3 的 `tests/helpers/seed-downloads.ts`（手写 CRL `current`）改用
      `buildCrlSummary`；切片 2–3 期间写下的本地 `.data` / `.wrangler/state` 不合新 schema，`pnpm reset:dev` 后重跑 `seed:dev`。
 3. **扩展与时钟策略**（新 `src/core/pki/crl-policy.ts`，纯函数 `checkCrlPolicy(crl, now)`）。按序执行，首个命中即返回：

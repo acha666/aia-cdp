@@ -17,10 +17,15 @@ export function readExtensionValue<T>(
   return value;
 }
 
-/** Decode the raw extension bytes as a fresh ASN.1 tree, independent of the PKIjs cache. */
+/**
+ * Decode the raw extension bytes as a fresh ASN.1 tree, independent of the PKIjs cache. The value
+ * must be exactly one element (RFC 5280 §4.1: extnValue holds the DER of one value); PKIjs's own
+ * decoding ignores trailing bytes.
+ */
 export function readExtensionSchema(extension: Extension): BaseBlock {
-  const parsed = fromBER(extension.extnValue.valueBlock.valueHexView);
-  if (parsed.offset === -1 || parsed.result.error !== "") {
+  const view = extension.extnValue.valueBlock.valueHexView;
+  const parsed = fromBER(view);
+  if (parsed.offset !== view.byteLength || parsed.result.error !== "") {
     throw new Error(`Invalid extension ${extension.extnID}`);
   }
   return parsed.result;

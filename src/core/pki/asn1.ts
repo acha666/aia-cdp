@@ -103,6 +103,22 @@ export function readStrictTime(block: BaseBlock): StrictTime {
   return { type: isUtc ? "utcTime" : "generalizedTime", raw, date };
 }
 
+/**
+ * The RFC 5280 GeneralizedTime text of `date`: `YYYYMMDDHHMMSSZ` in UTC, fractional seconds
+ * dropped (certificate and CRL times are whole seconds). Fixed width, so lexicographic order is
+ * time order: CRL blob keys sort by thisUpdate (plan §5.1). Throws RangeError for an invalid date
+ * or a year outside 0000–9999, which the format cannot hold.
+ */
+export function formatGeneralizedTime(date: Date): string {
+  // toISOString throws RangeError for an invalid date and writes ±YYYYYY outside 0000–9999.
+  const iso = date.toISOString();
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.\d{3}Z$/.exec(iso);
+  if (!match) {
+    throw new RangeError(`No GeneralizedTime for ${iso}`);
+  }
+  return `${match.slice(1).join("")}Z`;
+}
+
 function children(block: BaseBlock): BaseBlock[] {
   const value: unknown = (block.valueBlock as { value?: unknown }).value;
   return Array.isArray(value)

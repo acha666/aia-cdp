@@ -1,9 +1,9 @@
 // A served state for the download tests (implementation slice 3): the DER blobs, catalog.json and
 // config.json written straight into any ObjectStore (MemoryStore for tests/http, the fs adapter
 // for tests/integration), so the HTTP, Node and Worker tests serve the same data. Certificates go
-// through slice 2's summary builder (certificateEntry), both documents through its schemas; the
-// CRL `current` records are written directly, since publishing is slice 4. Every digest, size and
-// time comes from the fixtures (implementation §2.5).
+// through slice 2's summary builder (certificateEntry), the CRL `current` records through slice 4's
+// buildCrlSummary and crlBlobKey (currentCrl), both documents through the schemas. Every digest,
+// size and time comes from the fixtures (implementation §2.5).
 import { CatalogSchema, ConfigSchema } from "../../src/core/catalog.ts";
 import type { Catalog, Config, CrlKind } from "../../src/core/catalog.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
@@ -96,8 +96,8 @@ export async function buildDownloadSeed(options: DownloadSeedOptions = {}): Prom
     certificates[id] = entry;
     blobs.set(entry.key, { bytes: fixture(ca.der), contentType: "application/pkix-cert" });
   }
-  const current = (file: string, target: string) => {
-    const record = { ...currentCrl(file, target), publishedAt: publishedAt.toISOString() };
+  const current = async (file: string, target: string) => {
+    const record = { ...(await currentCrl(file, target)), publishedAt: publishedAt.toISOString() };
     blobs.set(record.key, { bytes: fixture(file), contentType: "application/pkix-crl" });
     return record;
   };
@@ -106,8 +106,8 @@ export async function buildDownloadSeed(options: DownloadSeedOptions = {}): Prom
     version: 1,
     certificates,
     targets: {
-      [targets.full]: { current: current(full, targets.full) },
-      [targets.delta]: { current: current(delta, targets.delta) },
+      [targets.full]: { current: await current(full, targets.full) },
+      [targets.delta]: { current: await current(delta, targets.delta) },
       [targets.retired]: { current: null },
     },
   });

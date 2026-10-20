@@ -1,9 +1,9 @@
 import { fromBER, OctetString } from "asn1js";
 import * as pkijs from "pkijs";
-import { Asn1TimeError, assertWellFormed } from "./asn1.ts";
+import { Asn1TimeError, assertWellFormed, readStrictTime } from "./asn1.ts";
 import { PkiParseError } from "./errors.ts";
 import type { PkiKind } from "./errors.ts";
-import { readExtensionValue, readCRLInteger } from "./extensions.ts";
+import { readCRLInteger, readExtensionSchema, readExtensionValue } from "./extensions.ts";
 import { toHex } from "./conversion.ts";
 
 const LABELS: Record<PkiKind, string> = { certificate: "certificate", crl: "CRL" };
@@ -109,4 +109,18 @@ function getCRLInteger(crl: pkijs.CertificateRevocationList, oid: string): bigin
 
 export function isDeltaCRL(crl: pkijs.CertificateRevocationList): boolean {
   return getDeltaBaseCRLNumber(crl) !== undefined;
+}
+
+/** AD CS Next CRL Publish: when the CA will publish its next CRL (before nextUpdate). */
+export const NEXT_CRL_PUBLISH_OID = "1.3.6.1.4.1.311.21.4";
+
+/**
+ * The AD CS Next CRL Publish time; undefined without the extension. Its value must be exactly one
+ * UTCTime / GeneralizedTime in the RFC 5280 form (AD CS writes a UTCTime): anything else throws.
+ */
+export function getNextCRLPublish(crl: pkijs.CertificateRevocationList): Date | undefined {
+  const extension = crl.crlExtensions?.extensions.find(
+    (ext) => ext.extnID === NEXT_CRL_PUBLISH_OID
+  );
+  return extension ? readStrictTime(readExtensionSchema(extension)).date : undefined;
 }

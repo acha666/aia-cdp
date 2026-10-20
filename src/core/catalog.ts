@@ -96,16 +96,20 @@ const CatalogCertificate = z.strictObject({
   summary: CertificateSummarySchema,
 });
 
-// Slice 4 step 2 completes the CRL summary with buildCrlSummary: revokedCount becomes non-null and
-// nextPublish is added.
-const CrlSummary = z.strictObject({
-  crlNumber: Decimal.nullable(),
-  baseCrlNumber: Decimal.nullable(),
-  thisUpdate: Timestamp,
-  nextUpdate: Timestamp.nullable(),
-  revokedCount: z.number().int().nonnegative().nullable(),
-  sha1: Sha1Hex,
-});
+/** Built by buildCrlSummary (src/core/summary/catalog-summary.ts). */
+export const CrlSummarySchema = z
+  .strictObject({
+    crlNumber: Decimal.nullable(),
+    baseCrlNumber: Decimal.nullable(),
+    thisUpdate: Timestamp,
+    nextUpdate: Timestamp.nullable(),
+    /** Always known once published (§10 #7): "unknown" is only a target without a current CRL. */
+    revokedCount: z.number().int().nonnegative(),
+    sha1: Sha1Hex,
+    /** AD CS Next CRL Publish (1.3.6.1.4.1.311.21.4), null without the extension. */
+    nextPublish: Timestamp.nullable(),
+  })
+  .meta({ id: "CrlSummary" });
 
 const CurrentCrl = z.strictObject({
   sha256: Sha256Hex,
@@ -114,7 +118,7 @@ const CurrentCrl = z.strictObject({
   publishedAt: Timestamp,
   /** Id of the certificate that verified the signature. */
   verifier: Sha256Hex,
-  summary: CrlSummary,
+  summary: CrlSummarySchema,
 });
 
 const CatalogTarget = z.strictObject({ current: CurrentCrl.nullable() });

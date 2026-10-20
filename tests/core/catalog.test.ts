@@ -120,9 +120,24 @@ describe("CatalogSchema", () => {
 
   it("accepts a target with a current CRL and a target without one", async () => {
     const catalog = await catalogWith("issuing-ca-1");
-    catalog.targets[TARGET] = { current: currentCrl("crls/issuing-ca-1/full-01.der", TARGET) };
+    catalog.targets[TARGET] = {
+      current: await currentCrl("crls/issuing-ca-1/full-01.der", TARGET),
+    };
     catalog.targets[crypto.randomUUID()] = { current: null };
     expect(CatalogSchema.parse(catalog)).toEqual(catalog);
+  });
+
+  // Slice 4 step 2: what slices 2–3 wrote by hand no longer fits (pnpm reset:dev, then seed:dev).
+  it("rejects a CRL summary without nextPublish or with an unknown revokedCount", async () => {
+    const current = await currentCrl("crls/issuing-ca-1/full-01.der", TARGET);
+    const { nextPublish: _, ...withoutNextPublish } = current.summary;
+    for (const summary of [withoutNextPublish, { ...current.summary, revokedCount: null }]) {
+      const value = {
+        ...emptyCatalog(),
+        targets: { [TARGET]: { current: { ...current, summary } } },
+      };
+      expect(CatalogSchema.safeParse(value).success).toBe(false);
+    }
   });
 
   it("has no rebind ledger: certificatePaths is an unknown key", () => {

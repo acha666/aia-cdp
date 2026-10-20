@@ -120,7 +120,7 @@ describe("checkHealth", () => {
     const orphan = crypto.randomUUID();
     await putCatalog(store, {
       ...emptyCatalog(),
-      targets: { [orphan]: { current: currentCrl("crls/root-ca/full-01.der", orphan) } },
+      targets: { [orphan]: { current: await currentCrl("crls/root-ca/full-01.der", orphan) } },
     });
     expect((await checkHealth(store)).checks.configuration).toBe("ok");
   });

@@ -1,16 +1,27 @@
 import { createHash } from "node:crypto";
 import * as asn1 from "asn1js";
+import * as pkijs from "pkijs";
 import { describe, expect, it } from "vitest";
-import { getAuthorityKeyIdHex, parseCertificate, parseCRL } from "../../src/core/pki/parsers.ts";
-import { buildCertificateSummary } from "../../src/core/summary/catalog-summary.ts";
+import { CrlSummarySchema } from "../../src/core/catalog.ts";
+import {
+  getAuthorityKeyIdHex,
+  NEXT_CRL_PUBLISH_OID,
+  parseCertificate,
+  parseCRL,
+} from "../../src/core/pki/parsers.ts";
+import {
+  buildCertificateSummary,
+  buildCrlSummary,
+} from "../../src/core/summary/catalog-summary.ts";
 import type { CertificateSummary } from "../../src/core/summary/catalog-summary.ts";
 import { fixture, manifest } from "../fixtures/pki.ts";
-import type { ManifestCertificate } from "../fixtures/pki.ts";
+import type { ManifestCertificate, ManifestCrl } from "../fixtures/pki.ts";
 import { extension, pkiError } from "../helpers/pki.ts";
 
 // buildCertificateSummary (slice 2 step 3, formats of step 4): case 1 of
-// worker-aia-cdp@5b570aa:tests/worker/r2-summary.test.ts, on every fixture certificate. Case 2
-// (the CRL summary is replaced whole) is appended here by slice 4.
+// worker-aia-cdp@5b570aa:tests/worker/r2-summary.test.ts, on every fixture certificate.
+// buildCrlSummary (slice 4 step 2) on every parsable fixture CRL. Case 2 of that file (the CRL
+// summary is replaced whole) is a publishCrl test (slice 4 step 6).
 
 const SKI = "2.5.29.14";
 const AKI = "2.5.29.35";
@@ -125,4 +136,135 @@ describe("buildCertificateSummary", () => {
       reason: "extension_value",
     });
   });
+});
+
+describe("buildCrlSummary", () => {
+  /** CRL fixtures that parse (full-bad-time is the only invalid_crl one). */
+  const parsable = manifest.crls.filter((crl) => crl.expect !== "invalid_crl");
+  const iso = (time: string | null) => (time === null ? null : new Date(time).toISOString());
+
+  function crlEntry(file: string): ManifestCrl {
+    const found = manifest.crls.find((crl) => crl.file === file);
+    if (!found) {
+      throw new Error(`no manifest entry for ${file}`);
+    }
+    return found;
+  }
+
+  /** crl with the extension `oid` replaced by `replacement` (appended when it had none). */
+  function withExtension(file: string, oid: string, replacement: pkijs.Extension) {
+    const der = fixture(file);
+    const crl = parseCRL(der);
+    const extensions = crl.crlExtensions?.extensions ?? [];
+    crl.crlExtensions = new pkijs.Extensions({
+      extensions: [...extensions.filter((ext) => ext.extnID !== oid), replacement],
+    });
+    return { crl, der };
+  }
+
+  it.each(parsable.map((crl) => [crl.file, crl] as const))(
+    "summarizes %s in the catalog format",
+    async (file, crl) => {
+      const der = fixture(file);
+      const summary = await buildCrlSummary(parseCRL(der), der);
+      expect(summary).toEqual({
+        crlNumber: crl.crlNumber,
+        baseCrlNumber: crl.baseCrlNumber,
+        thisUpdate: iso(crl.thisUpdate),
+        nextUpdate: iso(crl.nextUpdate),
+        revokedCount: crl.revoked,
+        sha1: createHash("sha1").update(der).digest("hex"),
+        nextPublish: iso(crl.nextPublish),
+      });
+      // The strict catalog schema takes it as is (no missing or extra keys, canonical formats).
+      expect(CrlSummarySchema.parse(summary)).toEqual(summary);
+    }
+  );
+
+  it("uses null for a missing nextUpdate and a missing Next CRL Publish", async () => {
+    const summary = async (file: string) => {
+      const der = fixture(file);
+      return buildCrlSummary(parseCRL(der), der);
+    };
+    expect((await summary("crls/issuing-ca-1/full-no-next-update.der")).nextUpdate).toBeNull();
+    expect((await summary("crls/issuing-ca-1/full-01.der")).nextPublish).toBeNull();
+    const adcs = crlEntry("crls/issuing-ca-1/full-adcs.der");
+    expect(adcs.nextPublish).toEqual(expect.any(String));
+    expect((await summary(adcs.file)).nextPublish).toBe(iso(adcs.nextPublish));
+  });
+
+  it("counts zero revocations when the list is absent", async () => {
+    const file = "crls/root-ca/full-01.der";
+    expect(crlEntry(file).revoked).toBe(0);
+    const der = fixture(file);
+    const crl = parseCRL(der);
+    expect(crl.revokedCertificates).toBeUndefined();
+    expect((await buildCrlSummary(crl, der)).revokedCount).toBe(0);
+  });
+
+  it("reads a Next CRL Publish written as a GeneralizedTime", async () => {
+    const at = new Date("2050-06-01T12:00:00Z");
+    const { crl, der } = withExtension(
+      "crls/issuing-ca-1/full-adcs.der",
+      NEXT_CRL_PUBLISH_OID,
+      extension(NEXT_CRL_PUBLISH_OID, new asn1.GeneralizedTime({ valueDate: at }))
+    );
+    expect((await buildCrlSummary(crl, der)).nextPublish).toBe(at.toISOString());
+  });
+
+  // Strict like the other extensions the service reads: a malformed value rejects the CRL instead
+  // of turning into null.
+  const utcTime = new asn1.UTCTime({ valueDate: new Date("2026-01-10T12:00:00Z") }).toBER(false);
+  it.each([
+    ["an INTEGER", extension(NEXT_CRL_PUBLISH_OID, new asn1.Integer({ value: 1 }))],
+    [
+      "a SEQUENCE holding a time",
+      extension(
+        NEXT_CRL_PUBLISH_OID,
+        new asn1.Sequence({
+          value: [new asn1.UTCTime({ valueDate: new Date("2026-01-10T12:00:00Z") })],
+        })
+      ),
+    ],
+    [
+      "a time followed by a byte",
+      new pkijs.Extension({
+        extnID: NEXT_CRL_PUBLISH_OID,
+        extnValue: Uint8Array.from([...new Uint8Array(utcTime), 0]).buffer,
+      }),
+    ],
+  ])("rejects a Next CRL Publish holding %s as extension_value", async (_case, replacement) => {
+    const { crl, der } = withExtension(
+      "crls/issuing-ca-1/full-adcs.der",
+      NEXT_CRL_PUBLISH_OID,
+      replacement
+    );
+    expect(await pkiError(() => buildCrlSummary(crl, der))).toEqual({
+      kind: "crl",
+      reason: "extension_value",
+    });
+  });
+
+  // M2: an INTEGER ≥ 0 (tag 2, not empty), read as BigInt without a size limit.
+  it.each([
+    ["CRL Number", "2.5.29.20", "crls/issuing-ca-1/full-01.der"],
+    ["Delta CRL Indicator", "2.5.29.27", "crls/issuing-ca-1/delta-01.der"],
+  ])(
+    "rejects a malformed %s as extension_value and keeps a large one",
+    async (_name, oid, file) => {
+      for (const value of [new asn1.Integer({ value: -1 }), new asn1.OctetString()]) {
+        const { crl, der } = withExtension(file, oid, extension(oid, value));
+        expect(await pkiError(() => buildCrlSummary(crl, der))).toEqual({
+          kind: "crl",
+          reason: "extension_value",
+        });
+      }
+      const large = 2n ** 100n + 123n;
+      const { crl, der } = withExtension(file, oid, extension(oid, asn1.Integer.fromBigInt(large)));
+      const summary = await buildCrlSummary(crl, der);
+      expect(oid === "2.5.29.20" ? summary.crlNumber : summary.baseCrlNumber).toBe(
+        large.toString()
+      );
+    }
+  );
 });

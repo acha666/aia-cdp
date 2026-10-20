@@ -1,7 +1,12 @@
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
 import { describe, expect, it } from "vitest";
-import { Asn1TimeError, assertWellFormed, readStrictTime } from "../../../src/core/pki/asn1.ts";
+import {
+  Asn1TimeError,
+  assertWellFormed,
+  formatGeneralizedTime,
+  readStrictTime,
+} from "../../../src/core/pki/asn1.ts";
 import { parseCRL } from "../../../src/core/pki/parsers.ts";
 import { fixture, manifest } from "../../fixtures/pki.ts";
 import { pkiError } from "../../helpers/pki.ts";
@@ -184,5 +189,43 @@ describe("assertWellFormed", () => {
     ],
   ])("accepts %s", (_, hex) => {
     expect(() => assertWellFormed(asn1.fromBER(bytes(hex)).result)).not.toThrow();
+  });
+});
+
+describe("formatGeneralizedTime", () => {
+  it("writes YYYYMMDDHHMMSSZ in UTC, dropping milliseconds", () => {
+    expect(formatGeneralizedTime(new Date("2026-01-04T00:00:00Z"))).toBe("20260104000000Z");
+    expect(formatGeneralizedTime(new Date("2026-01-03T11:50:07.999Z"))).toBe("20260103115007Z");
+    expect(formatGeneralizedTime(new Date("2026-01-03T23:50:00+08:00"))).toBe("20260103155000Z");
+  });
+
+  it("is what readStrictTime reads back, for every fixture CRL's thisUpdate", () => {
+    for (const crl of manifest.crls) {
+      const date = new Date(crl.thisUpdate);
+      const text = formatGeneralizedTime(date);
+      expect(readStrictTime(decodedTime(24, text)).date, crl.file).toEqual(date);
+    }
+  });
+
+  it("keeps a fixed width over 0000–9999, so string order is time order", () => {
+    const dates = [
+      "0000-01-01T00:00:00Z",
+      "0999-12-31T23:59:59Z",
+      "1999-12-31T23:59:59Z",
+      "2026-01-04T00:00:00Z",
+      "2026-01-04T00:00:01Z",
+      "9999-12-31T23:59:59Z",
+    ].map((iso) => new Date(iso));
+    const texts = dates.map(formatGeneralizedTime);
+    expect(texts.every((text) => /^\d{14}Z$/.test(text))).toBe(true);
+    expect(texts.toSorted()).toEqual(texts);
+  });
+
+  it.each([
+    ["an invalid date", new Date(Number.NaN)],
+    ["year 10000", new Date("+010000-01-01T00:00:00Z")],
+    ["a negative year", new Date("-000001-01-01T00:00:00Z")],
+  ])("throws RangeError for %s", (_case, date) => {
+    expect(() => formatGeneralizedTime(date)).toThrow(RangeError);
   });
 });
