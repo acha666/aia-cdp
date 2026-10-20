@@ -58,7 +58,7 @@
 
 | 编号 | 规则（简） | 处理 |
 | --- | --- | --- |
-| M1 | 证书与 CRL 严格 DER：单一顶层元素、解码错误即拒、RFC 5280 时间 | 切片 2 步骤 1、5（证书）；切片 4 步骤 6（CRL） |
+| M1 | 证书与 CRL 严格 DER：单一顶层元素、解码错误即拒、BER 编码（不定长、非最短长度或标签、构造形式的字符串、空 INTEGER 等）即拒、RFC 5280 时间 | 切片 2 步骤 1、5（证书）；切片 4 步骤 6（CRL） |
 | M2 | CRL Number / Delta 指示须 INTEGER、非负、BigInt、无 20 octet 上限 | 切片 4 步骤 6；切片 2 测试 `tests/core/pki/parsers.test.ts` |
 | M3 | AKI `keyIdentifier` 必需 | 切片 4 步骤 6（默认 `issuer_not_found` + `missing_aki`，开工前需 owner 确认第 3 项） |
 | M4 | key id 规范为小写 hex | 切片 2 步骤 4（schema 拒大写）与 `tests/core/summary.test.ts` 的跨切片锁定；切片 4 步骤 6 |

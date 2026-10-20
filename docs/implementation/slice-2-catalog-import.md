@@ -29,7 +29,7 @@
 
    | 源 | 处置 | 新文件与改动 |
    | --- | --- | --- |
-   | `asn1.ts` | 原样 + 一处 | `src/core/pki/asn1.ts`；`readStrictTime` 抛 `Asn1TimeError`（消息不变），`assertWellFormed` 对带 asn1js `error` 的 UTCTime / GeneralizedTime 也抛它（asn1js 对无秒 UTCTime 只置 `block.error`） |
+   | `asn1.ts` | 原样 + `assertWellFormed` 改 | `src/core/pki/asn1.ts`；`readStrictTime` 抛 `Asn1TimeError`（消息不变），`assertWellFormed` 对带 asn1js `error` 的 UTCTime / GeneralizedTime 也抛它（asn1js 对无秒 UTCTime 只置 `block.error`）。`assertWellFormed` 补 DER 检查（asn1js 照单全收 BER：重编码未签名的外层 SEQUENCE 即得同一证书的新 id）：不定长、非最短长度、低标签号用高位标签形式、通用类非 SEQUENCE / SET 的构造形式、空内容的 BOOLEAN / INTEGER / BIT STRING / OID / ENUMERATED（`02 00` 序列号）均拒（`der`）；只遍历构造值的子节点与扩展 extnValue 的内容（定义上是 DER），不进 asn1js 对原始 OCTET / BIT STRING 的投机解码（SKI 以 `17 12` 开头会被解成坏 UTCTime） |
    | `constants.ts`、`extensions.ts` | 原样 | `src/core/pki/` 同名 |
    | `parsers.ts` | 改 | 入参 `ArrayBuffer \| Uint8Array`（偏移视图按 `byteLength` 判尾随字节，修掉旧 `derBytes.buffer as ArrayBuffer`）；抛 `PkiParseError { kind, reason }`，`reason` ∈ `der` / `trailing_bytes` / `time` / `structure`（PKIjs 构造失败）；`getCRLAKIHex` 泛化为 `getAuthorityKeyIdHex(extensions)`；`getCommonName` 非字符串值返回 `undefined` |
    | `pem.ts` | 改 | 保留 `PEM_BLOCK_MARKERS`、`extractPEMBlock`、`derToPem`；删 `derBufferFromMaybePem`（按键后缀判格式）；新增 `toDer(bytes, kind)` 与 `splitPemBlocks(text, kind)` |
@@ -74,15 +74,17 @@
 5. **`src/core/import.ts`**：`importCertificate({ store, now, sleep? }, bytes)`：`toDer` → `parseCertificate`（M1：单一顶层元素、
    无解码错误、RFC 5280 时间）→ `sha256Hex` 得 id → `buildCertificateSummary` → 读 catalog，已有该 id → `unchanged`，零写入 →
    `put blobs/certificates/<id>.der`（`ifNoneMatch: "*"`，`precondition-failed` 即同内容已在，视为成功）→ `updateCatalog`
-   （mutate 内再查一次：已存在则 `unchanged`，否则加 `{ key, size, importedAt: now().toISOString(), summary }`）。
-   返回 `{ outcome: "created" | "unchanged", id, entry }` 或 `{ error: "invalid_certificate" | "concurrent_update", details }`。
+   （mutate 内再查一次：已存在则 `unchanged`，否则加 `{ key, size, importedAt: now().toISOString(), summary }`）。摘要在写 blob 之前
+   按 `CertificateSummarySchema` 校验，不合（catalog 存不下的值）→ `invalid_certificate`（`structure`），不留 blob、不变 500。
+   返回 `{ outcome: "created" | "unchanged", id, entry }`、`{ error: "invalid_certificate", details: { reason } }` 或
+   `{ error: "concurrent_update", id }`。
    任何拒绝零写入（M9）；blob 写后 catalog 失败只留无人引用的证书 blob，证书列表来自 catalog，不可见（C8 证书部分）。
    导入不授权：证书只有被 config 目标绑定后才是签发者（M23；切片 4 的 `target_not_configured`）。EdDSA 证书可导入。
 6. **`src/core/admin.ts`**：`validateConfig` 分三层，全部违规一次返回（`config_invalid`，`details.issues[] = { path, rule, message }`）：
 
    | # | 规则 | 层 |
    | --- | --- | --- |
-   | V1 | `ConfigSchema` 严格解析（格式见步骤 4） | 静态 |
+   | V1 | `ConfigSchema` 严格解析（格式见步骤 4）；`certificates` / `targets` 里的 `__proto__` 键也报 V1（zod 的 record 静默跳过该键，`paths` 里的报 V2） | 静态 |
    | V2 | 路径 = `^/(ca\|crl\|dcrl)(/段)+$`，段 = `[A-Za-z0-9._~-]+` 且不是 `.` / `..`；无 `%`、空段、结尾 `/`；区分大小写、精确匹配；不得以 `.pem` 结尾（PEM 变体自动派生）。字符集即规范形，"规范化后唯一"退化为键唯一（M17；线上 URL 全部符合） | 静态 |
    | V3 | `/ca/` → `{certificate}`，`/crl/` → full 目标，`/dcrl/` → delta 目标 | 静态 |
    | V4 | 路径引用的目标在 `targets` 内（静态）；路径、`targets[*].issuer`、`certificates` 的键都在 catalog 中（状态） | 静态 + 状态 |
@@ -116,11 +118,13 @@
    | --- | --- | --- |
    | `POST /api/v1/admin/certificates` | 原始体 `application/pkix-cert` / `application/x-pem-file` / `application/octet-stream`，或 multipart 文件字段 `certificate`（字符串字段 400）；`body.required: false`；空体 400 | 201 created / 200 unchanged，体 `{ outcome, id, size, importedAt, summary }`；400 / 401 / 409 `concurrent_update` / 413 / 415 / 422 `invalid_certificate`（`details.reason`）/ 503 |
    | `GET /api/v1/admin/config` | — | 200 存储原文（不合 schema 也原样返回，便于修复）+ `ETag: "<sha256(存储字节)>"`；404；401 / 400 / 503 |
-   | `PUT /api/v1/admin/config` | JSON；可用前置条件恰好一个：`If-Match: "<sha256>"`（单个强 ETag）或 `If-None-Match: *`。两者都缺、都有、`If-None-Match` 不是 `*` → 428；`If-Match` 不是单个带引号的存储字节 sha256（`W/`、列表、无引号、`*`、哈希不符）、无 config 时带 `If-Match`、已有 config 时带 `If-None-Match: *` → 412 | 200 + 新 `ETag`；400（含非 JSON）/ 401 / 412 `precondition_failed` / 422 `config_invalid` / 428 `precondition_required` / 503 |
+   | `PUT /api/v1/admin/config` | JSON；可用前置条件恰好一个：`If-Match: "<sha256>"`（单个强 ETag）或 `If-None-Match: *`。两者都缺、都有、`If-None-Match` 不是 `*` → 428；`If-Match` 不是单个带引号的存储字节 sha256（`W/`、列表、无引号、`*`、哈希不符）、无 config 时带 `If-Match`、已有 config 时带 `If-None-Match: *` → 412 | 200 + 新 `ETag`；400（含非 JSON）/ 401 / 412 `precondition_failed` / 413 / 415（非 JSON 类型）/ 422 `config_invalid` / 428 `precondition_required` / 503 |
 
    HTTP ETag 规则见总则 §2.6（B14）；`W/` 不匹配 → 412。`PUT` 用 `openapi(route, handler, hook)`
-   的路由级钩子把 `json` 目标的校验失败映射为 422，其余目标走 `defaultHook` 400。每次导入尝试一行日志
-   `{ level, msg: "import", certificateId, outcome | reason }`（plan §4.3）。
+   的路由级钩子把 `json` 目标的校验失败也交给 `applyConfig`：先比对存储前置条件（412），再报 V1（422），其余目标走 `defaultHook` 400；
+   handler 与钩子都把 `JSON.parse` 原样的体交给 `applyConfig`（校验器输出已丢掉 `__proto__` 键）。每次导入尝试一行日志
+   `{ level, msg: "import", certificateId, outcome | reason }`（plan §4.3）；422 拒绝只有 `reason`（没有入库 id），空体、415 与表单错误
+   在导入之前就被拒，只有 request 行。
 9. **CLI `src/cli/aia.ts`**：`node:util` `parseArgs`（`strict: true`）+ `fetch`，零依赖；导出 `main(argv, io)`，`io = { fetch, env,
    stdout, stderr, readFile }` 可注入；`tsconfig.build.json` 纳入 `src/cli`（产出 `dist/server/cli/aia.js`，镜像自带）；
    脚本 `aia` = `node src/cli/aia.ts`。全局：`--url` / `AIA_URL`，`--token-file` / `AIA_ADMIN_TOKEN_FILE` / `AIA_ADMIN_TOKEN`
@@ -150,17 +154,17 @@
 
 | 文件 | 来源（`worker-aia-cdp@5b570aa:`） | 要点 |
 | --- | --- | --- |
-| `tests/core/pki/asn1.test.ts` | `tests/worker/extension-parsers.test.ts:647`（改用合成 `crls/root-ca/full-01.der`，D7） | 非法 / 非规范时间：`parseCRL` 抛 `PkiParseError`（`reason: "time"`），`readStrictTime` 抛 `Asn1TimeError`；UTCTime 50 分界；`buildTBSCertList` 断言留 5a |
-| `tests/core/pki/parsers.test.ts` | `tests/worker/pki-values.test.ts:149`、`:75` 与 `:55` 的解析器部分 | 尾随字节（`certs/root-ca.der` + `00`、`invalid/trailing-byte.der`）→ `trailing_bytes`；CRL 号 BigInt 精度、负数 / ENUMERATED / OCTET 拒绝；偏移视图输入；非字符串 CN；`getAuthorityKeyIdHex`；`pkijs.getEngine().name === "webcrypto"` |
-| `tests/core/pki/pem.test.ts` | `tests/worker/pem.test.ts` 原样 + 新增 | `toDer` 矩阵：DER、PEM、BOM + 说明文字、CRLF（`full-01.crlf.pem`）、错误标签、两块、缺 END、坏 base64、以 `0` 开头的文本；`splitPemBlocks` |
+| `tests/core/pki/asn1.test.ts` | `tests/worker/extension-parsers.test.ts:647`（改用合成 `crls/root-ca/full-01.der`，D7） | 非法 / 非规范时间：`parseCRL` 抛 `PkiParseError`（`reason: "time"`），`readStrictTime` 抛 `Asn1TimeError`；UTCTime 50 分界；`assertWellFormed` 的 DER 检查逐条一反例、原始 OCTET / BIT STRING 内容不查、extnValue 内的时间照查；`buildTBSCertList` 断言留 5a |
+| `tests/core/pki/parsers.test.ts` | `tests/worker/pki-values.test.ts:149`、`:75` 与 `:55` 的解析器部分 | 尾随字节（`certs/root-ca.der` + `00`、`invalid/trailing-byte.der`）→ `trailing_bytes`；CRL 号 BigInt 精度、负数 / ENUMERATED / OCTET 拒绝；偏移视图输入；非字符串 CN；`getAuthorityKeyIdHex`；外层 BER 变体（长度多字节、不定长、高位标签）与空序列号 → `der`；SKI 改成 `17 12…` 等开头仍可解析；`pkijs.getEngine().name === "webcrypto"` |
+| `tests/core/pki/pem.test.ts` | `tests/worker/pem.test.ts` 原样 + 新增 | `toDer` 矩阵：DER、PEM、BOM + 说明文字、CRLF（`full-01.crlf.pem`）、错误标签、两块、缺 END、坏 base64、以 `0` 开头的文本、数 MiB 的 base64 体；`splitPemBlocks` |
 | `tests/core/pki/conversion.test.ts` | `tests/worker/conversion.test.ts` | 序列号字面量改读 manifest；`sha256Hex` 只哈希视图字节 |
 | `tests/core/summary.test.ts` | `tests/worker/r2-summary.test.ts` 用例 1 | 每张证书：序列号 = manifest `serial`、时间同刻且以 `.000Z` 结尾、`sha1` 40 位小写；`root-ca` 的 AKI 与 `leaf-min` 的 SKI / AKI 为 `null`；**跨切片锁定（M4）**：`issuing-ca-1` 的 `subjectKeyId` 与 `getAuthorityKeyIdHex` 从 `parseCRL(crls/issuing-ca-1/full-01.der)` 读出的值字符串全等；用例 2（CRL 摘要整份替换）见切片 4 测试（同名文件追加） |
 | `tests/core/catalog.test.ts` | `r2-summary.test.ts` 用例 3 | 严格对象拒 `tagrets`、大写 hex、非 RFC 9562 UUID；空 catalog；`updateCatalog` 首写 `ifNoneMatch`、失败重读后对手写入保留、4 次后 `concurrent_update` 且睡眠序列 = `[250, 500, 1000]`、终态不写、`put` 抛错不重试 |
-| `tests/core/import.test.ts` | `r2-summary.test.ts` 用例 1 后半 | DER created → 同证书 PEM unchanged 零写入；blob 键与字节；`invalid/garbage.txt`、`empty.bin`、CRL 当证书（`structure`）、CRL PEM（`pem_label`）、两证书 bundle（`pem_blocks`）、测试内改坏 `notBefore`（`time`）均零写入；并发导入同证书 → 一 created 一 unchanged；EdDSA CA 可导入；导入后无目标 |
+| `tests/core/import.test.ts` | `r2-summary.test.ts` 用例 1 后半 | DER created → 同证书 PEM unchanged 零写入；blob 键与字节；`invalid/garbage.txt`、`empty.bin`、CRL 当证书（`structure`）、CRL PEM（`pem_label`）、两证书 bundle（`pem_blocks`）、测试内改坏 `notBefore`（`time`）、空序列号与外层 BER（`der`）、摘要不合 catalog 格式（`structure`）均零写入；PEM 首次导入的条目与 blob 同 DER；并发导入同证书（catalog 读成对放行，交错确定）→ 一 created 一 unchanged；catalog 写一直输 → 睡眠序列 `[250, 500, 1000]`、4 次失败写；EdDSA CA 可导入；导入后无目标 |
 | `tests/core/admin.test.ts` | `tests/worker/crl-upload.test.ts`"different issuers cannot share…"改写 | V1–V9 各一正一反（V5 用无 SKI 的 `leaf-min`，切片 1 步骤 9；V6 用 `issuing-ca-1` + `issuing-ca-1-renewed`；V7 直接改绑为反例，先删再加（两次 apply 都成功）为正例，记录已接受的缺口；V8 往 catalog 预置 `current`；V9 同一 UUID 改 `issuer`、改 `kind` 各一反例，只改 `label` 为正例；当前 config 缺失或不合 schema 时 V7、V9 跳过）；违规全量返回；`applyConfig` 只写 `config.json`（无 catalog 写） |
-| `tests/http/admin.test.ts` | 新 | 上表每个状态；`PUT` 无前置条件头、两者都有、`If-None-Match` 不是 `*` → 428 `precondition_required`，`W/`、列表、无引号、`If-Match: *`、无 config 时 `If-Match`、已有 config 时 `If-None-Match: *` → 412；令牌未设置时超限体也是 503；畸形 `Authorization` 400；`DELETE …/admin/config` 带有效令牌 → 405 + `Allow`（无令牌是 401：`bearerAuth` 先抛错，`methodNotAllowed` 只改写无错误的 404）；`no-store`；包一层返回不透明 etag 的 store，证明 HTTP `ETag` 是 sha256；直接往 store 写入不合 schema 的 `config.json` → GET 200 原文 → 带匹配 `If-Match` 的 PUT → 200；日志行无令牌 |
+| `tests/http/admin.test.ts` | 新 | 上表每个状态；`PUT` 无前置条件头、两者都有、`If-None-Match` 不是 `*` → 428 `precondition_required`，`W/`、列表、无引号、`If-Match: *`、无 config 时 `If-Match`、已有 config 时 `If-None-Match: *` → 412，体不合 schema 时也先 412（零写入）；`paths` 里的 `__proto__` 键 → 422 V2；令牌未设置时超限体也是 503，无令牌 / 错令牌时超限体是 401（体未读）；畸形 `Authorization` 400；`DELETE …/admin/config` 带有效令牌 → 405 + `Allow`（无令牌是 401：`bearerAuth` 先抛错，`methodNotAllowed` 只改写无错误的 404）；`no-store`；包一层返回不透明 etag 的 store，证明 HTTP `ETag` 是 sha256；直接往 store 写入不合 schema 的 `config.json` → GET 200 原文 → 带匹配 `If-Match` 的 PUT → 200；日志行无令牌 |
 | `tests/http/health.test.ts`（切片 1 文件） | — | 拼错键 / 引用缺失 → `invalid`；apply 后 `healthy` |
-| `tests/integration/cli.test.ts` | 新 | `main` 注入 `fetch = app.request`；各子命令输出与退出码；`config validate docs/config.example.json` 离线通过 |
+| `tests/integration/cli.test.ts` | 新 | `main` 注入 `fetch = app.request`；各子命令输出与退出码；响应体读到一半失败 → 该文件 failed、其余照导（import）或一行错误退出 1；`config validate docs/config.example.json` 离线通过 |
 | `tests/integration/node-e2e.test.ts` | 新（切片 3、4 续写） | 子进程起 `node src/runtime/node.ts`（临时 `AIA_DATA_DIR`、空闲端口、`AIA_ADMIN_TOKEN_FILE`）+ CLI 子进程：import ×3 → config apply → health healthy → 重启后 ETag 不变、重复 import 全 unchanged |
 
 ## 出口条件

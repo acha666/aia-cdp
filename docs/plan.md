@@ -499,10 +499,12 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 ### 7.4 CLI
 
 `aia` 读取 `AIA_URL` 与 `AIA_ADMIN_TOKEN(_FILE)`，子命令：
-`import <file...>`、`config show | validate <file> | apply <file>`、`publish <file...>`
+`import <file...>`、`config show | validate <file> | apply <file>`、`new-target-id`（打印
+`crypto.randomUUID()`：目标 UUID 由工具分配，没有建目标接口）、`publish <file...>`
 （走公开上传路由，可带 `AIA_UPLOAD_TOKEN`）、`history <targetId>`、`retire <targetId>`、
-`delete-certificate <id>`、`health`。`config validate` 在本地用同一份 schema 与规则校验，
-不需要连服务。参数解析用 `parseArgs`，输出为表格或 `--json`。
+`delete-certificate <id>`、`health`。`config validate` 离线只跑静态规则（V1–V3、V4 / V6 的静态部分，
+与服务端共用 `checkConfigStatic`），不连服务、不要令牌；状态与迁移规则（V4–V9 其余部分）由服务端在
+apply 时判定，以服务端为准。参数解析用 `parseArgs`，输出为表格或 `--json`。
 
 ## 8. 前端
 
