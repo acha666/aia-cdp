@@ -5,13 +5,15 @@ import {
   derToPem,
   extractPEMBlock,
   PEM_BLOCK_MARKERS,
+  pemLength,
   splitPemBlocks,
   toDer,
 } from "../../../src/core/pki/pem.ts";
 import { fixture, fixturePath } from "../../fixtures/pki.ts";
 import { pkiError } from "../../helpers/pki.ts";
 
-// worker-aia-cdp@5b570aa:tests/worker/pem.test.ts as is, plus toDer and splitPemBlocks (M7).
+// worker-aia-cdp@5b570aa:tests/worker/pem.test.ts as is, plus toDer and splitPemBlocks (M7) and the
+// download format: pemLength and derToPem against OpenSSL's output (M22, slice 3 step 1).
 
 function text(path: string): string {
   return readFileSync(fixturePath(path), "utf8");
@@ -193,5 +195,36 @@ describe("splitPemBlocks", () => {
       kind: "certificate",
       reason: "pem_blocks",
     });
+  });
+});
+
+describe("the download PEM format (M22)", () => {
+  it("pemLength equals the length of derToPem's output", () => {
+    const bytes = Uint8Array.from({ length: 1024 * 1024 }, (_, index) => (index * 7) % 256);
+    const sizes = [...Array.from({ length: 4096 }, (_, index) => index + 1), bytes.length];
+    // Collected rather than asserted one by one: 8194 cases.
+    const mismatches: string[] = [];
+    for (const [kind, markers] of Object.entries(PEM_BLOCK_MARKERS)) {
+      for (const size of sizes) {
+        const pem = derToPem(bytes.subarray(0, size), markers.begin, markers.end);
+        if (pemLength(size, markers) !== pem.length) {
+          mismatches.push(`${kind} ${size}: ${pemLength(size, markers)} ≠ ${pem.length}`);
+        }
+      }
+    }
+    expect(mismatches).toEqual([]);
+  });
+
+  it("derToPem reproduces OpenSSL's PEM byte for byte", () => {
+    const cases = [
+      ["certs/root-ca", PEM_BLOCK_MARKERS.certificate],
+      ["crls/issuing-ca-1/full-01", PEM_BLOCK_MARKERS.crl],
+    ] as const;
+    for (const [name, { begin, end }] of cases) {
+      const der = fixture(`${name}.der`);
+      const pem = encode(derToPem(der, begin, end));
+      expect(pem, name).toEqual(fixture(`${name}.pem`));
+      expect(pem.byteLength, name).toBe(pemLength(der.byteLength, { begin, end }));
+    }
   });
 });
