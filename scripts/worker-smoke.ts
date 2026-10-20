@@ -1,32 +1,47 @@
 // Smoke test of the Worker exactly as `wrangler deploy --dry-run --outdir dist/worker` built it,
 // served in-process by wrangler's createTestHarness (random port, isolated storage): health
 // "degraded" on the empty store, scripts/smoke.sh, then the download segment (implementation
-// slice 3). Part of `pnpm run ci:worker`, which builds dist/web and dist/worker first.
+// slice 3) and the publish segment (slice 4). Part of `pnpm run ci:worker`, which builds dist/web
+// and dist/worker first.
 //
 //   node scripts/worker-smoke.ts          (pnpm run smoke:worker)
 //
-// The download segment imports certs/root-ca.der and applies a configuration serving it under
-// /ca/root-ca.crt through the admin API (the token is a harness secret), expects health "healthy",
-// then checks GET / HEAD / If-None-Match 304 / text 405 on that path and its .pem against
-// tests/helpers/runtime-downloads.ts, the values tests/integration/downloads.test.ts expects of
-// Node, and that an unconfigured /crl/x.crl is the text 404, not index.html. Each compared header
-// is also printed as `download-header <METHOD> <path> <Name>: <value>`. Only headers are checked
-// for HEAD and 304: fetch never surfaces a body for them, whatever the server sends, and workerd
-// keeps a raw socket open past `Connection: close`. That nothing follows the header block on the
-// wire is checked on Node (tests/integration/downloads.test.ts).
+// The download segment imports certs/root-ca.der and certs/issuing-ca-1.der and applies a
+// configuration serving the root under /ca/root-ca.crt, with full CRL targets of both CAs under
+// /crl/root-ca.crl and /crl/issuing-ca-1.crl, through the admin API (both tokens are harness
+// secrets), expects health "healthy", then checks GET / HEAD / If-None-Match 304 / text 405 on the
+// certificate path and its .pem against tests/helpers/runtime-downloads.ts, the values
+// tests/integration/downloads.test.ts expects of Node, and that an unconfigured /crl/x.crl is the
+// text 404, not index.html. Each compared header is also printed as
+// `download-header <METHOD> <path> <Name>: <value>`. Only headers are checked for HEAD and 304:
+// fetch never surfaces a body for them, whatever the server sends, and workerd keeps a raw socket
+// open past `Connection: close`. That nothing follows the header block on the wire is checked on
+// Node (tests/integration/downloads.test.ts).
+//
+// The publish segment sends CRLs through POST /api/v1/crls so that signature verification runs on
+// workerd's WebCrypto, not only Node's: ECDSA P-384 (root-ca), RSA PKCS#1 v1.5, RSASSA-PSS and
+// SHA-1 (issuing-ca-1), and a broken RSA signature (422 invalid_signature); raw and multipart
+// bodies (workerd parses the form), the upload token (401 without it). Then the same download
+// checks on /crl/root-ca.crl and its .pem: workerd runs on the real clock, so crls/root-ca/full-01
+// is past its nextUpdate and gets max-age=60.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { fixture, manifest } from "../tests/fixtures/pki.ts";
 import {
   COMPARED_HEADERS,
   comparedHeaders,
+  ROOT_CA_CRL,
+  ROOT_CA_CRL_PATH,
   ROOT_CA_PATH,
   rootCaCertificate,
+  rootCaCrlDownloads,
   rootCaDownloads,
   sha256Of,
 } from "../tests/helpers/runtime-downloads.ts";
+import type { RuntimeDownload } from "../tests/helpers/runtime-downloads.ts";
 
 // Before wrangler is loaded: no telemetry, no banner or update check (implementation §2.4).
 process.env.WRANGLER_SEND_METRICS = "false";
@@ -46,6 +61,9 @@ for (const required of ["dist/worker/worker.js", "dist/web/index.html"]) {
 
 // Fresh for every run and never printed; letters, digits and `-` satisfy the b64token rule.
 const ADMIN_TOKEN = `smoke-${randomBytes(16).toString("hex")}`;
+const UPLOAD_TOKEN = `smoke-upload-${randomBytes(16).toString("hex")}`;
+
+const ISSUING_CA_CRL_PATH = "/crl/issuing-ca-1.crl";
 
 let failed = false;
 
@@ -74,39 +92,32 @@ async function admin(base: URL, path: string, init: RequestInit): Promise<Respon
   return fetch(new URL(path, base), { ...init, headers });
 }
 
-async function downloadSegment(base: URL): Promise<void> {
-  const { der, id } = rootCaCertificate();
-  const imported = await admin(base, "/api/v1/admin/certificates", {
+/** A certificate fixture's DER and id (the SHA-256 of the DER), for an import. */
+function certificate(name: string): { der: Uint8Array<ArrayBuffer>; id: string } {
+  const entry = manifest.certificates.find((each) => each.name === name);
+  if (entry === undefined) {
+    throw new Error(`tests/fixtures/pki/manifest.json has no certificate ${name}`);
+  }
+  const der = fixture(entry.der);
+  return { der, id: sha256Of(der) };
+}
+
+async function importCertificate(base: URL, name: string): Promise<void> {
+  const res = await admin(base, "/api/v1/admin/certificates", {
     method: "POST",
     headers: { "Content-Type": "application/pkix-cert" },
-    body: der,
+    body: certificate(name).der,
   });
-  const importBody = await imported.text();
+  const body = await res.text();
   check(
-    imported.status === 201,
-    `import certs/root-ca.der: ${imported.status}${imported.status === 201 ? "" : ` ${importBody}`}`
+    res.status === 201,
+    `import certs/${name}.der: ${res.status}${res.status === 201 ? "" : ` ${body}`}`
   );
+}
 
-  const config = {
-    version: 1,
-    certificates: { [id]: { label: "Root CA" } },
-    targets: {},
-    paths: { [ROOT_CA_PATH]: { certificate: id } },
-  };
-  const applied = await admin(base, "/api/v1/admin/config", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", "If-None-Match": "*" },
-    body: JSON.stringify(config),
-  });
-  const appliedBody = await applied.text();
-  check(
-    applied.status === 200,
-    `apply a config serving ${ROOT_CA_PATH}: ${applied.status} ` +
-      `${applied.status === 200 ? `(ETag ${applied.headers.get("ETag")})` : appliedBody}`
-  );
-  await health(base, "healthy");
-
-  for (const expected of rootCaDownloads()) {
+/** GET / HEAD / If-None-Match 304 / text 405 of each download against its expected values. */
+async function checkDownloads(base: URL, downloads: RuntimeDownload[]): Promise<void> {
+  for (const expected of downloads) {
     const url = new URL(expected.path, base);
     const want = JSON.stringify(expected.headers);
     const get = await fetch(url);
@@ -159,6 +170,52 @@ async function downloadSegment(base: URL): Promise<void> {
       `POST ${expected.path}: ${post.status} Allow: ${post.headers.get("Allow")} ${postBody}`
     );
   }
+}
+
+/** The target ids of the configuration the download segment applies. */
+interface Targets {
+  root: string;
+  issuing: string;
+}
+
+async function downloadSegment(base: URL): Promise<Targets> {
+  await importCertificate(base, "root-ca");
+  await importCertificate(base, "issuing-ca-1");
+
+  const { id } = rootCaCertificate();
+  const targets: Targets = { root: crypto.randomUUID(), issuing: crypto.randomUUID() };
+  const config = {
+    version: 1,
+    certificates: { [id]: { label: "Root CA" } },
+    targets: {
+      [targets.root]: { issuer: id, kind: "full", label: "Root CA" },
+      [targets.issuing]: {
+        issuer: certificate("issuing-ca-1").id,
+        kind: "full",
+        label: "Issuing CA 1",
+      },
+    },
+    paths: {
+      [ROOT_CA_PATH]: { certificate: id },
+      [ROOT_CA_CRL_PATH]: { target: targets.root },
+      [ISSUING_CA_CRL_PATH]: { target: targets.issuing },
+    },
+  };
+  const applied = await admin(base, "/api/v1/admin/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "If-None-Match": "*" },
+    body: JSON.stringify(config),
+  });
+  const appliedBody = await applied.text();
+  check(
+    applied.status === 200,
+    `apply a config serving ${ROOT_CA_PATH}, ${ROOT_CA_CRL_PATH} and ${ISSUING_CA_CRL_PATH}: ` +
+      `${applied.status} ` +
+      `${applied.status === 200 ? `(ETag ${applied.headers.get("ETag")})` : appliedBody}`
+  );
+  await health(base, "healthy");
+
+  await checkDownloads(base, rootCaDownloads());
 
   // Configured now, but not this path: still the download prefix's text 404, not the SPA.
   const miss = await fetch(new URL("/crl/x.crl", base));
@@ -168,6 +225,125 @@ async function downloadSegment(base: URL): Promise<void> {
     miss.status === 404 && type.startsWith("text/plain") && missBody === "Not Found",
     `GET /crl/x.crl: ${miss.status} ${type} ${JSON.stringify(missBody.slice(0, 40))}`
   );
+  return targets;
+}
+
+// Publish ----------------------------------------------------------------------------------------
+
+interface Upload {
+  file: string;
+  /** How the CRL is sent: a raw DER body, or the field crl of a multipart form. */
+  as: "raw" | "file field" | "string field";
+  target: keyof Targets;
+  status: 200 | 201 | 422;
+  /** outcome for 200 / 201, error.code for 422. */
+  result: string;
+}
+
+// In order: each row expects the state the rows before it left.
+const UPLOADS: Upload[] = [
+  // ECDSA P-384 with SHA-384.
+  { file: ROOT_CA_CRL, as: "raw", target: "root", status: 201, result: "created" },
+  { file: ROOT_CA_CRL, as: "file field", target: "root", status: 200, result: "unchanged" },
+  {
+    file: "crls/root-ca/full-01.pem",
+    as: "string field",
+    target: "root",
+    status: 200,
+    result: "unchanged",
+  },
+  // RSA PKCS#1 v1.5 with SHA-256, then RSASSA-PSS and SHA-1 with higher CRL Numbers.
+  {
+    file: "crls/issuing-ca-1/full-01.der",
+    as: "raw",
+    target: "issuing",
+    status: 201,
+    result: "created",
+  },
+  {
+    file: "crls/issuing-ca-1/full-pss.der",
+    as: "raw",
+    target: "issuing",
+    status: 200,
+    result: "updated",
+  },
+  {
+    file: "crls/issuing-ca-1/full-sha1.der",
+    as: "raw",
+    target: "issuing",
+    status: 200,
+    result: "updated",
+  },
+  {
+    file: "crls/issuing-ca-1/full-broken-sig.der",
+    as: "raw",
+    target: "issuing",
+    status: 422,
+    result: "invalid_signature",
+  },
+];
+
+function uploadInit(upload: Upload): RequestInit {
+  const bytes = fixture(upload.file);
+  const headers = new Headers({ Authorization: `Bearer ${UPLOAD_TOKEN}` });
+  if (upload.as === "raw") {
+    headers.set("Content-Type", "application/pkix-crl");
+    return { method: "POST", headers, body: bytes };
+  }
+  const form = new FormData();
+  if (upload.as === "file field") {
+    form.append("crl", new Blob([bytes]), "upload.crl");
+  } else {
+    form.append("crl", new TextDecoder().decode(bytes));
+  }
+  return { method: "POST", headers, body: form };
+}
+
+/** The manifest digest of a CRL fixture (a .pem stands for its .der). */
+function crlSha256(file: string): string | undefined {
+  const der = file.replace(/\.pem$/, ".der");
+  return manifest.crls.find((crl) => crl.file === der)?.sha256;
+}
+
+async function publishSegment(base: URL, targets: Targets): Promise<void> {
+  const url = new URL("/api/v1/crls", base);
+  const anonymous = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/pkix-crl" },
+    body: fixture(ROOT_CA_CRL),
+  });
+  await anonymous.arrayBuffer();
+  check(
+    anonymous.status === 401 && anonymous.headers.get("WWW-Authenticate") !== null,
+    `POST /api/v1/crls without the upload token: ${anonymous.status} WWW-Authenticate: ` +
+      `${anonymous.headers.get("WWW-Authenticate")}`
+  );
+
+  for (const upload of UPLOADS) {
+    const res = await fetch(url, uploadInit(upload));
+    const text = await res.text();
+    let body: { outcome?: unknown; target?: unknown; sha256?: unknown; error?: { code?: unknown } };
+    try {
+      body = JSON.parse(text) as typeof body;
+    } catch {
+      body = {};
+    }
+    const ok =
+      res.status === upload.status &&
+      res.headers.get("Cache-Control") === "no-store" &&
+      (upload.status === 422
+        ? body.error?.code === upload.result
+        : body.outcome === upload.result &&
+          body.target === targets[upload.target] &&
+          body.sha256 === crlSha256(upload.file));
+    check(
+      ok,
+      `POST /api/v1/crls ${upload.file} (${upload.as}): ${res.status} ` +
+        `${ok ? upload.result : text.slice(0, 300)}`
+    );
+  }
+
+  await checkDownloads(base, rootCaCrlDownloads(new Date()));
 }
 
 const server = createTestHarness({
@@ -176,7 +352,7 @@ const server = createTestHarness({
     {
       configPath: "./wrangler.jsonc",
       prebuiltWorkerDir: "./dist/worker",
-      secrets: { AIA_ADMIN_TOKEN: ADMIN_TOKEN },
+      secrets: { AIA_ADMIN_TOKEN: ADMIN_TOKEN, AIA_UPLOAD_TOKEN: UPLOAD_TOKEN },
     },
   ],
 });
@@ -194,7 +370,9 @@ try {
   check(code === 0, `scripts/smoke.sh ${url.origin}`);
 
   console.log("worker-smoke: downloads");
-  await downloadSegment(url);
+  const targets = await downloadSegment(url);
+  console.log("worker-smoke: publish");
+  await publishSegment(url, targets);
 } finally {
   await server.close();
 }

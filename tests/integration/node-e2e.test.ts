@@ -1,8 +1,9 @@
 // The CLI against the Node runtime, all real processes on the fs store (implementation slice 2,
-// exit 4): `node src/runtime/node.ts` with a temporary AIA_DATA_DIR, PORT=0 and
-// AIA_ADMIN_TOKEN_FILE, driven by `node src/cli/aia.ts` children: import ×3 → config apply → health
-// healthy → downloads (slice 3: GET / HEAD / 304, unpublished CRL 404) → restart → the same ETag,
-// every re-import unchanged. Also scripts/seed-dev.ts, twice. Slice 4 continues this file (publish).
+// exit 4): `node src/runtime/node.ts` with a temporary AIA_DATA_DIR, PORT=0, AIA_ADMIN_TOKEN_FILE
+// and AIA_UPLOAD_TOKEN_FILE, driven by `node src/cli/aia.ts` children: import ×3 → config apply →
+// health healthy → downloads (slice 3: GET / HEAD / 304, unpublished CRL 404) → publish (slice 4:
+// root-ca full-01 created, again unchanged, full-02 updated, full-01 stale; the path table serves
+// full-02) → restart → the same ETags, every re-import unchanged. Also scripts/seed-dev.ts, twice.
 import { spawn } from "node:child_process";
 import type { ChildProcess, ChildProcessByStdio } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -14,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Config } from "../../src/core/catalog.ts";
 import { sha256Hex } from "../../src/core/digest.ts";
-import { fixturePath } from "../fixtures/pki.ts";
+import { fixturePath, manifest } from "../fixtures/pki.ts";
 import { cert } from "../helpers/catalog.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -22,6 +23,7 @@ const SERVER = fileURLToPath(new URL("../../src/runtime/node.ts", import.meta.ur
 const CLI = fileURLToPath(new URL("../../src/cli/aia.ts", import.meta.url));
 const SEED = fileURLToPath(new URL("../../scripts/seed-dev.ts", import.meta.url));
 const TOKEN = "e2e-s3cret-admin-token";
+const UPLOAD_TOKEN = "e2e-s3cret-upload-token";
 const TIMEOUT = 30_000;
 const CAS = ["root-ca", "issuing-ca-1", "issuing-ca-2"];
 
@@ -138,9 +140,21 @@ async function runNode(script: string, args: string[], env: Record<string, strin
     child.once("close", resolve);
   });
   const result: Result = { code, stdout, stderr };
-  // Neither the CLI nor the seed ever prints the token.
+  // Neither the CLI nor the seed ever prints a token.
   expect(stdout + stderr).not.toContain(TOKEN);
+  expect(stdout + stderr).not.toContain(UPLOAD_TOKEN);
   return result;
+}
+
+const ROOT_FULL_01 = "crls/root-ca/full-01.der";
+const ROOT_FULL_02 = "crls/root-ca/full-02.der";
+
+function crlEntry(file: string) {
+  const found = manifest.crls.find((crl) => crl.file === file);
+  if (found === undefined) {
+    throw new Error(`no manifest CRL ${file}`);
+  }
+  return found;
 }
 
 /** A configuration serving the three CAs: /ca/<name>.crt and a full CRL target each. */
@@ -162,6 +176,7 @@ describe("aia against node src/runtime/node.ts on the fs store", { timeout: TIME
   let env: Record<string, string>;
   let server: Server;
   let etag: string;
+  let serverEnv: Record<string, string>;
   // DER and PEM files, as an operator would have them.
   const files = [
     fixturePath(cert("root-ca").der),
@@ -174,9 +189,20 @@ describe("aia against node src/runtime/node.ts on the fs store", { timeout: TIME
   beforeAll(async () => {
     dataDir = await mkdtemp(join(scratch, "data-"));
     const tokenFile = join(scratch, "admin-token");
+    const uploadTokenFile = join(scratch, "upload-token");
     await writeFile(tokenFile, `${TOKEN}\n`);
-    server = await startServer({ AIA_DATA_DIR: dataDir, AIA_ADMIN_TOKEN_FILE: tokenFile });
-    env = { AIA_URL: `http://127.0.0.1:${server.port}`, AIA_ADMIN_TOKEN_FILE: tokenFile };
+    await writeFile(uploadTokenFile, `${UPLOAD_TOKEN}\n`);
+    serverEnv = {
+      AIA_DATA_DIR: dataDir,
+      AIA_ADMIN_TOKEN_FILE: tokenFile,
+      AIA_UPLOAD_TOKEN_FILE: uploadTokenFile,
+    };
+    server = await startServer(serverEnv);
+    env = {
+      AIA_URL: `http://127.0.0.1:${server.port}`,
+      AIA_ADMIN_TOKEN_FILE: tokenFile,
+      AIA_UPLOAD_TOKEN_FILE: uploadTokenFile,
+    };
   }, TIMEOUT);
 
   it("imports three certificates", async () => {
@@ -246,12 +272,59 @@ describe("aia against node src/runtime/node.ts on the fs store", { timeout: TIME
     expect(await pem.text()).toBe(await readFile(fixturePath(cert("root-ca").pem), "utf8"));
   });
 
-  it("keeps everything across a restart: the same ETag, every re-import unchanged", async () => {
-    expect(await server.stop()).toBe(0);
-    server = await startServer({
-      AIA_DATA_DIR: dataDir,
-      AIA_ADMIN_TOKEN_FILE: env.AIA_ADMIN_TOKEN_FILE ?? "",
+  // Slice 4's CLI sequence (the old helper's root CA path): exit 0 for created / unchanged /
+  // updated, 1 for the stale re-upload, and the path table serves what was published last.
+  it("publishes root-ca's CRLs: created, unchanged, updated, then stale", async () => {
+    const root = cert("root-ca").sha256;
+    const config = JSON.parse(await readFile(join(dataDir, "config.json"), "utf8")) as Config;
+    const target = Object.keys(config.targets).find((id) => config.targets[id]?.issuer === root);
+    const full01 = fixturePath(ROOT_FULL_01);
+    const full02 = fixturePath(ROOT_FULL_02);
+    const number = (file: string) => crlEntry(file).crlNumber ?? "";
+
+    const created = await aia("publish", full01);
+    expect(created).toEqual({
+      code: 0,
+      stdout:
+        `created    ${target}  full #${number(ROOT_FULL_01)}  ${full01}\n` +
+        "1 created, 0 updated, 0 unchanged, 0 failed\n",
+      stderr: "",
     });
+    const unchanged = await aia("publish", full01);
+    expect(unchanged.code).toBe(0);
+    expect(unchanged.stdout).toMatch(/^unchanged {2}/);
+    const updated = await aia("publish", full02);
+    expect(updated.code).toBe(0);
+    expect(updated.stdout).toBe(
+      `updated    ${target}  full #${number(ROOT_FULL_02)}  ${full02}\n` +
+        "0 created, 1 updated, 0 unchanged, 0 failed\n"
+    );
+    const stale = await aia("publish", full01);
+    expect(stale.code).toBe(1);
+    expect(stale.stderr).toMatch(new RegExp(`^failed     ${full01}: HTTP 409 stale_crl: `));
+    expect(stale.stdout).toBe("0 created, 0 updated, 0 unchanged, 1 failed\n");
+
+    const res = await fetch(`http://127.0.0.1:${server.port}/crl/root-ca.crl`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("application/pkix-crl");
+    const sha256 = crlEntry(ROOT_FULL_02).sha256;
+    expect(res.headers.get("ETag")).toBe(`"${sha256}"`);
+    const body = new Uint8Array(await res.arrayBuffer());
+    expect(res.headers.get("Content-Length")).toBe(String(body.byteLength));
+    expect(await sha256Hex(body)).toBe(sha256);
+  });
+
+  it("refuses an upload without the upload token", async () => {
+    const run = await runNode(CLI, ["publish", fixturePath(ROOT_FULL_02)], {
+      AIA_URL: env.AIA_URL ?? "",
+    });
+    expect(run.code).toBe(1);
+    expect(run.stderr).toMatch(/: HTTP 401 unauthorized: /);
+  });
+
+  it("keeps everything across a restart: the same ETags, every re-import unchanged", async () => {
+    expect(await server.stop()).toBe(0);
+    server = await startServer(serverEnv);
     env = { ...env, AIA_URL: `http://127.0.0.1:${server.port}` };
 
     const shown = await aia("config", "show", "--json");
@@ -263,9 +336,14 @@ describe("aia against node src/runtime/node.ts on the fs store", { timeout: TIME
     expect(again.stdout).toMatch(/^unchanged .*\nunchanged .*\nunchanged .*\n/);
     expect(again.stdout).toMatch(/\n0 created, 3 unchanged, 0 failed\n$/);
     expect(await aia("health")).toMatchObject({ code: 0 });
+    const crl = await fetch(`http://127.0.0.1:${server.port}/crl/root-ca.crl`, { method: "HEAD" });
+    expect(crl.headers.get("ETag")).toBe(`"${crlEntry(ROOT_FULL_02).sha256}"`);
+    const republished = await aia("publish", fixturePath(ROOT_FULL_02));
+    expect(republished.stdout).toMatch(/^unchanged {2}/);
 
     expect(await server.stop()).toBe(0);
     expect(server.output()).not.toContain(TOKEN);
+    expect(server.output()).not.toContain(UPLOAD_TOKEN);
   });
 });
 
