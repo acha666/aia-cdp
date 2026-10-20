@@ -1,8 +1,8 @@
 // The CLI against the Node runtime, all real processes on the fs store (implementation slice 2,
 // exit 4): `node src/runtime/node.ts` with a temporary AIA_DATA_DIR, PORT=0 and
 // AIA_ADMIN_TOKEN_FILE, driven by `node src/cli/aia.ts` children: import ×3 → config apply → health
-// healthy → restart → the same ETag, every re-import unchanged. Also scripts/seed-dev.ts, twice.
-// Slices 3 and 4 continue this file (downloads, publish).
+// healthy → downloads (slice 3: GET / HEAD / 304, unpublished CRL 404) → restart → the same ETag,
+// every re-import unchanged. Also scripts/seed-dev.ts, twice. Slice 4 continues this file (publish).
 import { spawn } from "node:child_process";
 import type { ChildProcess, ChildProcessByStdio } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -208,6 +208,42 @@ describe("aia against node src/runtime/node.ts on the fs store", { timeout: TIME
       stdout: "healthy: store ok, configuration ok\n",
       stderr: "",
     });
+  });
+
+  // Slice 3's manual exit check, automated: what the CLI configured is what download clients get.
+  it("serves the configured certificates: GET, HEAD and 304; an unpublished CRL is a text 404", async () => {
+    const base = `http://127.0.0.1:${server.port}`;
+    for (const name of CAS) {
+      const der = await readFile(fixturePath(cert(name).der));
+      const tag = `"${cert(name).sha256}"`;
+      const url = `${base}/ca/${name}.crt`;
+
+      const get = await fetch(url);
+      expect(get.status).toBe(200);
+      expect(get.headers.get("Content-Type")).toBe("application/pkix-cert");
+      expect(get.headers.get("ETag")).toBe(tag);
+      expect(get.headers.get("Content-Length")).toBe(String(der.byteLength));
+      expect(Buffer.from(await get.arrayBuffer()).equals(der)).toBe(true);
+
+      const head = await fetch(url, { method: "HEAD" });
+      expect(head.status).toBe(200);
+      expect(head.headers.get("ETag")).toBe(tag);
+      expect(head.headers.get("Content-Length")).toBe(String(der.byteLength));
+
+      const revalidated = await fetch(url, { headers: { "If-None-Match": tag } });
+      expect(revalidated.status).toBe(304);
+      expect(revalidated.headers.get("ETag")).toBe(tag);
+
+      const crl = await fetch(`${base}/crl/${name}.crl`);
+      expect(crl.status).toBe(404);
+      expect(crl.headers.get("Content-Type")).toMatch(/^text\/plain/);
+      expect(await crl.text()).toBe("Not Found");
+    }
+
+    const pem = await fetch(`${base}/ca/root-ca.crt.pem`);
+    expect(pem.status).toBe(200);
+    expect(pem.headers.get("ETag")).toBe(`"${cert("root-ca").sha256}-pem"`);
+    expect(await pem.text()).toBe(await readFile(fixturePath(cert("root-ca").pem), "utf8"));
   });
 
   it("keeps everything across a restart: the same ETag, every re-import unchanged", async () => {

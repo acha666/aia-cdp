@@ -129,6 +129,9 @@
   `Content-Length`、无 `Transfer-Encoding`；原始 socket 上 HEAD 与 304（GET、HEAD）的头块后没有字节；体 sha256 等于夹具（PEM 等于派生结果）。
   `/ca/root-ca.crt` 及其 `.pem` 的 `ETag`、`Content-Length`、`Content-Type`、`Cache-Control` 与体摘要等于 `tests/helpers/runtime-downloads.ts`
   的期望：只由夹具文件算出（PEM 用 OpenSSL 的 `certs/root-ca.pem`），不经 `src/core`，Worker 冒烟比对同一份。
+- `tests/integration/node-e2e.test.ts`（切片 2 文件，续写）：真实进程 + CLI 导入并 `config apply` 后，三张 CA 的 `/ca/<name>.crt` GET 字节等于夹具、
+  HEAD 与 GET 的 `ETag` / `Content-Length` 一致、带该 `ETag` 的 `If-None-Match` 得 304，未发布目标的 `/crl/<name>.crl` 为纯文本 404，
+  `/ca/root-ca.crt.pem` 等于 OpenSSL 夹具——把出口条件里的本地手工 `curl` 检查自动化。
 - Worker：`scripts/worker-smoke.ts`（`createTestHarness`，`prebuiltWorkerDir: "./dist/worker"`）在 health `degraded` 与 `smoke.sh` 之后跑
   下载段：管理令牌经 `workers[].secrets` 注入（每次随机，满足 b64token），用切片 2 的管理路由导入 `certs/root-ca.der`、以
   `If-None-Match: *` 应用只含 `/ca/root-ca.crt` 的配置（之后 health `healthy`），对它及其 `.pem` 检查 GET 与 HEAD（四个头等于同一份期望、
