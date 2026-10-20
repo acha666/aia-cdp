@@ -13,6 +13,7 @@ import type { ObjectStore } from "../../src/core/store.ts";
 import { buildCertificateSummary } from "../../src/core/summary/catalog-summary.ts";
 import { createApp } from "../../src/http/app.ts";
 import { CRL_MEDIA_TYPES } from "../../src/http/schemas.ts";
+import { parseSettings } from "../../src/runtime/settings.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { fixture, fixturePath, manifest } from "../fixtures/pki.ts";
 import type { ManifestCrl } from "../fixtures/pki.ts";
@@ -406,6 +407,29 @@ describe("POST /api/v1/crls: token, media type and size gate", () => {
     const der = fixture(ROOT_FULL_01);
     const { app } = await service({ overrides: { settings: { maxUploadBytes: der.byteLength } } });
     expect((await upload(app, der, "application/pkix-crl")).status).toBe(201);
+  });
+
+  // The decoder's limits follow the input's size (review C1), and a SEQUENCE of NULLs costs about
+  // 384 MB of heap per MiB: the default limit is what keeps one anonymous upload from ending a
+  // Node process (slice 4 risks).
+  it("limits a body to 1 MiB by default and answers 413 before decoding it", async () => {
+    const settings = parseSettings({});
+    expect(settings.ok && settings.value.app.maxUploadBytes).toBe(1_048_576);
+    const { app, deps, base } = await service();
+    expect(deps.settings.maxUploadBytes).toBe(1_048_576);
+    const before = await base.list("");
+    // 30 83 10 00 00: a well-formed SEQUENCE holding 1 MiB of NULLs, 5 octets over the limit.
+    const nulls = new Uint8Array(5 + 1_048_576);
+    nulls.set([0x30, 0x83, 0x10, 0x00, 0x00]);
+    for (let index = 5; index < nulls.length; index += 2) {
+      nulls[index] = 0x05;
+    }
+    const res = await upload(app, nulls, "application/pkix-crl");
+    expect(res.status).toBe(413);
+    expect(await errorOf(res)).toMatchObject({ code: "payload_too_large" });
+    // publishCrl logs one publish line per call, whatever happens: it never ran.
+    expect(logRecords(deps).filter((line) => line.msg === "publish")).toEqual([]);
+    expect(await base.list("")).toEqual(before);
   });
 });
 

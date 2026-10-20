@@ -138,8 +138,8 @@ describe("toDer", () => {
     }
   });
 
-  // A regexp with a repeated group overflowed V8's regexp stack from about 5 MiB of base64, below
-  // the default AIA_MAX_UPLOAD_BYTES (a 500 instead of a 422).
+  // A regexp with a repeated group overflowed V8's regexp stack from about 5 MiB of base64, which
+  // a raised AIA_MAX_UPLOAD_BYTES lets through (a 500 instead of a 422).
   it("checks a base64 body of several MiB", () => {
     const size = 6 * 1024 * 1024;
     const lines = Array.from({ length: size / 64 }, () => "A".repeat(64)).join("\n");

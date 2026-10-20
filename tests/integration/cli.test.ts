@@ -22,7 +22,7 @@ import { setupPublish } from "../helpers/publish.ts";
 
 const TOKEN = "cli-s3cret-token";
 const UPLOAD_TOKEN = "cli-upload-s3cret";
-const BASE = "http://aia.test";
+const BASE = "https://aia.test";
 const ENV = { AIA_URL: BASE, AIA_ADMIN_TOKEN: TOKEN };
 const EXAMPLE = fileURLToPath(new URL("../../docs/config.example.json", import.meta.url));
 
@@ -52,6 +52,8 @@ interface Sent {
   url: string;
   headers: Headers;
   body: string;
+  /** The body as sent, byte for byte. */
+  bytes: Uint8Array;
 }
 
 /** createApp with the admin token set, and a fetch that records every request it forwards. */
@@ -70,6 +72,7 @@ function service(overrides: TestOverrides = {}) {
       url: request.url,
       headers: request.headers,
       body: await request.clone().text(),
+      bytes: new Uint8Array(await request.clone().arrayBuffer()),
     });
     return app.request(request);
   };
@@ -245,6 +248,112 @@ describe("usage", () => {
   });
 });
 
+// The production host answers plain HTTP (AIA / CDP clients need it), so http://<host> reaches
+// the service and would carry a token in clear text.
+describe("tokens over plain http://", () => {
+  const ROOT_CRL = fixturePath("crls/root-ca/full-01.der");
+
+  it.each([
+    "http://aia.test",
+    "http://pki.example:8080/aia",
+    "http://10.0.0.1",
+    "http://127.0.0.1.nip.io",
+    "http://localhost.example",
+    "http://[::2]",
+    "http://0.0.0.0",
+  ])("refuses to send a token to %s: exit 2 before any request", async (url) => {
+    let requests = 0;
+    const fetch: CliIo["fetch"] = () => {
+      requests += 1;
+      return Promise.reject(new Error("sent"));
+    };
+    const admin = { AIA_URL: url, AIA_ADMIN_TOKEN: TOKEN };
+    const upload = { AIA_URL: url, AIA_UPLOAD_TOKEN: UPLOAD_TOKEN };
+    const tokenFile = await scratchFile("http-upload-token", `${UPLOAD_TOKEN}\n`);
+    const runs: [Run, string][] = [
+      [await aia(["import", fixturePath(cert("root-ca").der)], { fetch, env: admin }), "admin"],
+      [await aia(["config", "show"], { fetch, env: admin }), "admin"],
+      [await aia(["config", "apply", EXAMPLE], { fetch, env: admin }), "admin"],
+      [await aia(["publish", ROOT_CRL], { fetch, env: upload }), "upload"],
+      [
+        await aia(["publish", "--token-file", tokenFile, ROOT_CRL], {
+          fetch,
+          env: { AIA_URL: url },
+        }),
+        "upload",
+      ],
+    ];
+    for (const [run, name] of runs) {
+      expect(run.code).toBe(2);
+      expect(run.stdout).toBe("");
+      expect(run.stderr).toMatch(
+        new RegExp(
+          `^aia: refusing to send the ${name} token over http:// to \\S+: use https://, ` +
+            "or pass --allow-insecure-http\n"
+        )
+      );
+    }
+    expect(requests).toBe(0);
+  });
+
+  it.each([
+    "http://127.0.0.1:8787",
+    "http://127.1.2.3",
+    "http://127.1",
+    "http://localhost:8080",
+    "http://LOCALHOST",
+    "http://[::1]:8787",
+    "http://[0:0:0:0:0:0:0:1]",
+  ])("sends the tokens to the loopback host of %s", async (url) => {
+    const svc = service({ settings: { uploadToken: UPLOAD_TOKEN } });
+    await setupPublish(svc.deps.store);
+    const imported = await aia(["import", fixturePath(cert("root-ca").der)], {
+      fetch: svc.fetch,
+      env: { AIA_URL: url, AIA_ADMIN_TOKEN: TOKEN },
+    });
+    expect(imported.code).toBe(0);
+    const published = await aia(["publish", ROOT_CRL], {
+      fetch: svc.fetch,
+      env: { AIA_URL: url, AIA_UPLOAD_TOKEN: UPLOAD_TOKEN },
+    });
+    expect(published.code).toBe(0);
+    expect(svc.sent.map((request) => request.headers.get("Authorization"))).toEqual([
+      `Bearer ${TOKEN}`,
+      `Bearer ${UPLOAD_TOKEN}`,
+    ]);
+  });
+
+  it("sends them to any host with --allow-insecure-http", async () => {
+    const svc = service({ settings: { uploadToken: UPLOAD_TOKEN } });
+    await setupPublish(svc.deps.store);
+    const url = "http://aia.test";
+    const imported = await aia(
+      ["import", "--allow-insecure-http", fixturePath(cert("root-ca").der)],
+      { fetch: svc.fetch, env: { AIA_URL: url, AIA_ADMIN_TOKEN: TOKEN } }
+    );
+    expect(imported.code).toBe(0);
+    const published = await aia(["publish", "--allow-insecure-http", ROOT_CRL], {
+      fetch: svc.fetch,
+      env: { AIA_URL: url, AIA_UPLOAD_TOKEN: UPLOAD_TOKEN },
+    });
+    expect(published.code).toBe(0);
+    expect(svc.sent.map((request) => [request.url, request.headers.get("Authorization")])).toEqual([
+      [`${url}/api/v1/admin/certificates`, `Bearer ${TOKEN}`],
+      [`${url}/api/v1/crls`, `Bearer ${UPLOAD_TOKEN}`],
+    ]);
+  });
+
+  it("checks nothing without a token: health, and publish to a service that needs none", async () => {
+    const svc = service();
+    await setupPublish(svc.deps.store);
+    const env = { AIA_URL: "http://aia.test" };
+    expect((await aia(["health"], { fetch: svc.fetch, env })).stderr).toBe("");
+    const published = await aia(["publish", ROOT_CRL], { fetch: svc.fetch, env });
+    expect(published.code).toBe(0);
+    expect(svc.sent.map((request) => request.headers.get("Authorization"))).toEqual([null, null]);
+  });
+});
+
 describe("health", () => {
   it("exits 1 while degraded and 0 once healthy, without sending the token", async () => {
     const svc = service();
@@ -298,7 +407,7 @@ describe("health", () => {
       code: 1,
       stdout: "",
       stderr:
-        "aia: cannot reach http://aia.test/api/v1/health: fetch failed " +
+        "aia: cannot reach https://aia.test/api/v1/health: fetch failed " +
         "(connect ECONNREFUSED 127.0.0.1:1)\n",
     });
   });
@@ -317,7 +426,7 @@ describe("health", () => {
     expect(run).toEqual({
       code: 1,
       stdout: "",
-      stderr: "aia: cannot read the response from http://aia.test/api/v1/health: socket reset\n",
+      stderr: "aia: cannot read the response from https://aia.test/api/v1/health: socket reset\n",
     });
   });
 
@@ -469,19 +578,28 @@ describe("import", () => {
   it("reads the token from --token-file or AIA_ADMIN_TOKEN_FILE, trimmed", async () => {
     const svc = service();
     const file = await scratchFile("admin-token", `  ${TOKEN}\r\n\n`);
+    const wrong = await scratchFile("wrong-admin-token", "wrong-token\n");
     const root = fixturePath(cert("root-ca").der);
-    // The flag wins over a wrong token in the environment.
+    // The flag wins over a wrong token in either variable.
     const byFlag = await against(svc, ["import", "--token-file", file, root], {
       AIA_URL: BASE,
       AIA_ADMIN_TOKEN: "wrong-token",
     });
     expect(byFlag.code).toBe(0);
+    const overFile = await against(svc, ["import", "--token-file", file, root], {
+      AIA_URL: BASE,
+      AIA_ADMIN_TOKEN_FILE: wrong,
+    });
+    expect(overFile.code).toBe(0);
     const byEnv = await against(svc, ["import", root], {
       AIA_URL: BASE,
       AIA_ADMIN_TOKEN_FILE: file,
     });
     expect(byEnv.code).toBe(0);
     expect(byEnv.stdout).toMatch(/^unchanged /);
+    expect(svc.sent.map((request) => request.headers.get("Authorization"))).toEqual(
+      Array.from({ length: 3 }, () => `Bearer ${TOKEN}`)
+    );
   });
 
   it("fails each upload with the service's error on a wrong token", async () => {
@@ -509,7 +627,7 @@ describe("import", () => {
       expect(run.code).toBe(1);
       expect(run.stderr).toBe(
         `failed     ${files[0]}: cannot read the response from ` +
-          "http://aia.test/api/v1/admin/certificates: socket reset\n"
+          "https://aia.test/api/v1/admin/certificates: socket reset\n"
       );
       expect(run.stdout.trimEnd().split("\n").at(-1)).toBe("2 created, 0 unchanged, 1 failed");
     }
@@ -523,7 +641,7 @@ describe("import", () => {
     });
     expect(run.code).toBe(1);
     expect(
-      run.stderr.match(/cannot reach http:\/\/aia\.test\/api\/v1\/admin\/certificates/g)
+      run.stderr.match(/cannot reach https:\/\/aia\.test\/api\/v1\/admin\/certificates/g)
     ).toHaveLength(2);
     expect(run.stdout).toBe("0 created, 0 unchanged, 2 failed\n");
   });
@@ -651,7 +769,7 @@ describe("config show", () => {
       code: 1,
       stdout: "",
       stderr:
-        "aia: cannot read the response from http://aia.test/api/v1/admin/config: socket reset\n",
+        "aia: cannot read the response from https://aia.test/api/v1/admin/config: socket reset\n",
     });
   });
 
@@ -749,7 +867,7 @@ describe("config apply", () => {
       code: 1,
       stdout: "",
       stderr:
-        "aia: cannot read the response from http://aia.test/api/v1/admin/config: socket reset\n",
+        "aia: cannot read the response from https://aia.test/api/v1/admin/config: socket reset\n",
     });
   });
 
@@ -833,7 +951,26 @@ describe("publish", () => {
       "application/pkix-crl",
       "application/x-pem-file",
     ]);
+    // Each file as is, byte for byte.
+    expect(svc.sent.map((request) => request.bytes)).toEqual(
+      [ROOT_01, FULL_01_PEM].map((file) => new Uint8Array(readFileSync(file)))
+    );
     expect(svc.sent.every((request) => request.headers.get("Authorization") === null)).toBe(true);
+  });
+
+  it("sends a PEM bundle as is, for the service to refuse with pem_blocks", async () => {
+    const { svc } = await publishing();
+    const bundled = text("crls/issuing-ca-1/full-01.pem") + text("crls/root-ca/full-01.pem");
+    const bundle = await scratchFile("bundle.pem", bundled);
+    const run = await against(svc, ["publish", bundle], UPLOAD_ENV);
+    expect(run).toEqual({
+      code: 1,
+      stdout: "0 created, 0 updated, 0 unchanged, 1 failed\n",
+      stderr: `failed     ${bundle}: HTTP 422 invalid_crl (pem_blocks): Not a valid X.509 CRL\n`,
+    });
+    expect(svc.sent).toHaveLength(1);
+    expect(svc.sent[0]?.headers.get("Content-Type")).toBe("application/x-pem-file");
+    expect(svc.sent[0]?.bytes).toEqual(new TextEncoder().encode(bundled));
   });
 
   it("publishes each file on its own: updated, unchanged and failures, exit 1", async () => {
@@ -932,17 +1069,21 @@ describe("publish", () => {
       AIA_UPLOAD_TOKEN_FILE: file,
     });
     expect(byFile.stdout).toMatch(/^unchanged /);
-    // The flag wins over a wrong token in the environment.
+    // The flag wins over a wrong token in either variable.
     const byFlag = await against(svc, ["publish", "--token-file", file, ROOT_01], {
       ...UPLOAD_ENV,
       AIA_UPLOAD_TOKEN: "wrong-token",
     });
     expect(byFlag.code).toBe(0);
-    expect(svc.sent.map((request) => request.headers.get("Authorization"))).toEqual([
-      `Bearer ${UPLOAD_TOKEN}`,
-      `Bearer ${UPLOAD_TOKEN}`,
-      `Bearer ${UPLOAD_TOKEN}`,
-    ]);
+    const wrong = await scratchFile("wrong-upload-token", "wrong-token\n");
+    const overFile = await against(svc, ["publish", "--token-file", file, ROOT_01], {
+      ...UPLOAD_ENV,
+      AIA_UPLOAD_TOKEN_FILE: wrong,
+    });
+    expect(overFile.code).toBe(0);
+    expect(svc.sent.map((request) => request.headers.get("Authorization"))).toEqual(
+      Array.from({ length: 4 }, () => `Bearer ${UPLOAD_TOKEN}`)
+    );
   });
 
   it("fails each file with the service's 401 without the token it needs", async () => {
@@ -980,7 +1121,7 @@ describe("publish", () => {
     });
     expect(run.code).toBe(1);
     expect(
-      run.stderr.match(/cannot reach http:\/\/aia\.test\/api\/v1\/crls: fetch failed/g)
+      run.stderr.match(/cannot reach https:\/\/aia\.test\/api\/v1\/crls: fetch failed/g)
     ).toHaveLength(2);
     expect(run.stdout).toBe("0 created, 0 updated, 0 unchanged, 2 failed\n");
   });

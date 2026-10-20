@@ -458,7 +458,8 @@ describe("POST /api/v1/admin/certificates", () => {
   });
 
   it("answers a PEM body of several MiB under the upload limit with 422, not 500", async () => {
-    const { app, deps } = setup();
+    // Above the 1 MiB default: a deployment that raised AIA_MAX_UPLOAD_BYTES.
+    const { app, deps } = setup({ settings: { maxUploadBytes: 10 * 1024 * 1024 } });
     const lines = Array.from({ length: (5 * 1024 * 1024) / 64 }, () => "A".repeat(64));
     const pem = `-----BEGIN CERTIFICATE-----\n${lines.join("\n")}\n-----END CERTIFICATE-----\n`;
     expect(pem.length).toBeLessThan(deps.settings.maxUploadBytes);

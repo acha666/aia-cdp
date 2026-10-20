@@ -9,7 +9,7 @@
 //
 // main(argv, io) does all I/O through `io`, so tests inject fetch = app.request. Exit codes: 0
 // success, 1 the operation failed (or the service is not healthy), 2 usage error. Tokens are never
-// printed.
+// printed, and go over plain http:// only to a loopback host or with --allow-insecure-http.
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { parseArgs } from "node:util";
@@ -48,6 +48,9 @@ Options:
                           token (default: $AIA_ADMIN_TOKEN_FILE, else $AIA_ADMIN_TOKEN).
                           publish: the upload token (default: $AIA_UPLOAD_TOKEN_FILE, else
                           $AIA_UPLOAD_TOKEN, else none: the service needs it only when set)
+  --allow-insecure-http   Send the token over plain http:// to a host other than localhost,
+                          127.0.0.0/8 or [::1] (refused otherwise: it would cross the network
+                          in clear text)
   --json                  Print results as JSON on stdout (errors stay text on stderr)
   -h, --help              Show this help
 
@@ -57,6 +60,7 @@ Exit codes: 0 success, 1 failure or not healthy, 2 usage error.
 const OPTIONS = {
   url: { type: "string" },
   "token-file": { type: "string" },
+  "allow-insecure-http": { type: "boolean" },
   json: { type: "boolean" },
   help: { type: "boolean", short: "h" },
 } as const;
@@ -78,6 +82,8 @@ interface Context {
   url: string | undefined;
   /** --token-file: wins over both variables of the command's token. */
   tokenFile: string | undefined;
+  /** --allow-insecure-http: a token may go over http:// to any host. */
+  allowInsecureHttp: boolean;
 }
 
 /** Runs one command line (without `node` and the script). Resolves to the exit code. */
@@ -104,6 +110,7 @@ export async function main(argv: readonly string[], io: CliIo): Promise<number> 
       json: values.json === true,
       url: values.url ?? io.env.AIA_URL,
       tokenFile: values["token-file"],
+      allowInsecureHttp: values["allow-insecure-http"] === true,
     };
     return await run(ctx, positionals);
   } catch (error) {
@@ -215,8 +222,8 @@ const REQUEST_TIMEOUT_MS = 30_000;
 // here as well, because fetch rejects an invalid header value with a message that quotes it.
 const BEARER_TOKEN = /^[A-Za-z0-9._~+/-]+=*$/;
 
-/** The base URL without a trailing slash; a path prefix (behind a proxy) is kept. */
-function serviceUrl(ctx: Context): string {
+/** --url / AIA_URL, parsed: an http:// or https:// URL. */
+function parsedServiceUrl(ctx: Context): URL {
   if (ctx.url === undefined || ctx.url === "") {
     throw new UsageError("no service URL: pass --url or set AIA_URL");
   }
@@ -229,7 +236,38 @@ function serviceUrl(ctx: Context): string {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new UsageError("--url / AIA_URL must be an http:// or https:// URL");
   }
+  return url;
+}
+
+/** The base URL without a trailing slash; a path prefix (behind a proxy) is kept. */
+function serviceUrl(ctx: Context): string {
+  const url = parsedServiceUrl(ctx);
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+}
+
+/**
+ * localhost, 127.0.0.0/8 or [::1]: the Docker exec and development setups. The URL parser has
+ * normalized the host already (127.1 → 127.0.0.1, [0:0:0:0:0:0:0:1] → [::1], case).
+ */
+function isLoopback(hostname: string): boolean {
+  return (
+    hostname === "localhost" || hostname === "[::1]" || /^127(?:\.[0-9]{1,3}){3}$/.test(hostname)
+  );
+}
+
+/**
+ * A token goes over https://, or over http:// to a loopback host, unless --allow-insecure-http.
+ * The production host answers plain HTTP with no redirect (AIA / CDP clients need it), so
+ * http://<host> reaches the service and would put the token on the wire in clear text.
+ */
+function checkTokenTransport(ctx: Context, name: string): void {
+  const url = parsedServiceUrl(ctx);
+  if (url.protocol === "http:" && !isLoopback(url.hostname) && !ctx.allowInsecureHttp) {
+    throw new UsageError(
+      `refusing to send the ${name} token over http:// to ${url.host}: use https://, ` +
+        "or pass --allow-insecure-http"
+    );
+  }
 }
 
 /** The admin token (import, config) or the upload token (publish). */
@@ -242,8 +280,9 @@ const TOKEN_NAMES: Record<TokenVariable, string> = {
 
 /**
  * The command's bearer token, from --token-file, else `<variable>_FILE`, else `<variable>`
- * (trimmed); undefined when none of them is set. Both variables set, an unreadable file, or an
- * empty or malformed token is a usage error. Messages name the source, never the token.
+ * (trimmed); undefined when none of them is set. Both variables set, an unreadable file, an
+ * empty or malformed token, or a token that checkTokenTransport refuses is a usage error.
+ * Messages name the source, never the token.
  */
 async function bearerToken(ctx: Context, variable: TokenVariable): Promise<string | undefined> {
   const { env } = ctx.io;
@@ -274,6 +313,9 @@ async function bearerToken(ctx: Context, variable: TokenVariable): Promise<strin
       `the ${name} token in ${source} has characters a bearer token cannot have ` +
         "(letters, digits and - . _ ~ + / only, optionally ending in =)"
     );
+  }
+  if (token !== undefined) {
+    checkTokenTransport(ctx, name);
   }
   return token;
 }
