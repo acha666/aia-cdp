@@ -91,7 +91,8 @@ export function withEmptySerial(der: Uint8Array): Uint8Array {
 /** An X.509 extension whose extnValue is the DER of `value` (an asn1js block or PKIjs schema). */
 export function extension(
   oid: string,
-  value: { toBER(sizeOnly?: boolean): ArrayBuffer }
+  value: { toBER(sizeOnly?: boolean): ArrayBuffer },
+  critical = false
 ): pkijs.Extension {
-  return new pkijs.Extension({ extnID: oid, extnValue: value.toBER(false) });
+  return new pkijs.Extension({ extnID: oid, critical, extnValue: value.toBER(false) });
 }

@@ -61,12 +61,21 @@
       | `2.5.29.20` CRL Number、`2.5.29.27` Delta 指示、`2.5.29.35` AKI、`2.5.29.46` Freshest CRL | 接受 | 接受 |
       | `2.5.29.18` IAN、`1.3.6.1.5.5.7.1.1` AIA（PKIjs 现状接受，C2） | 接受 | 接受 |
       | `1.3.6.1.4.1.311.21.1` / `.21.4` / `.21.14`（CA Version、Next CRL Publish、CRL Self CDP） | 接受 | 接受 |
-      | `2.5.29.28` IDP | 接受 | `scoped_crl_unsupported`；只含 `distributionPoint` 的见 owner 确认 2 |
+      | `2.5.29.28` IDP，只含 `distributionPoint`（或为空） | 接受 | 接受（owner 确认 2） |
+      | `2.5.29.28` IDP，含 `onlyContains*`、`onlySomeReasons`、`indirectCRL` 任一 | `scoped_crl_unsupported` | `scoped_crl_unsupported` |
       | 其他 | 接受，原字节保留 | `unknown_critical_extension`，`details.oid` |
+
+      IDP 不论关键性都按原字节读（SEQUENCE，字段为 `[0]`–`[5]` 上下文标签、升序不重复，`[0]` 为构造型）；畸形 → `invalid_crl`，
+      `reason = "extension_value"`。非关键的作用域 IDP 也拒绝（偏离原表"非关键接受"，实现时定）：RFC 5280 要求 IDP 关键，
+      非关键只会来自不合规的 CA；本服务每个签发者只有一个 full 与一个 delta 目标，分区 CRL 当作完整 CRL 发布后，忽略非关键 IDP
+      的客户端会把它当完整列表，漏掉其他分区的吊销。
 
    4. 条目扩展（每个 `revokedCertificates[i].crlEntryExtensions`，M13，RFC 5280 §5.3）：`2.5.29.21` reasonCode、
       `2.5.29.24` invalidityDate、`2.5.29.23` holdInstructionCode 不论关键性都接受；`2.5.29.29` certificateIssuer
-      → `scoped_crl_unsupported`（间接 CRL）；其他关键 → `unknown_critical_extension`，`details` 带 `oid` 与序列号。
+      → `scoped_crl_unsupported`（间接 CRL，不论关键性）；其他关键 → `unknown_critical_extension`，`details` 带 `oid` 与序列号。
+   - 返回 `{ ok: true; expired } | { ok: false; error; details; detail }`：`error` 即 §2.6 的码，`details` 原样进信封
+     （`invalid_crl` → `{ reason }`；`not_yet_valid` → `{ thisUpdate }`；另两种 → `{ oid, serialNumber? }`，序列号为大写 hex，同 catalog），
+     `detail` 是给日志的英文说明。
 4. **验签**（`src/core/pki/verify.ts`，重写 `worker-aia-cdp@5b570aa:src/worker/pki/crls.ts` 的 `verifyCRLWithIssuer`，L5-15）。
    `verifyCrlSignature(crl, issuerSpki)` → `{ ok: true } | { ok: false; reason: "invalid_signature" | "unsupported_algorithm"; detail? }`。
    - 白名单（C4、M10），任何密码学调用之前按 OID 判定，名称取自 `src/core/pki/constants.ts` 的 `SIGNATURE_ALG_NAMES`：
@@ -74,9 +83,22 @@
      （参数里的哈希同样限 SHA-1/256/384/512）；`1.2.840.10045.4.1`、`1.2.840.10045.4.3.2 / .3 / .4`（ECDSA），签发者 SPKI
      曲线限 P-256 / P-384 / P-521。SHA-1 两项取决于 owner 确认 1。其余（`1.3.101.112/113` EdDSA、`1.2.840.113549.1.1.14`、
      `1.2.840.10045.4.3.1`（两种 SHA-224）、DSA、SM2、MD2/MD5）→ `unsupported_algorithm`。
+   - 参数与密钥（同样在密码学调用之前，实现时补全）：PKCS#1 v1.5 与 ECDSA 的参数须缺省或 NULL，否则 `unsupported_algorithm`；
+     RSASSA-PSS 须带 RSASSA-PSS-params，哈希限上述四种、MGF 须为 MGF1 且其哈希与签名哈希相同、`trailerField = 1`、salt 为非负整数，
+     否则 `unsupported_algorithm`——PKIjs 3.4.1 忽略 MGF1 的哈希参数（WebCrypto 只有"MGF1 用同一哈希"），不拦会把标成 MGF1-SHA1
+     的 SHA-256 签名验成通过（已用夹具验证），salt 长度 PKIjs 会照用。签名族与签发者密钥不符（RSA 签名配非 `rsaEncryption` 密钥、
+     ECDSA 签名配非 `id-ecPublicKey` 密钥）→ `invalid_signature`（该密钥不可能签出它）；`id-RSASSA-PSS` 受限 RSA 密钥（WebCrypto
+     不能导入）、白名单外曲线或显式曲线参数 → `unsupported_algorithm`。
+   - 签名值：BIT STRING 有未用位 → `invalid_signature`；ECDSA-Sig-Value 须是严格 DER（恰好一个 `SEQUENCE { r INTEGER, s INTEGER }`、
+     无尾随字节、INTEGER 最短且为正、不长于曲线阶）→ 否则 `invalid_signature`。PKIjs 把签名转成 WebCrypto 的 r‖s 时忽略尾随字节、
+     把负数或多余前导 00 的 INTEGER 当无符号字节（已验证），同一签名会有多种字节形式都验过；OpenSSL 同样拒绝非 DER 的 ECDSA 签名。
+     DER 的 r、s 按曲线长度（32 / 48 / 66）补齐的转换本身正确。
    - 然后 `pkijs.getCrypto(true).verifyWithPublicKey(crl.tbsView, crl.signatureValue, issuerSpki, crl.signatureAlgorithm)`
-     （B21；M12：签名对收到的 TBS 字节，不重编码）；`false` 或抛错 → `invalid_signature`，异常文本只进日志 `detail`。
-   - 禁用 `crl.verify()`（比较签发者 DN，C1；对 PKIjs 名单外的关键扩展静默返回 false，C2）；不调 `pkijs.setEngine`。
+     （B21；M12：签名对收到的 TBS 字节，不重编码——pkijs 3.4.1 的 `tbsView` 是 asn1js 3.1.0 `valueBeforeDecodeView`，即 `fromBER`
+     对输入的副本的子视图，原样字节）；`false` 或抛错 → `invalid_signature`，异常文本只进日志 `detail`。引擎缺失（`getCrypto(true)`
+     抛错）不归为验签失败，按服务端故障抛出。失败结果另带 `algorithm`（`SIGNATURE_ALG_NAMES` 的名称，未知时为 OID），供日志与
+     `details`。
+   - 禁用 PKIjs 的 CRL `verify` 方法（比较签发者 DN，C1；对 PKIjs 名单外的关键扩展静默返回 false，C2）；不替换 PKIjs 的引擎。
 5. **新鲜度**（`src/core/publish.ts` 导出纯函数 `compareFreshness(current, incoming)`，重写 `worker-aia-cdp@5b570aa:src/worker/pki/crls.ts:17-44` 的 `isNewerCRL`；
    C3、M15）。比较对象是 catalog 里的 `current.summary`，不读当前 DER；号用 `BigInt(decimal)`，时间用 `Date.parse` 的 epoch ms，
    禁止字符串比较（带不带毫秒都要对）：

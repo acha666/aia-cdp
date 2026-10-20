@@ -366,7 +366,7 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 
 1. 按字节识别 PEM/DER，得到 DER 与 `sha256`。
 2. 解析 AKI、CRL 号、delta 指示、扩展、时间；时间解码失败、`thisUpdate` 超前 5 分钟以上、
-   未识别的关键扩展、关键 IDP 各是独立拒绝原因。
+   未识别的关键扩展、作用域 IDP 各是独立拒绝原因。
 3. 读 `config.json` 与 `catalog.json`（各一次 `get`，记下 catalog 的 ETag）。
 4. 用 AKI 在 catalog 的证书摘要里找 SKI 相等的证书，再在 config 里找绑定它且 kind 匹配的目标。
    找不到证书是 `issuer_not_found`，证书存在但无目标是 `target_not_configured`。
@@ -409,8 +409,9 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 - 时钟：注入的 `now` 是唯一时间源；`thisUpdate` 超前 5 分钟以上拒绝 `not_yet_valid`；
   `nextUpdate` 已过去的 CRL 接受并记录日志。
 - 扩展：识别列表为 `2.5.29.20`、`2.5.29.27`（delta 指示）、`2.5.29.35`、`2.5.29.46`、`2.5.29.18`（IAN）、
-  `1.3.6.1.5.5.7.1.1`（AIA）与 AD CS 私有 `1.3.6.1.4.1.311.21.1 / .4 / .14`；识别与关键性无关，标了关键也接受（M14）。`2.5.29.28`（IDP）非关键接受、关键视为作用域 CRL，拒绝 `scoped_crl_unsupported`
-  （只含 `distributionPoint` 的关键 IDP 见 implementation 切片 4 开工前需 owner 确认第 2 项，推荐接受）；其他未识别关键扩展拒绝 `unknown_critical_extension`。
+  `1.3.6.1.5.5.7.1.1`（AIA）与 AD CS 私有 `1.3.6.1.4.1.311.21.1 / .4 / .14`；识别与关键性无关，标了关键也接受（M14）。`2.5.29.28`（IDP）不论关键性都读：
+  只含 `distributionPoint` 接受（AD CS 的 CDP 选项，implementation 切片 4 owner 确认 2），含 `onlyContains*`、`onlySomeReasons`、`indirectCRL`
+  即作用域 CRL，拒绝 `scoped_crl_unsupported`，畸形 IDP 为 `invalid_crl`；其他未识别关键扩展拒绝 `unknown_critical_extension`。
   条目扩展同样检查：reasonCode、invalidityDate、holdInstructionCode 接受，certificateIssuer（间接 CRL）→
   `scoped_crl_unsupported`，其他关键 → `unknown_critical_extension`。未识别的非关键扩展保留原始字节在详情里展示。
   策略表见 implementation 切片 4 步骤 3。
@@ -599,7 +600,7 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 | # | 线上实际行为 | 新项目 |
 | --- | --- | --- |
 | C1 | 验签用 PKIjs `crl.verify({ issuerCertificate })`，它要求 CRL 签发者名称等于证书主体，名称不同即 400 `invalid_signature` | 不比较名称：`verifyWithPublicKey` 只看签名（§6） |
-| C2 | 不是"无策略"：PKIjs 有隐藏的已知扩展闸——关键的 AD CS `1.3.6.1.4.1.311.21.1 / .4 / .14` 被拒成 `invalid_signature`；关键 IDP 反被接受（作用域 CRL 会被发布）；关键 IAN / AIA 接受；条目扩展从不检查 | 显式策略表，识别与关键性无关，条目扩展也检查；关键 IDP → `scoped_crl_unsupported` |
+| C2 | 不是"无策略"：PKIjs 有隐藏的已知扩展闸——关键的 AD CS `1.3.6.1.4.1.311.21.1 / .4 / .14` 被拒成 `invalid_signature`；关键 IDP 反被接受（作用域 CRL 会被发布）；关键 IAN / AIA 接受；条目扩展从不检查 | 显式策略表，识别与关键性无关，条目扩展也检查；作用域 IDP（不论关键性）→ `scoped_crl_unsupported`，只含 `distributionPoint` 的接受 |
 | C3 | 同号同 `thisUpdate` 而字节不同 → 409 `stale_crl`；CRL 号只在一侧时回退比 `thisUpdate`，更晚即接受。#4 只覆盖了字节相同 | 前者 `conflict`，后者 `non_orderable`（§6） |
 | C4 | 所有不可验算法（Ed25519、Ed448、SHA-224 的 RSA / ECDSA、DSA、SM2、MD5）都报 400 `invalid_signature` | 白名单外一律 `unsupported_algorithm`，不只 EdDSA |
 
