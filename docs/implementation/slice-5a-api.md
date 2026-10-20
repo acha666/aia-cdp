@@ -83,13 +83,17 @@ history / retire / delete（切片 6）；页面、vue-query、扩展渲染块�
    | `revokedCertificates` | 必填，返回全部条目；空 CRL 为 `{ count: 0, items: [] }` |
    | stats | `{ certificates, targets: { full, delta }, published: { full, delta }, totalRevocations, derBytes }`（§10 #16）；不含时间相关字段（plan §7.1；末节 owner 项） |
    | `totalRevocations` | 已发布 **full** CRL 的 `revokedCount` 之和（delta 条目会在下一张 full 重现，不计）；没有已发布 full CRL 时 `null` |
-   | `derBytes` | catalog 证书 `size` + 各 `current` CRL `size`；历史 blob 不计（要 `list`，属管理接口） |
+   | `derBytes` | catalog 证书 `size` + config 中各目标的 `current` CRL `size`；历史 blob 不计（要 `list`，属管理接口）；config 已删目标留在 catalog 的 `current` 不是资源，不计也不列 |
 
-   失败语义：catalog 有条目但 blob 缺失或解析失败 → 500 `internal` + 一行日志（导入 / 发布时已校验过）；store 抛错 → 500，绝不是 200 空列表（§10 #9）。
+   失败语义：catalog 有条目但 blob 缺失、SHA-256 与 catalog 不符（解析前先比）或解析失败，以及 config 目标的签发者证书不在 catalog →
+   `ReadInconsistencyError`，500 `internal` + 一行 `read_inconsistent` 日志（`reason`、id、store 键；导入 / 发布时已校验过）；
+   config.json / catalog.json 无效或 store 抛错 → 500，绝不是 200 空列表（§10 #9）。
 
 6. **HTTP schema** `src/http/schemas.ts`：`CertificateListItem`、`CertificateDetail`、`CrlTargetListItem`、`CrlTargetDetail`、`Stats`（`.openapi("<名>")`，
    组合 core schema）；参数 `CertificateIdParam`（`z.string().toLowerCase().regex(/^[0-9a-f]{64}$/)`，大写输入被规范化）与 `TargetIdParam`
-   （`z.uuid()`）；错误体沿用切片 1 的按状态码 schema（400 `bad_request`、404 `not_found`、500 `internal`）。
+   （`z.uuid().toLowerCase()`：与 config 同一个 `z.uuid()` 校验器，大写输入同证书 id 一样规范化，RFC 9562 §4 输入不区分大小写）；
+   错误体沿用切片 1 的按状态码 schema（400 `bad_request`、404 `not_found`、500 `internal`）。可空的 `current` 写成
+   `z.union([schema, z.null()])`：生成器把具名 schema 的 `.nullable()` 输出成裸 `$ref`、丢掉 `null`。
 
 7. **路由**：`src/http/routes/certificates.ts`、`stats.ts`（新），`src/http/routes/crls.ts`（切片 4 已有 POST，追加两条 GET）。每条
    `createRoute` 写 `operationId`（`listCertificates`、`getCertificate`、`listCrlTargets`、`getCrlTarget`、`getStats`）、`summary`、`tags`，
@@ -129,7 +133,7 @@ history / retire / delete（切片 6）；页面、vue-query、扩展渲染块�
 | `tests/core/summary/revocations.test.ts`（新） | — | 把夹具 CRL 的条目复制到 11 条与 10 000 条后重编码（旧 L647 的 `toSchema(true)` 手法；详情不验签）：`count === items.length`；10 000 条只记录耗时 |
 | `tests/core/summary/extension-parsers.test.ts` 追加 | 补旧测试缺口 | cRLReason / invalidityDate / holdInstructionCode 成功路径（合成夹具已有 keyCompromise、superseded、certificateHold）；EKU 成功路径；QC Statements、SCT List、Subject Directory Attributes 在测试内构造扩展值 |
 | `tests/core/views.test.ts`（新） | `tests/worker/api-stats.test.ts` 的意图 | 步骤 5 表逐行；`current.summary.nextPublish` 对 `crls/issuing-ca-1/full-adcs.der` 非空、对不带该扩展的 `full-01.der` 为 `null` |
-| `tests/http/certificates.test.ts` | `tests/worker/api-routing.test.ts` 用例 (3) | 列表 / 详情字段、`targets`；大写 id 规范化；非 hex、嵌套、`crl/archive/…` 形 id → 400；未知 hex → 404；blob 缺失 → 500 不泄漏；200/400/404/500 均 `no-store`；HEAD 200 空体 |
+| `tests/http/certificates.test.ts` | `tests/worker/api-routing.test.ts` 用例 (3) | 列表 / 详情字段、`targets`；大写 id 规范化；非 hex、嵌套（`%2F`）、`crl/archive/…` 形 id → 400（字面多段路径不是该路由：JSON 404）；未知 hex → 404；blob 缺失 → 500 不泄漏；200/400/404/500 均 `no-store`；HEAD 200 空体 |
 | `tests/http/crl-targets.test.ts`（新） | — | 经 `importCertificate` / `applyConfig` / `publishCrl` 写 MemoryStore；未发布 → 列表与详情 `current: null`；非 uuid → 400、未知 → 404；`revokedCertificates.count === summary.revokedCount`；另把 `revocations.test.ts` 的 11 条重编码字节直接写成 blob + catalog 条目（详情不验签），断言全部返回 |
 | `tests/http/lists.test.ts` | `tests/worker/api-pagination.test.ts` 的不变量 | 每个 catalog 证书 / config 目标恰好一项；`downloads` 不含 `blobs/` 与历史；store `get` 抛错 → 500 信封，不是 `200 []` |
 | `tests/http/stats.test.ts` | `tests/worker/api-stats.test.ts` | 计数来自 config + catalog；`derBytes` = 夹具文件字节数之和；`totalRevocations` 只计 full、无已发布 full 时 `null`；store `list` 未被调用 |
