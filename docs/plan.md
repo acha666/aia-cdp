@@ -415,11 +415,12 @@ AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
   策略表见 implementation 切片 4 步骤 3。
 - delta 与 base 相互独立：记录并展示 `baseCrlNumber`，不与已发布 full CRL 对账。
 - 下载：路径表命中 → 资源 → catalog 的 current → 先用摘要生成 `ETag`（DER `"<sha256>"`，
-  PEM `"<sha256>-pem"`）→ `If-None-Match` 命中直接 304 → 否则读 blob，DER 原样、PEM 现场派生。
+  PEM `"<sha256>-pem"`）→ `If-None-Match` 命中直接 304、HEAD 直接回头（都不读 blob）→ 否则读 blob，DER 原样、PEM 现场派生。
   `If-None-Match` 手写比较（逗号列表、`W/`、`*`），在读 blob 之前；不用 `hono/etag`（它在处理器之后比较）。
   `Content-Length` 显式设置（两条运行时的 HEAD 都不会自动带）。目标存在但未发布 → 404。
-  下载前缀上的 404 / 405 是纯文本（§4.4）。
-  `Content-Disposition: attachment; filename="<路径最后一段>"`，与线上一致。
+  下载前缀上的 404 / 405 是纯文本（§4.4）。路径表命中而存储撑不住（引用失效、blob 缺失、大小与 catalog 不符）→ 500 + 日志行，不报 404。
+  `Content-Disposition: attachment; filename="<路径最后一段>"`，与线上同形（filename 净化）；`Last-Modified` 取 `importedAt` /
+  `publishedAt`，不评估 `If-Modified-Since`。
 - 内容类型：DER 证书 `application/pkix-cert`，DER CRL `application/pkix-crl`，
   PEM `application/x-pem-file`。
 - 缓存：证书 `public, max-age=31536000, immutable`；CRL `public, max-age=clamp(nextUpdate − now,
@@ -562,7 +563,7 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 
 | #   | 旧实现问题                                                              | 新项目处理                                              | 切片 |
 | --- | ----------------------------------------------------------------------- | ------------------------------------------------------- | ---- |
-| 1   | 下载无 304、无 `Content-Length`、`ETag` 未加引号                         | §6 下载规则                                              | 3    |
+| 1   | 下载无 304、HEAD 无 `Content-Length`、`ETag` 未加引号                    | §6 下载规则                                              | 3    |
 | 2   | 下载路径暴露 `archive/`、`by-keyid/` 与任意对象；详情接受归档 id         | 路径表 + catalog，请求路径不做发现                       | 3, 5a, 5b |
 | 3   | CRL `max-age` 无上限，`nextUpdate` 过后降为 0                            | clamp [60 s, 3600 s]，无 `nextUpdate` 300 s              | 3    |
 | 4   | 相同 CRL 重复上传返回 409，UI 显示失败                                   | `unchanged` 200                                          | 4, 5b |
@@ -622,7 +623,8 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 - Node 集成：在临时目录起真实服务与 fs 存储，走 CLI import → config apply → 上传 →
   列表 / 详情 → DER / PEM / HEAD / 304 下载 → 重复上传 unchanged → 过期拒绝 → retire → 404。
 - Worker：`wrangler deploy --dry-run --outdir dist/worker`（先 `vite build`）；`createTestHarness` 对 dry-run 产物跑与运行时无关的
-  `scripts/smoke.sh`；`wrangler dev` 冒烟是切片出口里的人工步骤。
+  `scripts/smoke.sh`，再经管理接口导入并应用配置，查下载的 GET / HEAD / 304 / 405（与 Node 集成测试比对同一组头）；`wrangler dev` 冒烟是
+  切片出口里的人工步骤。
 - Docker：`docker build --check`、构建镜像、启动、健康检查 `healthy` 而 API 报 `degraded`、非 root、`docker stop` < 5 s；之后的切片
   加 `config apply` 与一次下载。
 - CI：`.github/workflows/ci.yml` 四个任务 `check`（`pnpm run types` 后 worker / node / web 三套编译与 canary、lint、format、

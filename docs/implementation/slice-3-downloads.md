@@ -85,13 +85,14 @@
    | 项 | 线上（`worker-aia-cdp@0ea3130`） | 新 | 依据 |
    | --- | --- | --- | --- |
    | 可达对象 | 前缀下任意 R2 键（`archive/`、`by-keyid/`、PEM 伴随对象） | 仅路径表及其 `.pem`；`blobs/…`、历史、`config.json`、`catalog.json` 不可达 | §10 #2 |
-   | `ETag` / 304 / `Content-Length` | R2 MD5 无引号 / 无 / 无 | `"<sha256>"`、`"<sha256>-pem"` / 有 / GET 与 HEAD 都有 | §10 #1 |
+   | `ETag` / 304 / `Content-Length` | R2 MD5 无引号 / 无 / GET 有（workerd 按 R2 对象体的长度补上，本地探针）、HEAD 无 | `"<sha256>"`、`"<sha256>-pem"` / 有 / GET 与 HEAD 都有 | §10 #1 |
    | 证书 `Cache-Control` | 另带 `s-maxage=31536000, stale-while-revalidate=604800` | 去掉边缘指令 | C7 |
-   | CRL `Cache-Control` | `max-age=max(0, nextUpdate − now)`（线上见 428625）+ `s-maxage` | 夹紧 [60, 3600]，过期 0 → 60，无 `nextUpdate` 300 | §10 #3、C7 |
+   | CRL `Cache-Control` | `max-age=max(0, nextUpdate − now)`（线上见 428625；`nextUpdate` 取 R2 自定义元数据，缺失时 300）+ 同值 `s-maxage` | 夹紧 [60, 3600]，过期 0 → 60，无 `nextUpdate` 300 | §10 #3、C7 |
    | `Content-Type` | 按键后缀；PEM `text/plain; charset=utf-8` | 按种类；PEM `application/x-pem-file`（现有 `.crt` / `.crl` 路径的 DER 值不变） | C6 |
    | `Last-Modified` | R2 上传时间 | `importedAt` / `publishedAt`（切片 7 迁移后为导入时间） | M18 |
    | `Content-Disposition` | `attachment; filename="<原样>"` | 同形，filename 净化 | C13、M17 |
    | 404 / 405 | 纯文本；405 无 `Allow` | 纯文本，`no-store`；405 另带 `Allow: GET, HEAD` | M19 |
+   | 500 | 异常 → JSON `{"error":"internal_error","detail":"<异常文本>"}`；对象缺失即 404 | JSON 信封 `internal`、`no-store`，异常只进日志；路径表命中而引用失效、blob 缺失、大小不符也是 500 + 日志行，不是 404 | 步骤 4 |
    | 畸形 `%` / `%2F` | 400 / 解码为 `/` | 404 / 保留后 404 | M20 |
    | 安全头 | 无 | Hono `secureHeaders` 默认集，无 HSTS（含 `nosniff`、`Cross-Origin-Resource-Policy: same-origin`；CryptoAPI / OpenSSL 不看，浏览器顶层导航下载不受 CORP 影响） | B8 |
 
@@ -121,11 +122,17 @@
   - store `get` 抛错 → 500 JSON `internal`，体中无异常文本（迁自 `worker-aia-cdp@5b570aa:tests/worker/api-routing.test.ts:27-39`）；
     blob 缺失、size 不符、引用失效各得 500 与对应日志行。
 - `tests/integration/downloads.test.ts`（Node 真实 socket）：fs 适配器 + 临时目录 + 同一 seed，`@hono/node-server` 的 `serve()` 监听
-  随机端口，`node:http` 读原始头：DER / PEM 的 GET 与 HEAD 头一致（去 `Date`），HEAD 有 `Content-Length`、无 `Transfer-Encoding`，
-  304 无体，体 sha256 等于夹具。
-- Worker：切片 1 的 Worker 冒烟（`createTestHarness`，`prebuiltWorkerDir: "./dist/worker"`）加下载段：令牌经 harness secrets 注入，
-  用切片 2 的管理路由导入 `root-ca` 并应用含 `/ca/root-ca.crt` 的配置，检查 GET / HEAD / 304 / 405，以及未配置的 `/crl/x.crl`
-  返回纯文本 404 而不是 `index.html`。CRL 在 workerd 上的下载检查随切片 4 补进同一段。
+  随机端口，`node:http` 读原始头：根 CA 与 full CRL 的 DER / PEM，GET 与 HEAD 的头块一致（去 `Date`，顺序也同），HEAD 有
+  `Content-Length`、无 `Transfer-Encoding`；原始 socket 上 HEAD 与 304（GET、HEAD）的头块后没有字节；体 sha256 等于夹具（PEM 等于派生结果）。
+  `/ca/root-ca.crt` 及其 `.pem` 的 `ETag`、`Content-Length`、`Content-Type`、`Cache-Control` 与体摘要等于 `tests/helpers/runtime-downloads.ts`
+  的期望：只由夹具文件算出（PEM 用 OpenSSL 的 `certs/root-ca.pem`），不经 `src/core`，Worker 冒烟比对同一份。
+- Worker：`scripts/worker-smoke.ts`（`createTestHarness`，`prebuiltWorkerDir: "./dist/worker"`）在 health `degraded` 与 `smoke.sh` 之后跑
+  下载段：管理令牌经 `workers[].secrets` 注入（每次随机，满足 b64token），用切片 2 的管理路由导入 `certs/root-ca.der`、以
+  `If-None-Match: *` 应用只含 `/ca/root-ca.crt` 的配置（之后 health `healthy`），对它及其 `.pem` 检查 GET 与 HEAD（四个头等于同一份期望、
+  体 sha256、HEAD 的头同 GET 且无体）、304（GET 与 HEAD，无 `Content-Length` / `Content-Type`）、纯文本 405 `Allow: GET, HEAD`，以及
+  未配置的 `/crl/x.crl` 返回纯文本 404 而不是 `index.html`；四个头逐行打印为 `download-header <方法> <路径> <头>: <值>`。`smoke.sh`
+  用异步 `spawn` 跑：`spawnSync` 在它运行的约 5 s 里阻塞事件循环，workerd 期间关掉的空闲 keep-alive 连接没被 fetch 察觉、仍在连接池里，
+  下一个请求（导入的 POST，不会自动重试）就报 `other side closed`。CRL 在 workerd 上的下载检查随切片 4 补进同一段。
 
 ## 出口条件
 
@@ -134,7 +141,8 @@
 - `pnpm run ci:worker` 的 Worker 冒烟含下载段。
 - 多路径读同一 blob、内部键不可达、HEAD / 304 零 blob 读：`tests/http/downloads.test.ts` 对应用例通过。
 - GET / HEAD 两条运行时一致：Node 集成测试与 Worker 冒烟对 `/ca/root-ca.crt` 及其 `.pem` 得到相同的 `ETag`、`Content-Length`、
-  `Content-Type`、`Cache-Control`，体 sha256 等于 `certs/root-ca.der`（PEM 等于派生结果）。
+  `Content-Type`、`Cache-Control`，体 sha256 等于 `certs/root-ca.der`（PEM 等于派生结果）。两边都与 `tests/helpers/runtime-downloads.ts`
+  比对；Worker 一侧的取值见 `pnpm run smoke:worker` 输出的 `download-header` 行。
 - 本地手工：用切片 2 的 CLI 导入 `root-ca` 并应用配置后，`curl -sSI http://127.0.0.1:8080/ca/root-ca.crt` 显示 `Content-Length` 与
   带引号的 `ETag`；加 `-H 'If-None-Match: <该 ETag>'` 返回 304。
 
