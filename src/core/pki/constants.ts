@@ -1,3 +1,8 @@
+/**
+ * DN attribute types. Name.rfc4514 labels an attribute with `short` when set, else with `name`:
+ * title, description, businessCategory and postalCode have no short label (implementation slice
+ * 5a step 4), as with OpenSSL.
+ */
 export const OID_DICTIONARY: Record<string, { short?: string; name: string }> = {
   "2.5.4.3": { short: "CN", name: "commonName" },
   "2.5.4.4": { short: "SN", name: "surname" },
@@ -8,11 +13,11 @@ export const OID_DICTIONARY: Record<string, { short?: string; name: string }> = 
   "2.5.4.9": { short: "STREET", name: "streetAddress" },
   "2.5.4.10": { short: "O", name: "organizationName" },
   "2.5.4.11": { short: "OU", name: "organizationalUnitName" },
-  "2.5.4.12": { short: "T", name: "title" },
-  "2.5.4.13": { short: "DESCRIPTION", name: "description" },
-  "2.5.4.15": { short: "BUSINESS", name: "businessCategory" },
+  "2.5.4.12": { name: "title" },
+  "2.5.4.13": { name: "description" },
+  "2.5.4.15": { name: "businessCategory" },
   "2.5.4.16": { name: "postalAddress" },
-  "2.5.4.17": { short: "POSTAL", name: "postalCode" },
+  "2.5.4.17": { name: "postalCode" },
   "2.5.4.18": { name: "postOfficeBox" },
   "2.5.4.20": { name: "telephoneNumber" },
   "2.5.4.41": { name: "name" },
