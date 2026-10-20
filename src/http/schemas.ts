@@ -8,6 +8,13 @@ import {
   TargetId,
 } from "../core/catalog.ts";
 import { PKI_PARSE_REASONS } from "../core/pki/errors.ts";
+import {
+  AlgorithmIdentifierSchema,
+  FingerprintsSchema,
+  SignatureValueSchema,
+  TBSCertificateSchema,
+  TBSCertListSchema,
+} from "../core/summary/schemas.ts";
 
 /** Every error code of plan §7.3. Each route narrows the enum per status code (errorSchema). */
 export const ERROR_CODES = [
@@ -266,3 +273,155 @@ export const CrlMediaTypeError = detailedErrorSchema(
     accepted: z.array(z.enum(CRL_MEDIA_TYPES)),
   })
 ).openapi("CrlMediaTypeError");
+
+// Public reads (plan §7.1, implementation slice 5a steps 5–6) --------------------------------------
+// The bodies of src/core/views.ts. The X.509 projection is the core schemas as they are (named with
+// .meta({ id }), so the document references them as components); only the wrappers are defined
+// here.
+
+/**
+ * Path parameter of GET /api/v1/certificates/{id}: 64 hex digits, uppercase accepted and
+ * normalised to the lowercase catalog id. One path segment, so `/` (sent as `%2F`) is a 400.
+ */
+export const CertificateIdParam = z.object({
+  id: z
+    .string()
+    .toLowerCase()
+    .regex(/^[0-9a-f]{64}$/)
+    .openapi({ description: "The certificate id: SHA-256 of the DER, hex (either case)" }),
+});
+
+/**
+ * Path parameter of GET /api/v1/crls/{targetId}: an RFC 9562 UUID (z.uuid(), the validator of
+ * config.json's target ids), uppercase accepted and normalised (RFC 9562 §4: case-insensitive on
+ * input), as for certificate ids.
+ */
+export const TargetIdParam = z.object({
+  targetId: z
+    .uuid()
+    .toLowerCase()
+    .openapi({ description: "The target id from config.json (UUID, either case)" }),
+});
+
+const Timestamp = z.iso.datetime({ precision: 3 });
+
+const Size = z.number().int().positive().openapi({ description: "DER size in bytes" });
+
+const Downloads = z.array(z.string()).openapi({
+  description:
+    "The paths that serve the resource (config.json's path table), in code-unit order, each DER " +
+    "path followed by its `.pem`; [] when none is configured",
+});
+
+/** A configured target that names the certificate as its issuer. */
+export const CertificateTarget = z
+  .object({ targetId: TargetId, kind: CrlKind, label: z.string() })
+  .openapi("CertificateTarget");
+
+export const CertificateListItem = z
+  .object({
+    /** SHA-256 of the DER. */
+    id: Sha256Hex,
+    /** config.json's label; null when the certificate has none. */
+    label: z.string().nullable(),
+    importedAt: Timestamp,
+    size: Size,
+    summary: CertificateSummarySchema,
+    downloads: Downloads,
+    /** In targetId order. */
+    targets: z.array(CertificateTarget),
+  })
+  .openapi("CertificateListItem");
+
+/** The list item plus the projection of the stored DER, built whole on every request. */
+export const CertificateDetail = CertificateListItem.extend({
+  fingerprints: FingerprintsSchema,
+  tbsCertificate: TBSCertificateSchema,
+  signatureAlgorithm: AlgorithmIdentifierSchema,
+  signatureValue: SignatureValueSchema,
+}).openapi("CertificateDetail");
+
+/** A target's issuer certificate: its id, config.json label and subject CN. */
+export const CrlIssuer = z
+  .object({ id: Sha256Hex, label: z.string().nullable(), subjectCN: z.string().nullable() })
+  .openapi("CrlIssuer");
+
+/** A target's current CRL as the catalog records it at publish time. */
+export const CrlCurrent = z
+  .object({
+    /** SHA-256 of the DER. */
+    sha256: Sha256Hex,
+    size: Size,
+    publishedAt: Timestamp,
+    summary: CrlSummarySchema,
+  })
+  .openapi("CrlCurrent");
+
+/** The current CRL of a target detail: every revoked entry, never a page. */
+export const CrlCurrentDetail = CrlCurrent.extend({
+  /** Id of the certificate whose key verified the signature. */
+  verifier: Sha256Hex,
+  fingerprints: FingerprintsSchema,
+  tbsCertList: TBSCertListSchema,
+  signatureAlgorithm: AlgorithmIdentifierSchema,
+  signatureValue: SignatureValueSchema,
+}).openapi("CrlCurrentDetail");
+
+/**
+ * A target's current CRL or null while nothing is published (or after a retire). A union rather
+ * than .nullable(): the generator writes a nullable named schema as its bare $ref.
+ */
+function currentOrNull<S extends z.ZodType>(current: S) {
+  return z.union([current, z.null()]).openapi({
+    description: "null while nothing is published (or after a retire)",
+  });
+}
+
+const CrlTargetFields = {
+  targetId: TargetId,
+  /** From config.json, not from the CRL. */
+  kind: CrlKind,
+  label: z.string(),
+  issuer: CrlIssuer,
+  downloads: Downloads,
+};
+
+export const CrlTargetListItem = z
+  .object({
+    ...CrlTargetFields,
+    current: currentOrNull(CrlCurrent),
+  })
+  .openapi("CrlTargetListItem");
+
+export const CrlTargetDetail = z
+  .object({
+    ...CrlTargetFields,
+    current: currentOrNull(CrlCurrentDetail),
+  })
+  .openapi("CrlTargetDetail");
+
+const Count = z.number().int().nonnegative();
+
+const KindCounts = z.object({ full: Count, delta: Count });
+
+/** GET /api/v1/stats: counts and bytes from config.json and catalog.json; no time fields. */
+export const Stats = z
+  .object({
+    /** Imported certificates. */
+    certificates: Count,
+    /** Configured targets by kind. */
+    targets: KindCounts,
+    /** Configured targets with a current CRL, by kind. */
+    published: KindCounts,
+    totalRevocations: Count.nullable().openapi({
+      description:
+        "Sum of revokedCount over the published full CRLs (delta entries reappear in the next " +
+        "full CRL); null while no full CRL is published",
+    }),
+    derBytes: Count.openapi({
+      description:
+        "DER bytes of the imported certificates and of the configured targets' current CRLs " +
+        "(history not counted)",
+    }),
+  })
+  .openapi("Stats");

@@ -10,6 +10,7 @@ export const healthRoute = createRoute({
   path: "/health",
   operationId: "getHealth",
   summary: "Service health",
+  tags: ["health"],
   description:
     "Reads the object store and config.json. `degraded` (still 200) while the service is not " +
     "configured yet or its configuration is invalid; 503 when the store cannot be read.",
