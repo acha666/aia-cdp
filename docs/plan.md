@@ -230,13 +230,14 @@ Node 写 stdout，Workers 用 `console.log`（Workers Logs 自动收集）。不
 | 请求 | 响应 |
 | --- | --- |
 | `/api`、`/api/*` 未命中 | JSON 信封 404 `not_found`，`no-store` |
-| `/ca/*`、`/crl/*`、`/dcrl/*` 未命中 | `text/plain` 404 `Not Found`，`no-store`（CryptoAPI 客户端；与线上一致） |
+| `/ca`、`/crl`、`/dcrl` 本身及其下未命中 | `text/plain` 404 `Not Found`，`no-store`（CryptoAPI 客户端；与线上一致） |
 | 已注册路径、方法不符 | 405 + `Allow`：API 为信封（§7.3）；下载前缀为纯文本，`Allow: GET, HEAD`（切片 3） |
 | 其他路径 GET / HEAD | `ui(req)`；ui 返回 404，或最后一段带扩展名（非 `.html`）而 ui 返回 HTML（SPA 兜底）→ 纯文本 404（缺失的 `/assets/x.js` 不变成 200 HTML） |
 | 其他路径的其他方法；未注入 `ui` | 纯文本 404 |
 
-- 保留前缀带尾斜杠匹配（`^/api(?:/|$)`、`^/(?:ca|crl|dcrl)/`）：`/crls/`、`/certificates/` 是 UI 路由，不是下载前缀。匹配用规范化路径
-  （`%2F` 解码、连续 `/` 合并），`//api/…`、`/api%2Fv1/…`、`/crl%2f…` 同样不进 UI；路由仍看原始路径。
+- 保留前缀后须是 `/` 或路径结尾（`^/api(?:/|$)`、`^/(?:ca|crl|dcrl)(?:/|$)`）：`/crls/`、`/certificates/` 是 UI 路由，不是下载前缀；
+  不带斜杠的 `/ca`、`/crl`、`/dcrl` 是下载路由（`/ca/*` 也匹配它，切片 3），GET / HEAD 纯文本 404、其他方法纯文本 405。匹配用规范化路径
+  （`%2F` 解码、连续 `/` 合并），`//api/…`、`/api%2Fv1/…`、`/crl%2f…`、`//ca` 同样不进 UI；路由仍看原始路径。
 - UI 缓存头由应用设置：`/assets/` 下最后一段带扩展名、非 HTML、状态 200 / 206 / 304 的哈希资源 → `public, max-age=31536000, immutable`，
   其余 UI 响应（`index.html`、SPA 兜底、ui 的错误状态）→ `no-cache`。先复制 ui 返回的响应再改头（workerd 绑定响应的头不可变）。
 - 不注册 `app.get("*")`（会让未知路径的 POST 全变 405）；全部路由在 `createApp` 内、首个请求前注册完（SmartRouter 首个请求后冻结）。
@@ -625,8 +626,9 @@ created / updated / unchanged 都算成功；本地摘要账本 `published.json`
 - Worker：`wrangler deploy --dry-run --outdir dist/worker`（先 `vite build`）；`createTestHarness` 对 dry-run 产物跑与运行时无关的
   `scripts/smoke.sh`，再经管理接口导入并应用配置，查下载的 GET / HEAD / 304 / 405（与 Node 集成测试比对同一组头）；`wrangler dev` 冒烟是
   切片出口里的人工步骤。
-- Docker：`docker build --check`、构建镜像、启动、健康检查 `healthy` 而 API 报 `degraded`、非 root、`docker stop` < 5 s；之后的切片
-  加 `config apply` 与一次下载。
+- Docker：`docker build --check`、构建镜像、启动、健康检查 `healthy` 而 API 报 `degraded`、非 root、经镜像内 CLI `aia import` 与
+  `config apply` 后 health `healthy`，下载 `/ca/root-ca.crt` 及其 `.pem`（GET 体等于夹具、`ETag` 与 `Content-Length`，HEAD 同头，
+  `If-None-Match` → 304），`docker stop` < 5 s。
 - CI：`.github/workflows/ci.yml` 四个任务 `check`（`pnpm run types` 后 worker / node / web 三套编译与 canary、lint、format、
   OpenAPI 漂移）、`test`（单元 + 集成 + `smoke:node`）、`worker`（dry-run + harness 冒烟 + R2 一致性）、`docker`，每个任务只装依赖并
   调用 `pnpm run ci:<job>`；`.github/dependabot.yml` 管 npm、github-actions、docker。GitHub Actions 在推送 `main` 与 PR 时运行（决策 10），本机执行的是
