@@ -27,8 +27,9 @@
 | 13  | 线上工件   | 2026-10-18：`tests/data/adcs.ts`（pki.acha.top 证书与 CRL 的 base64）不进新仓库；测试只用夹具脚本生成的合成 AD CS 风格夹具（fixtures spike 证明 CA Version / 模板名编码逐字节一致、扩展嵌套相同），旧仓库用到它的测试改用合成夹具迁入 |
 | 14  | 迁移源     | 2026-10-18：`~/aia-cdp/worker-aia-cdp` 本地分支 `parsing-2026-10-18` 的提交 `5b570aa`；每个迁移步骤引用 `worker-aia-cdp@5b570aa:<path>` |
 | 15  | 切片 1 两项 | 2026-10-19：加边界护栏，推翻原定"不另设 ESLint 导入边界规则和 bundle 卫生断言"（ESLint `no-restricted-imports` 分层规则、`typecheck:boundary` 检查 Worker 程序不含 Node 声明、`ci:worker` 断言 Worker 包无 `"node:` 导入）；切片 1 建 devcontainer（Node 24 镜像、PowerShell feature、非 root、无 `act`） |
+| 16  | 切片 2 两项 | 2026-10-19：不记证书路径改绑账本——V7 只与当前 config 比对，"先删再加"不拦截、由操作员负责，`applyConfig` 只写 `config.json`（§5.2）；`PUT /api/v1/admin/config` 缺可用前置条件回 428 `precondition_required`，不用 400（§7.2、§7.3） |
 
-决策 5、8–15 即 implementation 总则 §0 的 D1–D10（5 = D1，9 = D2，10 = D3，14 = D4，11 = D5，12 = D6，13 = D7，8 = D8，15 = D9 + D10）。
+决策 5、8–16 即 implementation 总则 §0 的 D1–D12（5 = D1，9 = D2，10 = D3，14 = D4，11 = D5，12 = D6，13 = D7，8 = D8，15 = D9 + D10，16 = D11 + D12）。
 
 决策 3 的连带效果：所有写入都经过服务进程。fs 后端只需要进程内互斥，不需要跨进程文件锁
 （`proper-lockfile` 不再需要）；Cloudflare 部署不需要 R2 的 S3 API 令牌，S3 适配器从
@@ -223,7 +224,7 @@ Node 写 stdout，Workers 用 `console.log`（Workers Logs 自动收集）。不
 
 ### 4.4 应用依赖、保留前缀与 UI 兜底（两条运行时共用）
 
-`createApp(deps)` 返回 `OpenAPIHono`；`deps = { store, now, settings, clientIpHeader, log, ui? }`，`ui(req)` 是与平台无关的 UI 兜底
+`createApp(deps)` 返回 `OpenAPIHono`；`deps = { store, now, settings, clientIpHeader, log, sleep?, ui? }`（`sleep` 只给 catalog 条件写重试的退避，测试注入），`ui(req)` 是与平台无关的 UI 兜底
 （Workers：`env.ASSETS.fetch`；Node：`serveStatic` + `index.html`）。应用不认识运行时 env；规则都在应用内，两条运行时一致：
 
 | 请求 | 响应 |
