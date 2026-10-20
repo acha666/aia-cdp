@@ -3,7 +3,12 @@ import { checkConfigState, checkConfigStatic } from "../../src/core/admin.ts";
 import { CatalogSchema, certificateBlobKey, ConfigSchema } from "../../src/core/catalog.ts";
 import type { Catalog, Config, ConfigTarget, CrlKind } from "../../src/core/catalog.ts";
 import { derToPem, PEM_BLOCK_MARKERS } from "../../src/core/pki/pem.ts";
-import { downloadHeaders, ifNoneMatchHit, resolveDownload } from "../../src/core/resources.ts";
+import {
+  downloadHeaders,
+  downloadPaths,
+  ifNoneMatchHit,
+  resolveDownload,
+} from "../../src/core/resources.ts";
 import type { DownloadResolution, FoundDownload } from "../../src/core/resources.ts";
 import { fixture, manifest, NOW } from "../fixtures/pki.ts";
 import { cert, certificateEntry, currentCrl } from "../helpers/catalog.ts";
@@ -510,5 +515,56 @@ describe("ifNoneMatchHit", () => {
     }
     expect(ifNoneMatchHit(undefined, etag)).toBe(false);
     expect(ifNoneMatchHit(null, etag)).toBe(false);
+  });
+});
+
+describe("downloadPaths", () => {
+  it("lists a target's paths in code-unit order, each DER path followed by its .pem", () => {
+    expect(downloadPaths(config, { target: ids.full })).toEqual([
+      "/crl/issuing-ca-1.crl",
+      "/crl/issuing-ca-1.crl.pem",
+      "/crl/issuing-ca-1.der",
+      "/crl/issuing-ca-1.der.pem",
+    ]);
+    expect(downloadPaths(config, { target: ids.delta })).toEqual([
+      "/dcrl/issuing-ca-1.crl",
+      "/dcrl/issuing-ca-1.crl.pem",
+    ]);
+  });
+
+  it("lists a certificate's paths the same way", () => {
+    expect(downloadPaths(config, { certificate: ROOT.sha256 })).toEqual([
+      "/ca/root",
+      "/ca/root.pem",
+      "/ca/root-ca.crt",
+      "/ca/root-ca.crt.pem",
+      "/ca/root.cer",
+      "/ca/root.cer.pem",
+      "/ca/sub/root-ca.crt",
+      "/ca/sub/root-ca.crt.pem",
+    ]);
+  });
+
+  it("lists exactly the path table entries of the reference", () => {
+    for (const reference of [
+      ...Object.keys(config.targets).map((target) => ({ target })),
+      ...Object.keys(config.certificates).map((certificate) => ({ certificate })),
+    ]) {
+      const paths = downloadPaths(config, reference);
+      const owned = Object.entries(config.paths).filter(
+        ([, entry]) => JSON.stringify(entry) === JSON.stringify(reference)
+      );
+      expect(paths).toHaveLength(2 * owned.length);
+      for (const [path] of owned) {
+        expect(paths).toContain(path);
+        expect(paths).toContain(`${path}.pem`);
+      }
+    }
+  });
+
+  it("lists nothing for an unmapped reference or without config.json", () => {
+    expect(downloadPaths(config, { target: crypto.randomUUID() })).toEqual([]);
+    expect(downloadPaths(config, { certificate: ISSUING_2.sha256 })).toEqual([]);
+    expect(downloadPaths(null, { target: ids.full })).toEqual([]);
   });
 });

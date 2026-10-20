@@ -10,14 +10,15 @@ import {
   InvalidStoredObjectError,
   readState,
   updateCatalog,
+  updateState,
 } from "../../src/core/catalog.ts";
-import type { Catalog, CatalogMutation } from "../../src/core/catalog.ts";
+import type { Catalog, CatalogMutation, State } from "../../src/core/catalog.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { MINIMAL_CONFIG, patchStore, putText } from "../helpers/app.ts";
 import { cert, certificateEntry, currentCrl, putCatalog } from "../helpers/catalog.ts";
 import { flakyStore, puts, recordingStore, writtenKeys } from "../helpers/store.ts";
 
-// Schemas, canonical format, readState and updateCatalog (slice 2 step 4). The lost-race case is
+// Schemas, canonical format, readState, updateCatalog (slice 2 step 4) and updateState (slice 4). The lost-race case is
 // case 3 of worker-aia-cdp@5b570aa:tests/worker/r2-summary.test.ts: a concurrent writer's change
 // survives.
 
@@ -384,5 +385,40 @@ describe("updateCatalog", () => {
     });
     await expect(updateCatalog(store, broken, { sleep: recordingSleep().sleep })).rejects.toThrow();
     expect(store.writes).toEqual([]);
+  });
+});
+
+describe("updateState", () => {
+  it("gives every attempt a fresh readState and writes on the catalog ETag of that read", async () => {
+    const base = new MemoryStore();
+    await putText(base, CONFIG_KEY, MINIMAL_CONFIG);
+    await putCatalog(base, emptyCatalog());
+    const store = recordingStore(flakyStore(base, { failIfMatch: 1 }));
+    const { id, entry } = await certificateEntry("root-ca");
+    const seen: State[] = [];
+    const { sleep, calls } = recordingSleep();
+    const result = await updateState(
+      store,
+      async (state): Promise<CatalogMutation<number>> => {
+        seen.push(state);
+        await Promise.resolve();
+        return {
+          next: { ...state.catalog, certificates: { [id]: entry } },
+          result: seen.length,
+        };
+      },
+      { sleep }
+    );
+    expect(result).toEqual({ result: 2 });
+    expect(calls).toEqual([250]);
+    expect(seen.map((state) => state.config)).toEqual([
+      ConfigSchema.parse(JSON.parse(MINIMAL_CONFIG)),
+      ConfigSchema.parse(JSON.parse(MINIMAL_CONFIG)),
+    ]);
+    expect(puts(store).map((put) => [put.key, put.ok, put.opts.ifMatch])).toEqual([
+      [CATALOG_KEY, false, seen[0]!.catalogEtag],
+      [CATALOG_KEY, true, seen[1]!.catalogEtag],
+    ]);
+    expect((await readState(base)).catalog.certificates).toEqual({ [id]: entry });
   });
 });
