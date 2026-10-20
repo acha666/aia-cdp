@@ -59,8 +59,9 @@ const FULL_CURRENT = { ...currentCrl(FULL_01, ids.full), publishedAt: PUBLISHED_
 const DELTA_CURRENT = currentCrl(DELTA_01, ids.delta);
 
 /**
- * root-ca under two paths, issuing-ca-1 with a full (full-01, nextUpdate 4 days after NOW) and a
- * delta CRL (delta-01, expired), a target that was never published and a retired one.
+ * root-ca under four paths (one nested, one without a suffix), issuing-ca-1 with a full (full-01,
+ * nextUpdate 4 days after NOW; also under a .der path) and a delta CRL (delta-01, expired), a
+ * target that was never published and a retired one.
  */
 const config: Config = ConfigSchema.parse({
   version: 1,
@@ -78,8 +79,11 @@ const config: Config = ConfigSchema.parse({
   paths: {
     "/ca/root-ca.crt": { certificate: ROOT.sha256 },
     "/ca/root.cer": { certificate: ROOT.sha256 },
+    "/ca/root": { certificate: ROOT.sha256 },
+    "/ca/sub/root-ca.crt": { certificate: ROOT.sha256 },
     "/ca/issuing-ca-1.crt": { certificate: ISSUING.sha256 },
     "/crl/issuing-ca-1.crl": { target: ids.full },
+    "/crl/issuing-ca-1.der": { target: ids.full },
     "/dcrl/issuing-ca-1.crl": { target: ids.delta },
     "/crl/root-ca.crl": { target: ids.unpublished },
     "/crl/issuing-ca-2.crl": { target: ids.retired },
@@ -189,9 +193,13 @@ describe("resolveDownload", () => {
     });
   });
 
-  it("resolves two paths of one certificate to the same digest and blob", () => {
-    const [a, b] = ["/ca/root-ca.crt", "/ca/root.cer"].map((path) => found(resolve(path)));
+  it("resolves several paths of one certificate to the same digest and blob", () => {
+    const [a, b, nested] = ["/ca/root-ca.crt", "/ca/root.cer", "/ca/sub/root-ca.crt"].map((path) =>
+      found(resolve(path))
+    );
     expect(b).toEqual({ ...a, filename: "root.cer" });
+    // The filename is the last segment.
+    expect(nested).toEqual(a);
   });
 
   it("matches nothing but the path table and its .pem variants", () => {
@@ -208,8 +216,12 @@ describe("resolveDownload", () => {
       "/ca/",
       "/ca",
       "/ca/root-ca.crt/.pem",
-      // c.req.path keeps %2F and malformed escapes as they are.
+      // c.req.path keeps %2F and malformed escapes as they are; decoding would find
+      // /ca/sub/root-ca.crt.
       "/ca/a%2Fb.crt",
+      "/ca/sub%2Froot-ca.crt",
+      "/ca/sub%2froot-ca.crt",
+      "/ca/sub%2Froot-ca.crt.pem",
       "/ca/%ZZ.crt",
       // Store keys and internal objects: the request path is never a key.
       certificateBlobKey(ROOT.sha256),
@@ -366,6 +378,11 @@ describe("downloadHeaders", () => {
       "/ca/root-ca.crt": "application/pkix-cert",
       "/ca/root.cer": "application/pkix-cert",
       "/ca/root-ca.crt.pem": "application/x-pem-file",
+      // C6: by kind, not by the path's suffix (the old code: octet-stream, and a .der CRL a cert).
+      "/ca/root": "application/pkix-cert",
+      "/ca/root.pem": "application/x-pem-file",
+      "/crl/issuing-ca-1.der": "application/pkix-crl",
+      "/crl/issuing-ca-1.der.pem": "application/x-pem-file",
       "/crl/issuing-ca-1.crl": "application/pkix-crl",
       "/crl/issuing-ca-1.crl.pem": "application/x-pem-file",
       "/dcrl/issuing-ca-1.crl": "application/pkix-crl",

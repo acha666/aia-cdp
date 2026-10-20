@@ -10,7 +10,10 @@
 // then checks GET / HEAD / If-None-Match 304 / text 405 on that path and its .pem against
 // tests/helpers/runtime-downloads.ts, the values tests/integration/downloads.test.ts expects of
 // Node, and that an unconfigured /crl/x.crl is the text 404, not index.html. Each compared header
-// is also printed as `download-header <METHOD> <path> <Name>: <value>`.
+// is also printed as `download-header <METHOD> <path> <Name>: <value>`. Only headers are checked
+// for HEAD and 304: fetch never surfaces a body for them, whatever the server sends, and workerd
+// keeps a raw socket open past `Connection: close`. That nothing follows the header block on the
+// wire is checked on Node (tests/integration/downloads.test.ts).
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
@@ -125,26 +128,24 @@ async function downloadSegment(base: URL): Promise<void> {
     }
     const digest = sha256Of(new Uint8Array(await get.arrayBuffer()));
     check(digest === expected.bodySha256, `GET ${expected.path}: body sha256 ${digest}`);
-    const headBytes = (await head.arrayBuffer()).byteLength;
-    check(
-      headerBlock(head) === headerBlock(get) && headBytes === 0,
-      `HEAD ${expected.path}: the GET headers, no body (${headBytes} bytes)`
-    );
+    // Releases the connection; fetch shows an empty body for HEAD and 304 in any case.
+    await head.arrayBuffer();
+    check(headerBlock(head) === headerBlock(get), `HEAD ${expected.path}: the GET headers`);
 
     for (const method of ["GET", "HEAD"]) {
       const res = await fetch(url, {
         method,
         headers: { "If-None-Match": expected.headers.ETag },
       });
-      const length = (await res.arrayBuffer()).byteLength;
+      await res.arrayBuffer();
       check(
         res.status === 304 &&
           res.headers.get("ETag") === expected.headers.ETag &&
           res.headers.get("Cache-Control") === expected.headers["Cache-Control"] &&
           res.headers.get("Content-Length") === null &&
-          res.headers.get("Content-Type") === null &&
-          length === 0,
-        `${method} ${expected.path} (If-None-Match: its ETag): ${res.status}, ${length} bytes`
+          res.headers.get("Content-Type") === null,
+        `${method} ${expected.path} (If-None-Match: its ETag): ${res.status} with ETag and ` +
+          "Cache-Control only"
       );
     }
 

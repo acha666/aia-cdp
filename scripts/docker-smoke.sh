@@ -7,9 +7,11 @@
 # port and an admin token, wait for Docker's health status "healthy" while the API reports
 # "degraded", run scripts/smoke.sh, check uid 1000, then use the image's own CLI
 # (dist/server/cli/aia.js, via docker exec) to import the fixture CA certificates (docker cp'd in)
-# and apply a configuration -> "healthy", and require `docker stop` to finish within 5 s with exit
-# code 0. The container, volume and image tag are removed on exit; the build cache is kept. Needs
-# bash, curl, sha256sum and Docker Engine >= 25.
+# and apply a configuration -> "healthy", download /ca/root-ca.crt and its .pem from the image (GET
+# body = the fixture, ETag and Content-Length from the fixture, HEAD with the same headers,
+# If-None-Match -> 304), and require `docker stop` to finish within 5 s with exit code 0. The
+# container, volume and image tag are removed on exit; the build cache is kept. Needs bash, curl,
+# cmp, sha256sum and Docker Engine >= 25.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -28,6 +30,7 @@ die() {
 command -v docker >/dev/null || die "docker is required"
 command -v curl >/dev/null || die "curl is required"
 command -v sha256sum >/dev/null || die "sha256sum is required"
+command -v cmp >/dev/null || die "cmp is required"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/aia-cdp-docker-smoke.XXXXXX")
 created=0
@@ -156,6 +159,38 @@ aia_check "aia config apply" '^applied /tmp/aia-smoke/config.json \(ETag "[0-9a-
   config apply /tmp/aia-smoke/config.json
 health healthy
 aia_check "aia health" '^healthy: ' health
+
+# Downloads from the image (plan §11; implementation slice 3): the root CA the config serves, as DER
+# and as PEM (OpenSSL's certs/root-ca.pem, which derToPem reproduces byte for byte).
+field() { # NAME FILE: the value of a header in a curl -D dump, without the CR ("" if none)
+  sed -n "s/^$1: *//Ip" "$2" 2>/dev/null | tr -d '\r' | tail -n 1 || true
+}
+download_check() { # PATH FIXTURE ETAG: GET, HEAD and If-None-Match on PATH
+  local path=$1 file=$2 etag=$3 size status ok got method
+  size=$(wc -c <"$file" | tr -d ' ')
+  rm -f "$T/get.h" "$T/get.b" "$T/head.h"
+  status=$(curl -sS --max-time 5 -D "$T/get.h" -o "$T/get.b" -w '%{http_code}' "$BASE$path") ||
+    status=000
+  got="ETag $(field etag "$T/get.h"), Content-Length $(field content-length "$T/get.h")"
+  ok=1
+  if [[ $status == 200 && $got == "ETag $etag, Content-Length $size" ]] &&
+    cmp -s "$T/get.b" "$file"; then ok=0; fi
+  check "$ok" "GET $path: $status, $got, body = $file"
+  status=$(curl -sS --max-time 5 -I -D "$T/head.h" -o /dev/null -w '%{http_code}' "$BASE$path") ||
+    status=000
+  got="ETag $(field etag "$T/head.h"), Content-Length $(field content-length "$T/head.h")"
+  ok=1
+  if [[ $status == 200 && $got == "ETag $etag, Content-Length $size" ]]; then ok=0; fi
+  check "$ok" "HEAD $path: $status, $got"
+  for method in GET HEAD; do # curl --get / --head
+    status=$(curl -sS --max-time 5 "--${method,,}" -H "If-None-Match: $etag" -o /dev/null \
+      -w '%{http_code}' "$BASE$path") || status=000
+    if [[ $status == 304 ]]; then ok=0; else ok=1; fi
+    check "$ok" "$method $path (If-None-Match: $etag): $status"
+  done
+}
+download_check /ca/root-ca.crt "$CERTS/root-ca.der" "\"$root\""
+download_check /ca/root-ca.crt.pem "$CERTS/root-ca.pem" "\"$root-pem\""
 aia_check "aia import again" '0 created, 3 unchanged, 0 failed' \
   import /tmp/aia-smoke/root-ca.der /tmp/aia-smoke/chain.pem
 

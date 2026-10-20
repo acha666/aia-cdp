@@ -74,6 +74,12 @@ interface Served {
 const SERVED: Served[] = [
   { path: P.root, body: fixture(ROOT.der), key: () => certificateBlobKey(ROOT.sha256) },
   { path: `${P.root}.pem`, body: fixture(ROOT.pem), key: () => certificateBlobKey(ROOT.sha256) },
+  { path: P.nested, body: fixture(ROOT.der), key: () => certificateBlobKey(ROOT.sha256) },
+  {
+    path: `${P.nested}.pem`,
+    body: fixture(ROOT.pem),
+    key: () => certificateBlobKey(ROOT.sha256),
+  },
   { path: P.issuing, body: fixture(ISSUING.der), key: () => certificateBlobKey(ISSUING.sha256) },
   {
     path: `${P.issuing}.pem`,
@@ -178,11 +184,12 @@ describe("the seed", () => {
 
 describe("bytes", () => {
   it.each(SERVED)("GET $path sends the stored DER or the PEM derived from it", async (served) => {
-    const { request, seed, blobGets, uiPaths } = await setup();
+    const { request, seed, gets, uiPaths } = await setup();
     const res = await request(served.path);
     expect(res.status).toBe(200);
     expect(await bytesOf(res)).toEqual(served.body);
-    expect(blobGets()).toEqual([served.key(seed)]);
+    // config.json and catalog.json once each, then the one blob (step 4).
+    expect([...gets].sort()).toEqual([...DOCUMENT_KEYS, served.key(seed)].sort());
     expect(uiPaths).toEqual([]);
   });
 
@@ -292,16 +299,16 @@ describe("headers", () => {
     }
   });
 
-  it.each([
-    ["full-01: nextUpdate 4 days after NOW", P.full, {}, 3600],
-    ["delta-01: expired at NOW", P.delta, {}, 60],
-    [
-      "a CRL without nextUpdate",
-      P.full,
-      { full: SEED_CRLS.fullWithoutNextUpdate } satisfies DownloadSeedOptions,
-      300,
-    ],
-  ])("CRL Cache-Control, %s → max-age %i", async (_, path, options, maxAge) => {
+  it.each<{ title: string; path: string; options: DownloadSeedOptions; maxAge: number }>([
+    { title: "full-01: nextUpdate 4 days after NOW", path: P.full, options: {}, maxAge: 3600 },
+    { title: "delta-01: expired at NOW", path: P.delta, options: {}, maxAge: 60 },
+    {
+      title: "a CRL without nextUpdate",
+      path: P.full,
+      options: { full: SEED_CRLS.fullWithoutNextUpdate },
+      maxAge: 300,
+    },
+  ])("CRL Cache-Control, $title → max-age $maxAge", async ({ path, options, maxAge }) => {
     const { request } = await setup(options);
     for (const variant of [path, `${path}.pem`]) {
       const res = await request(variant);
@@ -369,16 +376,22 @@ describe("If-None-Match", () => {
 });
 
 describe("text/plain 404", () => {
-  /** Asserts the download 404: text, no-store, no ui, no read beyond the two documents. */
+  /**
+   * Asserts the download 404: text, no-store, no ui, no read beyond the two documents. Also with
+   * `If-None-Match: *`, which only matches a current representation (RFC 9110 §13.1.2): never 304.
+   */
   async function expectNotFound(path: string, setupOptions: SetupOptions = {}) {
     const { request, gets, uiPaths } = await setup(setupOptions);
     for (const method of ["GET", "HEAD"]) {
-      const res = await request(path, { method });
-      expect(res.status, `${method} ${path}`).toBe(404);
-      expect(res.headers.get("Content-Type"), path).toMatch(/^text\/plain/);
-      expect(res.headers.get("Cache-Control"), path).toBe("no-store");
-      expect(res.headers.get("ETag"), path).toBeNull();
-      expect(await res.text(), path).toBe(method === "GET" ? "Not Found" : "");
+      for (const headers of [{}, { "If-None-Match": "*" }]) {
+        const label = `${method} ${path} ${JSON.stringify(headers)}`;
+        const res = await request(path, { method, headers });
+        expect(res.status, label).toBe(404);
+        expect(res.headers.get("Content-Type"), label).toMatch(/^text\/plain/);
+        expect(res.headers.get("Cache-Control"), label).toBe("no-store");
+        expect(res.headers.get("ETag"), label).toBeNull();
+        expect(await res.text(), label).toBe(method === "GET" ? "Not Found" : "");
+      }
     }
     expect(uiPaths).toEqual([]);
     expect(gets.filter((key) => !DOCUMENT_KEYS.includes(key))).toEqual([]);
@@ -391,6 +404,10 @@ describe("text/plain 404", () => {
     ["another case of the extension", "/ca/root-ca.CRT"],
     ["an upper-case .PEM", `${P.root}.PEM`],
     ["an encoded slash in the name", "/ca/a%2Fb.crt"],
+    // P.nested is served: decoding %2F (the old code did) would find it.
+    ["an encoded slash in a served nested path", "/ca/sub%2Froot-ca.crt"],
+    ["a lower-case encoded slash in a served nested path", "/ca/sub%2froot-ca.crt"],
+    ["the PEM of a served nested path with an encoded slash", "/ca/sub%2Froot-ca.crt.pem"],
     ["an encoded slash after the prefix", "/ca%2Froot-ca.crt"],
     ["an encoded slash before the name", "/ca/%2Froot-ca.crt"],
     ["a malformed escape", "/ca/%ZZ.crt"],
@@ -423,6 +440,7 @@ describe("text/plain 404", () => {
     ["a dot segment", "/ca/./root-ca.crt"],
     ["an escaped dot segment", "/ca/%2e/root-ca.crt"],
     ["a dot-dot segment", "/ca/x/../root-ca.crt"],
+    ["an escaped dot-dot segment", "/ca/x/%2e%2e/root-ca.crt"],
     ["a query string", `${P.root}?a=1`],
   ])("serves a path that URL parsing normalises: %s (%s)", async (_, path) => {
     const { request } = await setup();
@@ -474,6 +492,7 @@ describe("text/plain 404", () => {
         "/config.json",
         "/catalog.json",
         "/ca/../config.json",
+        "/ca/%2e%2e/config.json",
       ]) {
         const res = await request(path);
         expect(res.status, path).toBe(404);

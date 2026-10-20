@@ -113,17 +113,25 @@ describe("reserved prefixes", () => {
     }
   );
 
-  it.each(["/crl%2fissuing", "/crl%2Fx.crl", "//crl/x.crl", "/ca%2fx.crt", "///dcrl//x.crl"])(
-    "GET %s → text/plain 404, not the UI",
-    async (path) => {
-      const { app, stub } = setup();
-      const res = await app.request(`http://localhost${path}`);
-      expect(res.status).toBe(404);
-      expect(res.headers.get("Content-Type")).toMatch(/^text\/plain/);
-      expect(await res.text()).toBe("Not Found");
-      expect(stub.requests).toEqual([]);
-    }
-  );
+  // The bare prefixes are download routes too (slice 3): //ca and /%2Fdcrl are spellings of them.
+  it.each([
+    "/crl%2fissuing",
+    "/crl%2Fx.crl",
+    "//crl/x.crl",
+    "/ca%2fx.crt",
+    "///dcrl//x.crl",
+    "//ca",
+    "//crl",
+    "//dcrl",
+    "/%2Fdcrl",
+  ])("GET %s → text/plain 404, not the UI", async (path) => {
+    const { app, stub } = setup();
+    const res = await app.request(`http://localhost${path}`);
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Content-Type")).toMatch(/^text\/plain/);
+    expect(await res.text()).toBe("Not Found");
+    expect(stub.requests).toEqual([]);
+  });
 
   it("matches the normalised path only for the prefixes: routing still sees the raw path", async () => {
     const { app, stub } = setup();

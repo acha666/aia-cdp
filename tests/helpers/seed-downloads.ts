@@ -12,9 +12,11 @@ import { cert, certificateEntry, currentCrl, putCatalog, putConfig } from "./cat
 
 /** The path table of the seed. */
 export const DOWNLOAD_PATHS = {
-  /** root-ca; also served as rootAlias (two paths, one certificate). */
+  /** root-ca; also served as rootAlias and nested (three paths, one certificate). */
   root: "/ca/root-ca.crt",
   rootAlias: "/ca/root.cer",
+  /** Two segments under /ca/ (V2 allows that): `%2F` must not reach it (M20). */
+  nested: "/ca/sub/root-ca.crt",
   issuing: "/ca/issuing-ca-1.crt",
   /** issuing-ca-1's full CRL target; current: options.full. */
   full: "/crl/issuing-ca-1.crl",
@@ -125,6 +127,7 @@ export async function buildDownloadSeed(options: DownloadSeedOptions = {}): Prom
     paths: {
       [DOWNLOAD_PATHS.root]: { certificate: root.sha256 },
       [DOWNLOAD_PATHS.rootAlias]: { certificate: root.sha256 },
+      [DOWNLOAD_PATHS.nested]: { certificate: root.sha256 },
       [DOWNLOAD_PATHS.issuing]: { certificate: issuing.sha256 },
       [DOWNLOAD_PATHS.full]: { target: targets.full },
       [DOWNLOAD_PATHS.delta]: { target: targets.delta },
