@@ -1,8 +1,8 @@
 // Smoke test of the Worker exactly as `wrangler deploy --dry-run --outdir dist/worker` built it,
 // served in-process by wrangler's createTestHarness (random port, isolated storage): health
 // "degraded" on the empty store, scripts/smoke.sh, then the download segment (implementation
-// slice 3) and the publish segment (slice 4). Part of `pnpm run ci:worker`, which builds dist/web
-// and dist/worker first.
+// slice 3), the publish segment (slice 4) and the read segment (slice 5a). Part of
+// `pnpm run ci:worker`, which builds dist/web and dist/worker first.
 //
 //   node scripts/worker-smoke.ts          (pnpm run smoke:worker)
 //
@@ -24,6 +24,11 @@
 // bodies (workerd parses the form), the upload token (401 without it). Then the same download
 // checks on /crl/root-ca.crl and its .pem: workerd runs on the real clock, so crls/root-ca/full-01
 // is past its nextUpdate and gets max-age=60.
+//
+// The read segment GETs the public read routes on what the two segments before it left, so that
+// the detail builders (PKIjs, WebCrypto SHA-1 / SHA-256 fingerprints, the ECDSA (r, s) decoding)
+// run on workerd too: both lists, a certificate detail by an uppercase id, issuing-ca-1's target
+// detail (its current CRL is crls/issuing-ca-1/full-sha1), the stats, and HEAD of each.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
@@ -346,6 +351,122 @@ async function publishSegment(base: URL, targets: Targets): Promise<void> {
   await checkDownloads(base, rootCaCrlDownloads(new Date()));
 }
 
+// Reads ------------------------------------------------------------------------------------------
+
+/** A read route: ok (200 and no-store), status, text and JSON body (null when not JSON). */
+async function read(base: URL, path: string, method = "GET") {
+  const res = await fetch(new URL(path, base), { method });
+  const text = await res.text();
+  let body: unknown = null;
+  try {
+    body = JSON.parse(text) as unknown;
+  } catch {
+    // Reported by the caller's check.
+  }
+  const noStore = res.headers.get("Cache-Control") === "no-store";
+  return { ok: res.status === 200 && noStore, status: res.status, text, body };
+}
+
+/** The manifest entry of a CRL fixture. */
+function crlFixture(file: string) {
+  const entry = manifest.crls.find((crl) => crl.file === file);
+  if (entry === undefined) {
+    throw new Error(`tests/fixtures/pki/manifest.json has no CRL ${file}`);
+  }
+  return entry;
+}
+
+async function readSegment(base: URL, targets: Targets): Promise<void> {
+  const root = certificate("root-ca");
+  const rootSerial = manifest.certificates.find((each) => each.name === "root-ca")?.serial;
+  const issuing = certificate("issuing-ca-1");
+  const issuingCrl = crlFixture("crls/issuing-ca-1/full-sha1.der");
+  const rootCrl = crlFixture(ROOT_CA_CRL);
+  const show = (text: string) => text.slice(0, 300);
+
+  const certificates = await read(base, "/api/v1/certificates");
+  const ids = (certificates.body as { id?: unknown }[] | null)?.map((item) => item.id);
+  check(
+    certificates.ok && JSON.stringify(ids) === JSON.stringify([root.id, issuing.id].sort()),
+    `GET /api/v1/certificates: ${certificates.status} ${show(JSON.stringify(ids))}`
+  );
+
+  const path = `/api/v1/certificates/${root.id.toUpperCase()}`;
+  const detail = await read(base, path);
+  const certificateBody = detail.body as {
+    id?: unknown;
+    fingerprints?: { sha256?: unknown };
+    tbsCertificate?: { serialNumber?: { hex?: unknown } };
+    signatureValue?: { parsed?: { type?: unknown } };
+  } | null;
+  check(
+    detail.ok &&
+      certificateBody?.id === root.id &&
+      certificateBody.fingerprints?.sha256 === root.id &&
+      certificateBody.tbsCertificate?.serialNumber?.hex === rootSerial &&
+      certificateBody.signatureValue?.parsed?.type === "ecdsa",
+    `GET ${path}: ${detail.status} ${detail.ok ? "the root's detail, ECDSA (r, s)" : show(detail.text)}`
+  );
+
+  const crls = await read(base, "/api/v1/crls");
+  const items = (crls.body ?? []) as { targetId?: string; current?: { sha256?: unknown } | null }[];
+  const currents = items.map((item) => [item.targetId, item.current?.sha256 ?? null]);
+  const want = [
+    [targets.root, rootCrl.sha256],
+    [targets.issuing, issuingCrl.sha256],
+  ].sort(([a = ""], [b = ""]) => (a < b ? -1 : 1));
+  check(
+    crls.ok && JSON.stringify(currents) === JSON.stringify(want),
+    `GET /api/v1/crls: ${crls.status} ${show(JSON.stringify(currents))}`
+  );
+
+  const targetPath = `/api/v1/crls/${targets.issuing}`;
+  const target = await read(base, targetPath);
+  const current = (
+    target.body as {
+      current?: {
+        sha256?: unknown;
+        summary?: { revokedCount?: unknown };
+        tbsCertList?: { revokedCertificates?: { count?: unknown; items?: unknown[] } };
+        signatureAlgorithm?: { algorithm?: { name?: unknown } };
+      } | null;
+    } | null
+  )?.current;
+  const revoked = current?.tbsCertList?.revokedCertificates;
+  check(
+    target.ok &&
+      current?.sha256 === issuingCrl.sha256 &&
+      revoked?.count === issuingCrl.revoked &&
+      revoked.items?.length === issuingCrl.revoked &&
+      current.summary?.revokedCount === issuingCrl.revoked &&
+      current.signatureAlgorithm?.algorithm?.name === "sha1WithRSAEncryption",
+    `GET ${targetPath}: ${target.status} ` +
+      `${target.ok ? `${issuingCrl.file}, ${issuingCrl.revoked} entries` : show(target.text)}`
+  );
+
+  const derBytes = [root.der, issuing.der, fixture(ROOT_CA_CRL), fixture(issuingCrl.file)].reduce(
+    (sum, bytes) => sum + bytes.byteLength,
+    0
+  );
+  const expected = {
+    certificates: 2,
+    targets: { full: 2, delta: 0 },
+    published: { full: 2, delta: 0 },
+    totalRevocations: rootCrl.revoked + issuingCrl.revoked,
+    derBytes,
+  };
+  const stats = await read(base, "/api/v1/stats");
+  check(
+    stats.ok && JSON.stringify(stats.body) === JSON.stringify(expected),
+    `GET /api/v1/stats: ${stats.status} ${show(stats.text)}`
+  );
+
+  for (const each of ["/api/v1/certificates", path, targetPath, "/api/v1/stats"]) {
+    const head = await read(base, each, "HEAD");
+    check(head.ok && head.text === "", `HEAD ${each}: ${head.status}, no body`);
+  }
+}
+
 const server = createTestHarness({
   root,
   workers: [
@@ -373,6 +494,8 @@ try {
   const targets = await downloadSegment(url);
   console.log("worker-smoke: publish");
   await publishSegment(url, targets);
+  console.log("worker-smoke: reads");
+  await readSegment(url, targets);
 } finally {
   await server.close();
 }
