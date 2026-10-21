@@ -66,13 +66,16 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
    - `src/web/composables/useClock.ts`（新）：`createSharedComposable(() => useNow({ interval: 60_000 }))`，徽标与相对时间共用一个时钟。
 3. **扩展渲染块**：`src/web/utils/extension-blocks.ts` ← `…:src/web/components/ExtensionView.vue:30-290`（`Block` 联合、
    `describe()`、`describeSubtree`、helpers），签名 `describeExtension(value, ctx)`，`ctx` 注入 `field` / `nameLabel` / `time` / `yesNo`。
-   switch 写成穷尽（`const _exhaustive: never = value`），随 5a 删除 `unknown` 一并删 `json` 块，剩 plan §8 的 7 种块。保留块内固定文本
+   switch 写成穷尽（`const _exhaustive: never = value`），随 5a 删除 `unknown` 一并删 `json` 块，剩 plan §8 的 7 种块；运行时遇到本构建
+   不认识的类型（更新的服务端）返回 `null`，`ExtensionView` 按未解码显示（ASN.1 dump + 原始 hex）。保留块内固定文本
    （`${name} (${code})`、模板版本 `major.minor`、SCT `hash/signature`、子树范围 ` [min–max]`）。组件迁到 `src/web/components/x509/`，
    来源均为 `worker-aia-cdp@5b570aa:src/web/components/<同名>.vue`：`ExtensionView.vue`（`AccordionItem`：名称 / OID、Critical 徽标、
    解析状态徽标；未解析时 `parseError` + `Asn1Dump` + 原始 hex `Collapsible`）、`ExtensionList.vue`（关键在前、`localeCompare`、
    对副本排序，`Accordion type="multiple"`）、`GeneralNameList.vue`、`DistributionPointList.vue`、`Asn1Dump.vue`、`NameDetails.vue`。
-   `TAG_TONES`（blue / purple / amber）改为 Badge 的 cva 变体，颜色只用 token。
-4. **通用组件**：`StatusBadge.vue`（Badge 上的 cva 状态表，加 `unpublished`、`expiring`，删未用的 `showLabel`）；`HexValue.vue`
+   `TAG_TONES`（blue / purple / amber）改为 Badge 的 cva 变体，颜色只用 token（`components/x509/TagList.vue`：blue → secondary 填充、
+   purple → 描边、amber → `warning`；同一扩展内只需区分这几类）。
+4. **通用组件**：`StatusBadge.vue`（Badge 上的 cva 状态表，加 `unpublished`、`expiring`，删未用的 `showLabel`；`main.css` 为此新增
+   `--success` / `--warning` 两个主题 token，亮 / 暗各一值，与 `destructive`、`muted` 一起覆盖全部状态）；`HexValue.vue`
    （`useClipboard({ legacy: true })`、复制 / 已复制文案走 i18n、写剪贴板失败给 toast）；`DownloadLinks.vue`（依据
    `…:src/web/components/ResourceCard.vue:44-51,76-85`：由 `downloads[]` 驱动，`.pem` 结尾标 PEM 否则 DER，`<a download>`，空列表 "—"）；
    `KeyValueList.vue`（取代 `FingerprintDetails.vue` 与各处重复的 `dt/dd` 类名）；`LocaleSelect.vue`（取代切片 1 的 `LocaleSwitch.vue`）。
@@ -141,7 +144,7 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
 
 | 文件 | 内容 | 来源 |
 | --- | --- | --- |
-| `tests/web/status.test.ts` | 旧 2 例原样 + 无 `nextUpdate` → unknown、`unpublished`、`nextPublish` 规则、证书 `expiring`、`now == notAfter` 仍 valid | `worker-aia-cdp@5b570aa:tests/web/status.test.ts` |
+| `tests/web/status.test.ts` | 旧 2 例原样 + 无 `nextUpdate` → unknown、`unpublished`、`nextPublish` 规则（含恰好 +1 h）、证书 `expiring`（含 10% 边界）、`now == notAfter` 仍在有效期内（`expiring`，不是 `expired`） | `worker-aia-cdp@5b570aa:tests/web/status.test.ts` |
 | `tests/web/upload-input.test.ts` | 旧 2 例不改 | `…:tests/web/upload-input.test.ts` |
 | `tests/web/dates.test.ts` | 时区标签、分钟取整与进位、`h23`（UTC 00:05:07 不是 24:05:07）、注入 `nowMs`、zh-CN 文案 | 新 |
 | `tests/web/format.test.ts`、`tests/web/x509.test.ts` | hex 分组 / 规范化；`formatAlgorithm` 的 PSS / 命名曲线 / NULL；`formatGeneralName` 的 otherName；`formatName` 用 `rfc4514` | 新 |
