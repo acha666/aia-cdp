@@ -5,6 +5,35 @@
   "nav": {
     "backToOverview": "返回总览"
   },
+  "common": {
+    "notAvailable": "无"
+  },
+  "dates": {
+    "now": "现在",
+    "in": "{value}后",
+    "ago": "{value}前",
+    "short": {
+      "day": "天",
+      "hour": "小时",
+      "minute": "分钟"
+    }
+  },
+  "algorithm": {
+    "salt": "盐值长度 {length}"
+  },
+  "extension": {
+    "generalName": {
+      "otherName": "其他",
+      "rfc822Name": "邮箱",
+      "dNSName": "DNS",
+      "x400Address": "X.400",
+      "directoryName": "目录名",
+      "ediPartyName": "EDI 方",
+      "uniformResourceIdentifier": "URI",
+      "iPAddress": "IP",
+      "registeredID": "注册 ID"
+    }
+  },
   "health": {
     "label": "服务状态：",
     "state": {

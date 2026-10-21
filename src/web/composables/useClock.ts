@@ -1,0 +1,7 @@
+import { createSharedComposable, useNow } from "@vueuse/core";
+
+/**
+ * The one clock of the page (plan §8): status badges, relative times and the overview's "needs
+ * attention" count read the same Date, ticking once a minute. Shared while any component uses it.
+ */
+export const useClock = createSharedComposable(() => useNow({ interval: 60_000 }));

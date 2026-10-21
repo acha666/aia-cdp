@@ -5,6 +5,35 @@
   "nav": {
     "backToOverview": "Back to overview"
   },
+  "common": {
+    "notAvailable": "N/A"
+  },
+  "dates": {
+    "now": "now",
+    "in": "in {value}",
+    "ago": "{value} ago",
+    "short": {
+      "day": "d",
+      "hour": "h",
+      "minute": "m"
+    }
+  },
+  "algorithm": {
+    "salt": "salt {length}"
+  },
+  "extension": {
+    "generalName": {
+      "otherName": "Other",
+      "rfc822Name": "Email",
+      "dNSName": "DNS",
+      "x400Address": "X.400",
+      "directoryName": "DirName",
+      "ediPartyName": "EDI Party",
+      "uniformResourceIdentifier": "URI",
+      "iPAddress": "IP",
+      "registeredID": "RID"
+    }
+  },
   "health": {
     "label": "Service status:",
     "state": {
