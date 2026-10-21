@@ -5,7 +5,7 @@
 // and fourth cases here: nothing is cut off, and a page says which rows of how many it shows.
 import { flushPromises, mount } from "@vue/test-utils";
 import type { VueWrapper } from "@vue/test-utils";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { revokedEntries, time } from "./helpers";
 import type { RevokedCertificate, RevokedCertificates } from "@/client/types";
 import RevokedTable from "@/components/crl/RevokedTable.vue";
@@ -17,6 +17,7 @@ let wrapper: VueWrapper | undefined;
 afterEach(() => {
   wrapper?.unmount();
   wrapper = undefined;
+  vi.unstubAllEnvs();
 });
 
 function render(revoked: RevokedCertificates | null, locale: AppLocale = "en") {
@@ -54,6 +55,14 @@ describe("RevokedTable", () => {
     expect(table.find('[data-testid="revoked-range"]').exists()).toBe(false);
     // The header row sticks to the top of the scrolling box.
     expect(table.get("thead").classes()).toContain("sticky");
+  });
+
+  it("shows exactly 200 entries on one page, without a pager", () => {
+    const table = render(list(revokedEntries(200)));
+    expect(serials(table)).toHaveLength(200);
+    expect(serials(table).at(-1)).toBe("00C8");
+    expect(table.find('[data-testid="revoked-range"]').exists()).toBe(false);
+    expect(table.find('[data-testid="next-page"]').exists()).toBe(false);
   });
 
   it("pages 201 entries as 200 + 1", async () => {
@@ -96,10 +105,11 @@ describe("RevokedTable", () => {
   });
 
   it("fills reason, invalidity date and indirect issuer from the entry extensions", () => {
+    // Dates show in the browser's time zone (UTC+12 and later is already Jan 02).
+    vi.stubEnv("TZ", "UTC");
     // leaf-revoked in crls/issuing-ca-1/full-01: keyCompromise with an invalidity date.
     const entry: RevokedCertificate = {
       userCertificate: { hex: "2002" },
-      // Noon UTC: the same day in every time zone the test may run in.
       revocationDate: time("2026-01-01T12:00:00Z"),
       crlEntryExtensions: {
         count: 3,
@@ -136,9 +146,9 @@ describe("RevokedTable", () => {
       .map((row) => row.findAll("td").map((cell) => cell.text()));
 
     expect(cells[0]![0]).toBe("2002");
-    expect(cells[0]![1]).toMatch(/^Jan 01, 2026 \d\d:\d\d:00 \(UTC/);
+    expect(cells[0]![1]).toBe("Jan 01, 2026 12:00:00 (UTC)");
     expect(cells[0]![2]).toBe("keyCompromise");
-    expect(cells[0]![3]).toMatch(/^Dec 31, 2025/);
+    expect(cells[0]![3]).toBe("Dec 31, 2025 12:00:00 (UTC)");
     expect(cells[0]![4]).toBe("DNS: ca.example.test");
     expect(cells[1]!.slice(2)).toEqual(["—", "—", "—"]);
   });

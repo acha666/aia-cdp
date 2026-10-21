@@ -17,6 +17,7 @@ import {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 /** What useDateText returns, from the app's own messages. */
@@ -44,13 +45,35 @@ describe("time zone label", () => {
     vi.stubEnv("TZ", zone);
     expect(formatTimezoneOffset(new Date(ISO))).toBe(label);
   });
+
+  it("labels each date with its own offset, daylight saving time included", () => {
+    vi.stubEnv("TZ", "America/St_Johns");
+    const july = "2026-07-04T00:05:07Z";
+    expect(formatTimezoneOffset(new Date(july))).toBe("UTC-2:30");
+    expect(formatDateTimeWithZone(july, en)).toBe("Jul 03, 2026 21:35:07 (UTC-2:30)");
+    expect(formatDateTimeWithZone(ISO, en)).toBe("Jan 03, 2026 20:35:07 (UTC-3:30)");
+  });
 });
 
 describe("absolute dates", () => {
   it("prints five past midnight as 00:05, not 24:05 (hourCycle h23)", () => {
     vi.stubEnv("TZ", "UTC");
+    // Node prints 00:05 for hour12: false too (and reports h23 for it): look at what is asked.
+    const DateTimeFormat = Intl.DateTimeFormat;
+    const asked: Intl.DateTimeFormatOptions[] = [];
+    vi.spyOn(Intl, "DateTimeFormat").mockImplementation(function (locales, options) {
+      asked.push(options ?? {});
+      return new DateTimeFormat(locales, options);
+    });
+
     expect(formatDateTimeWithZone(ISO, en)).toBe("Jan 04, 2026 00:05:07 (UTC)");
     expect(formatDateTimeWithZone(ISO, en)).not.toContain("24:05");
+    const time = asked.filter((options) => options.hour !== undefined);
+    expect(time.length).toBeGreaterThan(0);
+    for (const options of time) {
+      expect(options.hourCycle).toBe("h23");
+      expect(options).not.toHaveProperty("hour12");
+    }
   });
 
   it("shows the local time with its offset", () => {

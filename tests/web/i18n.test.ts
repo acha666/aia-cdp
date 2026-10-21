@@ -32,6 +32,10 @@ function mountSelect(i18n = createAppI18n()) {
 }
 
 describe("detectLocale", () => {
+  it("keeps the old UI's storage key, so its stored choice still applies", () => {
+    expect(LOCALE_STORAGE_KEY).toBe("locale-preference");
+  });
+
   it.each([
     [["fr-FR", "zh-CN"], "zh-CN"],
     [["de", "en-AU"], "en"],
@@ -76,12 +80,12 @@ describe("storage that throws", () => {
     [
       "getItem and setItem",
       () => {
-        vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+        // A stand-in, not spies on Storage.prototype: happy-dom binds a Storage method to
+        // localStorage the first time it is read, so a spy read first would outlive its restore.
+        const denied = () => {
           throw new DOMException("denied", "SecurityError");
-        });
-        vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-          throw new DOMException("denied", "SecurityError");
-        });
+        };
+        vi.stubGlobal("localStorage", { getItem: denied, setItem: denied, removeItem: denied });
       },
     ],
   ])("still boots and switches when %s throws", async (_, breakStorage) => {

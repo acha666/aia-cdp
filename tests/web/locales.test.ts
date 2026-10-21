@@ -1,10 +1,13 @@
 // The message files (implementation slice 5b step 8): zh-CN is a complete translation of en (same
-// keys, same placeholders, Chinese text where it matters), every error code the client can meet
-// has a message in both, and the keys the old en.json carried for removed UI are gone.
+// keys, same placeholders, nothing left in English but acronyms), every error code and upload
+// reason the client can meet has a message in both, and the keys the old en.json carried for
+// removed UI are gone.
 import { describe, expect, it } from "vitest";
+import { PKI_PARSE_REASONS } from "../../src/core/pki/errors.ts";
 import { CLIENT_ERROR_CODES, ERROR_CODES } from "@/client/error-codes";
 import en from "@/locales/en.json";
 import zhCN from "@/locales/zh-CN.json";
+import { UPLOAD_REASONS } from "@/utils/errors";
 
 type Messages = Record<string, unknown>;
 
@@ -27,6 +30,8 @@ function flatten(messages: Messages, prefix = ""): Map<string, string> {
 const EN = flatten(en);
 const ZH = flatten(zhCN);
 const CJK = /[一-鿿]/;
+/** The only texts zh-CN may share with en. */
+const ACRONYMS = new Set(["CA", "CPS", "DNS", "IP", "PEM", "URI", "X.400"]);
 
 /** The named placeholders of a message: "{count} items" → ["count"]. */
 function placeholders(message: string): string[] {
@@ -56,7 +61,24 @@ describe("locales", () => {
     expect(placeholders(EN.get("errors.unknown")!)).toEqual(["code"]);
   });
 
-  it("translate the sentences of zh-CN, not copy them", () => {
+  it("have a reason message for every details.reason the server sends with an upload failure", () => {
+    // invalid_crl: the parse reasons and the signature check of src/core/publish.ts;
+    // issuer_not_found: missing_aki (implementation §2.6).
+    const server = [...PKI_PARSE_REASONS, "signature_algorithm_mismatch", "missing_aki"];
+    expect([...UPLOAD_REASONS].sort()).toEqual(server.sort());
+    for (const reason of UPLOAD_REASONS) {
+      for (const messages of [EN, ZH]) {
+        expect(messages.get(`upload.reasons.${reason}`), reason).toBeTruthy();
+      }
+    }
+  });
+
+  it("translate every message of zh-CN but acronyms, and the sentences into Chinese", () => {
+    for (const [key, message] of EN) {
+      if (!ACRONYMS.has(message)) {
+        expect(ZH.get(key), key).not.toBe(message);
+      }
+    }
     const sentences = [...EN].filter(([, message]) => /[a-z]{3,} [a-z]{3,}/.test(message));
     expect(sentences.length).toBeGreaterThan(50);
     for (const [key] of sentences) {

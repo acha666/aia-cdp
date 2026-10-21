@@ -83,6 +83,8 @@ describe("CrlUploadCard", () => {
     });
     card.get('[data-testid="drop-zone"]').element.dispatchEvent(drop);
     await flushPromises();
+    // Otherwise the browser opens the dropped file instead of the page (and its token).
+    expect(drop.defaultPrevented).toBe(true);
     expect(card.get('[data-testid="upload-helper"]').text()).toBe("full.crl");
 
     await submit(card);
@@ -93,6 +95,7 @@ describe("CrlUploadCard", () => {
     const { card } = render(ok("created"));
     const chosen = new File(["-----BEGIN X509 CRL-----"], "issuing.pem");
     const element = card.get('[data-testid="file-input"]').element as HTMLInputElement;
+    expect(element.accept).toBe(".crl,.pem,.der");
     const values: string[] = [];
     Object.defineProperty(element, "files", { value: [chosen] });
     Object.defineProperty(element, "value", {
@@ -186,6 +189,14 @@ describe("CrlUploadCard", () => {
     );
 
     wrapper?.unmount();
+    const noAki = render(() => envelope(422, "issuer_not_found", { reason: "missing_aki" }));
+    await paste(noAki.card, PEM);
+    await submit(noAki.card);
+    const alert = noAki.card.get('[data-testid="upload-error"]');
+    expect(alert.attributes("data-code")).toBe("issuer_not_found");
+    expect(alert.text()).toContain("Reason: the CRL has no Authority Key Identifier");
+
+    wrapper?.unmount();
     const second = render(() => envelope(422, "invalid_crl", { reason: "something_new" }));
     await paste(second.card, PEM);
     await submit(second.card);
@@ -249,6 +260,23 @@ describe("CrlUploadCard", () => {
     const alert = card.get('[data-testid="upload-success"]');
     expect(alert.attributes("tabindex")).toBe("-1");
     expect(document.activeElement).toBe(alert.element);
+  });
+
+  it("sends one request for two submits in the same tick", async () => {
+    const pending = deferred<Response>();
+    const { card, posts } = render(() => pending.promise);
+    await paste(card, PEM);
+
+    // No await in between: the guard must hold before the first await of the handler.
+    const form = card.get("form").element;
+    form.dispatchEvent(new Event("submit", { cancelable: true }));
+    form.dispatchEvent(new Event("submit", { cancelable: true }));
+    await flushPromises();
+    expect(posts()).toHaveLength(1);
+
+    pending.resolve(ok("created")());
+    await flushPromises();
+    expect(posts()).toHaveLength(1);
   });
 
   it("moves the focus from the submit button to a failure, and leaves it elsewhere alone", async () => {

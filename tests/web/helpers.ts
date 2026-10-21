@@ -2,12 +2,14 @@
 // @/client/types with the facts of tests/fixtures/pki (ids, serials, validity, CRL numbers and
 // times from manifest.json; subject names from generate-test-data.sh), a fetch stub that answers
 // hc's requests by method and path, and a deferred promise for ordering tests.
-import { QueryClient, VueQueryPlugin } from "@tanstack/vue-query";
+import { VueQueryPlugin } from "@tanstack/vue-query";
+import type { QueryClient } from "@tanstack/vue-query";
 import { flushPromises, mount } from "@vue/test-utils";
 import { vi } from "vitest";
 import { createMemoryHistory } from "vue-router";
 import manifest from "../fixtures/pki/manifest.json";
 import App from "@/App.vue";
+import { createQueryClient } from "@/client/queries";
 import type {
   AlgorithmIdentifier,
   CertificateDetail,
@@ -28,9 +30,10 @@ import { createAppRouter } from "@/router";
 /** manifest.now: the clock of every test that depends on one. */
 export const NOW = manifest.now;
 
+/** The delta's id sorts first: only the UI's kind rule puts issuing-ca-1's full target first. */
 export const TARGET_IDS = {
+  issuingDelta: "4f0d3c1a-6a8e-4b8f-9c55-1d2e3f405161",
   issuingFull: "4f0d3c1a-6a8e-4b8f-9c55-1d2e3f405162",
-  issuingDelta: "4f0d3c1a-6a8e-4b8f-9c55-1d2e3f405163",
   rootFull: "4f0d3c1a-6a8e-4b8f-9c55-1d2e3f405164",
 } as const;
 
@@ -104,6 +107,11 @@ const ECDSA_SHA384: AlgorithmIdentifier = {
   algorithm: { oid: "1.2.840.10045.4.3.3", name: "ecdsa-with-SHA384" },
 };
 
+const SHA256_RSA: AlgorithmIdentifier = {
+  algorithm: { oid: "1.2.840.113549.1.1.11", name: "sha256WithRSAEncryption" },
+  parameters: { rawHex: "0500", parsed: { type: "null" } },
+};
+
 /** crls/issuing-ca-1/full-pss: "RSASSA-PSS SHA-256, MGF1 SHA-256, salt 32". */
 export const RSASSA_PSS: AlgorithmIdentifier = {
   algorithm: { oid: "1.2.840.113549.1.1.10", name: "RSASSA-PSS" },
@@ -129,7 +137,30 @@ const BASIC_CONSTRAINTS_CA: Extension = {
   parsed: { extensionType: "basicConstraints", cA: true },
 };
 
-const CRL_NUMBER_OID = { oid: "2.5.29.20", name: "cRLNumber" };
+/** A small INTEGER extension value (CRL Number, Delta CRL Indicator). */
+function integerHex(number: string): string {
+  return `0201${Number(number).toString(16).padStart(2, "0")}`;
+}
+
+function crlNumberExtension(number: string): Extension {
+  return {
+    extnID: { oid: "2.5.29.20", name: "cRLNumber" },
+    critical: false,
+    extnValue: { hex: integerHex(number), byteLength: 3 },
+    parseStatus: "parsed",
+    parsed: { extensionType: "cRLNumber", number },
+  };
+}
+
+function deltaIndicatorExtension(baseCRLNumber: string): Extension {
+  return {
+    extnID: { oid: "2.5.29.27", name: "deltaCRLIndicator" },
+    critical: true,
+    extnValue: { hex: integerHex(baseCRLNumber), byteLength: 3 },
+    parseStatus: "parsed",
+    parsed: { extensionType: "deltaCRLIndicator", baseCRLNumber },
+  };
+}
 
 export function certificateItem(
   name: FixtureName,
@@ -225,19 +256,12 @@ const ISSUING = certificateItem("issuing-ca-1");
 const ROOT = certificateItem("root-ca");
 
 /**
- * The three targets of the page tests: issuing-ca-1 full (full-adcs, current until its Next CRL
- * Publish) and delta (unpublished), root-ca full (full-01).
+ * The three targets of the page tests in the API's order (by targetId, slice 5a): issuing-ca-1
+ * delta (unpublished) and full (full-adcs, current until its Next CRL Publish), root-ca full
+ * (full-01).
  */
 export function targetItems(): CrlTargetListItem[] {
   return [
-    {
-      targetId: TARGET_IDS.issuingFull,
-      kind: "full",
-      label: "Issuing CA 01",
-      issuer: { id: ISSUING.id, label: null, subjectCN: SUBJECT_CN["issuing-ca-1"] },
-      downloads: ["/crl/ca01.crl", "/crl/ca01.crl.pem"],
-      current: currentOf("crls/issuing-ca-1/full-adcs.der"),
-    },
     {
       targetId: TARGET_IDS.issuingDelta,
       kind: "delta",
@@ -245,6 +269,14 @@ export function targetItems(): CrlTargetListItem[] {
       issuer: { id: ISSUING.id, label: null, subjectCN: SUBJECT_CN["issuing-ca-1"] },
       downloads: ["/dcrl/ca01.crl", "/dcrl/ca01.crl.pem"],
       current: null,
+    },
+    {
+      targetId: TARGET_IDS.issuingFull,
+      kind: "full",
+      label: "Issuing CA 01",
+      issuer: { id: ISSUING.id, label: null, subjectCN: SUBJECT_CN["issuing-ca-1"] },
+      downloads: ["/crl/ca01.crl", "/crl/ca01.crl.pem"],
+      current: currentOf("crls/issuing-ca-1/full-adcs.der"),
     },
     {
       targetId: TARGET_IDS.rootFull,
@@ -265,20 +297,24 @@ export function revokedEntries(count: number): RevokedCertificate[] {
   }));
 }
 
-/**
- * issuing-ca-1's full target with crls/issuing-ca-1/full-pss as its current CRL (RSASSA-PSS with
- * parameters), or unpublished with `current: null`.
- */
-export function issuingFullDetail(
-  options: { published?: boolean; revoked?: RevokedCertificate[] } = {}
-): CrlTargetDetail {
-  const item = targetItems()[0]!;
-  if (options.published === false) {
-    return { ...item, current: null } satisfies CrlTargetDetail;
+function targetItem(targetId: string): CrlTargetListItem {
+  const item = targetItems().find((target) => target.targetId === targetId);
+  if (item === undefined) {
+    throw new Error(`No target ${targetId}`);
   }
-  const crl = fixtureCrl("crls/issuing-ca-1/full-pss.der");
-  const current = currentOf("crls/issuing-ca-1/full-pss.der");
-  const revoked = options.revoked ?? revokedEntries(crl.revoked);
+  return item;
+}
+
+/** `item` as its detail route returns it, with the issuing-ca-1 fixture CRL `file` as current. */
+function publishedDetail(
+  item: CrlTargetListItem,
+  file: string,
+  signature: AlgorithmIdentifier,
+  extensions: Extension[],
+  revoked: RevokedCertificate[]
+): CrlTargetDetail {
+  const crl = fixtureCrl(file);
+  const current = currentOf(file);
   return {
     ...item,
     current: {
@@ -288,29 +324,57 @@ export function issuingFullDetail(
       fingerprints: { sha1: current.summary.sha1, sha256: current.sha256 },
       tbsCertList: {
         version: { raw: 1, display: "v2" },
-        signature: RSASSA_PSS,
+        signature,
         issuer: exampleName(SUBJECT_CN["issuing-ca-1"]),
         thisUpdate: time(crl.thisUpdate),
         ...(crl.nextUpdate === null ? {} : { nextUpdate: time(crl.nextUpdate) }),
         revokedCertificates: { count: revoked.length, items: revoked },
         crlExtensions: {
-          count: 1,
-          critical: 0,
-          items: [
-            {
-              extnID: CRL_NUMBER_OID,
-              critical: false,
-              extnValue: { hex: "020110", byteLength: 3 },
-              parseStatus: "parsed",
-              parsed: { extensionType: "cRLNumber", number: crl.crlNumber ?? "0" },
-            },
-          ],
+          count: extensions.length,
+          critical: extensions.filter((extension) => extension.critical).length,
+          items: extensions,
         },
       },
-      signatureAlgorithm: RSASSA_PSS,
+      signatureAlgorithm: signature,
       signatureValue: { hex: hexBytes("5a", 256), bitLength: 2048, unusedBits: 0 },
     },
   } satisfies CrlTargetDetail;
+}
+
+/**
+ * issuing-ca-1's full target with crls/issuing-ca-1/full-pss as its current CRL (RSASSA-PSS with
+ * parameters), or unpublished with `current: null`.
+ */
+export function issuingFullDetail(
+  options: { published?: boolean; revoked?: RevokedCertificate[] } = {}
+): CrlTargetDetail {
+  const item = targetItem(TARGET_IDS.issuingFull);
+  if (options.published === false) {
+    return { ...item, current: null } satisfies CrlTargetDetail;
+  }
+  const crl = fixtureCrl("crls/issuing-ca-1/full-pss.der");
+  return publishedDetail(
+    item,
+    crl.file,
+    RSASSA_PSS,
+    [crlNumberExtension(crl.crlNumber ?? "0")],
+    options.revoked ?? revokedEntries(crl.revoked)
+  );
+}
+
+/**
+ * issuing-ca-1's delta target with crls/issuing-ca-1/delta-adcs as its current CRL: CRL number 20
+ * on base 19, with an AD CS Next CRL Publish.
+ */
+export function issuingDeltaDetail(): CrlTargetDetail {
+  const crl = fixtureCrl("crls/issuing-ca-1/delta-adcs.der");
+  return publishedDetail(
+    targetItem(TARGET_IDS.issuingDelta),
+    crl.file,
+    SHA256_RSA,
+    [crlNumberExtension(crl.crlNumber!), deltaIndicatorExtension(crl.baseCrlNumber!)],
+    revokedEntries(crl.revoked)
+  );
 }
 
 export const STATS = {
@@ -341,14 +405,26 @@ export function publishedCrl(outcome: PublishedCrl["outcome"]): PublishedCrl {
 // Mounting -------------------------------------------------------------------------------------------
 
 /**
- * The whole app at `path` (memory history), without query retries; resolves once the lazy route
+ * The app's QueryClient (createQueryClient, so its retry rule applies) with retries that do not
+ * wait: a retry still needs a timer turn, so a case that expects one waits for it (vi.waitFor).
+ */
+export function testQueryClient(): QueryClient {
+  const client = createQueryClient();
+  client.setDefaultOptions({
+    queries: { ...client.getDefaultOptions().queries, retryDelay: 0 },
+  });
+  return client;
+}
+
+/**
+ * The whole app at `path` (memory history) with testQueryClient(); resolves once the lazy route
  * component is loaded and the first answers are rendered. The caller unmounts `wrapper` and clears
  * `queryClient`.
  */
 export async function mountApp(path: string, locale: AppLocale = "en") {
   const router = createAppRouter(createMemoryHistory());
   await router.push(path);
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const queryClient = testQueryClient();
   const wrapper = mount(App, {
     global: { plugins: [router, createAppI18n(locale), [VueQueryPlugin, { queryClient }]] },
   });

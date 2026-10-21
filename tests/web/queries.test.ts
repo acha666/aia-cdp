@@ -1,19 +1,31 @@
 // The query layer (implementation slice 5b step 5) against a stubbed fetch. The first case is
 // worker-aia-cdp@5b570aa:tests/web/collection-loader.test.ts case 3 rewritten for TanStack Query:
 // a list request sent before an upload must not overwrite the refresh that follows it.
-import { VueQueryPlugin } from "@tanstack/vue-query";
+import { focusManager, VueQueryPlugin } from "@tanstack/vue-query";
 import type { QueryClient } from "@tanstack/vue-query";
 import { flushPromises, mount } from "@vue/test-utils";
 import type { VueWrapper } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h } from "vue";
-import { deferred, envelope, publishedCrl, rootDetail, stubApi, targetItems } from "./helpers";
+import {
+  deferred,
+  envelope,
+  publishedCrl,
+  rootDetail,
+  stubApi,
+  TARGET_IDS,
+  targetItems,
+  testQueryClient,
+} from "./helpers";
 import { ApiError } from "@/client/errors";
 import {
   createQueryClient,
   shouldRetry,
   useCertificate,
+  useCertificates,
+  useCrlTarget,
   useCrlTargets,
+  useStats,
   useUploadCrl,
 } from "@/client/queries";
 import type { CrlTargetList } from "@/client/types";
@@ -25,14 +37,13 @@ afterEach(() => {
   wrapper?.unmount();
   wrapper = undefined;
   client?.clear();
+  focusManager.setFocused(undefined);
   vi.unstubAllGlobals();
 });
 
 /** Mounts `use` in a component with the app's QueryClient (retries without delay). */
 function harness<T>(use: () => T): T {
-  client = createQueryClient();
-  const queries = client.getDefaultOptions().queries;
-  client.setDefaultOptions({ queries: { ...queries, retryDelay: 0 } });
+  client = testQueryClient();
   let result!: T;
   wrapper = mount(
     defineComponent({
@@ -116,6 +127,52 @@ describe("useUploadCrl", () => {
 });
 
 describe("queries", () => {
+  it("count every answer as stale at once and ask again when the window regains focus", async () => {
+    const queries = createQueryClient().getDefaultOptions().queries;
+    expect(queries?.staleTime).toBe(0);
+    // TanStack's default (true) stays: no override.
+    expect(queries).not.toHaveProperty("refetchOnWindowFocus");
+
+    const api = stubApi({ "GET /api/v1/crls": () => Response.json(NEW_LIST) });
+    const targets = harness(() => useCrlTargets());
+    await flushPromises();
+    expect(targets.data.value).toEqual(NEW_LIST);
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await flushPromises();
+    expect(api.calls()).toEqual(["GET /api/v1/crls", "GET /api/v1/crls"]);
+  });
+
+  const DETAIL_ID = rootDetail().id;
+  it.each([
+    ["useStats", "GET /api/v1/stats", () => useStats()],
+    ["useCertificates", "GET /api/v1/certificates", () => useCertificates()],
+    ["useCertificate", `GET /api/v1/certificates/${DETAIL_ID}`, () => useCertificate(DETAIL_ID)],
+    ["useCrlTargets", "GET /api/v1/crls", () => useCrlTargets()],
+    [
+      "useCrlTarget",
+      `GET /api/v1/crls/${TARGET_IDS.issuingFull}`,
+      () => useCrlTarget(TARGET_IDS.issuingFull),
+    ],
+  ])("%s hands TanStack's abort signal to its request", async (_, route, use) => {
+    const requests: (RequestInit | undefined)[] = [];
+    stubApi({
+      [route]: (init) => {
+        requests.push(init);
+        return deferred<Response>().promise;
+      },
+    });
+    harness<unknown>(use);
+    await flushPromises();
+
+    expect(requests).toHaveLength(1);
+    const signal = requests[0]?.signal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal?.aborted).toBe(false);
+    await client!.cancelQueries();
+    expect(signal?.aborted).toBe(true);
+  });
+
   it("send every request with cache: no-store", async () => {
     const api = stubApi({ "GET /api/v1/crls": () => Response.json(NEW_LIST) });
     const targets = harness(() => useCrlTargets());

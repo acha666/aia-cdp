@@ -10,6 +10,7 @@ import {
   certificateItem,
   deferred,
   envelope,
+  issuingDeltaDetail,
   issuingFullDetail,
   mountApp,
   NOW,
@@ -39,6 +40,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 async function open(path: string, routes: Record<string, Handler>, locale?: "en" | "zh-CN") {
@@ -74,6 +76,12 @@ function cells(row: DOMWrapper<Element>): string[] {
 
 function rows(page: VueWrapper, table: string): DOMWrapper<Element>[] {
   return page.get(`[data-testid="${table}"]`).findAll("tbody tr");
+}
+
+/** The [term, value] pairs of the description lists in `element`. */
+function definitions(element: Pick<DOMWrapper<Element>, "findAll">): [string, string][] {
+  const values = element.findAll("dd");
+  return element.findAll("dt").map((term, index) => [term.text(), values[index]!.text()]);
 }
 
 function stat(page: VueWrapper, key: string): string {
@@ -154,7 +162,8 @@ describe("OverviewPage", () => {
     expect(certificates[0]!.get('[data-testid="remaining"]').text()).toBe("in 3,284 days");
     expect(cells(certificates[2]!).at(-1)).toBe("—");
 
-    // By label, full before delta; the unpublished delta has dashes, not 0.
+    // By label, full before delta (the API sends them by id, the delta first); the unpublished
+    // delta has dashes, not 0.
     const targets = rows(wrapper, "crl-target-table");
     expect(targets.map((row) => row.attributes("data-id"))).toEqual([
       TARGET_IDS.issuingFull,
@@ -226,6 +235,16 @@ describe("OverviewPage", () => {
     expect(stale.find('[data-testid="remaining"]').exists()).toBe(false);
   });
 
+  it("shows the time left of a certificate in the last tenth of its validity", async () => {
+    // Five months before issuing-ca-1 and -2 expire (2035-01-01): under a tenth of ten years.
+    vi.setSystemTime(new Date("2034-08-01T00:00:00Z"));
+    const { wrapper } = await open("/", OVERVIEW);
+
+    const issuing = rows(wrapper, "certificate-table")[0]!;
+    expect(issuing.get('[data-state="expiring"]').text()).toBe("Expiring");
+    expect(issuing.get('[data-testid="remaining"]').text()).toBe("in 153 days");
+  });
+
   it("shows unknown revocations when no full CRL is published", async () => {
     const { wrapper } = await open("/", {
       ...OVERVIEW,
@@ -269,11 +288,16 @@ describe("OverviewPage", () => {
 
   it("reports a failed list with its error text and retries on request", async () => {
     let fail = true;
-    const { wrapper } = await open("/", {
+    const { wrapper, api } = await open("/", {
       ...OVERVIEW,
       "GET /api/v1/crls": () => (fail ? envelope(500, "internal") : Response.json(targetItems())),
     });
 
+    // A 5xx is retried once (the app's QueryClient) before the page reports it.
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="query-error"]').exists()).toBe(true);
+    });
+    expect(api.calls().filter((call) => call === "GET /api/v1/crls")).toHaveLength(2);
     const alert = wrapper.get('[data-testid="query-error"]');
     expect(alert.text()).toContain("Could not load the CRL targets");
     expect(alert.text()).toContain("The server failed. Try again later.");
@@ -402,6 +426,10 @@ describe("CertificatePage", () => {
   it("says that an unknown id does not exist (404, not retried)", async () => {
     const { wrapper, api } = await open(path, {});
 
+    // A retry would show the state only after a timer turn, and send a second request.
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="missing"]').exists()).toBe(true);
+    });
     expect(wrapper.get('[data-testid="missing"]').text()).toContain("Certificate not found");
     expect(document.title).toBe("Certificate not found · Test PKI");
     expect(api.calls()).toEqual([`GET /api/v1/certificates/${ROOT.id}`]);
@@ -443,6 +471,28 @@ describe("CrlTargetPage", () => {
     expect(wrapper.find('[data-oid="2.5.29.20"]').exists()).toBe(true);
   });
 
+  it("shows a delta CRL's numbers, its three times and its Next CRL Publish", async () => {
+    vi.stubEnv("TZ", "UTC");
+    const delta = issuingDeltaDetail();
+    const { wrapper } = await open(`/crls/${TARGET_IDS.issuingDelta}`, {
+      [`GET /api/v1/crls/${TARGET_IDS.issuingDelta}`]: () => Response.json(delta),
+    });
+
+    expect(wrapper.get("header [data-kind]").attributes("data-kind")).toBe("delta");
+    expect(wrapper.find('header [data-state="current"]').exists()).toBe(true);
+    // crls/issuing-ca-1/delta-adcs: 20 on base 19, Next CRL Publish 2026-01-04T18:00:00Z.
+    expect(definitions(wrapper.get('[data-testid="crl-overview"]'))).toEqual(
+      expect.arrayContaining([
+        ["CRL Number", "20"],
+        ["Base CRL Number", "19"],
+        ["This Update", "Jan 03, 2026 17:50:00 (UTC)"],
+        ["Next Update", "Jan 05, 2026 06:10:00 (UTC)"],
+        ["Next CRL Publish", "Jan 04, 2026 18:00:00 (UTC)"],
+      ])
+    );
+    expect(wrapper.get('[data-testid="status-detail"]').text()).toBe("(in 1d 6h 10m)");
+  });
+
   it("measures a CRL that is not yet valid to its thisUpdate", async () => {
     // Two minutes before full-pss's thisUpdate (2026-01-03T12:00:00Z): a browser clock behind the
     // server's, or the 5 minutes of skew the server accepts.
@@ -481,6 +531,10 @@ describe("CrlTargetPage", () => {
     });
 
     expect(wrapper.get("h1").text()).toBe("Issuing CA 01");
+    // The issuer link is in the header, so it stays without a CRL.
+    expect(wrapper.get('[data-testid="issuer-link"]').attributes("href")).toBe(
+      `/certificates/${certificateItem("issuing-ca-1").id}`
+    );
     expect(wrapper.get('[data-testid="unpublished"]').text()).toContain("Not published");
     expect(wrapper.find('header [data-state="unpublished"]').exists()).toBe(true);
     expect(wrapper.find('[role="tab"]').exists()).toBe(false);

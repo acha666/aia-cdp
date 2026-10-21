@@ -74,6 +74,8 @@ describe("createAppRouter", () => {
     ["a short certificate id", `/certificates/${CERTIFICATE_ID.slice(1)}`],
     ["a path in the id", "/certificates/..%2Fstats"],
     ["a target id that is no UUID", "/crls/not-a-uuid"],
+    ["a target id of hex digits and dashes that is no UUID", "/crls/0123-abcd"],
+    ["a target id one digit short", `/crls/${TARGET_ID.slice(0, -1)}`],
     ["an uppercase target id", `/crls/${TARGET_ID.toUpperCase()}`],
     ["a nested target path", `/crls/${TARGET_ID}/extra`],
   ])("renders NotFoundPage for %s without a request", async (_, path) => {

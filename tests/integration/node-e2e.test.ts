@@ -447,12 +447,30 @@ describe("scripts/seed-dev.ts against node src/runtime/node.ts", { timeout: TIME
     const targets = (await (await fetch(`${env.AIA_URL}/api/v1/crls`)).json()) as {
       kind: string;
       issuer: { id: string };
-      current: unknown;
+      current: { sha256: string; summary: Record<string, unknown> } | null;
     }[];
     const unpublished = targets.filter((target) => target.current === null);
     expect(unpublished).toMatchObject([
       { kind: "delta", issuer: { id: cert("issuing-ca-2").sha256 } },
     ]);
+    // issuing-ca-1 serves the AD CS pair, so the UI has a Next CRL Publish and a base number.
+    const issuing = (kind: "full" | "delta") =>
+      targets.find(
+        (target) => target.kind === kind && target.issuer.id === cert("issuing-ca-1").sha256
+      )?.current;
+    const adcs = (kind: "full" | "delta") => {
+      const crl = crlEntry(`crls/issuing-ca-1/${kind}-adcs.der`);
+      return {
+        sha256: crl.sha256,
+        summary: {
+          crlNumber: crl.crlNumber,
+          baseCrlNumber: crl.baseCrlNumber,
+          nextPublish: new Date(crl.nextPublish!).toISOString(),
+        },
+      };
+    };
+    expect(issuing("full")).toMatchObject(adcs("full"));
+    expect(issuing("delta")).toMatchObject(adcs("delta"));
 
     const before = await readFile(join(dataDir, "config.json"));
     const second = await runNode(SEED, [], env);

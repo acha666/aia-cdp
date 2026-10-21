@@ -1,18 +1,23 @@
-// node scripts/check-web-size.ts   (pnpm run size:web; ci:worker runs it after build:web)
+// node scripts/check-web-size.ts [DIR]   (pnpm run size:web; ci:worker runs it after build:web)
 //
 // Size budget of the built UI (implementation slice 5b step 11, plan §8): dist/web/index.html and
 // every dist/web/assets/*.js / *.css, each gzipped on its own (zlib.gzipSync at its default level;
 // Vite's build report compresses differently and prints slightly larger numbers). Prints each file,
 // the first screen (index.html and what it loads up front: its script, modulepreload and stylesheet
 // references; marked *) and the total. Exits 1 when the total is over 250 000 bytes or index.html
-// references a file that is not there, 2 without a build.
+// references a file that is not there, 2 without a build. DIR replaces dist/web
+// (tests/integration/web-size.test.ts measures small builds of its own).
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
 const BUDGET = 250_000;
-const WEB = fileURLToPath(new URL("../dist/web/", import.meta.url));
+const WEB =
+  process.argv[2] === undefined
+    ? fileURLToPath(new URL("../dist/web/", import.meta.url))
+    : `${resolve(process.argv[2])}/`;
 
 interface Measured {
   file: string;
@@ -48,7 +53,7 @@ function firstScreen(html: string): string[] {
 }
 
 if (!existsSync(`${WEB}index.html`)) {
-  console.error("size:web: dist/web/index.html is missing: run pnpm run build:web first");
+  console.error(`size:web: ${WEB}index.html is missing: run pnpm run build:web first`);
   process.exit(2);
 }
 

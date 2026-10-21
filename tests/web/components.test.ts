@@ -13,6 +13,7 @@ import type { DistributionPoint, Extension, GeneralName, Name } from "@/client/t
 import DownloadLinks from "@/components/DownloadLinks.vue";
 import HexValue from "@/components/HexValue.vue";
 import KeyValueList from "@/components/KeyValueList.vue";
+import KindBadge from "@/components/KindBadge.vue";
 import LocaleSelect from "@/components/LocaleSelect.vue";
 import PemText from "@/components/PemText.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
@@ -101,12 +102,38 @@ describe("StatusBadge", () => {
     expect(badge.attributes("data-state")).toBe(state);
   });
 
-  it("colours states with theme tokens and speaks zh-CN", () => {
-    expect(render(StatusBadge, { state: "expired" }).classes()).toContain("text-destructive");
-    expect(render(StatusBadge, { state: "stale" }).classes()).toContain("text-warning");
-    expect(render(StatusBadge, { state: "current" }).classes()).toContain("text-success");
+  it.each([
+    ["valid", ["text-success"]],
+    ["current", ["text-success"]],
+    ["expiring", ["text-warning"]],
+    ["stale", ["text-warning"]],
+    ["not-yet-valid", ["text-warning"]],
+    ["expired", ["text-destructive"]],
+    ["unknown", ["text-muted-foreground"]],
+    ["unpublished", ["border-dashed", "text-muted-foreground"]],
+  ])("colours %s with theme tokens", (state, classes) => {
+    const badge = render(StatusBadge, { state });
+    expect(badge.classes()).toEqual(expect.arrayContaining(classes));
+    const tones = ["text-success", "text-warning", "text-destructive", "text-muted-foreground"];
+    expect(badge.classes().filter((name) => tones.includes(name))).toHaveLength(1);
+  });
+
+  it("speaks zh-CN", () => {
     expect(render(StatusBadge, { state: "unpublished" }, "zh-CN").text()).toBe("未发布");
     expect(render(StatusBadge, { state: "expiring" }, "zh-CN").text()).toBe("即将过期");
+  });
+});
+
+describe("KindBadge", () => {
+  it.each([
+    ["certificate", "Certificate", "text-blue-700"],
+    ["full", "Full CRL", "text-purple-700"],
+    ["delta", "Delta CRL", "text-green-700"],
+  ])("shows %s in its own colour", (kind, label, colour) => {
+    const badge = render(KindBadge, { kind });
+    expect(badge.text()).toBe(label);
+    expect(badge.attributes("data-kind")).toBe(kind);
+    expect(badge.classes()).toContain(colour);
   });
 });
 
@@ -159,7 +186,9 @@ describe("HexValue", () => {
     });
     const copied: string[] = [];
     document.execCommand = vi.fn((command: string) => {
-      copied.push(`${command}:${document.querySelector("textarea")?.value ?? ""}`);
+      // The browser copies the selection: the textarea that has the focus.
+      const area = document.activeElement;
+      copied.push(`${command}:${area instanceof HTMLTextAreaElement ? area.value : ""}`);
       return true;
     });
 
@@ -345,6 +374,19 @@ describe("ExtensionList", () => {
 
   it("renders nothing without extensions", () => {
     expect(render(ExtensionList, { extensions: [] }).find("[data-oid]").exists()).toBe(false);
+  });
+
+  it("keeps several extensions open at once", async () => {
+    const list = render(ExtensionList, {
+      extensions: [extension("1.2.3", "First", false), extension("1.2.4", "Second", false)],
+    });
+    for (const trigger of list.findAll("[data-oid] button")) {
+      await trigger.trigger("click");
+    }
+    expect(list.findAll("[data-oid]").map((item) => item.attributes("data-state"))).toEqual([
+      "open",
+      "open",
+    ]);
   });
 });
 
@@ -539,6 +581,135 @@ describe("ExtensionView", () => {
     expect(view.findAll("dt").map((term) => term.text())).toEqual(["CA 证书索引", "CA 密钥索引"]);
     expect(view.findAll("dd").map((value) => value.text())).toEqual(["0", "0"]);
     expect(view.find("ol").exists()).toBe(false);
+  });
+
+  /** A decoded extension of `parsed`'s type (the header and value are not looked at here). */
+  function decoded(oid: string, parsed: NonNullable<Extension["parsed"]>): Extension {
+    return {
+      extnID: { oid, name: parsed.extensionType },
+      critical: false,
+      extnValue: { hex: "3000", byteLength: 2 },
+      parseStatus: "parsed",
+      parsed,
+    };
+  }
+
+  /** Text with the template's line breaks and indentation collapsed. */
+  const text = (element: { text(): string }) => element.text().replace(/\s+/g, " ");
+
+  it("names policies with their OIDs and shows CPS, user notice and other qualifiers", () => {
+    const view = renderOpen(
+      decoded("2.5.29.32", {
+        extensionType: "certificatePolicies",
+        policies: [
+          { policyIdentifier: { oid: "2.23.140.1.2.1", name: "CA/Browser Forum DV" } },
+          {
+            policyIdentifier: { oid: "2.5.29.32.0", name: "anyPolicy" },
+            policyQualifiers: [
+              {
+                qualifierId: { oid: "1.3.6.1.5.5.7.2.1", name: "cps" },
+                cpsUri: "http://pki.example.test/cps",
+                rawHex: "16",
+              },
+              {
+                qualifierId: { oid: "1.3.6.1.5.5.7.2.2", name: "unotice" },
+                userNotice: {
+                  organization: "Example PKI",
+                  noticeNumbers: ["1", "2"],
+                  explicitText: "Test use only",
+                },
+                rawHex: "30",
+              },
+              { qualifierId: { oid: "1.3.6.1.4.1.32473.4", name: null }, rawHex: "0500" },
+            ],
+          },
+        ],
+      })
+    );
+    expect(view.findAll("li > div").map(text)).toEqual([
+      "CA/Browser Forum DV (2.23.140.1.2.1)",
+      "anyPolicy (2.5.29.32.0)",
+    ]);
+    expect(view.findAll("li li").map(text)).toEqual([
+      "CPS: http://pki.example.test/cps",
+      "User notice: Example PKI (1, 2) Test use only",
+      "1.3.6.1.4.1.32473.4: 0500",
+    ]);
+  });
+
+  it("titles name constraints and gives subtree ranges", () => {
+    const view = renderOpen(
+      decoded("2.5.29.30", {
+        extensionType: "nameConstraints",
+        permittedSubtrees: [{ base: { type: "dNSName", value: "example.test" } }],
+        excludedSubtrees: [
+          { base: { type: "iPAddress", value: "10.0.0.0/8" }, minimum: 0, maximum: 2 },
+        ],
+      })
+    );
+    expect(view.findAll("p").map(text)).toEqual(["Permitted", "Excluded"]);
+    expect(view.findAll("li").map(text)).toEqual(["DNS: example.test", "IP: 10.0.0.0/8 [0–2]"]);
+  });
+
+  it("lists CRL distribution points", () => {
+    const view = renderOpen(
+      decoded("2.5.29.31", {
+        extensionType: "cRLDistributionPoints",
+        distributionPoints: [
+          {
+            distributionPoint: {
+              fullName: [
+                {
+                  type: "uniformResourceIdentifier",
+                  value: "http://pki.example.test/crl/issuing-ca-1.crl",
+                },
+              ],
+            },
+          },
+        ],
+      })
+    );
+    expect(text(view.get("ul"))).toBe("URI: http://pki.example.test/crl/issuing-ca-1.crl");
+  });
+
+  it("titles the authority certificate issuer of an AKI", () => {
+    const view = renderOpen(
+      decoded("2.5.29.35", {
+        extensionType: "authorityKeyIdentifier",
+        keyIdentifier: "3F1C",
+        authorityCertIssuer: [
+          { type: "directoryName", value: "CN=Example Root CA (ECC P-384),O=Example PKI,C=US" },
+        ],
+        authorityCertSerialNumber: "01",
+      })
+    );
+    expect(view.findAll("dt").map(text)).toEqual(["Key ID", "Authority certificate serial"]);
+    expect(text(view.get("p"))).toBe("Authority certificate issuer");
+    expect(text(view.get("li"))).toBe("DirName: CN=Example Root CA (ECC P-384),O=Example PKI,C=US");
+  });
+
+  it("shows an IDP's point, its flags and its reasons in their tones", () => {
+    const view = renderOpen(
+      decoded("2.5.29.28", {
+        extensionType: "issuingDistributionPoint",
+        distributionPoint: {
+          fullName: [{ type: "uniformResourceIdentifier", value: "http://pki.example.test/u.crl" }],
+        },
+        onlyContainsUserCerts: true,
+        onlyContainsCACerts: false,
+        indirectCRL: true,
+        onlySomeReasons: ["keyCompromise", "superseded"],
+      })
+    );
+    expect(view.text()).toContain("URI: http://pki.example.test/u.crl");
+    expect(
+      view.findAll("[data-tone]").map((tag) => [tag.text(), tag.attributes("data-tone")])
+    ).toEqual([
+      ["Only user certificates", "purple"],
+      ["Indirect CRL", "purple"],
+      ["keyCompromise", "amber"],
+      ["superseded", "amber"],
+    ]);
   });
 
   it("falls back to the raw view for an extension type this build does not know", () => {

@@ -572,6 +572,13 @@ describe("describeExtension", () => {
 });
 
 describe("block texts", () => {
+  it("keeps the CA Version's certificate and key indexes apart", () => {
+    // A CA renewed with its old key: V1.0 (the fixture's CA Version is V0.0).
+    expect(
+      describeExtension({ extensionType: "msCaVersion", certificateIndex: 1, keyIndex: 0 }, ctx)
+    ).toEqual([rows(["CA certificate index", "1"], ["CA key index", "0"])]);
+  });
+
   it("writes subtree ranges as [min–max] and only when given", () => {
     const dns: GeneralName = { type: "dNSName", value: "example.test" };
     expect(describeSubtree({ base: dns }, ctx)).toBe("DNS: example.test");
