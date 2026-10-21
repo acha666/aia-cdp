@@ -10,6 +10,7 @@ import NameDetails from "@/components/x509/NameDetails.vue";
 import { useClock } from "@/composables/useClock";
 import { useDateText } from "@/composables/useDateText";
 import { formatDateTimeWithZone, getRelativeTimeDetailed } from "@/utils/dates";
+import { compareTargets } from "@/utils/labels";
 import { computeCertificateStatus } from "@/utils/status";
 import { formatAlgorithm } from "@/utils/x509";
 
@@ -18,10 +19,10 @@ import { formatAlgorithm } from "@/utils/x509";
 // boundary, :47-59), serial number, public key summary (:20-37), the signature algorithm with its
 // parameters (plan §10 #28: the detail carries every part, nothing reads "Unknown" for want of a
 // request), the ECDSA / DSA (r, s) values, fingerprints, unique identifiers when present, and the
-// CRL targets this certificate issues for (§10 #10).
+// CRL targets this certificate issues for (§10 #10), in the overview table's order.
 const props = defineProps<{ certificate: CertificateDetail }>();
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const now = useClock();
 const dateText = useDateText();
 const salt = (length: number) => t("algorithm.salt", { length });
@@ -110,6 +111,10 @@ const fingerprints = computed(() => [
   { label: "SHA-256", value: props.certificate.fingerprints.sha256, hex: true },
 ]);
 
+const targets = computed(() =>
+  [...props.certificate.targets].sort((a, b) => compareTargets(a, b, locale.value))
+);
+
 const uniqueIds = computed(() => [
   ...(tbs.value.issuerUniqueID
     ? [
@@ -140,7 +145,7 @@ const uniqueIds = computed(() => [
     </div>
 
     <section class="space-y-2">
-      <h3 class="text-sm font-medium">{{ t("details.certificate.validity") }}</h3>
+      <h2 class="text-sm font-medium">{{ t("details.certificate.validity") }}</h2>
       <KeyValueList :items="validity.items">
         <template #value="{ item, index }">
           <span v-if="index === 2" class="inline-flex flex-wrap items-center gap-2">
@@ -159,34 +164,30 @@ const uniqueIds = computed(() => [
     </section>
 
     <section class="space-y-2">
-      <h3 class="text-sm font-medium">{{ t("details.certificate.information") }}</h3>
+      <h2 class="text-sm font-medium">{{ t("details.certificate.information") }}</h2>
       <KeyValueList :items="general" />
     </section>
 
     <section class="space-y-2">
-      <h3 class="text-sm font-medium">{{ t("details.certificate.cryptography") }}</h3>
+      <h2 class="text-sm font-medium">{{ t("details.certificate.cryptography") }}</h2>
       <KeyValueList :items="publicKey" data-testid="public-key" />
       <KeyValueList :items="signature" data-testid="signature" />
     </section>
 
     <section class="space-y-2">
-      <h3 class="text-sm font-medium">{{ t("details.certificate.fingerprints") }}</h3>
+      <h2 class="text-sm font-medium">{{ t("details.certificate.fingerprints") }}</h2>
       <KeyValueList :items="fingerprints" />
     </section>
 
     <section v-if="uniqueIds.length > 0" class="space-y-2">
-      <h3 class="text-sm font-medium">{{ t("details.certificate.uniqueIds") }}</h3>
+      <h2 class="text-sm font-medium">{{ t("details.certificate.uniqueIds") }}</h2>
       <KeyValueList :items="uniqueIds" />
     </section>
 
     <section class="space-y-2" data-testid="crl-targets">
-      <h3 class="text-sm font-medium">{{ t("details.certificate.crlTargets") }}</h3>
-      <ul v-if="certificate.targets.length > 0" class="space-y-1 text-sm">
-        <li
-          v-for="target in certificate.targets"
-          :key="target.targetId"
-          class="flex items-center gap-2"
-        >
+      <h2 class="text-sm font-medium">{{ t("details.certificate.crlTargets") }}</h2>
+      <ul v-if="targets.length > 0" class="space-y-1 text-sm">
+        <li v-for="target in targets" :key="target.targetId" class="flex items-center gap-2">
           <KindBadge :kind="target.kind" />
           <RouterLink
             :to="{ name: 'crl', params: { targetId: target.targetId } }"

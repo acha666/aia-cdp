@@ -41,6 +41,14 @@ describe("inline script hash", () => {
   });
 });
 
+describe("served files", () => {
+  it("leave the favicon nothing that style-src 'self' blocks when it is opened as a page", () => {
+    const svg = readFileSync(new URL("../../src/web/public/favicon.svg", import.meta.url), "utf8");
+    expect(svg).not.toMatch(/<style|style=/);
+    expect(svg).toContain('fill="#1e3050"');
+  });
+});
+
 describe("policy", () => {
   const app = createApp(
     testDeps({

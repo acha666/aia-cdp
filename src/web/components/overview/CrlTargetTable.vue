@@ -27,8 +27,14 @@ import { computeTargetStatus } from "@/utils/status";
 // The configured CRL targets (plan §8), after worker-aia-cdp@5b570aa:src/web/components/
 // CrlCard.vue, one table for full and delta targets: label with the issuer, kind, CRL number,
 // thisUpdate / nextUpdate (time left only while current), revoked count, status and downloads. A
-// target without a current CRL reads "Not published" with dashes, never 0 (plan §10 #7).
+// target without a current CRL reads "Not published" with dashes, never 0 (plan §10 #7), and has no
+// downloads (its paths answer 404). On a phone (below sm) only label, kind and status show, as in
+// CertificateTable.
 const { data, isPending, isError, error, refetch } = useCrlTargets();
+
+const SECONDARY = "hidden sm:table-cell";
+/** The cell classes of a skeleton row, column by column. */
+const SKELETON = ["", "", SECONDARY, SECONDARY, SECONDARY, "", SECONDARY];
 const now = useClock();
 const dateText = useDateText();
 const { t, locale } = useI18n();
@@ -52,7 +58,7 @@ const rows = computed(() => {
           status.state === "current" ? getRelativeTime(summary?.nextUpdate, nowMs, dateText) : null,
         revoked: summary === null ? null : String(summary.revokedCount),
         state: status.state,
-        downloads: target.downloads,
+        downloads: target.current === null ? [] : target.downloads,
       };
     });
 });
@@ -80,24 +86,26 @@ const rows = computed(() => {
           <TableRow>
             <TableHead>{{ t("table.label") }}</TableHead>
             <TableHead>{{ t("table.kind") }}</TableHead>
-            <TableHead>{{ t("table.crlNumber") }}</TableHead>
-            <TableHead>{{ t("table.updates") }}</TableHead>
-            <TableHead class="text-right">{{ t("table.revoked") }}</TableHead>
+            <TableHead :class="SECONDARY">{{ t("table.crlNumber") }}</TableHead>
+            <TableHead :class="SECONDARY">{{ t("table.updates") }}</TableHead>
+            <TableHead :class="SECONDARY" class="text-right">{{ t("table.revoked") }}</TableHead>
             <TableHead>{{ t("table.status") }}</TableHead>
-            <TableHead>{{ t("table.downloads") }}</TableHead>
+            <TableHead :class="SECONDARY">{{ t("table.downloads") }}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           <template v-if="isPending">
             <TableRow v-for="index in 3" :key="index" data-testid="skeleton-row">
-              <TableCell v-for="cell in 7" :key="cell"><Skeleton class="h-4 w-16" /></TableCell>
+              <TableCell v-for="(cellClass, cell) in SKELETON" :key="cell" :class="cellClass">
+                <Skeleton class="h-4 w-16" />
+              </TableCell>
             </TableRow>
           </template>
           <TableEmpty v-else-if="rows.length === 0" :colspan="7">
             {{ t("app.empty.crls") }}
           </TableEmpty>
           <TableRow v-for="row in rows" v-else :key="row.targetId" :data-id="row.targetId">
-            <TableCell class="min-w-44 whitespace-normal">
+            <TableCell class="whitespace-normal sm:min-w-44">
               <RouterLink
                 :to="{ name: 'crl', params: { targetId: row.targetId } }"
                 class="font-medium underline-offset-4 hover:underline"
@@ -107,10 +115,10 @@ const rows = computed(() => {
               <div class="text-xs text-muted-foreground">{{ row.issuer }}</div>
             </TableCell>
             <TableCell><KindBadge :kind="row.kind" /></TableCell>
-            <TableCell class="font-mono text-xs" data-testid="crl-number">
+            <TableCell :class="SECONDARY" class="font-mono text-xs" data-testid="crl-number">
               {{ row.crlNumber === null ? "—" : `#${row.crlNumber}` }}
             </TableCell>
-            <TableCell class="text-xs">
+            <TableCell :class="SECONDARY" class="text-xs">
               <template v-if="row.thisUpdate">
                 <div>{{ row.thisUpdate }} – {{ row.nextUpdate }}</div>
                 <div v-if="row.remaining" class="text-muted-foreground" data-testid="remaining">
@@ -119,11 +127,15 @@ const rows = computed(() => {
               </template>
               <span v-else class="text-muted-foreground">—</span>
             </TableCell>
-            <TableCell class="text-right tabular-nums" data-testid="revoked-count">
+            <TableCell
+              :class="SECONDARY"
+              class="text-right tabular-nums"
+              data-testid="revoked-count"
+            >
               {{ row.revoked ?? "—" }}
             </TableCell>
             <TableCell><StatusBadge :state="row.state" /></TableCell>
-            <TableCell><DownloadLinks :downloads="row.downloads" /></TableCell>
+            <TableCell :class="SECONDARY"><DownloadLinks :downloads="row.downloads" /></TableCell>
           </TableRow>
         </TableBody>
       </Table>

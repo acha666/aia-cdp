@@ -117,4 +117,20 @@ describe("ThemeToggle", () => {
     // Without disableTransition, useColorMode creates no <style> element (CSP style-src 'self').
     expect(createElement.mock.calls.filter(([tag]) => tag === "style")).toEqual([]);
   });
+
+  it("still cycles, without console errors, when storage is blocked", async () => {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("The operation is insecure.", "SecurityError");
+    });
+    systemPrefersDark(false);
+    const error = vi.spyOn(console, "error");
+
+    const button = mountToggle();
+    await flushPromises();
+    await button.trigger("click");
+    await flushPromises();
+    expect(button.attributes("data-preference")).toBe("light");
+    expect(html.classList.contains("light")).toBe(true);
+    expect(error).not.toHaveBeenCalled();
+  });
 });

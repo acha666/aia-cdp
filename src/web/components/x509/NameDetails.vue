@@ -48,7 +48,7 @@ const items = computed(() => [
 
 <template>
   <section class="space-y-2">
-    <h3 v-if="title" class="text-sm font-medium">{{ title }}</h3>
+    <h2 v-if="title" class="text-sm font-medium">{{ title }}</h2>
     <p v-if="name.rfc4514" class="font-mono text-xs break-all text-muted-foreground">
       {{ name.rfc4514 }}
     </p>

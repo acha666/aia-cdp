@@ -3,7 +3,7 @@
 // and pages it itself at 200 rows. The fourth case of worker-aia-cdp@5b570aa:tests/web/
 // components.test.ts ("CRL details disclose the actual partial list size") becomes the second
 // and fourth cases here: nothing is cut off, and a page says which rows of how many it shows.
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import type { VueWrapper } from "@vue/test-utils";
 import { afterEach, describe, expect, it } from "vitest";
 import { revokedEntries, time } from "./helpers";
@@ -22,6 +22,7 @@ afterEach(() => {
 function render(revoked: RevokedCertificates | null, locale: AppLocale = "en") {
   wrapper = mount(RevokedTable, {
     props: { revoked },
+    attachTo: document.body,
     global: { plugins: [createAppI18n(locale)] },
   });
   return wrapper;
@@ -69,6 +70,29 @@ describe("RevokedTable", () => {
     // Another list (a refetch) starts again on the first page.
     await table.setProps({ revoked: list(revokedEntries(250)) });
     expect(table.get('[data-testid="revoked-range"]').text()).toBe("1–200 of 250");
+  });
+
+  it("hands the focus to the other page button at the first and the last page", async () => {
+    const table = render(list(revokedEntries(401)));
+    const previous = table.get('[data-testid="previous-page"]');
+    const next = table.get('[data-testid="next-page"]');
+
+    (next.element as HTMLButtonElement).focus();
+    await next.trigger("click");
+    await flushPromises();
+    // Page 2 of 3: both buttons work, the focus stays.
+    expect(document.activeElement).toBe(next.element);
+    await next.trigger("click");
+    await flushPromises();
+    // The last page disables "next", which would drop the focus to <body>.
+    expect(table.get('[data-testid="revoked-range"]').text()).toBe("401–401 of 401");
+    expect(document.activeElement).toBe(previous.element);
+
+    await previous.trigger("click");
+    await previous.trigger("click");
+    await flushPromises();
+    expect(table.get('[data-testid="revoked-range"]').text()).toBe("1–200 of 401");
+    expect(document.activeElement).toBe(next.element);
   });
 
   it("fills reason, invalidity date and indirect issuer from the entry extensions", () => {

@@ -8,7 +8,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { siteName } from "@/site";
 
 // The shell: header (site name, health, language, theme), the routed page, a footer and the toast
-// outlet (upload results, copy failures). One container width for all three bands.
+// outlet (upload results, copy failures), at the top: at the bottom right a toast covered the
+// upload card's submit button (and stays while hovered). One container width for all three bands.
 const CONTAINER = "mx-auto w-full max-w-6xl px-4";
 
 const { t } = useI18n();
@@ -53,6 +54,6 @@ const { t } = useI18n();
         </a>
       </div>
     </footer>
-    <Toaster />
+    <Toaster position="top-center" />
   </div>
 </template>

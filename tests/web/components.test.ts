@@ -2,6 +2,7 @@
 // happy-dom. Rewrite of worker-aia-cdp@5b570aa:tests/web/components.test.ts (SSR render through a
 // Vite server there): its ResourceCard case becomes the DownloadLinks case, and its CRL details
 // case moves to revoked-table.test.ts with the revoked table.
+import { QueryClient, VueQueryPlugin } from "@tanstack/vue-query";
 import { flushPromises, mount } from "@vue/test-utils";
 import type { VueWrapper } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +14,7 @@ import DownloadLinks from "@/components/DownloadLinks.vue";
 import HexValue from "@/components/HexValue.vue";
 import KeyValueList from "@/components/KeyValueList.vue";
 import LocaleSelect from "@/components/LocaleSelect.vue";
+import PemText from "@/components/PemText.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
 import { Accordion } from "@/components/ui/accordion";
 import Asn1Dump from "@/components/x509/Asn1Dump.vue";
@@ -29,7 +31,7 @@ let wrapper: VueWrapper | undefined;
 afterEach(() => {
   wrapper?.unmount();
   wrapper = undefined;
-  // happy-dom has no execCommand; the HexValue tests install one for useClipboard's legacy path.
+  // happy-dom has no execCommand; the copy tests install one for the textarea fallback.
   Reflect.deleteProperty(document, "execCommand");
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -43,15 +45,32 @@ function render(component: Component, props: Record<string, unknown>, locale: Ap
 describe("DownloadLinks", () => {
   it("labels DER paths and .pem paths, keeping nested paths as the server sent them", () => {
     const links = render(DownloadLinks, {
-      downloads: ["/ca/nested/root.crt", "/ca/nested/root.crt.pem", "/ca/root-legacy.cer"],
+      downloads: ["/ca/nested/root.crt", "/ca/nested/root.crt.pem"],
     }).findAll("a");
     expect(links.map((link) => [link.attributes("href"), link.attributes("data-format")])).toEqual([
       ["/ca/nested/root.crt", "DER"],
       ["/ca/nested/root.crt.pem", "PEM"],
-      ["/ca/root-legacy.cer", "DER"],
     ]);
     expect(links.every((link) => link.attributes("download") !== undefined)).toBe(true);
     expect(links[1]!.text()).toBe("PEM: /ca/nested/root.crt.pem");
+  });
+
+  it("names the files when a resource is served at more than one DER path", () => {
+    const links = render(DownloadLinks, {
+      downloads: ["/ca/root.crt", "/ca/root.crt.pem", "/ca/legacy/root-2016.cer"],
+    }).findAll("a");
+    expect(links.map((link) => link.get('[data-testid="file-name"]').text())).toEqual([
+      "root.crt",
+      "root.crt.pem",
+      "root-2016.cer",
+    ]);
+    expect(links[2]!.attributes("data-format")).toBe("DER");
+  });
+
+  it("is an outlined button in both themes (the variant's border wins over the base's)", () => {
+    const link = render(DownloadLinks, { downloads: ["/ca/root.crt"] }).get("a");
+    expect(link.classes()).toContain("border-border");
+    expect(link.classes()).not.toContain("border-transparent");
   });
 
   it("never derives a second .pem from a .pem path", () => {
@@ -113,19 +132,11 @@ describe("KeyValueList", () => {
 });
 
 describe("HexValue", () => {
-  it("groups bytes without spaces and copies the bare digits", async () => {
-    // The Clipboard API refuses: useClipboard({ legacy: true }) copies a selected <textarea>.
-    vi.stubGlobal("navigator", {
-      ...navigator,
-      clipboard: {
-        write: () => Promise.reject(new Error("ClipboardItem unsupported")),
-      },
-    });
-    const copied: string[] = [];
-    document.execCommand = vi.fn((command: string) => {
-      copied.push(`${command}:${document.querySelector("textarea")?.value ?? ""}`);
-      return true;
-    });
+  it("groups bytes without spaces and copies the bare digits with the Clipboard API", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
 
     const hex = render(HexValue, { value: "0a:1b 2c", variant: "grouped" });
     expect(hex.get('[data-testid="hex-value"]').element.textContent).toBe("0A:1B:2C");
@@ -134,12 +145,57 @@ describe("HexValue", () => {
     expect(button.attributes("aria-label")).toBe("Copy");
     await button.trigger("click");
     await flushPromises();
-    expect(copied).toEqual(["copy:0A1B2C"]);
+    expect(writeText).toHaveBeenCalledWith("0A1B2C");
+    expect(execCommand).not.toHaveBeenCalled();
     expect(button.attributes("aria-label")).toBe("Copied");
   });
 
-  it("reports a failed copy as a toast", async () => {
-    // No Clipboard API and no document.execCommand (as in happy-dom): the legacy copy throws.
+  it("falls back to a selected textarea where the Clipboard API refuses, keeping the focus", async () => {
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      clipboard: {
+        writeText: () => Promise.reject(new DOMException("denied", "NotAllowedError")),
+      },
+    });
+    const copied: string[] = [];
+    document.execCommand = vi.fn((command: string) => {
+      copied.push(`${command}:${document.querySelector("textarea")?.value ?? ""}`);
+      return true;
+    });
+
+    wrapper = mount(HexValue, {
+      props: { value: "0a1b" },
+      attachTo: document.body,
+      global: { plugins: [createAppI18n("en")] },
+    });
+    const button = wrapper.get("button");
+    (button.element as HTMLButtonElement).focus();
+    await button.trigger("click");
+    await flushPromises();
+    expect(copied).toEqual(["copy:0A1B"]);
+    expect(document.querySelector("textarea")).toBeNull();
+    expect(document.activeElement).toBe(button.element);
+    expect(button.attributes("aria-label")).toBe("Copied");
+  });
+
+  it("reports a copy that execCommand refuses as a toast, not as copied", async () => {
+    // Plain HTTP: no Clipboard API; the browser answers execCommand("copy") with false.
+    vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
+    const execCommand = vi.fn(() => false);
+    document.execCommand = execCommand;
+    const error = vi.spyOn(toast, "error");
+
+    const hex = render(HexValue, { value: "0A1B" }, "zh-CN");
+    const button = hex.get("button");
+    await button.trigger("click");
+    await flushPromises();
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(error).toHaveBeenCalledWith("无法复制到剪贴板");
+    expect(button.attributes("aria-label")).toBe("复制");
+  });
+
+  it("reports a failed copy as a toast without any copy mechanism", async () => {
+    // No Clipboard API and no document.execCommand (as in happy-dom).
     vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
     const error = vi.spyOn(toast, "error");
 
@@ -154,6 +210,31 @@ describe("HexValue", () => {
     const hex = render(HexValue, { value: null, fallback: "—" });
     expect(hex.text()).toBe("—");
     expect(hex.find("button").exists()).toBe(false);
+  });
+});
+
+describe("PemText", () => {
+  it("reports a copy that execCommand refuses as a toast", async () => {
+    vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response("-----BEGIN CERTIFICATE-----\n")))
+    );
+    document.execCommand = vi.fn(() => false);
+    const error = vi.spyOn(toast, "error");
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    wrapper = mount(PemText, {
+      props: { path: "/ca/root-ca.crt.pem" },
+      global: { plugins: [createAppI18n("en"), [VueQueryPlugin, { queryClient }]] },
+    });
+    await flushPromises();
+    expect(wrapper.get('[data-testid="pem-text"]').text()).toContain("BEGIN CERTIFICATE");
+    await wrapper.get("button").trigger("click");
+    await flushPromises();
+    expect(error).toHaveBeenCalledWith("Could not copy to the clipboard");
+    expect(wrapper.get("button").text()).toBe("Copy");
+    queryClient.clear();
   });
 });
 
@@ -208,7 +289,7 @@ describe("NameDetails", () => {
     const html = details.html();
     expect(html).toContain("&lt;script&gt;bad&lt;/script&gt;");
     expect(html).not.toContain("<script>bad");
-    expect(details.get("h3").text()).toBe("Issuer");
+    expect(details.get("h2").text()).toBe("Issuer");
     const pairs = details
       .findAll("dt")
       .map((term, index) => [term.text(), details.findAll("dd")[index]!.text()]);
@@ -227,7 +308,7 @@ describe("NameDetails", () => {
 
   it("labels the fields in zh-CN", () => {
     const details = render(NameDetails, { name }, "zh-CN");
-    expect(details.find("h3").exists()).toBe(false);
+    expect(details.find("h2").exists()).toBe(false);
     expect(details.findAll("dt")[0]!.text()).toBe("通用名称");
     expect(details.findAll("dd")[1]!.text()).toBe("（空）");
   });

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { MonitorIcon, MoonIcon, SunIcon } from "@lucide/vue";
-import { useColorMode } from "@vueuse/core";
+import { useColorMode, useStorage } from "@vueuse/core";
+import type { BasicColorSchema } from "@vueuse/core";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { Button } from "@/components/ui/button";
@@ -11,9 +12,13 @@ type Preference = "auto" | "light" | "dark";
 // on the same origin keeps applying. useColorMode sets class "dark" / "light" on <html> (main.css:
 // `@custom-variant dark (&:is(.dark *))`); the inline script in index.html sets "dark" by the same
 // rule before the first paint. disableTransition would insert a <style> element on every change,
-// which a CSP without 'unsafe-inline' styles blocks. Destructure `store`: the returned ref is
-// auto-unwrapped in templates, so `mode.store` would not be reachable there.
-const { store } = useColorMode({ storageKey: "theme-preference", disableTransition: false });
+// which a CSP without 'unsafe-inline' styles blocks. The stored preference is our own useStorage
+// ref because useColorMode does not pass `onError` on: blocked storage only loses the memory and
+// is not worth a console error.
+const store = useStorage<BasicColorSchema>("theme-preference", "auto", undefined, {
+  onError: () => undefined,
+});
+useColorMode({ storageRef: store, disableTransition: false });
 
 // Same cycle as before: auto → light → dark.
 const NEXT: Record<Preference, Preference> = { auto: "light", light: "dark", dark: "auto" };

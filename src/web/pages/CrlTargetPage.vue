@@ -28,7 +28,8 @@ import { formatAlgorithm } from "@/utils/x509";
 // components/CrlDetails.vue): header with label, kind, status and downloads, then the current CRL
 // in tabs (overview with the issuer link, CRL and base CRL numbers, thisUpdate / nextUpdate / Next
 // CRL Publish, algorithm and fingerprints; revoked certificates; extensions). A target without a
-// current CRL says it is not published instead. `targetId` matched the router's pattern.
+// current CRL says it is not published instead, and offers no downloads (its paths answer 404).
+// `targetId` matched the router's pattern. Tabs and panels as on CertificatePage.
 const props = defineProps<{ targetId: string }>();
 
 const { t } = useI18n();
@@ -36,9 +37,11 @@ const now = useClock();
 const dateText = useDateText();
 const { data, isError, error, refetch } = useCrlTarget(() => props.targetId);
 
-usePageTitle(() => data.value?.label ?? t("pages.crl.title"));
-
 const missing = computed(() => data.value === undefined && isNotFound(error.value));
+usePageTitle(
+  () => data.value?.label ?? t(missing.value ? "details.crl.notFoundTitle" : "pages.crl.title")
+);
+
 const current = computed(() => data.value?.current ?? null);
 const status = computed(() => computeTargetStatus(current.value, now.value.getTime()));
 const issuer = computed(() =>
@@ -88,14 +91,20 @@ const overview = computed(() => {
 
 const SECTIONS = ["information", "validity", "cryptography", "fingerprints"] as const;
 
-/** Time to nextUpdate (or since it, once expired), next to the status badge. */
+/**
+ * Time to nextUpdate (or since it, once expired) next to the status badge; to thisUpdate while not
+ * yet valid (a browser clock behind the server's), as the certificate overview does.
+ */
 const statusDetail = computed(() => {
   const summary = current.value?.summary;
   if (!summary || status.value.state === "unknown") {
     return null;
   }
-  return getRelativeTimeDetailed(summary.nextUpdate, now.value.getTime(), dateText) || null;
+  const boundary = status.value.state === "not-yet-valid" ? summary.thisUpdate : summary.nextUpdate;
+  return getRelativeTimeDetailed(boundary, now.value.getTime(), dateText) || null;
 });
+
+const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
 
 const tab = ref("overview");
 watch(
@@ -129,7 +138,12 @@ watch(
             ({{ statusDetail }})
           </span>
         </div>
-        <I18nT keypath="details.crl.issuedBy" tag="p" class="text-sm text-muted-foreground">
+        <I18nT
+          keypath="details.crl.issuedBy"
+          scope="global"
+          tag="p"
+          class="text-sm text-muted-foreground"
+        >
           <template #issuer>
             <RouterLink
               :to="{ name: 'certificate', params: { id: data.issuer.id } }"
@@ -140,7 +154,7 @@ watch(
             </RouterLink>
           </template>
         </I18nT>
-        <DownloadLinks :downloads="data.downloads" />
+        <DownloadLinks :downloads="current === null ? [] : data.downloads" />
       </header>
 
       <div
@@ -152,8 +166,8 @@ watch(
         <p class="text-sm text-muted-foreground">{{ t("details.crl.unpublishedBody") }}</p>
       </div>
 
-      <Tabs v-else v-model="tab">
-        <TabsList>
+      <Tabs v-else v-model="tab" class="min-w-0">
+        <TabsList class="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="overview">{{ t("details.tabs.overview") }}</TabsTrigger>
           <TabsTrigger value="revoked">
             {{ t("details.crl.revokedCertificates") }}
@@ -163,19 +177,21 @@ watch(
             {{ t("details.crl.extensions") }} ({{ extensions.length }})
           </TabsTrigger>
         </TabsList>
-        <TabsContent value="overview" class="grid gap-6 pt-2" data-testid="crl-overview">
+        <TabsContent value="overview" :class="[PANEL, 'grid gap-6']" data-testid="crl-overview">
           <template v-if="overview">
             <section v-for="section in SECTIONS" :key="section" class="space-y-2">
-              <h3 class="text-sm font-medium">{{ t(`details.crl.${section}`) }}</h3>
+              <h2 class="text-sm font-medium">{{ t(`details.crl.${section}`) }}</h2>
               <KeyValueList :items="overview[section]" />
             </section>
           </template>
           <NameDetails :name="current.tbsCertList.issuer" :title="t('details.crl.issuer')" />
         </TabsContent>
-        <TabsContent value="revoked" class="pt-2">
+        <TabsContent value="revoked" :class="PANEL">
           <RevokedTable :revoked="current.tbsCertList.revokedCertificates" />
         </TabsContent>
-        <TabsContent value="extensions" class="pt-2">
+        <TabsContent value="extensions" :class="PANEL">
+          <!-- The extensions' accordion headings are h3. -->
+          <h2 class="sr-only">{{ t("details.crl.extensions") }}</h2>
           <ExtensionList :extensions="extensions" />
           <p v-if="extensions.length === 0" class="text-sm text-muted-foreground">
             {{ t("details.noExtensions") }}

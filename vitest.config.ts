@@ -27,6 +27,8 @@ export default defineConfig({
           include: ["tests/web/**/*.test.ts"],
           environment: "happy-dom",
           env: { VITE_SITE_NAME: "Test PKI" },
+          // Vitest empties CSS imports, `?raw` too; the contrast test reads the theme tokens.
+          css: { include: [/\/src\/web\/styles\/main\.css/] },
         },
       },
     ],

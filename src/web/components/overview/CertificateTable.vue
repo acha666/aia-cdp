@@ -26,8 +26,15 @@ import { computeCertificateStatus } from "@/utils/status";
 // The imported certificates (plan §8), after worker-aia-cdp@5b570aa:src/web/components/
 // CertificateCard.vue: name (config label, else subject CN), issuer, validity with the time left
 // while valid, status and downloads, sorted by name. The list keeps showing while it refetches;
-// skeleton rows appear only before the first answer.
+// skeleton rows appear only before the first answer. On a phone (below sm) only the name and the
+// status show: with every column the table scrolls sideways inside its card, which hides the
+// status; issuer, validity and downloads are on the detail page. From sm up, where the table may
+// still scroll, the name keeps a minimum width instead of one word per line.
 const { data, isPending, isError, error, refetch } = useCertificates();
+
+const SECONDARY = "hidden sm:table-cell";
+/** The cell classes of a skeleton row, column by column. */
+const SKELETON = ["", SECONDARY, SECONDARY, "", SECONDARY];
 const now = useClock();
 const dateText = useDateText();
 const { t, locale } = useI18n();
@@ -81,23 +88,25 @@ const rows = computed(() => {
         <TableHeader>
           <TableRow>
             <TableHead>{{ t("table.name") }}</TableHead>
-            <TableHead>{{ t("table.issuer") }}</TableHead>
-            <TableHead>{{ t("table.validity") }}</TableHead>
+            <TableHead :class="SECONDARY">{{ t("table.issuer") }}</TableHead>
+            <TableHead :class="SECONDARY">{{ t("table.validity") }}</TableHead>
             <TableHead>{{ t("table.status") }}</TableHead>
-            <TableHead>{{ t("table.downloads") }}</TableHead>
+            <TableHead :class="SECONDARY">{{ t("table.downloads") }}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           <template v-if="isPending">
             <TableRow v-for="index in 3" :key="index" data-testid="skeleton-row">
-              <TableCell v-for="cell in 5" :key="cell"><Skeleton class="h-4 w-24" /></TableCell>
+              <TableCell v-for="(cellClass, cell) in SKELETON" :key="cell" :class="cellClass">
+                <Skeleton class="h-4 w-24" />
+              </TableCell>
             </TableRow>
           </template>
           <TableEmpty v-else-if="rows.length === 0" :colspan="5">
             {{ t("app.empty.certificates") }}
           </TableEmpty>
           <TableRow v-for="row in rows" v-else :key="row.id" :data-id="row.id">
-            <TableCell class="min-w-44 whitespace-normal">
+            <TableCell class="whitespace-normal sm:min-w-44">
               <RouterLink
                 :to="{ name: 'certificate', params: { id: row.id } }"
                 class="font-medium underline-offset-4 hover:underline"
@@ -108,17 +117,19 @@ const rows = computed(() => {
                 {{ row.subjectCN }}
               </div>
             </TableCell>
-            <TableCell class="min-w-40 whitespace-normal text-muted-foreground">{{
-              row.issuer
-            }}</TableCell>
-            <TableCell class="text-xs">
+            <TableCell
+              :class="SECONDARY"
+              class="min-w-40 whitespace-normal text-muted-foreground"
+              >{{ row.issuer }}</TableCell
+            >
+            <TableCell :class="SECONDARY" class="text-xs">
               <div>{{ row.from }} – {{ row.until }}</div>
               <div v-if="row.remaining" class="text-muted-foreground" data-testid="remaining">
                 {{ row.remaining }}
               </div>
             </TableCell>
             <TableCell><StatusBadge :state="row.state" /></TableCell>
-            <TableCell><DownloadLinks :downloads="row.downloads" /></TableCell>
+            <TableCell :class="SECONDARY"><DownloadLinks :downloads="row.downloads" /></TableCell>
           </TableRow>
         </TableBody>
       </Table>

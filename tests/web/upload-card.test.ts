@@ -221,26 +221,74 @@ describe("CrlUploadCard", () => {
     expect(JSON.stringify({ ...sessionStorage })).not.toContain("s3cret");
   });
 
-  it("does not submit again while an upload runs", async () => {
+  it("does not submit again while an upload runs, keeping the button focusable", async () => {
     const pending = deferred<Response>();
     const { card, posts } = render(() => pending.promise);
     await paste(card, PEM);
+    const button = card.get('[data-testid="upload-submit"]');
+    (button.element as HTMLButtonElement).focus();
 
     const form = card.get("form");
     await form.trigger("submit");
     await form.trigger("submit");
+    await button.trigger("click");
     await flushPromises();
     expect(posts()).toHaveLength(1);
-    const button = card.get('[data-testid="upload-submit"]');
-    expect(button.attributes("disabled")).toBeDefined();
+    // aria-disabled, not disabled: a disabled button drops the keyboard focus to <body>.
+    expect(button.attributes("aria-disabled")).toBe("true");
+    expect(button.attributes("disabled")).toBeUndefined();
+    expect(document.activeElement).toBe(button.element);
     expect(button.text()).toBe("Uploading…");
 
     pending.resolve(ok("created")());
     await flushPromises();
-    // Done, and disabled again because the (unchanged) input was cleared.
+    // Done, and disabled because the (unchanged) input was cleared: the focus moves to the result.
     expect(button.text()).toBe("Upload CRL");
     expect(button.attributes("disabled")).toBeDefined();
     expect(posts()).toHaveLength(1);
+    const alert = card.get('[data-testid="upload-success"]');
+    expect(alert.attributes("tabindex")).toBe("-1");
+    expect(document.activeElement).toBe(alert.element);
+  });
+
+  it("moves the focus from the submit button to a failure, and leaves it elsewhere alone", async () => {
+    const { card } = render(() => envelope(409, "stale_crl"));
+    await paste(card, PEM);
+    const button = card.get('[data-testid="upload-submit"]');
+    (button.element as HTMLButtonElement).focus();
+    await submit(card);
+    expect(document.activeElement).toBe(card.get('[data-testid="upload-error"]').element);
+
+    // The text area keeps the focus when the upload was started from somewhere else.
+    const textarea = card.get("textarea").element as HTMLTextAreaElement;
+    textarea.focus();
+    await submit(card);
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  it("refuses a token the server cannot accept before sending it", async () => {
+    const error = vi.spyOn(toast, "error");
+    const { card, posts } = render(ok("created"));
+    await card.get('[data-testid="token-toggle"]').trigger("click");
+    await card.get('[data-testid="token-input"]').setValue(" 令牌 ");
+    await paste(card, PEM);
+    await submit(card);
+
+    // RFC 6750 b64token: hono/client would throw a TypeError building the header.
+    expect(posts()).toHaveLength(0);
+    const text =
+      "The upload token may only contain letters, digits and - . _ ~ + /, optionally followed by = signs.";
+    expect(error).toHaveBeenCalledWith(text);
+    const alert = card.get('[data-testid="upload-error"]');
+    expect(alert.attributes("data-code")).toBe("invalid_token");
+    expect(alert.text()).toContain(text);
+    expect(document.activeElement).toBe(card.get('[data-testid="token-input"]').element);
+
+    await card.get('[data-testid="token-input"]').setValue("  abc-DEF_1.2~3+4/5==  ");
+    await submit(card);
+    expect(new Headers(posts()[0]!.headers).get("Authorization")).toBe(
+      "Bearer abc-DEF_1.2~3+4/5=="
+    );
   });
 
   it("keeps an input that changed while the upload ran", async () => {

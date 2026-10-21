@@ -9,7 +9,7 @@ import {
   UploadIcon,
 } from "@lucide/vue";
 import { useQueryClient } from "@tanstack/vue-query";
-import { computed, ref, shallowRef, useId, useTemplateRef, watchEffect } from "vue";
+import { computed, nextTick, ref, shallowRef, useId, useTemplateRef, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import { toast } from "vue-sonner";
 import { ApiError } from "@/client/errors";
@@ -34,6 +34,9 @@ import { errorCode, errorMessage } from "@/utils/errors";
 // multipart field `crl` (M8); the server tells PEM from DER by the bytes. created, updated and
 // unchanged are all successes (§10 #4); a failure shows errors.<code> as a toast and inline. The
 // optional token (AIA_UPLOAD_TOKEN) stays in memory and opens itself when the server asks for it.
+// Keyboard focus: the submit button is only aria-disabled while an upload runs (a disabled button
+// drops the focus to <body>), and the result alert takes the focus from it afterwards (a cleared
+// input disables the button).
 const { t } = useI18n();
 const client = useQueryClient();
 const upload = useUploadCrl();
@@ -57,6 +60,17 @@ watchEffect(
 );
 // Set before the first await: two clicks in one tick must not both pass the guard.
 const busy = ref(false);
+
+/**
+ * RFC 6750 b64token, the only form AIA_UPLOAD_TOKEN's bearerAuth accepts. Anything else cannot even
+ * be sent: hono/client sets the header through Headers, which throws a TypeError on non-Latin-1
+ * text ("Unexpected error (TypeError)").
+ */
+const TOKEN_SHAPE = /^[A-Za-z0-9._~+/-]+=*$/;
+
+const submitButton = useTemplateRef<{ $el: HTMLElement }>("submitButton");
+const successAlert = useTemplateRef<{ $el: HTMLElement }>("successAlert");
+const failureAlert = useTemplateRef<{ $el: HTMLElement }>("failureAlert");
 
 /** details.reason values with a message (src/core/pki/errors.ts, src/core/publish.ts). */
 const REASONS: ReadonlySet<string> = new Set([
@@ -102,8 +116,32 @@ function reasonOf(error: unknown): string | null {
   return REASONS.has(reason) ? t(`upload.reasons.${reason}`) : reason;
 }
 
+function openToken() {
+  tokenOpen.value = true;
+  focusToken.value = true;
+}
+
+/** The result alert takes the focus when the submit button had it (or it was already lost). */
+async function focusResult(alert: typeof successAlert) {
+  const active = document.activeElement;
+  if (active !== null && active !== document.body && active !== submitButton.value?.$el) {
+    return;
+  }
+  await nextTick();
+  alert.value?.$el.focus();
+}
+
 async function submit() {
   if (!isValid.value || busy.value) {
+    return;
+  }
+  const bearer = token.value.trim();
+  if (bearer !== "" && !TOKEN_SHAPE.test(bearer)) {
+    const message = t("upload.token.invalid");
+    success.value = null;
+    failure.value = { code: "invalid_token", message, reason: null };
+    toast.error(message);
+    openToken();
     return;
   }
   busy.value = true;
@@ -115,7 +153,7 @@ async function submit() {
       ? new File([submitted], "crl.pem", { type: "application/x-pem-file" })
       : submitted;
   try {
-    const published = await upload.mutateAsync({ file: crl, token: token.value.trim() });
+    const published = await upload.mutateAsync({ file: crl, token: bearer });
     const target =
       cachedTargetLabel(client, published.target) ?? t(`upload.kindTarget.${published.kind}`);
     const message = t(`upload.outcome.${published.outcome}`, { target });
@@ -124,13 +162,15 @@ async function submit() {
     if (input.value === submitted) {
       clear();
     }
+    void focusResult(successAlert);
   } catch (error) {
     const message = errorMessage(error, t);
     failure.value = { code: errorCode(error), message, reason: reasonOf(error) };
     toast.error(message);
     if (error instanceof ApiError && error.code === "unauthorized") {
-      tokenOpen.value = true;
-      focusToken.value = true;
+      openToken();
+    } else {
+      void focusResult(failureAlert);
     }
   } finally {
     busy.value = false;
@@ -171,7 +211,13 @@ function onFileChange(event: Event) {
       <CardDescription>{{ t("upload.description") }}</CardDescription>
     </CardHeader>
     <CardContent class="grid gap-4">
-      <Alert v-if="success" data-testid="upload-success">
+      <Alert
+        v-if="success"
+        ref="successAlert"
+        tabindex="-1"
+        class="outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        data-testid="upload-success"
+      >
         <CircleCheckIcon class="text-success" />
         <AlertTitle>{{ success.message }}</AlertTitle>
         <AlertDescription class="grid gap-1">
@@ -192,7 +238,10 @@ function onFileChange(event: Event) {
 
       <Alert
         v-if="failure"
+        ref="failureAlert"
         variant="destructive"
+        tabindex="-1"
+        class="outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         data-testid="upload-error"
         :data-code="failure.code"
       >
@@ -247,7 +296,14 @@ function onFileChange(event: Event) {
           <p v-else class="text-sm text-muted-foreground" data-testid="upload-helper">
             {{ file ? file.name : t("upload.helpers.pem") }}
           </p>
-          <Button type="submit" :disabled="!isValid || busy" data-testid="upload-submit">
+          <Button
+            ref="submitButton"
+            type="submit"
+            :disabled="!isValid"
+            :aria-disabled="busy || undefined"
+            class="aria-disabled:opacity-50"
+            data-testid="upload-submit"
+          >
             <LoaderCircleIcon
               v-if="busy"
               data-icon="inline-start"

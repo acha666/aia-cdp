@@ -22,6 +22,7 @@ import {
 } from "./helpers";
 import type { Handler } from "./helpers";
 import type { CertificateList } from "@/client/types";
+import { Toaster } from "@/components/ui/sonner";
 
 let wrapper: VueWrapper | undefined;
 let queryClient: QueryClient | undefined;
@@ -36,6 +37,7 @@ afterEach(() => {
   wrapper = undefined;
   queryClient?.clear();
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -78,6 +80,32 @@ function stat(page: VueWrapper, key: string): string {
   return page.get(`[data-stat="${key}"] [data-testid="stat-value"]`).text();
 }
 
+/** The levels of the page's headings in document order (h1 → 1, …). */
+function headingLevels(page: VueWrapper): number[] {
+  return page
+    .findAll("main h1, main h2, main h3, main h4, main h5, main h6")
+    .map((heading) => Number(heading.element.tagName.slice(1)));
+}
+
+/** One h1 first, and no level skipped on the way down. */
+function expectHeadingOutline(page: VueWrapper) {
+  const levels = headingLevels(page);
+  expect(levels[0]).toBe(1);
+  levels.slice(1).forEach((level, index) => {
+    expect(level, `heading ${String(index + 2)} of ${levels.join(",")}`).toBeGreaterThan(1);
+    expect(level, `heading ${String(index + 2)} of ${levels.join(",")}`).toBeLessThanOrEqual(
+      levels[index]! + 1
+    );
+  });
+}
+
+/** Tab panels keep a visible focus ring (Reka makes them tab stops). */
+function expectFocusRing(panel: Pick<DOMWrapper<Element>, "classes">) {
+  expect(panel.classes()).toEqual(
+    expect.arrayContaining(["focus-visible:ring-3", "focus-visible:ring-ring/50"])
+  );
+}
+
 async function selectTab(page: VueWrapper, label: RegExp) {
   const trigger = page.findAll('[role="tab"]').find((tab) => label.test(tab.text()));
   if (trigger === undefined) {
@@ -95,6 +123,8 @@ describe("App shell", () => {
     expect(wrapper.get('[data-testid="site-name"]').text()).toBe("Test PKI");
     expect(document.title).toBe("Overview · Test PKI");
     expect(wrapper.get("footer").text()).not.toMatch(/Cloudflare/);
+    // At the top: at the bottom right a toast covered the upload card's submit button.
+    expect(wrapper.findComponent(Toaster).props("position")).toBe("top-center");
   });
 });
 
@@ -144,6 +174,44 @@ describe("OverviewPage", () => {
     expect(targets[1]!.get('[data-testid="revoked-count"]').text()).toBe("—");
     expect(targets[1]!.get('[data-state="unpublished"]').text()).toBe("Not published");
     expect(targets[1]!.find('[data-testid="remaining"]').exists()).toBe(false);
+    // Nothing to download yet: its paths answer 404 until a CRL is published.
+    expect(targets[1]!.find("a[download]").exists()).toBe(false);
+    expect(cells(targets[1]!).at(-1)).toBe("—");
+    expect(targets[0]!.findAll("a[download]")).toHaveLength(2);
+  });
+
+  it("keeps name, kind and status on a phone and hides the secondary columns below sm", async () => {
+    const { wrapper } = await open("/", OVERVIEW);
+
+    const shown = (table: string) =>
+      wrapper
+        .get(`[data-testid="${table}"]`)
+        .findAll("thead th")
+        .map((head) => [head.text(), !head.classes().includes("hidden")]);
+    expect(shown("certificate-table")).toEqual([
+      ["Name", true],
+      ["Issuer", false],
+      ["Validity", false],
+      ["Status", true],
+      ["Downloads", false],
+    ]);
+    expect(shown("crl-target-table")).toEqual([
+      ["Label", true],
+      ["Kind", true],
+      ["CRL number", false],
+      ["This update – next update", false],
+      ["Revoked", false],
+      ["Status", true],
+      ["Downloads", false],
+    ]);
+    // Hidden columns come back from sm up, in the head and in every row.
+    for (const table of ["certificate-table", "crl-target-table"]) {
+      const hidden = wrapper.get(`[data-testid="${table}"]`).findAll("th.hidden, td.hidden");
+      expect(hidden.length).toBeGreaterThan(0);
+      expect(hidden.every((cell) => cell.classes().includes("sm:table-cell"))).toBe(true);
+      const columns = rows(wrapper, table).map((row) => row.findAll("td.hidden").length);
+      expect(new Set(columns).size).toBe(1);
+    }
   });
 
   it("counts stale, expired and unknown targets as needing attention, with the badges' clock", async () => {
@@ -278,6 +346,47 @@ describe("CertificatePage", () => {
     expect(wrapper.get('[data-testid="pem-text"]').text()).toContain("BEGIN CERTIFICATE");
   });
 
+  it("lists the CRL targets it issues in the overview's order: by label, full before delta", async () => {
+    const id = (last: string) => `4f0d3c1a-6a8e-4b8f-9c55-1d2e3f40${last}`;
+    const { wrapper } = await open(path, {
+      [`GET /api/v1/certificates/${ROOT.id}`]: () =>
+        Response.json({
+          ...ROOT,
+          targets: [
+            { targetId: id("5161"), kind: "delta", label: "Root CA" },
+            { targetId: id("5164"), kind: "full", label: "Root CA" },
+            { targetId: id("5169"), kind: "full", label: "Archive" },
+          ],
+        }),
+    });
+
+    const links = wrapper.findAll('[data-testid="crl-targets"] li');
+    expect(
+      links.map((link) => [link.get("[data-kind]").attributes("data-kind"), link.text()])
+    ).toEqual([
+      ["full", "Full CRLArchive"],
+      ["full", "Full CRLRoot CA"],
+      ["delta", "Delta CRLRoot CA"],
+    ]);
+  });
+
+  it("keeps the heading levels in order and the tab panels' focus ring visible", async () => {
+    const { wrapper } = await open(path, routes);
+
+    expectHeadingOutline(wrapper);
+    expectFocusRing(wrapper.get('[role="tabpanel"]'));
+    // Wide content (PEM, ASN.1 dumps) scrolls inside its box instead of widening the page.
+    expect(wrapper.get('[data-slot="tabs"]').classes()).toContain("min-w-0");
+    expect(wrapper.get('[data-slot="tabs-list"]').classes()).toEqual(
+      expect.arrayContaining(["max-w-full", "overflow-x-auto", "justify-start"])
+    );
+    await selectTab(wrapper, /Extensions/);
+    expectHeadingOutline(wrapper);
+    expectFocusRing(wrapper.get('[role="tabpanel"]'));
+    await selectTab(wrapper, /PEM/);
+    expectFocusRing(wrapper.get('[role="tabpanel"]'));
+  });
+
   it("has no PEM tab without a .pem download", async () => {
     const { wrapper } = await open(path, {
       [`GET /api/v1/certificates/${ROOT.id}`]: () =>
@@ -294,6 +403,7 @@ describe("CertificatePage", () => {
     const { wrapper, api } = await open(path, {});
 
     expect(wrapper.get('[data-testid="missing"]').text()).toContain("Certificate not found");
+    expect(document.title).toBe("Certificate not found · Test PKI");
     expect(api.calls()).toEqual([`GET /api/v1/certificates/${ROOT.id}`]);
   });
 
@@ -333,6 +443,38 @@ describe("CrlTargetPage", () => {
     expect(wrapper.find('[data-oid="2.5.29.20"]').exists()).toBe(true);
   });
 
+  it("measures a CRL that is not yet valid to its thisUpdate", async () => {
+    // Two minutes before full-pss's thisUpdate (2026-01-03T12:00:00Z): a browser clock behind the
+    // server's, or the 5 minutes of skew the server accepts.
+    vi.setSystemTime(new Date("2026-01-03T11:58:00Z"));
+    const { wrapper } = await open(path, {
+      [detailRoute]: () => Response.json(issuingFullDetail()),
+    });
+
+    expect(wrapper.find('header [data-state="not-yet-valid"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="status-detail"]').text()).toBe("(in 2m)");
+  });
+
+  it("keeps the heading levels in order, the panels' focus ring and no vue-i18n warning", async () => {
+    const warn = vi.spyOn(console, "warn");
+    const { wrapper } = await open(path, {
+      [detailRoute]: () => Response.json(issuingFullDetail()),
+    });
+
+    expect(warn.mock.calls.flat().join(" ")).not.toMatch(/intlify/);
+    expectHeadingOutline(wrapper);
+    expectFocusRing(wrapper.get('[role="tabpanel"]'));
+    expect(wrapper.get('[data-slot="tabs"]').classes()).toContain("min-w-0");
+    expect(wrapper.get('[data-slot="tabs-list"]').classes()).toEqual(
+      expect.arrayContaining(["max-w-full", "overflow-x-auto", "justify-start"])
+    );
+    for (const tab of [/Revoked/, /Extensions/]) {
+      await selectTab(wrapper, tab);
+      expectHeadingOutline(wrapper);
+      expectFocusRing(wrapper.get('[role="tabpanel"]'));
+    }
+  });
+
   it("shows an unpublished target as not published, without a revoked list", async () => {
     const { wrapper } = await open(path, {
       [detailRoute]: () => Response.json(issuingFullDetail({ published: false })),
@@ -344,13 +486,16 @@ describe("CrlTargetPage", () => {
     expect(wrapper.find('[role="tab"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="revoked-table"]').exists()).toBe(false);
     expect(wrapper.text()).not.toMatch(/\(0\)/);
+    // Its download paths answer 404 until a CRL is published.
+    expect(wrapper.find("main header a[download]").exists()).toBe(false);
+    expect(wrapper.get("main header").text()).toContain("—");
   });
 
   it("says that an unknown target does not exist", async () => {
     const { wrapper } = await open(path, {});
 
     expect(wrapper.get('[data-testid="missing"]').text()).toContain("CRL target not found");
-    expect(document.title).toBe("CRL target · Test PKI");
+    expect(document.title).toBe("CRL target not found · Test PKI");
   });
 
   it("shows other failures with their error text", async () => {

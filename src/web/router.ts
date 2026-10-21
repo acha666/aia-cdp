@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
-import type { RouteRecordRaw, RouterHistory } from "vue-router";
+import type { RouteRecordRaw, RouterHistory, RouterScrollBehavior } from "vue-router";
 import NotFoundPage from "@/pages/NotFoundPage.vue";
 import OverviewPage from "@/pages/OverviewPage.vue";
 
@@ -30,7 +30,21 @@ const routes: RouteRecordRaw[] = [
   { path: "/:pathMatch(.*)*", name: "not-found", component: NotFoundPage },
 ];
 
+// Without a scrollBehavior a link keeps the previous page's offset: a page whose data is cached
+// renders at full height at once and opens scrolled down (on a phone, at its footer). Back and
+// forward return to where the page was; a fragment (the skip link) and a change of only the query
+// or fragment stay on the page.
+const scrollBehavior: RouterScrollBehavior = (to, from, saved) => {
+  if (saved) {
+    return saved;
+  }
+  if (to.hash) {
+    return { el: to.hash };
+  }
+  return to.path === from.path ? false : { top: 0 };
+};
+
 /** Tests pass `createMemoryHistory()`; the app uses the HTML5 history (the server has an SPA fallback). */
 export function createAppRouter(history: RouterHistory = createWebHistory()) {
-  return createRouter({ history, routes });
+  return createRouter({ history, routes, scrollBehavior });
 }

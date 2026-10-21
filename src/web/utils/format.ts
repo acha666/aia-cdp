@@ -1,5 +1,5 @@
 // Hex display helpers, from worker-aia-cdp@5b570aa:src/web/utils/format.ts. copyToClipboard
-// (document.execCommand) is gone: HexValue copies through useClipboard.
+// (document.execCommand) moved to utils/clipboard.ts, which reports a refused copy.
 
 interface HexFormatOptions {
   /** Characters per group; 0 or less: one group. Default 2 (one byte). */

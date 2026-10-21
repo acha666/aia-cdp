@@ -87,8 +87,7 @@ describe("storage that throws", () => {
   ])("still boots and switches when %s throws", async (_, breakStorage) => {
     browserLanguages(["zh-CN"]);
     breakStorage();
-    // useStorage reports the errors it catches on the console.
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error");
 
     expect(detectLocale()).toBe("zh-CN");
     const { select, i18n } = mountSelect();
@@ -98,6 +97,8 @@ describe("storage that throws", () => {
     await flushPromises();
     expect(i18n.global.locale.value).toBe("en");
     expect(document.documentElement.lang).toBe("en");
+    // Blocked storage only loses the memory: nothing for the console.
+    expect(error).not.toHaveBeenCalled();
   });
 });
 

@@ -21,10 +21,11 @@
 //   the step expects: the 409 of the stale upload, the 404 of the unknown target), no uncaught
 //   exception and no securitypolicyviolation event.
 //
-// Then the overview at 390 px must not scroll sideways. With SCREENSHOT_DIR, full-page PNGs go
-// there: <page>-<locale>-<theme>.png at 1280×900 for overview, certificate (+ -extensions), crl
-// (+ -revoked) and upload, and overview-en-light-390.png. Prints one line per check, exits 1 if
-// any failed (2 on usage errors).
+// Then at 390 px (en, light): the overview, every tab of the certificate and the CRL page must not
+// scroll sideways, and every status badge of the overview tables must be in view. With
+// SCREENSHOT_DIR, full-page PNGs go there: <page>-<locale>-<theme>.png at 1280×900 for overview,
+// certificate (+ -extensions), crl (+ -revoked) and upload, and overview-, certificate- and
+// crl-en-light-390.png. Prints one line per check, exits 1 if any failed (2 on usage errors).
 //
 // Browser: $AIA_CHROMIUM, else the newest ~/.cache/ms-playwright/chromium_headless_shell-*
 // (`pnpm exec playwright-core install --only-shell chromium`).
@@ -53,12 +54,17 @@ interface PageAnimation {
   playState: string;
   effect: { getTiming: () => { iterations?: number } } | null;
 }
+interface PageElement {
+  getBoundingClientRect: () => { left: number; right: number };
+  closest: (selector: string) => PageElement | null;
+}
 declare const document: {
   documentElement: {
     lang: string;
     scrollWidth: number;
     classList: { contains: (name: string) => boolean };
   };
+  querySelectorAll: (selector: string) => Iterable<PageElement>;
   getAnimations: () => PageAnimation[];
   addEventListener: (
     type: "securitypolicyviolation",
@@ -598,19 +604,76 @@ async function run(browser: Browser, seed: Seed): Promise<void> {
   const tag = "en-light-390";
   const { context, watch } = await openContext(browser, "en", "light", 390);
   const page = await context.newPage();
-  await step(`${tag} overview`, async () => {
-    await overview(page, seed, "en", tag);
-    const [scrollWidth, innerWidth] = await page.evaluate(() => [
-      document.documentElement.scrollWidth,
-      window.innerWidth,
-    ]);
-    check(
-      scrollWidth <= innerWidth,
-      `${tag} no sideways page scroll (${scrollWidth} px content in ${innerWidth} px)`
-    );
-  });
+  await step(`${tag} overview`, () => phoneOverview(page, seed, tag));
+  await step(`${tag} certificate`, () =>
+    phoneDetail(page, `/certificates/${seed.issuing.id}`, `certificate-${tag}`, [
+      "[data-testid=crl-targets]",
+      "[data-slot=accordion]",
+      "[data-testid=pem-text]",
+    ])
+  );
+  await step(`${tag} CRL`, () =>
+    phoneDetail(page, `/crls/${seed.full.targetId}`, `crl-${tag}`, [
+      "[data-testid=crl-overview]",
+      "[data-testid=revoked-table]",
+      "[data-slot=accordion]",
+    ])
+  );
   reportWatch(watch, tag);
   await context.close();
+}
+
+/** [content width, viewport width] of the page. */
+async function pageWidths(page: Page): Promise<[number, number]> {
+  return page.evaluate((): [number, number] => [
+    document.documentElement.scrollWidth,
+    window.innerWidth,
+  ]);
+}
+
+async function phoneOverview(page: Page, seed: Seed, tag: string): Promise<void> {
+  await overview(page, seed, "en", tag);
+  const [scrollWidth, innerWidth] = await pageWidths(page);
+  check(
+    scrollWidth <= innerWidth,
+    `${tag} no sideways page scroll (${scrollWidth} px content in ${innerWidth} px)`
+  );
+  // The tables keep their status column on a phone (secondary columns hide below sm).
+  const [badges, cut] = await page.evaluate(() => {
+    const all = [...document.querySelectorAll("[data-slot=table-container] [data-state]")];
+    const outside = all.filter((badge) => {
+      const box = badge.closest("[data-slot=table-container]")?.getBoundingClientRect();
+      return box === undefined || badge.getBoundingClientRect().right > box.right + 1;
+    });
+    return [all.length, outside.length];
+  });
+  check(
+    badges === seed.certificates + seed.targets && cut === 0,
+    `${tag} overview: ${badges - cut} of ${badges} status badges in view without scrolling a table`
+  );
+}
+
+/** Each tab of a detail page in turn (`ready`: what each one shows) at phone width. */
+async function phoneDetail(page: Page, path: string, shot: string, ready: string[]): Promise<void> {
+  await page.goto(path);
+  // The heading comes with the page's data, and so does the first tab.
+  await page.locator("main h1").waitFor();
+  await screenshot(page, shot);
+  const widths: number[] = [];
+  let innerWidth = 0;
+  for (const [index, selector] of ready.entries()) {
+    await page.getByRole("tab").nth(index).click();
+    await page.locator(selector).first().waitFor();
+    await settle(page);
+    const [scrollWidth, viewport] = await pageWidths(page);
+    widths.push(scrollWidth);
+    innerWidth = viewport;
+  }
+  check(
+    widths.every((width) => width <= innerWidth),
+    `${shot.replace(/^\w+-/, "")} ${path}: no sideways page scroll on any tab ` +
+      `(${widths.join(" / ")} px content in ${innerWidth} px)`
+  );
 }
 
 const seed = await readSeed().catch((error: unknown) => {

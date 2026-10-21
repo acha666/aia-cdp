@@ -1,13 +1,18 @@
 // Routes of the web app (implementation slice 1, updated in slice 5b step 6): the pages each path
-// renders, the props of the lazy detail pages, and that a malformed id never becomes a request.
+// renders, the props of the lazy detail pages, that a malformed id never becomes a request, and
+// where a navigation leaves the scroll position.
 import type { QueryClient } from "@tanstack/vue-query";
+import { flushPromises } from "@vue/test-utils";
 import type { VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createMemoryHistory } from "vue-router";
+import type { RouteLocationNormalized } from "vue-router";
 import { mountApp, stubApi } from "./helpers";
 import CertificatePage from "@/pages/CertificatePage.vue";
 import CrlTargetPage from "@/pages/CrlTargetPage.vue";
 import NotFoundPage from "@/pages/NotFoundPage.vue";
 import OverviewPage from "@/pages/OverviewPage.vue";
+import { createAppRouter } from "@/router";
 import { siteName } from "@/site";
 
 const TARGET_ID = "0b7c5f2e-6d1a-4c3b-9e8f-1a2b3c4d5e6f";
@@ -25,6 +30,7 @@ beforeEach(() => {
 afterEach(() => {
   wrapper?.unmount();
   queryClient?.clear();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -95,5 +101,35 @@ describe("createAppRouter", () => {
     expect(wrapper.get('[data-testid="site-name"]').text()).toBe("Test PKI");
     expect(document.title).toBe("Overview · Test PKI");
     expect(document.documentElement.lang).toBe("en");
+  });
+});
+
+describe("scroll behaviour", () => {
+  const { scrollBehavior } = createAppRouter(createMemoryHistory()).options;
+  const at = (fullPath: string) => {
+    const url = new URL(fullPath, "http://test");
+    return { fullPath, path: url.pathname, hash: url.hash } as RouteLocationNormalized;
+  };
+  const overview = at("/");
+  const certificate = at(`/certificates/${CERTIFICATE_ID}`);
+
+  it("opens another page at its top", async () => {
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    const { router } = await mountAt("/");
+    scrollTo.mockClear();
+
+    await router.push(`/certificates/${CERTIFICATE_ID}`);
+    await flushPromises();
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 0 }));
+  });
+
+  it("restores the position of a back / forward step and goes to a fragment", () => {
+    expect(scrollBehavior).toBeDefined();
+    const saved = { left: 0, top: 640 };
+    expect(scrollBehavior!(overview, certificate, saved)).toEqual(saved);
+    expect(scrollBehavior!(certificate, overview, null)).toEqual({ top: 0 });
+    // The skip link (#main), and a query or fragment on the same page: no jump to the top.
+    expect(scrollBehavior!(at("/#main"), overview, null)).toEqual({ el: "#main" });
+    expect(scrollBehavior!(at("/?x=1"), overview, null)).toBe(false);
   });
 });

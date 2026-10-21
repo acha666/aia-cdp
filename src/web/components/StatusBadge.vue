@@ -5,7 +5,9 @@ import { Badge } from "@/components/ui/badge";
 import type { CertificateStatusState, CrlStatusState } from "@/utils/status";
 
 // worker-aia-cdp@5b570aa:src/web/components/StatusBadge.vue on the shadcn Badge: one colour per
-// state from theme tokens (success / warning / destructive / muted), so both themes follow.
+// state from theme tokens (success / warning / destructive / muted), so both themes follow, each
+// at least 4.5:1 against its background (main.css, tests/web/contrast.test.ts). Unpublished has a
+// dashed outline like the CRL page's "not published" box (muted text on a muted fill was 4.35:1).
 type State = CertificateStatusState | CrlStatusState;
 
 const SUCCESS = "border-transparent bg-success/10 text-success dark:bg-success/20";
@@ -22,7 +24,7 @@ const statusVariants = cva("", {
       "not-yet-valid": WARNING,
       expired: DESTRUCTIVE,
       unknown: "text-muted-foreground",
-      unpublished: "border-transparent bg-muted text-muted-foreground",
+      unpublished: "border-dashed text-muted-foreground",
     } satisfies Record<State, string>,
   },
 });

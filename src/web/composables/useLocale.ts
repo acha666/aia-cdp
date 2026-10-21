@@ -8,12 +8,14 @@ import type { AppLocale } from "@/i18n";
  * The UI language as a writable ref (implementation slice 5b step 8; rewrite of
  * worker-aia-cdp@5b570aa:src/web/composables/useLocale.ts). Setting it switches vue-i18n's global
  * locale (i18n.ts mirrors it to <html lang>) and remembers the choice under locale-preference;
- * useStorage catches every storage error, so blocked storage only loses the memory. A choice made
- * in another tab (storage event) applies here too.
+ * useStorage catches every storage error, so blocked storage only loses the memory (and is not
+ * worth a console error). A choice made in another tab (storage event) applies here too.
  */
 export function useLocale() {
   const { locale } = useI18n({ useScope: "global" });
-  const stored = useStorage<string | null>(LOCALE_STORAGE_KEY, null);
+  const stored = useStorage<string | null>(LOCALE_STORAGE_KEY, null, undefined, {
+    onError: () => undefined,
+  });
 
   watch(stored, (value) => {
     const next = value === null ? null : normalizeLocale(value);

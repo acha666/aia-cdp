@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import { CheckIcon, CopyIcon } from "@lucide/vue";
 import { useQuery } from "@tanstack/vue-query";
-import { useClipboard } from "@vueuse/core";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { toast } from "vue-sonner";
 import { ApiError, apiFetch } from "@/client/errors";
 import QueryError from "@/components/QueryError.vue";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useCopy } from "@/composables/useCopy";
 
 // The PEM text served at one of the resource's download paths, with a copy button (the raw tab of
 // a certificate, implementation slice 5b step 6). The path comes from the API's `downloads`; the
@@ -30,16 +29,8 @@ const pem = useQuery({
   },
 });
 
-const { copy, copied } = useClipboard({ legacy: true });
+const { copy, copied } = useCopy();
 const copyLabel = computed(() => (copied.value ? t("common.copied") : t("common.copy")));
-
-async function copyText() {
-  try {
-    await copy(pem.data.value ?? "");
-  } catch {
-    toast.error(t("common.copyFailed"));
-  }
-}
 </script>
 
 <template>
@@ -57,7 +48,7 @@ async function copyText() {
       size="xs"
       class="absolute top-2 right-2"
       :aria-label="copyLabel"
-      @click="copyText"
+      @click="copy(pem.data.value ?? '')"
     >
       <CheckIcon v-if="copied" data-icon="inline-start" />
       <CopyIcon v-else data-icon="inline-start" />

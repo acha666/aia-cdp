@@ -359,7 +359,8 @@
       "toggle": "Upload token",
       "set": "set",
       "label": "Upload token (AIA_UPLOAD_TOKEN)",
-      "hint": "Only needed when the server sets AIA_UPLOAD_TOKEN. Kept in this page's memory only and sent with uploads."
+      "hint": "Only needed when the server sets AIA_UPLOAD_TOKEN. Kept in this page's memory only and sent with uploads.",
+      "invalid": "The upload token may only contain letters, digits and - . _ ~ + /, optionally followed by = signs."
     }
   }
 }
