@@ -429,7 +429,8 @@ describe("scripts/seed-dev.ts against node src/runtime/node.ts", { timeout: TIME
     expect(first.stderr).toBe("");
     expect(first.code).toBe(0);
     expect(first.stdout).toMatch(/3 created, 0 unchanged, 0 failed\n/);
-    expect(first.stdout).toMatch(/\napplied <seed-dev config> \(ETag "[0-9a-f]{64}"\)\n$/);
+    expect(first.stdout).toMatch(/\napplied <seed-dev config> \(ETag "[0-9a-f]{64}"\)\n/);
+    expect(first.stdout).toMatch(/\n4 created, 0 updated, 0 unchanged, 0 failed\n$/);
     const config = JSON.parse(await readFile(join(dataDir, "config.json"), "utf8")) as Config;
     expect(Object.keys(config.paths).sort()).toEqual([
       "/ca/issuing-ca-1.crt",
@@ -442,12 +443,23 @@ describe("scripts/seed-dev.ts against node src/runtime/node.ts", { timeout: TIME
       "/dcrl/issuing-ca-2.crl",
     ]);
     expect(Object.keys(config.targets)).toHaveLength(5);
+    // Every target has its CRL but issuing-ca-2's delta, which scripts/ui-smoke.ts uploads.
+    const targets = (await (await fetch(`${env.AIA_URL}/api/v1/crls`)).json()) as {
+      kind: string;
+      issuer: { id: string };
+      current: unknown;
+    }[];
+    const unpublished = targets.filter((target) => target.current === null);
+    expect(unpublished).toMatchObject([
+      { kind: "delta", issuer: { id: cert("issuing-ca-2").sha256 } },
+    ]);
 
     const before = await readFile(join(dataDir, "config.json"));
     const second = await runNode(SEED, [], env);
     expect(second.code).toBe(0);
     expect(second.stdout).toMatch(/0 created, 3 unchanged, 0 failed\n/);
     expect(second.stdout).toMatch(/config\.json exists, not applied/);
+    expect(second.stdout).toMatch(/\n0 created, 0 updated, 4 unchanged, 0 failed\n$/);
     expect(await readFile(join(dataDir, "config.json"))).toEqual(before);
 
     expect(await runNode(CLI, ["health"], env)).toMatchObject({ code: 0 });
