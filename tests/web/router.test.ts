@@ -73,6 +73,20 @@ describe("createAppRouter", () => {
     expect(page.props("id")).toBe(CERTIFICATE_ID);
   });
 
+  it.each([
+    ["an uppercase certificate id", `/certificates/${CERTIFICATE_ID.toUpperCase()}`],
+    ["a short certificate id", `/certificates/${CERTIFICATE_ID.slice(1)}`],
+    ["a path in the id", "/certificates/..%2Fstats"],
+    ["a target id that is no UUID", "/crls/not-a-uuid"],
+    ["an uppercase target id", `/crls/${TARGET_ID.toUpperCase()}`],
+    ["a nested target path", `/crls/${TARGET_ID}/extra`],
+  ])("renders NotFoundPage for %s", async (_, path) => {
+    const { router, wrapper } = await mountAt(path);
+
+    expect(router.currentRoute.value.name).toBe("not-found");
+    expect(wrapper.findComponent(NotFoundPage).exists()).toBe(true);
+  });
+
   it("renders NotFoundPage for an unknown path", async () => {
     const { router, wrapper } = await mountAt("/nope");
 

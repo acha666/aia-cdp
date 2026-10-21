@@ -3,20 +3,29 @@ import type { RouteRecordRaw, RouterHistory } from "vue-router";
 import NotFoundPage from "@/pages/NotFoundPage.vue";
 import OverviewPage from "@/pages/OverviewPage.vue";
 
+// Detail routes only match well-formed ids in the lowercase form the API sends (`sensitive`: the
+// router ignores case by default): a certificate id is the SHA-256 of the DER, a target id a UUID.
+// Anything else is NotFoundPage and never reaches a fetch (plan §10 #2): hono/client puts path
+// parameters into the URL unencoded, so `../stats` would otherwise request /api/v1/stats.
+const CERTIFICATE_ID = "[0-9a-f]{64}";
+const TARGET_ID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
 const routes: RouteRecordRaw[] = [
   { path: "/", name: "overview", component: OverviewPage },
   // Detail pages are lazy-loaded (their own chunks); route params arrive as props.
   {
-    path: "/certificates/:id",
+    path: `/certificates/:id(${CERTIFICATE_ID})`,
     name: "certificate",
     component: () => import("@/pages/CertificatePage.vue"),
     props: true,
+    sensitive: true,
   },
   {
-    path: "/crls/:targetId",
+    path: `/crls/:targetId(${TARGET_ID})`,
     name: "crl",
     component: () => import("@/pages/CrlPage.vue"),
     props: true,
+    sensitive: true,
   },
   { path: "/:pathMatch(.*)*", name: "not-found", component: NotFoundPage },
 ];
