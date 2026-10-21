@@ -7,6 +7,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { methodNotAllowed } from "hono/method-not-allowed";
 import { secureHeaders } from "hono/secure-headers";
+import { CONTENT_SECURITY_POLICY } from "./csp.ts";
 import { createErrorHandler, onMethodNotAllowed, validationHook } from "./errors.ts";
 import { createLogger, requestLog } from "./log.ts";
 import { adminRoutes } from "./routes/admin.ts";
@@ -44,7 +45,14 @@ export function createApp(deps: AppDeps) {
   // Order (plan §7.3): secureHeaders → request log → methodNotAllowed → (admin: token check,
   // bearerAuth, bodyLimit in routes/admin.ts; CRL upload: optional bearerAuth, media type gate,
   // bodyLimit as route middleware in routes/crls.ts) → routes.
-  app.use(secureHeaders({ strictTransportSecurity: false }));
+  // secureHeaders covers every response, the UI's too (ui.ts copies the deps.ui answer first); its
+  // CSP is the UI's (csp.ts) and changes nothing for JSON or downloads.
+  app.use(
+    secureHeaders({
+      strictTransportSecurity: false,
+      contentSecurityPolicy: CONTENT_SECURITY_POLICY,
+    })
+  );
   app.use(requestLog(deps, log));
   app.use(methodNotAllowed({ app, onMethodNotAllowed }));
 

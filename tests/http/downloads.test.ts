@@ -11,7 +11,7 @@ import type { PemBlockMarkers } from "../../src/core/pki/pem.ts";
 import { createApp } from "../../src/http/app.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { fixture, manifest } from "../fixtures/pki.ts";
-import { logRecords, patchStore, putText, testDeps } from "../helpers/app.ts";
+import { CSP_HEADER, logRecords, patchStore, putText, testDeps } from "../helpers/app.ts";
 import type { LogLine } from "../helpers/app.ts";
 import { cert, putConfig } from "../helpers/catalog.ts";
 import { DOWNLOAD_PATHS, SEED_CRLS, seedDownloads } from "../helpers/seed-downloads.ts";
@@ -26,8 +26,9 @@ const INDEX_HTML = "<!doctype html><title>UI</title>";
 const IMMUTABLE = "public, max-age=31536000, immutable";
 const DOCUMENT_KEYS = [CATALOG_KEY, CONFIG_KEY].sort();
 
-/** Hono's secureHeaders defaults without HSTS (B8): on every response. */
+/** Hono's secureHeaders defaults without HSTS (B8), and the UI's CSP: on every response. */
 const SECURE_HEADERS = {
+  "content-security-policy": CSP_HEADER,
   "cross-origin-opener-policy": "same-origin",
   "cross-origin-resource-policy": "same-origin",
   "origin-agent-cluster": "?1",

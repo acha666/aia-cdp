@@ -3,6 +3,73 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * State variants the nova components use (data-open:, data-active:, group-data-horizontal/tabs:
+ * ...). shadcn-vue@2.8.2 ships them in its own package (shadcn-vue/tailwind.css), which neither
+ * init nor add imports; without them Tailwind's built-in data-* variants match attributes Reka UI
+ * never sets ([data-open] instead of [data-state="open"]), so tabs lose their layout and active
+ * state. Copied verbatim from that file; the accordion keyframes come from tw-animate-css.
+ */
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-checked {
+  &:where([data-state="checked"]),
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-unchecked {
+  &:where([data-state="unchecked"]),
+  &:where([data-unchecked]:not([data-unchecked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-selected {
+  &:where([data-selected="true"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-active {
+  &:where([data-state="active"]),
+  &:where([data-active]:not([data-active="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
+  }
+}
+
 @theme inline {
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -22,6 +89,8 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -58,7 +127,14 @@
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  /*
+   * --destructive (darker than shadcn's 0.577 0.245 27.325) and the app's status colours --success
+   * and --warning are badge text on a 10 % tint of themselves (dark theme: 20 %) over the page, a
+   * card or a hovered table row: at least 4.5:1 there in both themes (tests/web/contrast.test.ts).
+   */
+  --destructive: oklch(0.53 0.22 27.4);
+  --success: oklch(0.49 0.14 150.5);
+  --warning: oklch(0.51 0.15 47);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -92,7 +168,10 @@
   --muted-foreground: oklch(0.708 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
+  /* Lighter than shadcn's 0.704 0.191 22.216 for the same 4.5:1 (see :root). */
+  --destructive: oklch(0.74 0.15 22);
+  --success: oklch(0.792 0.209 151.711);
+  --warning: oklch(0.828 0.189 84.429);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);

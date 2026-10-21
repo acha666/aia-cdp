@@ -1,6 +1,6 @@
 # aia-cdp 实施计划：总则与索引
 
-状态：切片 1–5a 已完成（切片 1 = `main` 的 `0b391cc`；切片 2、3、4、5a 见 `main` 上的 `Merge slice/2-catalog-import`、`Merge slice/3-downloads`、`Merge slice/4-publish`、`Merge slice/5a-api`），下一个是切片 5b。owner 决策 D1–D12 已定，B1–B22 是规划默认值、可推翻（§0）；各切片未决事项列在
+状态：切片 1–5b 已完成（切片 1 = `main` 的 `0b391cc`；切片 2、3、4、5a、5b 见 `main` 上的 `Merge slice/2-catalog-import`、`Merge slice/3-downloads`、`Merge slice/4-publish`、`Merge slice/5a-api`、`Merge slice/5b-ui`），下一个是切片 6。owner 决策 D1–D12 已定，B1–B22 是规划默认值、可推翻（§0）；各切片未决事项列在
 该切片的"开工前需 owner 确认"，汇总见附录 C。设计文档是 `docs/plan.md`；二者冲突时以本目录为准，并在同一分支回写 plan.md。
 
 | 文件 | 内容 |
@@ -58,7 +58,7 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | B5 | `wrangler types --env-file=/dev/null` 生成的 `worker-configuration.d.ts` 不入库，`pnpm run types` 在 check / typecheck / lint 前重生成；ESLint、Prettier 排除它 | 切片 1 步骤 1、12 |
 | B6 | wrangler：`name: "aia-cdp"`（绝不用旧名 `aia-cdp-worker`）、`compatibility_date: "2026-10-12"`、无兼容标志、logs、`minify`、source maps、`STORE` 不写 `bucket_name`（共用旧桶与否是切片 7 的 owner 项）、assets `run_worker_first` + SPA；令牌是可选 secret；脚本关遥测；dry-run 前先建 `dist/web` | 切片 1 步骤 5、12 |
 | B7 | `createApp({ store, now, settings, clientIpHeader, log, sleep?, ui? })`（`sleep` 是 catalog 条件写重试的退避，测试注入，缺省用真实计时器）；保留前缀 `/api/`、`/ca/`、`/crl/`、`/dcrl/` 不进 UI 兜底（API JSON 404、下载纯文本 404）；末段带扩展名的路径不兜底；UI 缓存头由 app 设置（先复制 ASSETS 响应）；405 用 `hono/method-not-allowed`；不注册 `app.get("*")`；路由在首个请求前注册完 | 切片 1 步骤 4 |
-| B8 | `secureHeaders({ strictTransportSecurity: false })`，其余默认；CSP 由切片 5b 定 | 切片 1 步骤 4、切片 5b 步骤 10 |
+| B8 | `secureHeaders({ strictTransportSecurity: false })`，其余默认；切片 5b 加 UI 的 `contentSecurityPolicy`（`src/http/csp.ts`，预绘制脚本按 hash 放行，无 `'unsafe-inline'`） | 切片 1 步骤 4、切片 5b 步骤 10 |
 | B9 | 下载不用 `hono/etag`，手写 `If-None-Match`（列表、`W/`、`*`）且先于读 blob；显式 `Content-Length`；`bearerAuth` 对畸形头回 400，进管理与上传的状态表 | 切片 3 步骤 3–4、切片 2 步骤 8、切片 4 步骤 8 |
 | B10 | health：`{ status, checks: { store, configuration } }`；store 抛错 → 503 `unhealthy`；config 缺失 / 无效 → 200 `degraded`；`no-store`；切片 2 升级为完整 schema 校验 | 切片 1 步骤 4、切片 2 步骤 7 |
 | B11 | OpenAPI 文档运行时从路由表生成并按进程 / isolate 缓存，`GET /api/v1/openapi.json` `max-age=300`；`scripts/generate-openapi.ts` 写入提交的 `docs/openapi.json`，`--check` 查漂移；`src` 不导入该文件 | 切片 1 步骤 8 |

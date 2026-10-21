@@ -69,6 +69,9 @@ importers:
       jiti:
         specifier: 2.7.0
         version: 2.7.0
+      playwright-core:
+        specifier: 1.64.1
+        version: 1.64.1
       prettier:
         specifier: 3.9.10
         version: 3.9.10
@@ -105,6 +108,9 @@ importers:
       vue-router:
         specifier: 5.4.0
         version: 5.4.0(@vue/compiler-sfc@3.5.44)(esbuild@0.28.2)(rolldown@1.2.14)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))(vue@3.5.44(typescript@5.9.3))
+      vue-sonner:
+        specifier: 2.0.9
+        version: 2.0.9
       vue-tsc:
         specifier: 3.3.13
         version: 3.3.13(typescript@5.9.3)
@@ -1743,6 +1749,11 @@ packages:
     resolution: {integrity: sha512-Oo/NZcSWccq8KyoG7gLE9fnltgHns+pNCjCAp/WmjsUySi+sX7y4z4Xqu4fVb42CDHzRPl33fjzT15V1wvcyhA==}
     engines: {node: '>=16.0.0'}
 
+  playwright-core@1.64.1:
+    resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   postcss-selector-parser@7.1.6:
     resolution: {integrity: sha512-7qASPzhKF2l2KLboRZux8CCTRMdGiV08vWmyKzPz22qZ7ZjQBOeY7rNzNoCLSUiftJ7HUq0GERHmxw/t0dCdMw==}
     engines: {node: '>=4'}
@@ -2069,6 +2080,20 @@ packages:
       pinia:
         optional: true
       vite:
+        optional: true
+
+  vue-sonner@2.0.9:
+    resolution: {integrity: sha512-i6BokNlNDL93fpzNxN/LZSn6D6MzlO+i3qXt6iVZne3x1k7R46d5HlFB4P8tYydhgqOrRbIZEsnRd3kG7qGXyw==}
+    peerDependencies:
+      '@nuxt/kit': ^4.0.3
+      '@nuxt/schema': ^4.0.3
+      nuxt: ^4.0.3
+    peerDependenciesMeta:
+      '@nuxt/kit':
+        optional: true
+      '@nuxt/schema':
+        optional: true
+      nuxt:
         optional: true
 
   vue-tsc@3.3.13:
@@ -3592,6 +3617,8 @@ snapshots:
       pvutils: 1.2.0
       tslib: 2.8.1
 
+  playwright-core@1.64.1: {}
+
   postcss-selector-parser@7.1.6:
     dependencies:
       cssesc: 3.0.0
@@ -3875,6 +3902,8 @@ snapshots:
       - rollup
       - unloader
       - webpack
+
+  vue-sonner@2.0.9: {}
 
   vue-tsc@3.3.13(typescript@5.9.3):
     dependencies:

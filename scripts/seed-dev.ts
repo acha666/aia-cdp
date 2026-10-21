@@ -2,10 +2,14 @@
 // Seeds a development server through the CLI's main (src/cli/aia.ts): imports the root and both
 // issuing CA certificates of tests/fixtures/pki, then, unless a configuration exists, applies one
 // with fresh target ids that serves them under /ca/<name>.crt, /crl/<name>.crl and
-// /dcrl/issuing-ca-{1,2}.crl. Idempotent: a second run reports every certificate unchanged and
-// leaves the configuration alone (pnpm run reset:dev starts over). CRLs come with slice 4.
+// /dcrl/issuing-ca-{1,2}.crl, and publishes a CRL to every target but issuing-ca-2's delta (CRLS),
+// which stays unpublished: the UI shows that state, and scripts/ui-smoke.ts uploads its CRL.
+// Idempotent: a second run reports every certificate and CRL unchanged and leaves the
+// configuration alone (pnpm run reset:dev starts over).
 //
 //   AIA_URL=http://127.0.0.1:8787 AIA_ADMIN_TOKEN=dev-admin-token pnpm run seed:dev
+//
+// The CRLs go up with the upload token when AIA_UPLOAD_TOKEN is set (the CLI's publish).
 //
 // Rewrite of worker-aia-cdp@5b570aa:scripts/seed-dev.sh, which wrote R2 objects directly.
 import process from "node:process";
@@ -20,6 +24,17 @@ interface Ca {
   /** Also gets a delta CRL target and a /dcrl/ path. */
   delta: boolean;
 }
+
+/**
+ * One CRL per target but issuing-ca-2's delta: the root's OpenSSL-style CRL (no Next CRL Publish)
+ * and issuing-ca-1's AD CS-style pair with two revocations.
+ */
+const CRLS = [
+  "crls/root-ca/full-01.der",
+  "crls/issuing-ca-1/full-adcs.der",
+  "crls/issuing-ca-1/delta-adcs.der",
+  "crls/issuing-ca-2/full-01.der",
+];
 
 const CAS: Ca[] = [
   { name: "root-ca", label: "Example Root CA", delta: false },
@@ -81,27 +96,33 @@ async function seed(): Promise<number> {
   });
   if (show === 0) {
     process.stdout.write("seed-dev: config.json exists, not applied (pnpm run reset:dev)\n");
-    return 0;
-  }
-  let missing: boolean;
-  try {
-    missing = (JSON.parse(shown) as { config?: unknown }).config === null;
-  } catch {
-    missing = false;
-  }
-  if (!missing) {
-    process.stderr.write(complaint);
-    return show;
+  } else {
+    let missing: boolean;
+    try {
+      missing = (JSON.parse(shown) as { config?: unknown }).config === null;
+    } catch {
+      missing = false;
+    }
+    if (!missing) {
+      process.stderr.write(complaint);
+      return show;
+    }
+
+    // Applied through the CLI as a file would be; the generated document never touches the disk.
+    const generated = "<seed-dev config>";
+    const bytes = encodeJson(seedConfig());
+    process.stdout.write("seed-dev: applying a configuration\n");
+    const applied = await main(["config", "apply", generated], {
+      ...io,
+      readFile: (path) => (path === generated ? Promise.resolve(bytes) : io.readFile(path)),
+    });
+    if (applied !== 0) {
+      return applied;
+    }
   }
 
-  // Applied through the CLI as a file would be; the generated document never touches the disk.
-  const generated = "<seed-dev config>";
-  const bytes = encodeJson(seedConfig());
-  process.stdout.write("seed-dev: applying a configuration\n");
-  return main(["config", "apply", generated], {
-    ...io,
-    readFile: (path) => (path === generated ? Promise.resolve(bytes) : io.readFile(path)),
-  });
+  process.stdout.write("seed-dev: publishing CRLs\n");
+  return main(["publish", ...CRLS.map((file) => fixturePath(file))], io);
 }
 
 process.exitCode = await seed();

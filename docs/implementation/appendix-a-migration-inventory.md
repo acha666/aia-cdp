@@ -71,7 +71,7 @@
 | `tests/worker/api-stats.test.ts` | rewrite | tests/http/stats.test.ts | 5a |
 | `tests/worker/json-response.test.ts` | drop | — | 1 |
 | `docs/api-design-v2.md` | reference-only | docs/api.md (slice 6) | 6 |
-| `src/web/index.html` | migrate-adapt | src/web/index.html | 1 |
+| `src/web/index.html` | migrate-adapt | src/web/index.html（切片 5b 加预绘制主题脚本，CSP 按 hash 放行） | 1,5b |
 | `src/web/public/favicon.svg` | migrate-as-is | src/web/public/favicon.svg | 1 |
 | `src/web/public/favicon.ico` | migrate-as-is | src/web/public/favicon.ico | 1 |
 | `src/web/env.d.ts` | migrate-adapt | src/web/env.d.ts | 1 |
@@ -86,7 +86,7 @@
 | `src/web/api/pagination.ts` | drop | — | none |
 | `src/web/utils/status.ts` | migrate-adapt | src/web/utils/status.ts | 5b |
 | `src/web/utils/dates.ts` | migrate-adapt | src/web/utils/dates.ts | 5b |
-| `src/web/utils/format.ts` | migrate-adapt | src/web/utils/format.ts | 5b |
+| `src/web/utils/format.ts` | migrate-adapt | src/web/utils/format.ts（`copyToClipboard` → src/web/utils/clipboard.ts，检查 `execCommand` 的结果） | 5b |
 | `src/web/utils/x509.ts` | migrate-adapt | src/web/utils/x509.ts | 5b |
 | `src/web/composables/useCrlUploadInput.ts` | migrate-as-is | src/web/composables/useCrlUploadInput.ts | 5b |
 | `src/web/composables/useLocale.ts` | rewrite | src/web/composables/useLocale.ts | 5b |
@@ -145,7 +145,7 @@
 | `.github/dependabot.yml` | migrate-adapt | .github/dependabot.yml | 1 |
 | `.devcontainer/devcontainer.json` | rewrite（D10：Node 24 镜像、PowerShell feature、非 root、无 act） | .devcontainer/devcontainer.json | 1 |
 | `scripts/generate-test-data.sh` | rewrite | tests/fixtures/generate-test-data.sh（fixtures spike 成品 + `leaf-min` 修改；用例矩阵见附录 D） | 1 |
-| `scripts/seed-dev.sh` | rewrite | scripts/seed-dev.ts | 2 |
+| `scripts/seed-dev.sh` | rewrite | scripts/seed-dev.ts（切片 5b 补上 CRL 发布） | 2,5b |
 | `scripts/reset-dev.sh` | drop | — | 2 |
 | `scripts/adcs-crl-uploader.ps1` | rewrite | scripts/adcs-crl-uploader.ps1 | 4 |
 | `scripts/generate-docs-index.ts` | drop | — | none |

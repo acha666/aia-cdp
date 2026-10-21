@@ -119,6 +119,8 @@ export default defineConfig(
     rules: {
       // Button.vue: optional variant / size / class props without defaults (undefined is intended).
       "vue/require-default-prop": "off",
+      // Input.vue, Textarea.vue: `defineEmits<{ (e: "update:modelValue", …): void }>()`.
+      "@typescript-eslint/prefer-function-type": "off",
     },
   }
 );

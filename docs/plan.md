@@ -71,9 +71,9 @@
 | PKI           | `pkijs` + `asn1js`                              | 3.4.1 / 3.1.0                     | 现有解析、扩展、验签、构建器迁入（切片 2 起）                                                  |
 | 前端          | `vue`、`vue-router`、`@tanstack/vue-query`、`vue-i18n` | 3.5.44 / 5.4.0 / 5.104.4 / 11.4.16 | vue-router 与 vue-query 新增，Pinia 退出（决策 5）                                     |
 | 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.4 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8 相对旧项目是大版本（Rolldown、默认 oxc 压缩）；`vue-tsc` 检查 `tsconfig.web.json` |
-| UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.59.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`（切片 5b）；`@tanstack/vue-table` 不随 shadcn Table 安装，切片 5b 需要时才加；备选 Naive UI 2.45（review §3.2） |
-| 前端工具      | `@vueuse/core`                                   | 14.4.0                            | 与 reka-ui 2.11.0 依赖的 `^14.1.0` 同一份（装 15 会出现两份）；`useColorMode`、`useNow`（统一时钟快照）、`useClipboard`、`useStorage` |
-| 测试          | `vitest`、`@vue/test-utils`、`happy-dom`        | 5.0.5 / 2.5.1 / 21.0.3            | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`；夹具由脚本生成后入库，vitest `globalSetup` 校验（§11） |
+| UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.59.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`（切片 5b）；`@tanstack/vue-table` 不随 shadcn Table 安装，切片 5b 也没用上（吊销列表分页只是 `slice()`）；备选 Naive UI 2.45（review §3.2） |
+| 前端工具      | `@vueuse/core`                                   | 14.4.0                            | 与 reka-ui 2.11.0 依赖的 `^14.1.0` 同一份（装 15 会出现两份）；`useColorMode`、`useNow`（统一时钟快照）、`useStorage`；复制不用 `useClipboard`（其 `execCommand` 退路失败也报成功，见切片 5b 步骤 4） |
+| 测试          | `vitest`、`@vue/test-utils`、`happy-dom`、`playwright-core` | 5.0.5 / 2.5.1 / 21.0.3 / 1.64.1 | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`；夹具由脚本生成后入库，vitest `globalSetup` 校验（§11）；`playwright-core` 只给浏览器冒烟（切片 5b，不进 CI，浏览器另装） |
 | Cloudflare    | `wrangler`                                      | 4.151.1（精确锁定）               | `wrangler types` 生成绑定类型 `worker-configuration.d.ts`（不入库）；不装 `@cloudflare/workers-types`；`compatibility_date` 随 wrangler 一起升 |
 | CLI           | `node:util` `parseArgs` + `fetch`               | 内置                              | 零依赖                                                                                         |
 | 后续          | `@aws-sdk/client-s3`                            | 3.1152.0                          | S3 适配器切片，仅进 Node bundle                                                                |
@@ -239,6 +239,7 @@ Node 写 stdout，Workers 用 `console.log`（Workers Logs 自动收集）。不
 - 保留前缀后须是 `/` 或路径结尾（`^/api(?:/|$)`、`^/(?:ca|crl|dcrl)(?:/|$)`）：`/crls/`、`/certificates/` 是 UI 路由，不是下载前缀；
   不带斜杠的 `/ca`、`/crl`、`/dcrl` 是下载路由（`/ca/*` 也匹配它，切片 3），GET / HEAD 纯文本 404、其他方法纯文本 405。匹配用规范化路径
   （`%2F` 解码、连续 `/` 合并），`//api/…`、`/api%2Fv1/…`、`/crl%2f…`、`//ca` 同样不进 UI；路由仍看原始路径。
+- `secureHeaders`（§6，含 §8 的 CSP）由应用加在全部响应上，UI 响应也一样（先复制 ui 返回的响应），两条运行时的头相同。
 - UI 缓存头由应用设置：`/assets/` 下最后一段带扩展名、非 HTML、状态 200 / 206 / 304 的哈希资源 → `public, max-age=31536000, immutable`，
   其余 UI 响应（`index.html`、SPA 兜底、ui 的错误状态）→ `no-cache`。先复制 ui 返回的响应再改头（workerd 绑定响应的头不可变）。
 - 不注册 `app.get("*")`（会让未知路径的 POST 全变 405）；全部路由在 `createApp` 内、首个请求前注册完（SmartRouter 首个请求后冻结）。
@@ -466,7 +467,8 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
   `openapi.json` `max-age=300`；UI 哈希资源 `immutable`，`index.html` `no-cache`（两条运行时都由应用设置，§4.4）。
 - 安全头：`secureHeaders({ strictTransportSecurity: false })`，其余 Hono 默认（`X-Content-Type-Options: nosniff`、
   `X-Frame-Options: SAMEORIGIN`、`Cross-Origin-Resource-Policy: same-origin` 等）落在全部响应上。不发 HSTS：应用不知道自己是否
-  在 TLS 之后，AIA/CDP 下载按设计走明文 HTTP，HSTS 留给 Cloudflare / 反向代理决定。CSP 由切片 5b 定。
+  在 TLS 之后，AIA/CDP 下载按设计走明文 HTTP，HSTS 留给 Cloudflare / 反向代理决定。另加 UI 的 `Content-Security-Policy`（§8，切片 5b），
+  同样落在全部响应上，对 JSON 与下载没有作用。
 - 退役：删路径即 404；`retire` 清空目标 current（先写其 history 标记）并保留历史 blob；被引用的证书不可删除。
   默认退役是终态，该 UUID 不再接受上传，恢复发布用新 UUID（implementation 切片 6 开工前需 owner 确认第 1 项）。
 - 上传安全：`bodyLimit` 永远开；可选 `AIA_UPLOAD_TOKEN`；Node 部署的限速交给反向代理，
@@ -574,25 +576,37 @@ apply 时判定，以服务端为准。参数解析用 `parseArgs`，输出为�
 owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-18.md` §3）：不再整体迁入旧
 `src/web`，而是在同一技术线（Vue 3 + Tailwind 4）上用组件库重建；旧代码只迁移纯逻辑与测试。
 
-- 基座：`vue-router`（history 模式）；`@tanstack/vue-query`（列表 / 详情 `useQuery`，上传
-  `useMutation` 后 `invalidateQueries`，`staleTime: 0`）；shadcn-vue 生成的组件（Reka UI 原语，`--style nova`、
+- 基座：`vue-router`（history 模式）；`@tanstack/vue-query`（列表 / 详情 `useQuery`，`staleTime: 0`，4xx 不重试、5xx 与网络失败重试一次；
+  上传 `useMutation` 成功后先 `cancelQueries` 再全量 `invalidateQueries`）；shadcn-vue 生成的组件（Reka UI 原语，`--style nova`、
   base color `neutral`，源码在 `src/web/components/ui/`，生成代码用 `cn`）；`@vueuse/core`（`useColorMode`、`useNow`、
-  `useClipboard`、`useStorage`）；`vue-sonner`（上传结果 toast，`src/web/main.ts` 需 `import "vue-sonner/style.css"`）；
+  `useStorage`；复制走 `src/web/utils/clipboard.ts`：Clipboard API，退回 `execCommand("copy")` 并检查其结果，都不行给 toast）；
+  `vue-sonner`（上传结果与复制失败的 toast，顶部居中，`src/web/main.ts` 需 `import "vue-sonner/style.css"`）；
   `@lucide/vue`（取代已弃用的 `lucide-vue-next`）；`tw-animate-css`。Pinia 退出：服务端数据归 vue-query，UI 偏好归 `useStorage`。
   浏览器包全部是 devDependencies（§2）。
-- 路由：`/`（总览）、`/certificates/:id`、`/crls/:targetId`。未知 UI 路径由 §4.4 的 UI 兜底返回应用（Workers
-  `not_found_handling: "single-page-application"`，Node 回退 `index.html`）；保留前缀与末段带扩展名的路径不兜底。
-- 总览：统计条（证书数、目标数、已发布、即将过期——推荐默认改为"需关注"；时间相关数由客户端按徽标同一时钟算，stats 不含时间字段，
-  阈值与"需关注"口径见 implementation 切片 5b 开工前需 owner 确认第 2 项）；证书表（CN、签发者、有效期、状态徽标、
-  DER/PEM 下载）；CRL 目标表（标签、full/delta、CRL 号、thisUpdate / nextUpdate、状态、下载，
-  未发布显示"未发布"）；上传卡片（拖放 + PEM 粘贴；created / updated / unchanged 各有文案，
-  错误按 `error.code` 映射 i18n，toast + 行内 Alert）。
-- 详情：Tabs = 概览（DN 表含 `rfc4514`、有效期、公钥与签名算法含参数、指纹）、扩展（Accordion；
-  每个解析结果映射为 render block：rows / tags / general names / distribution points / access /
-  policies / subtrees；未识别或解码失败显示 ASN.1 结构 dump 与原始 hex）、吊销列表（表格：
-  序列号、吊销时间、原因、失效起始、间接签发者；`revokedCount` 非空，未发布目标（`current: null`）显示"未发布"而不是 0
-  或"未知"，0 条显示空状态；
-  > 200 行分页，默认只是 `slice()`；`@tanstack/vue-table` 不随 shadcn Table 安装，切片 5b 真需要时再加）。
+- 路由：`/`（总览）、`/certificates/:id`（小写 64 位 hex）、`/crls/:targetId`（小写 UUID），区分大小写；其余路径与格式不符的 id 进
+  NotFound 页，不发请求。详情页懒加载；`document.title` = `<页面> · <站名>`。链接打开的页面从顶部开始，前进 / 后退回到
+  原滚动位置。未知 UI 路径由 §4.4 的 UI 兜底返回应用（Workers `not_found_handling: "single-page-application"`，Node 回退
+  `index.html`）；保留前缀与末段带扩展名的路径不兜底。
+- 总览：统计条五格——证书数、CRL 目标数（full / delta）、已发布数、吊销条目（已发布 full CRL 的合计，没有时"未知"）、需关注（stale +
+  expired + unknown 的目标数，客户端按徽标的同一时钟与规则算；`/api/v1/stats` 不含时间字段）；证书表（显示名 = 标签 ?? 主体 CN、
+  签发者、有效期与剩余时间、状态、DER / PEM 下载，按显示名排序）；CRL 目标表（标签与签发者、类别徽标（证书蓝、full 紫、delta 绿）、
+  CRL 号、thisUpdate – nextUpdate、吊销数、状态、下载；未发布显示"未发布"、吊销数 "—"；按标签排序，同名 full 在前）；上传卡片
+  （拖放、选择文件或粘贴 PEM，都作为 multipart 文件字段 `crl` 发送；created / updated / unchanged 是三句成功文案，附 CRL 号与下载路径；
+  错误按 `error.code` 映射 i18n，带 `details.reason` 时附原因，toast + 行内 Alert；可选上传令牌只存内存，`unauthorized` 时自动展开）。
+  骨架屏只在首次加载显示。手机宽度（`sm` 以下）两张表只显示名称 / 标签、类别与状态，其余列在详情页。
+- 状态规则（徽标、相对时间与"需关注"共用一个 `useNow({ interval: 60_000 })` 时钟；owner 确认，implementation 切片 5b 末节第 2 项）：
+  证书 `not-yet-valid`、`valid`、`expiring`（剩余不足有效期的 10%：根 20 年 → 2 年，签发 CA 10 年 → 1 年；`now == notAfter` 仍在有效期内）、
+  `expired`；CRL 目标 `unpublished`（无 current）、`unknown`（无 nextUpdate）、`not-yet-valid`（now < thisUpdate：服务端拒收超前 5 分钟以上的
+  thisUpdate（§6），所以只在浏览器时钟落后于服务端或在那 5 分钟内出现；不计入"需关注"）、`expired`（now > nextUpdate）、`stale`（带 AD CS
+  Next CRL Publish 时 now 超过它 1 h；不带时（如离线 OpenSSL 根 CRL）thisUpdate → nextUpdate 剩余不足 20%）、否则 `current`。证书与 CRL
+  的日期缺失、无法解析或颠倒（notAfter < notBefore、nextUpdate ≤ thisUpdate）都是 `unknown`，从不显示为有效。
+- 详情：证书页 Tabs = 概览（主体 / 签发者 DN 表含 `rfc4514`、有效期、序列号、公钥摘要、签名算法含参数与 ECDSA `(r, s)`、指纹、
+  unique ID、它作为签发者的 CRL 目标链接）/ 扩展 / PEM（有 `.pem` 路径时）。CRL 目标页头 = 标签、类别、状态、签发者链接、下载；
+  Tabs = 概览（CRL 号与 base 号、thisUpdate / nextUpdate / Next CRL Publish、算法、指纹、签发者 DN）/ 吊销列表 / 扩展；未发布目标
+  （`current: null`）只有页头与"未发布"，不显示 0 或"未知"；API 404 显示"不存在"。扩展是 Accordion（关键在前）：每个解析结果映射为
+  render block（rows / tags / general names / distribution points / access / policies / subtrees），未识别或解码失败显示 ASN.1 结构 dump
+  与原始 hex。吊销列表：序列号、吊销时间、原因、失效起始、间接签发者；表头吸顶，超过 200 行按 200 行一页 `slice()` 分页，0 条显示空状态
+  （不用 `@tanstack/vue-table`）。
 - 从旧实现迁移：`utils/status.ts`、`utils/dates.ts`、`utils/format.ts`、`utils/x509.ts`、
   `useCrlUploadInput`、`ExtensionView` 的 render-block 映射、`GeneralNameList` /
   `DistributionPointList` / `Asn1Dump`，以及 `tests/web` 的状态与上传输入用例（改写为 vitest）。
@@ -603,16 +617,30 @@ owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-
   删除 `readApiResponse`、`validateResponse`、`pagination.ts`、`collectPages`。客户端目录是 `src/web/client/`：
   Vite `root: src/web` 时 dev server 会把 `src/web` 下的目录当 URL 服务，叫 `api` 会与 `/api/` 冲突（`ca`、`crl`、`dcrl` 同理）。
   web 对服务端模块只许 `import type`（`AppType`、core 的 X.509 类型），运行时只导入 `hono/client`。切片 1 的健康徽标已走这条路径。
-- 下载链接来自 API 的 `downloads`；状态徽标与相对时间共用 `useNow({ interval: 60_000 })`。
-- `SITE_NAME` 只来自 `import.meta.env.VITE_SITE_NAME`；页脚不再写 "Cloudflare Workers"。
-- i18n：`en` 与 `zh-CN`，跟随浏览器并可切换。
+- 下载链接来自 API 的 `downloads`（`.pem` 结尾标 PEM，其余 DER；多条 DER 路径时另显示文件名）；未发布目标的路径在发布前是 404，
+  不给链接（"—"）。
+- `SITE_NAME` 只来自 `import.meta.env.VITE_SITE_NAME`（页头与页面标题）；页脚是站名与 OpenAPI 文档链接，不再写 "Cloudflare Workers"。
+- i18n：`en` 与 `zh-CN`（完整翻译）；语言取存储的选择（`locale-preference`）→ 浏览器语言中第一个受支持的 → `en`，可切换并记住，
+  `<html lang>` 跟随。主题 auto / light / dark（`theme-preference`）；`index.html` 的预绘制内联脚本在首帧前按同一规则设深色类，没有亮色闪烁。
+- CSP（implementation 切片 5b 步骤 10）：`secureHeaders` 的 `contentSecurityPolicy`，同一个 app 下发，两条运行时一致：
+  `default-src 'self'; script-src 'self' 'sha256-<预绘制脚本>'; style-src 'self'; img-src 'self' data:; connect-src 'self';
+  object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'`，没有 `'unsafe-inline'` 与 `'unsafe-eval'`（组件经 CSSOM
+  设样式，vue-i18n 11 不用 eval）。hash 写在 `src/http/csp.ts`，`tests/http/csp.test.ts` 与构建插件都对照 `index.html` 重算。
+- 体积与依赖卫生：`pnpm run size:web` 逐文件 gzip `dist/web` 的 `index.html`、JS、CSS，总计预算 250 000 字节（`ci:worker` 执行）；
+  切片 5b 完成时总计 165 081 字节，首屏（`index.html`、入口 JS、CSS）145 286 字节。构建插件在 web 运行时图解析到服务端模块
+  （`src/{core,http,storage,runtime,cli}/`）或 `zod`、`@hono/zod-openapi`、`pkijs`、`asn1js`，或 `src/web` 在运行时导入 `hono/client`
+  以外的 `hono` / `@hono/*` 模块时让构建失败。
+- 浏览器冒烟：`node scripts/ui-smoke.ts <base> [截图目录]`（`playwright-core` + headless Chromium，对刚 `seed:dev` 的服务跑 en / zh-CN ×
+  亮 / 暗，要求控制台无错误、无 CSP 违规；不进 CI，是切片出口里的步骤）。
 - 构建到 `dist/web`（Vite `root: src/web`、`build.outDir` = `<repo>/dist/web`、`envDir` = 仓库根），两条运行时都从这里提供。
   dev 代理键用锚定正则 `^/(?:api|ca|crl|dcrl)/`（字符串键 `/crl` 会吞掉 SPA 路由 `/crls/`）。
 - shadcn-vue 在切片 1 初始化：`pnpm dlx shadcn-vue@2.8.2 init --base reka --style nova --icon-library lucide --base-color neutral
   --font inter --yes --no-rtl --no-pointer`（永不用 `--defaults`，它等于 `--preset nova --template nuxt`），之后删掉 `main.css` 的
   Google Fonts `@import` 与 `components.json` 的 `font` 键；`components.json`、生成文件与 lockfile 一并入库（registry 是线上的，
   重跑 `add` 可能得到不同代码），生成代码按仓库 Prettier 风格重排。web spike 用 `vega` 风格验证过 init + Vite 8 + Tailwind 4.3，
-  `nova` 在切片 1 首次生成。切片 1 只是占位页（路由占位、vue-query、`en` + `zh-CN`、主题切换、`VITE_SITE_NAME`、健康徽标）。
+  `nova` 在切片 1 首次生成。切片 1 只是占位页（路由占位、vue-query、`en` + `zh-CN`、主题切换、`VITE_SITE_NAME`、健康徽标），正式 UI 在
+  切片 5b；nova 组件的 `data-open:`、`data-active:` 等状态变体定义在 shadcn-vue 包自带的 CSS 里，CLI 不导入它，`main.css` 抄了那 9 个
+  `@custom-variant`。
 
 ## 9. AD CS 助手
 
@@ -694,11 +722,13 @@ owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-
 - Worker：`wrangler deploy --dry-run --outdir dist/worker`（先 `vite build`）；`createTestHarness` 对 dry-run 产物跑与运行时无关的
   `scripts/smoke.sh`，再经管理接口导入并应用配置，查下载的 GET / HEAD / 304 / 405（与 Node 集成测试比对同一组头）；切片 4 起经
   `POST /api/v1/crls` 在 workerd 上发布并验签（ECDSA P-384、RSA PKCS#1 v1.5、RSASSA-PSS、SHA-1）。`wrangler dev` 冒烟是切片出口里的人工步骤。
+- Web：组件与逻辑在 vitest `web` 项目（happy-dom）；`tests/http/csp.test.ts` 对照 `index.html` 查 CSP hash，
+  `tests/integration/web-build.test.ts` 在真实 `vite build` 里查服务端代码守卫与 CSP 内联脚本检查；浏览器冒烟（§8）是切片出口里的人工步骤。
 - Docker：`docker build --check`、构建镜像、启动、健康检查 `healthy` 而 API 报 `degraded`、非 root、经镜像内 CLI `aia import` 与
   `config apply` 后 health `healthy`，下载 `/ca/root-ca.crt` 及其 `.pem`（GET 体等于夹具、`ETag` 与 `Content-Length`，HEAD 同头，
   `If-None-Match` → 304），`docker stop` < 5 s。
 - CI：`.github/workflows/ci.yml` 四个任务 `check`（`pnpm run types` 后 worker / node / web 三套编译与 canary、lint、format、
-  OpenAPI 漂移）、`test`（单元 + 集成 + `smoke:node`）、`worker`（dry-run + harness 冒烟 + R2 一致性）、`docker`，每个任务只装依赖并
+  OpenAPI 漂移）、`test`（单元 + 集成 + `smoke:node`）、`worker`（`build:web` + `size:web` + dry-run + harness 冒烟 + R2 一致性）、`docker`，每个任务只装依赖并
   调用 `pnpm run ci:<job>`；`.github/dependabot.yml` 管 npm、github-actions、docker。GitHub Actions 在推送 `main` 与 PR 时运行（决策 10），本机执行的是
   同一组脚本。`pnpm verify` = check + test + build。
 
