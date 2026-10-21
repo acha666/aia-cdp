@@ -80,52 +80,70 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
    `…:src/web/components/ResourceCard.vue:44-51,76-85`：由 `downloads[]` 驱动，`.pem` 结尾标 PEM 否则 DER，`<a download>`，空列表 "—"）；
    `KeyValueList.vue`（取代 `FingerprintDetails.vue` 与各处重复的 `dt/dd` 类名）；`LocaleSelect.vue`（取代切片 1 的 `LocaleSwitch.vue`）。
 5. **查询层** `src/web/client/queries.ts`：键 `["health"]`、`["stats"]`、`["certificates"]`、`["certificate", id]`、`["crls"]`、
-   `["crl", targetId]`，`queryFn` 一律 `unwrap(await api…$get(…))`（`["health"]` 除外：沿用切片 1 `HealthBadge` 按状态码读，见前置）。
-   `src/web/main.ts` 的 `QueryClient`：`staleTime: 0`、`retry: (n, e) => !(e instanceof ApiError && e.status >= 400 && e.status < 500) && n < 2`
-   （4xx 不重试，否则详情页的 404 要等几秒；`network` 的 `status` 是 0，要重试）、`refetchOnWindowFocus` 保持默认。
-   `useUploadCrl()` = `useMutation`，成功后 `queryClient.invalidateQueries()` 全量失效（数据量很小）；配合 5a 的 `no-store` 修 §10 #17。
+   `["crl", targetId]`，`queryFn` 一律 `unwrap(await api…$get(…, { init: { signal } }))`（传 TanStack 的 `signal`，取消即中止请求；
+   `["health"]` 除外：沿用切片 1 `HealthBadge` 按状态码读，见前置）。
+   `src/web/main.ts` 的 `QueryClient`（`createQueryClient()`，测试共用）：`staleTime: 0`、
+   `retry: (n, e) => !(e instanceof ApiError && e.status >= 400 && e.status < 500) && n < 1`（4xx 不重试，否则详情页的 404 要等几秒；
+   `network` 的 `status` 是 0，与 5xx 一样重试一次。TanStack 传入的 `n` 是此前的失败次数，首次失败为 0，写成 `n < 2` 会重试两次）、
+   `refetchOnWindowFocus` 保持默认。
+   `useUploadCrl()` = `useMutation`，成功后先 `cancelQueries()` 再 `invalidateQueries()` 全量失效（数据量很小）：TanStack 的 invalidate
+   不重启尚无数据的首次加载，上传前发出的列表请求会在之后落地并留下旧数据，先取消即丢弃它；配合 5a 的 `no-store` 修 §10 #17。
    骨架屏只在无数据的首次加载显示，重取时保留旧数据（旧 `App.vue:72,125`）。旧 `stores/*`、`useCollectionLoader`、`useDetailCache` 不迁。
 6. **路由与页面**：
-   - `src/web/router.ts`：`/certificates/:id([0-9a-f]{64})`、`/crls/:targetId(<UUID 正则>)`，其余进 `/:pathMatch(.*)*` →
-     `NotFoundPage.vue`；格式不符的 id 不发请求（§10 #2 的 UI 侧）。详情页懒加载；`document.title` = `<页面> · <siteName>`。
+   - `src/web/router.ts`：`/certificates/:id([0-9a-f]{64})`、`/crls/:targetId([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`，
+     两条都 `sensitive: true`（vue-router 默认忽略大小写；只认 API 发出的小写 id），其余进 `/:pathMatch(.*)*` →
+     `NotFoundPage.vue`；格式不符的 id 不发请求（§10 #2 的 UI 侧）。详情页懒加载；`document.title` = `<页面> · <siteName>`
+     （`composables/usePageTitle.ts`，详情页用证书显示名 / 目标标签）。
    - `src/web/App.vue`（壳）：页头 `import.meta.env.VITE_SITE_NAME`（删 i18n `app.title`）、`LocaleSelect`、`ThemeToggle`；`<RouterView>`；
-     页脚不写 "Cloudflare Workers"（§10 #18 UI 部分）；`<Toaster />`；统一一个最大宽度。
+     页脚不写 "Cloudflare Workers"（§10 #18 UI 部分；改为站点名 + `/api/v1/openapi.json` 链接）；`<Toaster />`；统一一个最大宽度。
    - `pages/OverviewPage.vue` + `components/overview/{StatsBar,CertificateTable,CrlTargetTable,CrlUploadCard}.vue`（参考
      `…:src/web/App.vue`、`CertificateCard.vue`、`CrlCard.vue`）：统计条的计数取 `stats`，`totalRevocations` 为 `null` 显示"未知"；
      "需关注"等时间相关数用 `useClock` 按徽标同一规则在客户端算。证书表：`label ?? summary.subjectCN`，缺省 "Unknown Certificate"；
-     目标表：类别色（证书蓝、full 紫、delta 绿）、`CRL #n`、吊销数、未发布显示"未发布"（吊销数显示 "—"）；相对时间只对 valid / current 显示。
+     目标表：类别色（证书蓝、full 紫、delta 绿；`KindBadge.vue`，详情页头同用）、`CRL #n`、吊销数、未发布显示"未发布"（吊销数显示 "—"）；
+     相对时间只对 valid / current 显示（证书的 `expiring` 是旧 valid 的最后 10%，同样显示）。
      排序（默认值，可推翻）：证书按显示名；目标按 `label`，同名 full 在 delta 前。
    - `pages/CertificatePage.vue` + `components/certificate/CertificateOverview.vue` ← `…:src/web/components/CertificateDetails.vue`：
      Tabs = 概览（主体 / 签发者 `NameDetails` 含 `rfc4514`、有效期与相对时间规则 `:47-59`、序列号、公钥摘要 `:20-37`、签名算法含参数
      （§10 #28：一次请求拿全部分区，不再出现 Unknown）、ECDSA `(r, s)`、指纹、`issuerUniqueID` / `subjectUniqueID`、该证书作为签发者的
      CRL 目标链接（§10 #10））/ 扩展（`ExtensionList`）/ 原文（默认值：取 `downloads` 中 `.pem` 路径的文本 + 复制；无 `.pem` 路径时不显示该 Tab）。
    - `pages/CrlTargetPage.vue`（取代切片 1 的占位 `CrlPage.vue`，`tests/web/router.test.ts` 同步）+ `components/crl/RevokedTable.vue`
-     ← `…:src/web/components/CrlDetails.vue`：页头（标签、类别、状态、下载）；概览（签发者链接 → `/certificates/:id`、CRL 号与 base 号
-     （旧 UI 只在扩展里出现）、thisUpdate / nextUpdate / nextPublish、算法、指纹）；吊销列表（未发布不显示列表，不再把未知显示成 0（§10 #7）；
-     0 → 空状态；列同 plan §8，表头吸顶，超过 200 行按 200 行一页客户端分页）；扩展。
+     ← `…:src/web/components/CrlDetails.vue`：页头（标签、类别、状态、下载；签发者链接 → `/certificates/:id` 也在页头，未发布时同样可见）；
+     概览（CRL 号与 base 号（旧 UI 只在扩展里出现）、thisUpdate / nextUpdate / nextPublish、算法、指纹）；吊销列表（未发布不显示列表，不再把未知显示成 0（§10 #7）；
+     0 → 空状态；列同 plan §8，表头吸顶，超过 200 行按 200 行一页客户端分页；序列号是等宽纯文本，不逐行放 `HexValue`
+     复制按钮——每个 `useClipboard` 都查两次剪贴板权限，一页 200 行即 400 次）；扩展。
      `current: null` → 页头 + "未发布"；`ApiError` `not_found` → 页内"不存在"状态。
 7. **上传卡片** `CrlUploadCard.vue` ← `…:src/web/components/CrlUpload.vue`：保留提交守卫 `:22`、仅当输入未变才清空 `:28`、拖放取第一个文件
-   `:31-48`、重置 file input `:53`、`accept=".crl,.pem,.der"`、仅非空文本才提示 PEM 无效、按钮内 spinner；上传进行中禁用按钮（不并发）。
+   `:31-48`、重置 file input `:53`、`accept=".crl,.pem,.der"`、仅非空文本才提示 PEM 无效、按钮内 spinner；上传进行中禁用按钮（不并发；
+   守卫是组件内在第一个 `await` 前置位的标志，同一 tick 的两次提交也只发一次）。
    - 发送：文件原样；粘贴的 PEM 包成 `new File([text], "crl.pem", { type: "application/x-pem-file" })`，都走 multipart `crl`（M8：不发字符串字段），
      服务端按字节识别 PEM / DER。
    - 结果：`upload.outcome.{created,updated,unchanged}` 整句文案，`unchanged` 是成功而非错误（§10 #4 UI 部分）；标签按 `target` 从 `["crls"]`
-     缓存查，查不到用 `kind`；行内成功 Alert 列出 `downloads`。
-   - 错误：`error.code` → `errors.<code>`，toast.error + 行内 destructive Alert；未知码显示 `errors.unknown` 与原始 code。
-   - 上传令牌（默认值，可推翻）：卡片内折叠的密码输入框，只存内存（不进 localStorage / sessionStorage），非空时经 `api` 的每请求 `headers`
+     缓存查，查不到用 `kind`（`upload.kindTarget.<kind>`）；行内成功 Alert 列出 CRL 号与 `downloads`。
+   - 错误：`error.code` → `errors.<code>`，toast.error + 行内 destructive Alert；未知码显示 `errors.unknown` 与原始 code。带 `details.reason`
+     （`invalid_crl` 的解析原因、`issuer_not_found` 的 `missing_aki`）时附 `upload.reasons.<reason>`，本构建不认识的原因原样显示。
+   - 上传令牌（默认值，可推翻）：卡片内折叠的密码输入框，只存内存（不进 localStorage / sessionStorage；模块级 `composables/useUploadToken.ts`，
+     去详情页再回来仍在，刷新即失），去首尾空白后非空时经 `api` 的每请求 `headers`
      发 `Authorization: Bearer …`（`hc` 全局 `init` 只放 `cache`）；收到 `unauthorized` 自动展开并聚焦；空令牌不发头，避免 bearerAuth 的 400。
 8. **i18n**：`src/web/i18n.ts` ← `…:src/web/i18n.ts`，保留 `createI18n({ legacy: false, globalInjection: true, fallbackLocale: "en" })`；
    locale 只有 `en`、`zh-CN`；检测顺序 存储值 → `navigator.languages` 中第一个受支持项（`zh*` → `zh-CN`，`en*` → `en`，其余跳过；
    修旧 `normalizeLocale` 永不返回 null 导致只看第一项）→ `en`；键沿用 `locale-preference`，旧值 `en-US` / `en-GB` 映射为 `en`；
-   所有存储读写包 try/catch（旧代码在模块导入时裸读 localStorage）；切换时写 `document.documentElement.lang`。
-   `src/web/composables/useLocale.ts` 重写为 `useStorage("locale-preference")`。`Intl` 用消息 locale，不保留 en-GB 区域格式（默认值）。
+   所有存储读写包 try/catch（旧代码在模块导入时裸读 localStorage）；启动与切换时写 `document.documentElement.lang`（`i18n.ts` 内的 watch，
+   不再放在 `App.vue`）。`createI18n` 第三个类型参数为 `false`（全局 `locale` 才是 ref 类型）。
+   `src/web/composables/useLocale.ts` 重写为 `useStorage("locale-preference")`，`LocaleSelect.vue` 经它切换并记住选择；其他标签页的选择
+   （storage 事件）同样生效。`Intl` 用消息 locale，不保留 en-GB 区域格式（默认值）。
    `src/web/locales/en.json` ← `…:src/web/locales/en.json`：删未用键（`status.active`、`extension.unknownType`、
    `upload.errors.noValidContent`、`upload.errors.readFile`、`upload.helpers.der`）、v2 形状键（`upload.status.*`、`certificateCard.*`、
    `crlCard.*`）与 `app.title`；新增 `upload.outcome.*`、`errors.<code>`（全部 v1 错误码 + `network`、`invalid_response`、`unknown`）、
    统计与表头、`crl.unpublished`、`common.copy` / `copied`、主题与令牌文案。新建完整翻译的 `src/web/locales/zh-CN.json`。
-9. **主题**：`ThemeToggle.vue`（重写 `worker-aia-cdp@5b570aa:src/web/components/ThemeToggle.vue`）用 `useColorMode({ storageKey: "theme-preference" })`
-   并解构 `store`（模板自动解包，`mode.store` 不可达）；取值 `auto` / `light` / `dark` 与旧 `…:src/web/composables/useTheme.ts` 相同，
-   同域已有偏好直接生效（切片 1 已用该键）。循环 auto → light → dark，文案走 i18n。`src/web/index.html` 加预绘制内联脚本：
-   try/catch 读 `theme-preference`，在首帧前设 `dark` 类，消除旧版的亮色闪烁。
+   旧文件中新 UI 不再用到的键不迁：`extension.oid`、`common.from` / `until`、`common.showingFirst`（由吊销表的分页文案
+   `details.crl.range` 取代）、`common.delta` / `full`（由类别徽标的 `kind.*` 取代）、`app.sections.deltaCrls`（full 与 delta 同表）；
+   `app.footer` 改写（不含 "Cloudflare Workers"）。
+9. **主题**：`ThemeToggle.vue`（重写 `worker-aia-cdp@5b570aa:src/web/components/ThemeToggle.vue`）用
+   `useColorMode({ storageKey: "theme-preference", disableTransition: false })`（`disableTransition` 每次切换插入一个 `<style>` 元素，
+   不含 `'unsafe-inline'` 的 `style-src` 会拦）并解构 `store`（模板自动解包，`mode.store` 不可达）；取值 `auto` / `light` / `dark`
+   与旧 `…:src/web/composables/useTheme.ts` 相同，同域已有偏好直接生效（切片 1 已用该键）。循环 auto → light → dark，文案走 i18n。`src/web/index.html` 加预绘制内联脚本：
+   try/catch 读 `theme-preference`，在首帧前设 `dark` 类，消除旧版的亮色闪烁。规则同 `useColorMode`：存的是 `dark`，或是 `auto` /
+   未存且系统偏好深色；其他值不设。该脚本是页面唯一的内联脚本，Vite 原样拷进 `dist/web/index.html`（步骤 10 按字节算 hash）。
 10. **CSP**（按末节第 1 项 owner 确认的结果；下为推荐默认）：`src/http/csp.ts` 定义策略与预绘制脚本的 `sha256-…`，`src/http/app.ts` 改为
     `secureHeaders({ strictTransportSecurity: false, contentSecurityPolicy: … })`；UI 响应经 `deps.ui` 由同一个 app 发出（切片 1 已复制 ASSETS 响应），
     两条运行时一致。策略：`default-src 'self'; script-src 'self' 'sha256-<预绘制脚本>'; style-src 'self'; img-src 'self' data:; connect-src 'self';
