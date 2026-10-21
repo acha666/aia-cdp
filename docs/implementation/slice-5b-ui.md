@@ -41,7 +41,7 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
 - 冒烟数据：`pnpm run seed:dev`（切片 2 的 `scripts/seed-dev.ts`，经 CLI `import` / `config apply` 灌入已入库的 `tests/fixtures/pki/`）。
   切片 2 说 CRL 发布"在切片 4 加"，切片 4 没加，本切片补上：除 issuing-ca-2 的 delta 外每个目标发布一个 CRL（root-ca `full-01`、
   issuing-ca-1 `full-adcs` + `delta-adcs`、issuing-ca-2 `full-01`），留一个未发布目标给页面的"未发布"状态和浏览器冒烟的 `created` 上传；
-  再跑一次全部 unchanged（`tests/integration/node-e2e.test.ts`）。
+  再跑一次全部 unchanged（`tests/integration/node-e2e.test.ts`，它也核对 issuing-ca-1 的两个目标确是那对 AD CS CRL）。
 
 ## 步骤
 
@@ -164,7 +164,8 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
    `crlCard.*`）与 `app.title`；新增 `upload.outcome.*`、`errors.<code>`（全部 v1 错误码 + `network`、`invalid_response`、`unknown`）、
    统计与表头、`crl.unpublished`、`common.copy` / `copied`、主题与令牌文案。新建完整翻译的 `src/web/locales/zh-CN.json`。
    旧文件中新 UI 不再用到的键不迁：`extension.oid`、`common.from` / `until`、`common.showingFirst`（由吊销表的分页文案
-   `details.crl.range` 取代）、`common.delta` / `full`（由类别徽标的 `kind.*` 取代）、`app.sections.deltaCrls`（full 与 delta 同表）；
+   `details.crl.range` 取代）、`common.delta` / `full`（由类别徽标的 `kind.*` 取代）、`app.sections.deltaCrls`（full 与 delta 同表）、
+   `details.crl.status`（状态是页头的徽标）；
    `app.footer` 改写（不含 "Cloudflare Workers"）。
 9. **主题**：`ThemeToggle.vue`（重写 `worker-aia-cdp@5b570aa:src/web/components/ThemeToggle.vue`）用
    `useColorMode({ storageRef, disableTransition: false })`（`disableTransition` 每次切换插入一个 `<style>` 元素，
@@ -185,15 +186,16 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
     CSSOM（`element.style`）设样式，`style-src` 不管；`useColorMode` 不用会插 `<style>` 的 `disableTransition`（步骤 9）；vue-i18n 11 的消息
     编译解释执行 AST，不用 `eval` / `new Function`（产物里没有），`script-src` 无需 `'unsafe-eval'`，也不必预编译消息。
     `public/favicon.svg` 用表现属性 `fill="#1e3050"` 而非内联 `<style>`：单独打开该文件时同一 CSP 会拦下 `<style>`，图形变黑。
-11. **体积与依赖卫生**：`scripts/check-web-size.ts`（`pnpm run size:web`）对 `dist/web/index.html` 与 `dist/web/assets/*.{js,css}`
+11. **体积与依赖卫生**：`scripts/check-web-size.ts [目录]`（`pnpm run size:web`；目录默认 `dist/web`，测试传临时构建）对 `dist/web/index.html` 与 `dist/web/assets/*.{js,css}`
     逐个 `zlib.gzipSync`（默认级别；Vite 构建报告的压缩实现不同，数字略大）累加，打印每文件、首屏（`index.html` 引用的 script / modulepreload /
     stylesheet，标 `*`）与总计；总计 > 250 000 字节或 `index.html` 引用了不存在的文件 → 退出 1，没有构建 → 退出 2。`ci:worker` 在 `build:web`
     之后紧接着跑它。`vite.config.ts` 的 `serverCodeGuard`（`apply: "build"`）在构建结束时遍历模块图，解析到 `src/{core,http,storage,runtime,cli}/`
-    或 `zod`、`@hono/zod-openapi`、`pkijs`、`asn1js` 即失败并列出导入者（`hono/client` 放行；`import type` 在解析前已擦除，不会触发；
-    内联的 `import { type X }` 留下副作用导入而失败；总则 §2.1）。两个插件都由 `tests/integration/web-build.test.ts` 在不写盘的真实
-    `vite build` 里验证。
-    基线：web spike 骨架 125.7 kB JS + 9.4 kB CSS gzip（首屏约 111 kB）。实测（2026-10-20，评审修复后）：总计 165 087 字节（预算的 66%），
-    首屏 145 291 字节（`index.html` 654、入口 JS 132 079、CSS 12 558），懒加载块 `ExtensionList` 13 248、`CertificatePage` 3 187、`CrlTargetPage` 3 361。
+    或 `zod`、`@hono/zod-openapi`、`pkijs`、`asn1js`，或 `src/web` 的模块导入了 `hono/client` 以外的 `hono` / `@hono/*` 模块（总则 §2.1：
+    运行时只放行 `hono/client`；它自己引用的 hono 工具模块导入者在 hono 包内，照常放行）即失败，并列出静态与动态 `import()` 的导入者
+    （`import type` 在解析前已擦除，不会触发；内联的 `import { type X }` 留下副作用导入而失败）。两个插件都由
+    `tests/integration/web-build.test.ts` 在不写盘的真实 `vite build` 里验证，同一文件还核对 `vite.config.ts` 解析后的插件里有这两个。
+    基线：web spike 骨架 125.7 kB JS + 9.4 kB CSS gzip（首屏约 111 kB）。实测（2026-10-20，评审修复后）：总计 165 081 字节（预算的 66%），
+    首屏 145 286 字节（`index.html` 655、入口 JS 132 073、CSS 12 558），懒加载块 `ExtensionList` 13 249、`CertificatePage` 3 187、`CrlTargetPage` 3 359。
 12. **清理**：旧 `@heroicons/vue`、`pinia`、`lucide-vue-next` 不进依赖；`SectionState.vue`、`pagination.ts`、`useTheme.ts` 不迁（见出口 6 的 grep）。
     `package.json` 的 `description` 写着 "Cloudflare Workers + R2 and Node 24 + disk"，那是项目说明而不是 UI 文本（§10 #18 指 UI 页脚），
     所以出口 6 对 `package.json` 只查依赖名。
@@ -206,19 +208,20 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
 | --- | --- | --- |
 | `tests/web/status.test.ts` | 旧 2 例原样 + 无 `nextUpdate` → unknown、`unpublished`、`nextPublish` 规则（含恰好 +1 h）、证书 `expiring`（含 10% 边界）、`now == notAfter` 仍在有效期内（`expiring`，不是 `expired`） | `worker-aia-cdp@5b570aa:tests/web/status.test.ts` |
 | `tests/web/upload-input.test.ts` | 旧 2 例不改 | `…:tests/web/upload-input.test.ts` |
-| `tests/web/dates.test.ts` | 时区标签、分钟取整与进位、`h23`（UTC 00:05:07 不是 24:05:07）、注入 `nowMs`、zh-CN 文案 | 新 |
+| `tests/web/dates.test.ts` | 时区标签（每个日期用它自己的偏移：St. John's 7 月是夏令时 UTC-2:30）、分钟取整与进位、`h23`（UTC 00:05:07 不是 24:05:07；Node 对 `hour12: false` 也印 00:05，所以另查交给 `Intl.DateTimeFormat` 的选项是 `hourCycle: "h23"`）、注入 `nowMs`、zh-CN 文案 | 新 |
 | `tests/web/format.test.ts`、`tests/web/x509.test.ts` | hex 分组 / 规范化；`formatAlgorithm` 的 PSS / 命名曲线 / NULL；`formatGeneralName` 的 otherName；`formatName` 用 `rfc4514` | 新 |
-| `tests/web/extension-blocks.test.ts` | 每个 `extensionType` 一例（41 例），断言块种类与关键文本；遍历 5a schema 的判别值，断言每个都有用例且没有块落到兜底；AD CS 私有扩展（CA Version `v0.0`、模板名、Next CRL Publish、CRL Self CDP）用合成夹具同款值 | 新（旧渲染改动零测试） |
-| `tests/web/components.test.ts` | `NameDetails` 转义与空字段标签；`ExtensionList` 关键在前且不改原数组；`DownloadLinks` DER / PEM / 空、描边类、多条 DER 路径时的文件名；`GeneralNameList`、`DistributionPointList`（reasons、cRLIssuer）、`Asn1Dump` 缩进；`ExtensionView` 未解析 → dump + hex；`HexValue` / `PemText` 复制：Clipboard API、`<textarea>` 退路（焦点回到按钮）、`execCommand` 返回 `false` → toast | `…:tests/web/components.test.ts` 改写（旧第 4 例移到下一行） |
-| `tests/web/revoked-table.test.ts` | 未发布目标不渲染表格；0 → 空状态；15 行全显示（服务端 10 条截断见切片 5a）；201 行 → 两页；首 / 末页时焦点交给另一个翻页按钮 | 新 |
-| `tests/web/queries.test.ts` | 上传后的刷新胜过上传前已发出的列表请求（延迟 mock）；`fetch` 收到 `cache: "no-store"`；404 不重试、500 重试一次 | `…:tests/web/collection-loader.test.ts` 第 3 例改写 |
-| `tests/web/upload-card.test.ts` | PEM 粘贴发 multipart `File`；三种结果文案；错误码映射与未知码；401 展开令牌框；令牌进 `Authorization`，空令牌不发头，不合 b64token 的令牌不发请求；进行中禁止再提交且按钮保有焦点（`aria-disabled`），结束后焦点交给结果 Alert；提交后改过输入则不清空 | 新 |
-| `tests/web/i18n.test.ts`、`tests/web/locales.test.ts` | `["fr-FR","zh-CN"]` → zh-CN；存储 `en-GB` → en；localStorage 抛错仍能启动；`<html lang>`；zh-CN 与 en 键集合相同；5a 错误码数组每项在两种语言都有文案 | 新 |
+| `tests/web/extension-blocks.test.ts` | 每个 `extensionType` 一例（41 例），断言块种类与关键文本；遍历 5a schema 的判别值，断言每个都有用例且没有块落到兜底；AD CS 私有扩展（CA Version `v0.0`、模板名、Next CRL Publish、CRL Self CDP）用合成夹具同款值；CA Version 两个索引不同时不互换（V1.0） | 新（旧渲染改动零测试） |
+| `tests/web/components.test.ts` | `NameDetails` 转义与空字段标签；`ExtensionList` 关键在前且不改原数组、可同时展开多项（`type="multiple"`）；`DownloadLinks` DER / PEM / 空、描边类、多条 DER 路径时的文件名；`StatusBadge` 每种状态、`KindBadge` 每个类别的颜色类；`GeneralNameList`、`DistributionPointList`（reasons、cRLIssuer）、`Asn1Dump` 缩进；`ExtensionView` 未解析 → dump + hex，解析后的策略（OID 带名称、CPS、用户通知、其他限定符）、名称约束（标题与范围）、CRL 分发点、AKI 的签发者标题、IDP 的标志与原因及其色调；`HexValue` / `PemText` 复制：Clipboard API、`<textarea>` 退路（焦点回到按钮）、`execCommand` 返回 `false` → toast | `…:tests/web/components.test.ts` 改写（旧第 4 例移到下一行） |
+| `tests/web/revoked-table.test.ts` | 未发布目标不渲染表格；0 → 空状态；15 行全显示（服务端 10 条截断见切片 5a）；恰好 200 行不分页；201 行 → 两页；首 / 末页时焦点交给另一个翻页按钮；条目扩展的原因、失效日期与签发者（时区固定为 UTC，UTC+12 以东已是次日） | 新 |
+| `tests/web/queries.test.ts` | 上传后的刷新胜过上传前已发出的列表请求（延迟 mock）；`fetch` 收到 `cache: "no-store"`；404 不重试、500 重试一次；`staleTime` 0 且窗口重获焦点即重取（`refetchOnWindowFocus` 未覆盖）；五个读查询都把 TanStack 的 `signal` 交给请求，取消即中止 | `…:tests/web/collection-loader.test.ts` 第 3 例改写 |
+| `tests/web/upload-card.test.ts` | PEM 粘贴发 multipart `File`；拖放取第一个文件并 `preventDefault`；`accept=".crl,.pem,.der"`；三种结果文案；错误码映射与未知码，`details.reason`（含 `issuer_not_found` 的 `missing_aki`）；401 展开令牌框；令牌进 `Authorization`，空令牌不发头，不合 b64token 的令牌不发请求；进行中禁止再提交且按钮保有焦点（`aria-disabled`），同一 tick 的两次提交只发一次，结束后焦点交给结果 Alert；提交后改过输入则不清空 | 新 |
+| `tests/web/i18n.test.ts`、`tests/web/locales.test.ts` | `["fr-FR","zh-CN"]` → zh-CN；存储键是 `locale-preference`，`en-GB` → en；localStorage 抛错仍能启动；`<html lang>`；zh-CN 与 en 键集合相同，除缩写（CA、CPS、DNS、IP、PEM、URI、X.400）外每条都与 en 不同；5a 错误码数组每项、服务端每个上传 `details.reason`（`PKI_PARSE_REASONS`、`signature_algorithm_mismatch`、`missing_aki`，即 `utils/errors.ts` 的 `UPLOAD_REASONS`）在两种语言都有文案 | 新 |
 | `tests/web/theme.test.ts` | 预置 `theme-preference=dark` → `html.dark`；切换写回同一键；存储被禁时照常切换且控制台无报错（`i18n.test.ts` 同） | 新 |
 | `tests/web/contrast.test.ts` | 各状态徽标文字对其底色（叠在页面、卡片、悬停行上）≥ 4.5:1，亮 / 暗两种主题；颜色取 `main.css` 的 token 与 `StatusBadge` 渲染出的类名（`web` 项目的 `css.include` 让 `main.css?raw` 保留原文） | 新（评审） |
-| `tests/web/pages.test.ts` | 三页在 mock `fetch` 下渲染；签名算法显示带参数的名称（§10 #28）；未发布目标（无下载链接）；API 404 → 不存在状态与标题；非法 id → NotFound 且不发请求；页头为 `VITE_SITE_NAME`；toast 在顶部；手机隐藏的次要列；尚未生效的 CRL 计时到 thisUpdate；签发的 CRL 目标按总览顺序；标题层级不跳级、Tab 面板的焦点圆环与 `min-w-0`；CRL 页无 vue-i18n 警告 | 新 |
+| `tests/web/pages.test.ts` | 三页在 mock `fetch` 下渲染，用应用的 `createQueryClient()`（`retryDelay` 0：500 重试一次，404 不重试）；签名算法显示带参数的名称（§10 #28）；目标按 API 的 id 顺序送来（delta 在前）仍按标签、同名 full 在前；证书 `expiring` 也显示剩余时间；delta CRL 的概览（CRL 号与 base 号、thisUpdate / nextUpdate / Next CRL Publish）；未发布目标（无下载链接，签发者链接仍在）；API 404 → 不存在状态与标题；非法 id → NotFound 且不发请求（`tests/web/router.test.ts` 另有只含 hex 与短横的非 UUID）；页头为 `VITE_SITE_NAME`；toast 在顶部；手机隐藏的次要列；尚未生效的 CRL 计时到 thisUpdate；签发的 CRL 目标按总览顺序；标题层级不跳级、Tab 面板的焦点圆环与 `min-w-0`；CRL 页无 vue-i18n 警告 | 新 |
 | `tests/http/csp.test.ts`（`http` 项目） | 从 `src/web/index.html` 取唯一的内联脚本算 sha256，等于 `src/http/csp.ts` 中的值；`inlineScriptHashes` 得出同一值（CRLF 副本也是），跳过带 `src` 的脚本；`/`、两种详情、未知 UI 路径的 GET / HEAD 都带该 CSP，JSON 与下载前缀的 404 也带且内容不变（`tests/http/downloads.test.ts` 的头快照同样含它） | 新 |
-| `tests/integration/web-build.test.ts`（`integration` 项目） | 真实 `vite build`（不写盘）：类型导入服务端模块与 `hono/client` 通过；运行时导入 `src/core`、`src/http`、`src/storage` 的模块，`zod`、`@hono/zod-openapi`、`pkijs`、`asn1js`，以及内联 `import { type X }` 都失败；预绘制脚本通过，未列出的内联脚本与改了一个字节的预绘制脚本失败 | 新 |
+| `tests/integration/web-build.test.ts`（`integration` 项目） | 真实 `vite build`（不写盘）：类型导入服务端模块与 `hono/client` 通过；运行时导入 `src/core`、`src/http`、`src/storage`、`src/runtime` 的模块（动态 `import()` 同样，报出导入者），`zod`、`@hono/zod-openapi`、`pkijs`、`asn1js`、`hono`、`hono/secure-headers`、`@hono/node-server`，以及内联 `import { type X }` 都失败，断言的是该模块自己的报告行（不是出现在别的导入者里）；预绘制脚本通过，未列出的内联脚本与改了一个字节的预绘制脚本失败；`vite.config.ts` 解析后的插件含这两个检查 | 新 |
+| `tests/integration/web-size.test.ts`（`integration` 项目） | `scripts/check-web-size.ts` 量临时目录里的小构建：总计恰好 250 000 字节退出 0、多 1 字节退出 1，`index.html` 引用的文件不存在退出 1，没有构建退出 2；首屏只计 `index.html` 引用的文件 | 新（评审） |
 
 旧 `tests/web/state.test.ts` 与 `api-client.test.ts` 的去向见切片 5a / 4。
 

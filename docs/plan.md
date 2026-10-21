@@ -596,8 +596,10 @@ owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-
   骨架屏只在首次加载显示。手机宽度（`sm` 以下）两张表只显示名称 / 标签、类别与状态，其余列在详情页。
 - 状态规则（徽标、相对时间与"需关注"共用一个 `useNow({ interval: 60_000 })` 时钟；owner 确认，implementation 切片 5b 末节第 2 项）：
   证书 `not-yet-valid`、`valid`、`expiring`（剩余不足有效期的 10%：根 20 年 → 2 年，签发 CA 10 年 → 1 年；`now == notAfter` 仍在有效期内）、
-  `expired`；CRL 目标 `unpublished`（无 current）、`unknown`（无 nextUpdate）、`expired`（now > nextUpdate）、`stale`（带 AD CS Next CRL
-  Publish 时 now 超过它 1 h；不带时（如离线 OpenSSL 根 CRL）thisUpdate → nextUpdate 剩余不足 20%）、否则 `current`。
+  `expired`；CRL 目标 `unpublished`（无 current）、`unknown`（无 nextUpdate）、`not-yet-valid`（now < thisUpdate：服务端拒收超前 5 分钟以上的
+  thisUpdate（§6），所以只在浏览器时钟落后于服务端或在那 5 分钟内出现；不计入"需关注"）、`expired`（now > nextUpdate）、`stale`（带 AD CS
+  Next CRL Publish 时 now 超过它 1 h；不带时（如离线 OpenSSL 根 CRL）thisUpdate → nextUpdate 剩余不足 20%）、否则 `current`。证书与 CRL
+  的日期缺失、无法解析或颠倒（notAfter < notBefore、nextUpdate ≤ thisUpdate）都是 `unknown`，从不显示为有效。
 - 详情：证书页 Tabs = 概览（主体 / 签发者 DN 表含 `rfc4514`、有效期、序列号、公钥摘要、签名算法含参数与 ECDSA `(r, s)`、指纹、
   unique ID、它作为签发者的 CRL 目标链接）/ 扩展 / PEM（有 `.pem` 路径时）。CRL 目标页头 = 标签、类别、状态、签发者链接、下载；
   Tabs = 概览（CRL 号与 base 号、thisUpdate / nextUpdate / Next CRL Publish、算法、指纹、签发者 DN）/ 吊销列表 / 扩展；未发布目标
@@ -625,8 +627,9 @@ owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-
   object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'`，没有 `'unsafe-inline'` 与 `'unsafe-eval'`（组件经 CSSOM
   设样式，vue-i18n 11 不用 eval）。hash 写在 `src/http/csp.ts`，`tests/http/csp.test.ts` 与构建插件都对照 `index.html` 重算。
 - 体积与依赖卫生：`pnpm run size:web` 逐文件 gzip `dist/web` 的 `index.html`、JS、CSS，总计预算 250 000 字节（`ci:worker` 执行）；
-  切片 5b 完成时总计 165 087 字节，首屏（`index.html`、入口 JS、CSS）145 291 字节。构建插件在 web 运行时图解析到服务端模块
-  （`src/{core,http,storage,runtime,cli}/`）或 `zod`、`@hono/zod-openapi`、`pkijs`、`asn1js` 时让构建失败。
+  切片 5b 完成时总计 165 081 字节，首屏（`index.html`、入口 JS、CSS）145 286 字节。构建插件在 web 运行时图解析到服务端模块
+  （`src/{core,http,storage,runtime,cli}/`）或 `zod`、`@hono/zod-openapi`、`pkijs`、`asn1js`，或 `src/web` 在运行时导入 `hono/client`
+  以外的 `hono` / `@hono/*` 模块时让构建失败。
 - 浏览器冒烟：`node scripts/ui-smoke.ts <base> [截图目录]`（`playwright-core` + headless Chromium，对刚 `seed:dev` 的服务跑 en / zh-CN ×
   亮 / 暗，要求控制台无错误、无 CSP 违规；不进 CI，是切片出口里的步骤）。
 - 构建到 `dist/web`（Vite `root: src/web`、`build.outDir` = `<repo>/dist/web`、`envDir` = 仓库根），两条运行时都从这里提供。
