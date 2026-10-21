@@ -310,5 +310,56 @@
     "network": "无法连接到服务器。",
     "invalid_response": "服务器返回了本页面无法识别的响应。",
     "unknown": "意外错误（{code}）。"
+  },
+  "upload": {
+    "title": "上传 CRL",
+    "description": "发布 DER 或 PEM 格式的 CRL。服务器按签发者与类别找到对应目标并验证签名，只有比当前 CRL 更新时才会采用。",
+    "errors": {
+      "uploadFailed": "上传失败",
+      "invalidPem": "PEM 格式无效，必须包含 X509 CRL 标记。"
+    },
+    "labels": {
+      "pemContent": "PEM 内容"
+    },
+    "placeholder": "在此粘贴 PEM 内容，或拖放 .crl / .pem / .der 文件",
+    "selectFile": "选择文件",
+    "helpers": {
+      "pem": "粘贴 PEM 编码的 CRL，或拖放、选择 DER 或 PEM 文件"
+    },
+    "actions": {
+      "uploading": "正在上传…",
+      "upload": "上传 CRL"
+    },
+    "outcome": {
+      "created": "已发布到 {target}：这是它的第一个 CRL。",
+      "updated": "已发布到 {target}：替换了之前的 CRL。",
+      "unchanged": "{target} 已在提供此 CRL，无需更改。"
+    },
+    "kindTarget": {
+      "full": "完整 CRL 目标",
+      "delta": "增量 CRL 目标"
+    },
+    "crlNumber": "CRL 编号 {number}",
+    "baseCrlNumber": "基础 CRL 编号 {number}",
+    "servedAt": "下载地址：",
+    "reason": "原因：{reason}",
+    "reasons": {
+      "der": "数据不是有效的 DER",
+      "trailing_bytes": "CRL 之后还有多余的字节",
+      "time": "某个时间字段不符合 RFC 5280 规定的格式",
+      "structure": "数据不是 X.509 CRL",
+      "extension_value": "本服务读取的某个扩展格式有误",
+      "pem_label": "PEM 块的标签不是 X509 CRL",
+      "pem_blocks": "文本必须恰好包含一个完整的 PEM 块",
+      "pem_base64": "PEM 正文不是有效的 base64",
+      "signature_algorithm_mismatch": "签名部分内外的签名算法不一致",
+      "missing_aki": "CRL 没有颁发机构密钥标识符"
+    },
+    "token": {
+      "toggle": "上传令牌",
+      "set": "已填写",
+      "label": "上传令牌（AIA_UPLOAD_TOKEN）",
+      "hint": "仅当服务器设置了 AIA_UPLOAD_TOKEN 时需要。只保存在本页面的内存中，随上传请求发送。"
+    }
   }
 }

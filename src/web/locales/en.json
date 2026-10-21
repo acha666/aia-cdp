@@ -310,5 +310,56 @@
     "network": "The server could not be reached.",
     "invalid_response": "The server sent a response this page cannot read.",
     "unknown": "Unexpected error ({code})."
+  },
+  "upload": {
+    "title": "Upload CRL",
+    "description": "Publish a CRL in DER or PEM. The server finds its target from the issuer and the kind, checks the signature and keeps it only if it is newer than the current one.",
+    "errors": {
+      "uploadFailed": "Upload failed",
+      "invalidPem": "Invalid PEM format. Must contain X509 CRL markers."
+    },
+    "labels": {
+      "pemContent": "PEM Content"
+    },
+    "placeholder": "Paste PEM content here, or drag and drop a .crl / .pem / .der file",
+    "selectFile": "Choose a file",
+    "helpers": {
+      "pem": "Paste a PEM-encoded CRL, or drop or choose a DER or PEM file"
+    },
+    "actions": {
+      "uploading": "Uploading…",
+      "upload": "Upload CRL"
+    },
+    "outcome": {
+      "created": "Published to {target}: its first CRL.",
+      "updated": "Published to {target}: it replaces the previous CRL.",
+      "unchanged": "{target} already serves this CRL; nothing changed."
+    },
+    "kindTarget": {
+      "full": "the full CRL target",
+      "delta": "the delta CRL target"
+    },
+    "crlNumber": "CRL #{number}",
+    "baseCrlNumber": "base CRL #{number}",
+    "servedAt": "Served at:",
+    "reason": "Reason: {reason}",
+    "reasons": {
+      "der": "the data is not valid DER",
+      "trailing_bytes": "there are extra bytes after the CRL",
+      "time": "a time is not in the form RFC 5280 requires",
+      "structure": "the data is not an X.509 CRL",
+      "extension_value": "an extension the service reads is malformed",
+      "pem_label": "the PEM block is not labelled X509 CRL",
+      "pem_blocks": "the text must contain exactly one complete PEM block",
+      "pem_base64": "the PEM body is not valid base64",
+      "signature_algorithm_mismatch": "the signature algorithms inside and outside the signed part differ",
+      "missing_aki": "the CRL has no Authority Key Identifier"
+    },
+    "token": {
+      "toggle": "Upload token",
+      "set": "set",
+      "label": "Upload token (AIA_UPLOAD_TOKEN)",
+      "hint": "Only needed when the server sets AIA_UPLOAD_TOKEN. Kept in this page's memory only and sent with uploads."
+    }
   }
 }
