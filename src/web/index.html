@@ -8,8 +8,8 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <!--
       The dark class before the first paint, by the rule ThemeToggle.vue's useColorMode applies
-      after mount (same key and values): no flash of the light theme. Keep it byte-stable: the
-      CSP allows this script by its sha256.
+      after mount (same key and values): no flash of the light theme. The CSP allows this script
+      by its sha256: change INLINE_SCRIPT_HASHES in src/http/csp.ts with it.
     -->
     <script>
       try {

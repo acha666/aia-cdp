@@ -1,5 +1,6 @@
 // Shared deps for HTTP tests: createApp(testDeps()).request(...) — no sockets.
 import type { ObjectStore } from "../../src/core/store.ts";
+import { INLINE_SCRIPT_HASHES } from "../../src/http/csp.ts";
 import type { AppDeps, AppSettings } from "../../src/http/types.ts";
 import { parseSettings } from "../../src/runtime/settings.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
@@ -7,6 +8,22 @@ import { NOW } from "../fixtures/pki.ts";
 
 /** The smallest configuration that is `ok` now and under slice 2's full schema. */
 export const MINIMAL_CONFIG = '{"version":1,"certificates":{},"targets":{},"paths":{}}';
+
+/**
+ * The Content-Security-Policy header of every response: implementation slice 5b step 10, with the
+ * pre-paint script's hash from csp.ts (tests/http/csp.test.ts checks that against index.html).
+ */
+export const CSP_HEADER = [
+  "default-src 'self'",
+  `script-src 'self' ${INLINE_SCRIPT_HASHES.join(" ")}`,
+  "style-src 'self'",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "frame-ancestors 'self'",
+  "form-action 'none'",
+].join("; ");
 
 /** parseSettings({}): the same defaults as scripts/generate-openapi.ts. */
 export function defaultSettings(): AppSettings {
