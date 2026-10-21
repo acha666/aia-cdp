@@ -38,7 +38,10 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
   - 已配置未发布的目标详情 200 + `current: null`；详情 id 格式不符 400 `bad_request`、未知 404 `not_found`；上传成功体含 `kind`、`crlNumber`、
     `baseCrlNumber`、`downloads`（M16）。`GET /api/v1/health` 的 503 体不是错误信封（`unwrap` 会报 `invalid_response`），健康徽标按状态码读。
   - 死变体 `extensionType: "unknown"` 已删；吊销条目不再按旧 builder 的默认 10 条分页。
-- 冒烟数据：已入库的 `tests/fixtures/pki/` 经切片 2 的 CLI `import` / `config apply` 灌入。
+- 冒烟数据：`pnpm run seed:dev`（切片 2 的 `scripts/seed-dev.ts`，经 CLI `import` / `config apply` 灌入已入库的 `tests/fixtures/pki/`）。
+  切片 2 说 CRL 发布"在切片 4 加"，切片 4 没加，本切片补上：除 issuing-ca-2 的 delta 外每个目标发布一个 CRL（root-ca `full-01`、
+  issuing-ca-1 `full-adcs` + `delta-adcs`、issuing-ca-2 `full-01`），留一个未发布目标给页面的"未发布"状态和浏览器冒烟的 `created` 上传；
+  再跑一次全部 unchanged（`tests/integration/node-e2e.test.ts`）。
 
 ## 步骤
 
@@ -144,17 +147,29 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
    与旧 `…:src/web/composables/useTheme.ts` 相同，同域已有偏好直接生效（切片 1 已用该键）。循环 auto → light → dark，文案走 i18n。`src/web/index.html` 加预绘制内联脚本：
    try/catch 读 `theme-preference`，在首帧前设 `dark` 类，消除旧版的亮色闪烁。规则同 `useColorMode`：存的是 `dark`，或是 `auto` /
    未存且系统偏好深色；其他值不设。该脚本是页面唯一的内联脚本，Vite 原样拷进 `dist/web/index.html`（步骤 10 按字节算 hash）。
-10. **CSP**（按末节第 1 项 owner 确认的结果；下为推荐默认）：`src/http/csp.ts` 定义策略与预绘制脚本的 `sha256-…`，`src/http/app.ts` 改为
-    `secureHeaders({ strictTransportSecurity: false, contentSecurityPolicy: … })`；UI 响应经 `deps.ui` 由同一个 app 发出（切片 1 已复制 ASSETS 响应），
-    两条运行时一致。策略：`default-src 'self'; script-src 'self' 'sha256-<预绘制脚本>'; style-src 'self'; img-src 'self' data:; connect-src 'self';
-    object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'`。冒烟发现样式违规再放宽为 `style-src 'self' 'unsafe-inline'`
-    （hono-node spike 预计 vue-sonner 需要）；若 vue-i18n 运行时编译触发违规，改为构建期预编译消息。
-11. **体积与依赖卫生**：`scripts/check-web-size.ts`（`node scripts/check-web-size.ts`）对 `dist/web/index.html` 与 `dist/web/assets/*.{js,css}`
-    逐个 `zlib.gzipSync` 累加，打印每文件、首屏（`index.html` 引用的 script / modulepreload / stylesheet）与总计，总计 > 250 000 字节退出 1；
-    `package.json` 加 `size:web`，接进 `ci:worker`（它本来先构建 `dist/web`）。`vite.config.ts` 加 `apply: "build"` 的小插件：解析到
-    `src/{core,http,storage,runtime,cli}/` 或 `zod`、`@hono/zod-openapi`、`pkijs`、`asn1js` 即构建失败（`hono/client` 放行；总则 §2.1）。
-    基线：web spike 骨架 125.7 kB JS + 9.4 kB CSS gzip（首屏约 111 kB）。
+10. **CSP**（末节第 1 项，owner 已确认）：`src/http/csp.ts` 定义策略 `CONTENT_SECURITY_POLICY`（`secureHeaders` 的指令对象）与预绘制脚本的
+    `INLINE_SCRIPT_HASHES`，`src/http/app.ts` 改为 `secureHeaders({ strictTransportSecurity: false, contentSecurityPolicy: CONTENT_SECURITY_POLICY })`。
+    UI 响应经 `deps.ui` 由同一个 app 发出（切片 1 已复制 ASSETS 响应），两条运行时一致；JSON、下载与错误响应也带同一个头，对它们没有作用。
+    策略：`default-src 'self'; script-src 'self' 'sha256-<预绘制脚本>'; style-src 'self'; img-src 'self' data:; connect-src 'self';
+    object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'`（上传表单 `@submit.prevent` 后走 `fetch`，从不提交导航）。
+    hash 与脚本的同步：hash 写死在 `csp.ts`（Workers 运行时读不到 `index.html`，不现算）；`tests/http/csp.test.ts` 从 `src/web/index.html`
+    重算，改了脚本不改 hash 即失败；`vite build` 的插件 `cspInlineScriptCheck`（`transformIndexHtml`，`order: "post"`）对产出的 `index.html`
+    再算一次（`inlineScriptHashes`：浏览器的算法，即标签之间的文本，换行先按 HTML 解析器规范为 LF，CRLF 检出不改变 hash），有未列出的内联脚本
+    即构建失败。两条退路都没用上（出口 5 的冒烟两条运行时都是 0 个 `securitypolicyviolation`）：Vue 的 `:style`、Reka UI 与 vue-sonner 都经
+    CSSOM（`element.style`）设样式，`style-src` 不管；`useColorMode` 不用会插 `<style>` 的 `disableTransition`（步骤 9）；vue-i18n 11 的消息
+    编译解释执行 AST，不用 `eval` / `new Function`（产物里没有），`script-src` 无需 `'unsafe-eval'`，也不必预编译消息。
+11. **体积与依赖卫生**：`scripts/check-web-size.ts`（`pnpm run size:web`）对 `dist/web/index.html` 与 `dist/web/assets/*.{js,css}`
+    逐个 `zlib.gzipSync`（默认级别；Vite 构建报告的压缩实现不同，数字略大）累加，打印每文件、首屏（`index.html` 引用的 script / modulepreload /
+    stylesheet，标 `*`）与总计；总计 > 250 000 字节或 `index.html` 引用了不存在的文件 → 退出 1，没有构建 → 退出 2。`ci:worker` 在 `build:web`
+    之后紧接着跑它。`vite.config.ts` 的 `serverCodeGuard`（`apply: "build"`）在构建结束时遍历模块图，解析到 `src/{core,http,storage,runtime,cli}/`
+    或 `zod`、`@hono/zod-openapi`、`pkijs`、`asn1js` 即失败并列出导入者（`hono/client` 放行；`import type` 在解析前已擦除，不会触发；
+    内联的 `import { type X }` 留下副作用导入而失败；总则 §2.1）。两个插件都由 `tests/integration/web-build.test.ts` 在不写盘的真实
+    `vite build` 里验证。
+    基线：web spike 骨架 125.7 kB JS + 9.4 kB CSS gzip（首屏约 111 kB）。实测（2026-10-20）：总计 164 476 字节（预算的 66%），首屏
+    145 343 字节（`index.html` 653、入口 JS 132 154、CSS 12 536），懒加载块 `ExtensionList` 12 927、`CertificatePage` 3 115、`CrlTargetPage` 3 091。
 12. **清理**：旧 `@heroicons/vue`、`pinia`、`lucide-vue-next` 不进依赖；`SectionState.vue`、`pagination.ts`、`useTheme.ts` 不迁（见出口 6 的 grep）。
+    `package.json` 的 `description` 写着 "Cloudflare Workers + R2 and Node 24 + disk"，那是项目说明而不是 UI 文本（§10 #18 指 UI 页脚），
+    所以出口 6 对 `package.json` 只查依赖名。
 
 ## 测试
 
@@ -174,23 +189,35 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
 | `tests/web/i18n.test.ts`、`tests/web/locales.test.ts` | `["fr-FR","zh-CN"]` → zh-CN；存储 `en-GB` → en；localStorage 抛错仍能启动；`<html lang>`；zh-CN 与 en 键集合相同；5a 错误码数组每项在两种语言都有文案 | 新 |
 | `tests/web/theme.test.ts` | 预置 `theme-preference=dark` → `html.dark`；切换写回同一键 | 新 |
 | `tests/web/pages.test.ts` | 三页在 mock `fetch` 下渲染；签名算法显示带参数的名称（§10 #28）；未发布目标；API 404 → 不存在状态；非法 id → NotFound 且不发请求；页头为 `VITE_SITE_NAME` | 新 |
-| `tests/http/csp.test.ts`（`http` 项目） | 从 `src/web/index.html` 取内联脚本算 sha256，等于 `src/http/csp.ts` 中的值；UI 响应带该 CSP | 新（采纳 CSP 时） |
+| `tests/http/csp.test.ts`（`http` 项目） | 从 `src/web/index.html` 取唯一的内联脚本算 sha256，等于 `src/http/csp.ts` 中的值；`inlineScriptHashes` 得出同一值（CRLF 副本也是），跳过带 `src` 的脚本；`/`、两种详情、未知 UI 路径的 GET / HEAD 都带该 CSP，JSON 与下载前缀的 404 也带且内容不变（`tests/http/downloads.test.ts` 的头快照同样含它） | 新 |
+| `tests/integration/web-build.test.ts`（`integration` 项目） | 真实 `vite build`（不写盘）：类型导入服务端模块与 `hono/client` 通过；运行时导入 `src/core`、`src/http`、`src/storage` 的模块，`zod`、`@hono/zod-openapi`、`pkijs`、`asn1js`，以及内联 `import { type X }` 都失败；预绘制脚本通过，未列出的内联脚本与改了一个字节的预绘制脚本失败 | 新 |
 
-旧 `tests/web/state.test.ts` 与 `api-client.test.ts` 的去向见切片 5a / 4。浏览器冒烟 `scripts/ui-smoke.ts`（`playwright-core` 1.64.1，web spike
-验证过的版本，devDependency；浏览器取 `AIA_CHROMIUM` 或 `~/.cache/ms-playwright/chromium_headless_shell-*`，不进 `ci:*`）：en / zh-CN ×
-亮 / 暗；总览加载；深链 `/certificates/<id>`、`/crls/<uuid>` 刷新；展开 CA Version 扩展；粘贴 PEM 上传 → created、再传 → unchanged、旧 CRL →
-`stale_crl` 行内 Alert；主题跨刷新保持；未知路径 → NotFound；控制台 0 error / warning、0 `securitypolicyviolation`。
+旧 `tests/web/state.test.ts` 与 `api-client.test.ts` 的去向见切片 5a / 4。
+
+浏览器冒烟 `node scripts/ui-smoke.ts BASE_URL [截图目录]`（`playwright-core` 1.64.1，web spike 验证过的版本，devDependency；浏览器取
+`AIA_CHROMIUM`，否则 `~/.cache/ms-playwright/chromium_headless_shell-*` 中最新的一个（`pnpm exec playwright-core install --only-shell chromium`；
+本机现有的 1243 比 1.64.1 自带的 1248 旧，经 `executablePath` 照样可用）；不进 `ci:*`）。前提：服务刚由 `pnpm run seed:dev` 灌好（issuing-ca-2 的 delta 目标还没有 CRL；再跑一次只有 `created` 那项失败并说明原因）。
+en / zh-CN × 亮 / 暗（浏览器语言与配色）各一个上下文：只靠预绘制脚本（入口 JS 换成空脚本）得到配色对应的主题——即该脚本在 CSP 下按 hash 执行；
+总览（站名、健康、五个统计、3 张证书与 5 个目标、`<html lang>`、界面语言的页面标题）；深链 `/certificates/<issuing-ca-1>`、`/crls/<其 full 目标>`
+各刷新一次，选中的 Tab 有高亮（其余透明），CA Version 扩展展开且带 `accordion-down` 动画、内容为 UI 语言的两行索引，吊销列表行数等于 CRL 的条目数；
+上传卡片粘贴 issuing-ca-2 delta 的 PEM → `created`（只在第一个上下文）、再传 → `unchanged`，粘贴 issuing-ca-1 更旧的 `full-01` → `stale_crl`
+行内 Alert，文案都与该语言的 locale 文件一致；未知路径与格式不符的 id → NotFound 且不发证书 / CRL API 请求，未知目标 → "不存在"状态；
+选与系统相反的主题后刷新仍保持（打包代码与单独的预绘制脚本都如此）。每个上下文要求：控制台无 error / warning（只放过 Chrome 自己为本步骤预期的
+响应打的 "Failed to load resource" 行：`stale_crl` 上传的 409、未知目标的 404，按 URL 与状态逐条匹配），无未捕获异常，无 `securitypolicyviolation`
+（初始化脚本监听，经 `exposeBinding` 报回）。最后 390 px 宽的总览不得横向滚动。给了截图目录时存整页 PNG：`<页面>-<语言>-<主题>.png`
+（1280×900；overview、certificate、certificate-extensions、crl、crl-revoked、upload），外加 `overview-en-light-390.png`。约 15 s。
 
 ## 出口条件
 
 1. （见总则 §1.3）
 2. `pnpm exec vitest run --project web` 退出 0，上表文件齐全，`extension-blocks.test.ts` ≥ 41 例；`pnpm exec vitest run tests/http/csp.test.ts` 退出 0。
-3. `pnpm run build:web && pnpm run size:web` 退出 0，打印总计 ≤ 250 000 字节 gzip；实测数字写进合并提交说明。构建插件未报服务端模块泄漏。
+3. `pnpm run build:web && pnpm run size:web` 退出 0，打印总计 ≤ 250 000 字节 gzip；实测数字写进合并提交说明（见步骤 11）。构建插件未报服务端模块泄漏。
 4. 两条运行时 SPA 兜底复验：`pnpm run ci:test`（`smoke:node` 用真实 `dist/web`）与 `pnpm run ci:worker`（createTestHarness 冒烟）通过；
    `wrangler dev` 下切片 1 的冒烟同样通过（`/crls/<uuid>` → `index.html`，`/crl/missing.crl` → 文本 404，`/api/v1/missing` → JSON 404，C12）。
 5. `node scripts/ui-smoke.ts http://127.0.0.1:8080`（Node 运行时，fs 存储）与 `http://127.0.0.1:8787`（`wrangler dev`）全部 PASS；
-   两者都先经 CLI 从 `tests/fixtures/pki/` 导入并 `config apply`。
-6. `! grep -rnE "Cloudflare Workers|__SITE_NAME__|app\.title|lucide-vue-next|@heroicons|pinia" src/web package.json` 退出 0。
+   两者都先由 `pnpm run seed:dev` 经 CLI 从 `tests/fixtures/pki/` 导入、`config apply` 并发布 CRL（见前置）。
+6. `! grep -rnE "Cloudflare Workers|__SITE_NAME__|app\.title|lucide-vue-next|@heroicons|pinia" src/web && ! grep -nE "lucide-vue-next|@heroicons|pinia" package.json`
+   退出 0（`package.json` 的项目说明合法地含 "Cloudflare Workers"，见步骤 12）。
 7. 浏览器里人工看一遍：亮 / 暗两种主题对比可读，zh-CN 下总览、两种详情、上传无英文漏翻。
 
 ## 风险与对策
@@ -204,7 +231,7 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
 | `import type` 失守把 zod / hono 打进包 | `consistent-type-imports` + 步骤 11 构建插件硬失败 |
 | 状态阈值与 AD CS 周期冲突，徽标与统计不一致 | 末节第 2 项；统计中的时间相关数只在客户端用同一时钟算 |
 | 设了 `AIA_UPLOAD_TOKEN` 后 UI 上传不可用 | 步骤 7 令牌框；401 时引导输入 |
-| CSP 误伤运行时注入样式或消息编译 | 冒烟监听 `securitypolicyviolation`；按步骤 10 的两条退路调整 |
+| CSP 误伤运行时注入样式或消息编译 | 冒烟监听 `securitypolicyviolation`；按步骤 10 的两条退路调整（实测都没用上） |
 | 大 CRL 详情 JSON 无上限 | 现网 0 条吊销，可接受；客户端分页避免一次渲染上千行 |
 | `src/web` 下名为 `api`、`ca`、`crl`、`dcrl` 的目录会被 dev 代理吞掉（web spike，见 plan §8） | 客户端目录固定 `src/web/client/`，评审时检查 |
 

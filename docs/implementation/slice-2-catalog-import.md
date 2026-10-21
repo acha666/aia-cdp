@@ -142,7 +142,7 @@
    `publish`、`history`、`retire`、`delete-certificate` 见切片 4、6。
 10. **开发与文档**：`scripts/seed-dev.ts`（重写 `worker-aia-cdp@5b570aa:scripts/seed-dev.sh`；走 CLI 的 `main`）：导入
     `certs/root-ca.der`、`issuing-ca-1.der`、`issuing-ca-2.der`，生成带新 UUID 的配置（`/ca/<name>.crt`、`/crl/<name>.crl`、
-    `/dcrl/issuing-ca-{1,2}.crl`）；已有 config 则跳过 apply（幂等）；CRL 发布在切片 4 加。脚本 `seed:dev` = `node scripts/seed-dev.ts`，
+    `/dcrl/issuing-ca-{1,2}.crl`）；已有 config 则跳过 apply（幂等）；CRL 发布原定切片 4 加，实际在切片 5b 补上（见其前置）。脚本 `seed:dev` = `node scripts/seed-dev.ts`，
     `reset:dev` = `rm -rf .wrangler/state .data`（`scripts/reset-dev.sh` 删）。`.dev.vars.example`：`AIA_ADMIN_TOKEN=dev-admin-token`
     （新建；切片 1 的 `.gitignore` 已为它留例外）。`docs/config.example.json` 取代 `docs/templates/resources.example.json`（参考，不迁）。
     旧 `src/worker/api/v2/{certificates,crls}/constants.ts`（R2 前缀与后缀判定）删除，无替代。

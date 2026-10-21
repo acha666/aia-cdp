@@ -2,14 +2,15 @@
 
 X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloudflare Workers + R2 或 Node 24 + 本地磁盘（Docker）。
 
-当前状态：切片 5a（API 与客户端）——在切片 1 的骨架（两条运行时、ObjectStore 与 memory / fs / r2 适配器、health、OpenAPI、UI 占位、
+当前状态：切片 5b（UI）——在切片 1 的骨架（两条运行时、ObjectStore 与 memory / fs / r2 适配器、health、OpenAPI、UI 占位、
 测试夹具、Docker 镜像与本地 CI 脚本）、切片 2 的 catalog/config 与导入（PKI 解析、`config.json` / `catalog.json` 的 schema 与规则 V1–V9、
-管理接口与 CLI `aia`）、切片 3 的下载（按路径表提供 `/ca/`、`/crl/`、`/dcrl/`，`.pem` 读取时派生，摘要 `ETag` 与 304，纯文本 404 / 405）
-与切片 4 的 CRL 发布（`POST /api/v1/crls`、可选上传令牌、验签与新鲜度、history 标记、`aia publish`、Windows AD CS 助手
-`scripts/adcs-crl-uploader.ps1`）之上，加了公开只读 API：`GET /api/v1/certificates`、`/certificates/{id}`、`/crls`、`/crls/{targetId}`
-与 `/stats`（完整列表无分页；详情每次从存储的 DER 全量构建，含 41 种扩展解析、签名算法与参数、全部吊销条目；均 `no-store`），
-OpenAPI 文档补全（`docs/openapi.json`），以及网页客户端 `src/web/client/`（`hc<AppType>`、`ApiError` / `unwrap`、类型与错误码）。
-UI 页面在切片 5b；AD CS 助手的安装与计划任务、大 CRL 的容量见 [docs/operations.md](docs/operations.md)；完整的使用与运维文档在切片 6。
+管理接口与 CLI `aia`）、切片 3 的下载（按路径表提供 `/ca/`、`/crl/`、`/dcrl/`，`.pem` 读取时派生，摘要 `ETag` 与 304，纯文本 404 / 405）、
+切片 4 的 CRL 发布（`POST /api/v1/crls`、可选上传令牌、验签与新鲜度、history 标记、`aia publish`、Windows AD CS 助手
+`scripts/adcs-crl-uploader.ps1`）与切片 5a 的公开只读 API（`GET /api/v1/certificates`、`/certificates/{id}`、`/crls`、`/crls/{targetId}`、
+`/stats`，完整列表、详情全量构建、`no-store`；网页客户端 `src/web/client/`）之上，建成了正式 UI：总览（统计与"需关注"、证书表、
+CRL 目标表、CRL 上传卡片）、证书详情与 CRL 目标详情（概览、扩展渲染、吊销列表、PEM）、`en` / `zh-CN`、亮 / 暗主题（无亮色闪烁），
+以及两条运行时同一份的 UI CSP（`src/http/csp.ts`）、产物体积预算（`pnpm run size:web`，gzip 250 000 字节）与浏览器冒烟
+（`scripts/ui-smoke.ts`）。AD CS 助手的安装与计划任务、大 CRL 的容量见 [docs/operations.md](docs/operations.md)；完整的使用与运维文档在切片 6。
 
 - [docs/plan.md](docs/plan.md)：设计文档（决策、存储模型、领域规则、API、切片划分）。
 - [docs/implementation/](docs/implementation/README.md)：分步实施计划。`README.md` 是总则（决策、完成定义、通用约定），每个切片一份文件
@@ -45,8 +46,11 @@ pnpm run ci:docker
 - `pnpm run dev:worker`：先 `build:web`，再 `wrangler dev`（127.0.0.1:8787，本地 R2）。管理令牌来自 `.dev.vars`
   （`cp .dev.vars.example .dev.vars`；上传不需令牌，除非在 `.dev.vars` 加 `AIA_UPLOAD_TOKEN`）；`dev:node` 则在命令前加 `AIA_ADMIN_TOKEN=dev-admin-token`。
 - `AIA_URL=http://127.0.0.1:8787 AIA_ADMIN_TOKEN=dev-admin-token pnpm run seed:dev`：经 CLI 导入夹具里的根 CA 与两个签发 CA，
-  并在尚无配置时应用一份示例配置；可重复执行（再跑全部 unchanged，已有配置不动）。`pnpm run reset:dev` 删除本地数据
-  （`.wrangler/state`、`.data`）。
+  在尚无配置时应用一份示例配置，再给除 issuing-ca-2 的 delta 外的每个目标发布一个 CRL；可重复执行（再跑全部 unchanged，已有配置不动）。
+  `pnpm run reset:dev` 删除本地数据（`.wrangler/state`、`.data`）。
+- `node scripts/ui-smoke.ts http://127.0.0.1:8787 [截图目录]`：浏览器冒烟（headless Chromium：`AIA_CHROMIUM`，或
+  `pnpm exec playwright-core install --only-shell chromium`），对刚 `seed:dev` 的服务跑 en / zh-CN × 亮 / 暗；不在 CI 里。
+- `pnpm run size:web`：`dist/web` 逐文件的 gzip 体积，总计超过 250 000 字节即失败（`ci:worker` 也跑）。
 
 CLI：`pnpm aia <命令>`（镜像内为 `node dist/server/cli/aia.js <命令>`），读 `AIA_URL` 与当前命令的令牌：import / config 用
 `AIA_ADMIN_TOKEN_FILE` / `AIA_ADMIN_TOKEN`，`publish <file...>` 用 `AIA_UPLOAD_TOKEN_FILE` / `AIA_UPLOAD_TOKEN`（服务端未设上传令牌时可不给）；
