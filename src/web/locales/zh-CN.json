@@ -1,6 +1,16 @@
 {
   "app": {
-    "skipToContent": "跳到正文"
+    "skipToContent": "跳到正文",
+    "footer": "AIA 与 CDP 分发点",
+    "apiDocument": "API（OpenAPI）",
+    "sections": {
+      "certificates": "证书（AIA）",
+      "crls": "CRL 目标（CDP）"
+    },
+    "empty": {
+      "certificates": "暂无证书",
+      "crls": "尚未配置 CRL 目标"
+    }
   },
   "nav": {
     "backToOverview": "返回总览"
@@ -14,7 +24,13 @@
     "no": "否",
     "copy": "复制",
     "copied": "已复制",
-    "copyFailed": "无法复制到剪贴板"
+    "copyFailed": "无法复制到剪贴板",
+    "itemCount": "{count} 项",
+    "bits": "位",
+    "bytes": "{count} 字节",
+    "retry": "重试",
+    "previousPage": "上一页",
+    "nextPage": "下一页"
   },
   "dates": {
     "now": "现在",
@@ -140,24 +156,159 @@
     }
   },
   "pages": {
-    "placeholder": "占位页",
     "overview": {
-      "title": "总览",
-      "body": "证书与 CRL 列表将在切片 5b 提供。在此之前本页只是占位；页头的徽标显示服务健康检查的实时结果。"
+      "title": "总览"
     },
     "certificate": {
-      "title": "证书",
-      "idLabel": "证书 ID",
-      "body": "证书详情（使用者、有效期、扩展与下载链接）将在切片 5b 提供。"
+      "title": "证书"
     },
     "crl": {
-      "title": "CRL 目标",
-      "idLabel": "目标 ID",
-      "body": "CRL 目标详情（当前 CRL、吊销条目与下载链接）将在切片 5b 提供。"
+      "title": "CRL 目标"
     },
     "notFound": {
       "title": "页面不存在",
       "body": "此地址没有页面："
     }
+  },
+  "kind": {
+    "certificate": "证书",
+    "full": "完整 CRL",
+    "delta": "增量 CRL"
+  },
+  "stats": {
+    "title": "统计",
+    "loadFailed": "无法加载统计信息",
+    "certificates": "证书",
+    "certificatesHint": "已导入的 CA 证书",
+    "targets": "CRL 目标",
+    "byKind": "完整 {full} · 增量 {delta}",
+    "published": "已发布",
+    "revocations": "吊销条目",
+    "revocationsHint": "已发布的完整 CRL 中的条目",
+    "needsAttention": "需关注",
+    "needsAttentionHint": "过时、已过期或缺少下次更新时间"
+  },
+  "overview": {
+    "certificatesFailed": "无法加载证书列表",
+    "crlsFailed": "无法加载 CRL 目标列表"
+  },
+  "table": {
+    "name": "名称",
+    "issuer": "签发者",
+    "validity": "有效期",
+    "status": "状态",
+    "downloads": "下载",
+    "label": "标签",
+    "kind": "类别",
+    "crlNumber": "CRL 编号",
+    "updates": "本次更新 – 下次更新",
+    "revoked": "吊销数"
+  },
+  "details": {
+    "tabs": {
+      "overview": "概览",
+      "raw": "PEM"
+    },
+    "noExtensions": "没有扩展。",
+    "signature": {
+      "r": "签名 r",
+      "s": "签名 s",
+      "value": "签名值"
+    },
+    "raw": {
+      "loadFailed": "无法加载 PEM 文本"
+    },
+    "certificate": {
+      "information": "证书信息",
+      "x509Version": "X.509 版本",
+      "serialNumber": "序列号",
+      "subject": "使用者",
+      "issuer": "签发者",
+      "validity": "有效期",
+      "notBefore": "生效时间",
+      "notAfter": "过期时间",
+      "status": "状态",
+      "cryptography": "密码学信息",
+      "signatureAlgorithm": "签名算法",
+      "publicKeyAlgorithm": "公钥算法",
+      "keySize": "密钥长度",
+      "curve": "曲线",
+      "publicKeySha1": "公钥 SHA-1",
+      "publicKeySha256": "公钥 SHA-256",
+      "fingerprints": "指纹",
+      "extensions": "扩展",
+      "imported": "导入时间",
+      "size": "大小",
+      "uniqueIds": "唯一标识符",
+      "issuerUniqueId": "签发者唯一标识符",
+      "subjectUniqueId": "使用者唯一标识符",
+      "crlTargets": "由其签发的 CRL 目标",
+      "noCrlTargets": "没有已配置的 CRL 目标以此证书为签发者。",
+      "unknownName": "未知证书",
+      "notFoundTitle": "证书不存在",
+      "notFound": "没有此 ID 的已导入证书。",
+      "loadFailed": "无法加载证书"
+    },
+    "crl": {
+      "information": "CRL 信息",
+      "version": "版本",
+      "revokedCertificates": "吊销的证书",
+      "issuer": "签发者",
+      "validity": "有效期",
+      "thisUpdate": "本次更新",
+      "nextUpdate": "下次更新",
+      "cryptography": "密码学信息",
+      "signatureAlgorithm": "签名算法",
+      "fingerprints": "指纹",
+      "serialNumber": "序列号",
+      "revocationDate": "吊销时间",
+      "reason": "原因",
+      "extensions": "扩展",
+      "invalidSince": "失效起始",
+      "certificateIssuer": "证书签发者",
+      "crlNumber": "CRL 编号",
+      "baseCrlNumber": "基础 CRL 编号",
+      "nextPublish": "下次 CRL 发布",
+      "publishedAt": "发布时间",
+      "size": "大小",
+      "issuedBy": "签发者：{issuer}",
+      "unpublishedBody": "此目标尚未发布任何 CRL。",
+      "noRevoked": "没有吊销的证书。",
+      "range": "第 {from}–{to} 条，共 {total} 条",
+      "notFoundTitle": "CRL 目标不存在",
+      "notFound": "没有配置此 ID 的 CRL 目标。",
+      "loadFailed": "无法加载 CRL 目标"
+    }
+  },
+  "errors": {
+    "bad_request": "请求格式有误。",
+    "unauthorized": "上传令牌缺失或不正确。",
+    "not_found": "未找到。",
+    "method_not_allowed": "服务器不允许在此使用该方法。",
+    "payload_too_large": "文件超过了服务器允许的大小。",
+    "unsupported_media_type": "服务器不接受此内容类型。",
+    "admin_disabled": "此服务器未启用管理功能。",
+    "precondition_failed": "数据已被修改，请刷新后重试。",
+    "precondition_required": "请求需要 If-Match 前置条件。",
+    "config_invalid": "配置无效。",
+    "referenced": "配置仍在引用此证书。",
+    "invalid_crl": "这不是有效的 X.509 CRL。",
+    "invalid_certificate": "这不是有效的 X.509 证书。",
+    "not_yet_valid": "CRL 的本次更新时间晚于服务器当前时间。",
+    "unknown_critical_extension": "CRL 含有本服务不认识的关键扩展。",
+    "scoped_crl_unsupported": "不支持限定范围的 CRL 和间接 CRL。",
+    "unsupported_algorithm": "不支持此 CRL 的签名算法。",
+    "issuer_not_found": "没有已导入的证书是此 CRL 的签发者。",
+    "target_not_configured": "没有已配置的 CRL 目标接收该签发者的此类 CRL。",
+    "invalid_signature": "用签发者的公钥无法验证此 CRL 的签名。",
+    "issuer_mismatch": "此 CRL 不是由预期的证书签发的。",
+    "stale_crl": "此 CRL 比目标当前的 CRL 更旧。",
+    "conflict": "当前 CRL 的 CRL 编号与本次更新时间相同，但内容不同。",
+    "non_orderable": "此 CRL 与当前 CRL 中只有一个带有 CRL 编号，无法比较先后。",
+    "concurrent_update": "上传期间数据持续变化，请重试。",
+    "internal": "服务器出错，请稍后重试。",
+    "network": "无法连接到服务器。",
+    "invalid_response": "服务器返回了本页面无法识别的响应。",
+    "unknown": "意外错误（{code}）。"
   }
 }

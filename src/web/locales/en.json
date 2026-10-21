@@ -1,6 +1,16 @@
 {
   "app": {
-    "skipToContent": "Skip to content"
+    "skipToContent": "Skip to content",
+    "footer": "AIA and CDP distribution point",
+    "apiDocument": "API (OpenAPI)",
+    "sections": {
+      "certificates": "Certificates (AIA)",
+      "crls": "CRL targets (CDP)"
+    },
+    "empty": {
+      "certificates": "No certificates found",
+      "crls": "No CRL targets configured"
+    }
   },
   "nav": {
     "backToOverview": "Back to overview"
@@ -14,7 +24,13 @@
     "no": "No",
     "copy": "Copy",
     "copied": "Copied",
-    "copyFailed": "Could not copy to the clipboard"
+    "copyFailed": "Could not copy to the clipboard",
+    "itemCount": "1 item | {count} items",
+    "bits": "bits",
+    "bytes": "{count} bytes",
+    "retry": "Retry",
+    "previousPage": "Previous page",
+    "nextPage": "Next page"
   },
   "dates": {
     "now": "now",
@@ -140,24 +156,159 @@
     }
   },
   "pages": {
-    "placeholder": "Placeholder",
     "overview": {
-      "title": "Overview",
-      "body": "The certificate and CRL lists arrive in slice 5b. Until then this page is a placeholder; the badge in the header shows the live result of the service health check."
+      "title": "Overview"
     },
     "certificate": {
-      "title": "Certificate",
-      "idLabel": "Certificate ID",
-      "body": "Certificate details (subject, validity, extensions and download links) arrive in slice 5b."
+      "title": "Certificate"
     },
     "crl": {
-      "title": "CRL target",
-      "idLabel": "Target ID",
-      "body": "CRL target details (current CRL, revoked certificates and download links) arrive in slice 5b."
+      "title": "CRL target"
     },
     "notFound": {
       "title": "Page not found",
       "body": "There is no page at this address:"
     }
+  },
+  "kind": {
+    "certificate": "Certificate",
+    "full": "Full CRL",
+    "delta": "Delta CRL"
+  },
+  "stats": {
+    "title": "Statistics",
+    "loadFailed": "Could not load the statistics",
+    "certificates": "Certificates",
+    "certificatesHint": "Imported CA certificates",
+    "targets": "CRL targets",
+    "byKind": "{full} full · {delta} delta",
+    "published": "Published",
+    "revocations": "Revocations",
+    "revocationsHint": "In the published full CRLs",
+    "needsAttention": "Needs attention",
+    "needsAttentionHint": "Stale, expired or without next update"
+  },
+  "overview": {
+    "certificatesFailed": "Could not load the certificates",
+    "crlsFailed": "Could not load the CRL targets"
+  },
+  "table": {
+    "name": "Name",
+    "issuer": "Issuer",
+    "validity": "Validity",
+    "status": "Status",
+    "downloads": "Downloads",
+    "label": "Label",
+    "kind": "Kind",
+    "crlNumber": "CRL number",
+    "updates": "This update – next update",
+    "revoked": "Revoked"
+  },
+  "details": {
+    "tabs": {
+      "overview": "Overview",
+      "raw": "PEM"
+    },
+    "noExtensions": "No extensions.",
+    "signature": {
+      "r": "Signature r",
+      "s": "Signature s",
+      "value": "Signature value"
+    },
+    "raw": {
+      "loadFailed": "Could not load the PEM text"
+    },
+    "certificate": {
+      "information": "Certificate Information",
+      "x509Version": "X.509 Version",
+      "serialNumber": "Serial Number",
+      "subject": "Subject",
+      "issuer": "Issuer",
+      "validity": "Validity",
+      "notBefore": "Not Before",
+      "notAfter": "Not After",
+      "status": "Status",
+      "cryptography": "Cryptography",
+      "signatureAlgorithm": "Signature Algorithm",
+      "publicKeyAlgorithm": "Public Key Algorithm",
+      "keySize": "Key Size",
+      "curve": "Curve",
+      "publicKeySha1": "Public Key SHA-1",
+      "publicKeySha256": "Public Key SHA-256",
+      "fingerprints": "Fingerprints",
+      "extensions": "Extensions",
+      "imported": "Imported",
+      "size": "Size",
+      "uniqueIds": "Unique Identifiers",
+      "issuerUniqueId": "Issuer Unique ID",
+      "subjectUniqueId": "Subject Unique ID",
+      "crlTargets": "CRL targets it issues",
+      "noCrlTargets": "No configured CRL target names this certificate as its issuer.",
+      "unknownName": "Unknown Certificate",
+      "notFoundTitle": "Certificate not found",
+      "notFound": "No imported certificate has this id.",
+      "loadFailed": "Could not load the certificate"
+    },
+    "crl": {
+      "information": "CRL Information",
+      "version": "Version",
+      "revokedCertificates": "Revoked Certificates",
+      "issuer": "Issuer",
+      "validity": "Validity",
+      "thisUpdate": "This Update",
+      "nextUpdate": "Next Update",
+      "cryptography": "Cryptography",
+      "signatureAlgorithm": "Signature Algorithm",
+      "fingerprints": "Fingerprints",
+      "serialNumber": "Serial Number",
+      "revocationDate": "Revocation Date",
+      "reason": "Reason",
+      "extensions": "Extensions",
+      "invalidSince": "Invalid since",
+      "certificateIssuer": "Certificate issuer",
+      "crlNumber": "CRL Number",
+      "baseCrlNumber": "Base CRL Number",
+      "nextPublish": "Next CRL Publish",
+      "publishedAt": "Published",
+      "size": "Size",
+      "issuedBy": "Issued by {issuer}",
+      "unpublishedBody": "No CRL has been published to this target yet.",
+      "noRevoked": "No certificates are revoked.",
+      "range": "{from}–{to} of {total}",
+      "notFoundTitle": "CRL target not found",
+      "notFound": "No CRL target with this id is configured.",
+      "loadFailed": "Could not load the CRL target"
+    }
+  },
+  "errors": {
+    "bad_request": "The request was malformed.",
+    "unauthorized": "The upload token is missing or wrong.",
+    "not_found": "Not found.",
+    "method_not_allowed": "The server does not allow this method here.",
+    "payload_too_large": "The file is larger than the server accepts.",
+    "unsupported_media_type": "The server does not accept this content type.",
+    "admin_disabled": "Administration is disabled on this server.",
+    "precondition_failed": "The data changed in the meantime. Reload and try again.",
+    "precondition_required": "The request needs an If-Match precondition.",
+    "config_invalid": "The configuration is invalid.",
+    "referenced": "The configuration still refers to this certificate.",
+    "invalid_crl": "This is not a valid X.509 CRL.",
+    "invalid_certificate": "This is not a valid X.509 certificate.",
+    "not_yet_valid": "The CRL's thisUpdate is ahead of the server's clock.",
+    "unknown_critical_extension": "The CRL has a critical extension this service does not know.",
+    "scoped_crl_unsupported": "Scoped and indirect CRLs are not supported.",
+    "unsupported_algorithm": "The CRL's signature algorithm is not supported.",
+    "issuer_not_found": "No imported certificate is the issuer of this CRL.",
+    "target_not_configured": "No configured CRL target takes this kind of CRL from its issuer.",
+    "invalid_signature": "The CRL's signature does not verify with the issuer's key.",
+    "issuer_mismatch": "The CRL was not issued by the expected certificate.",
+    "stale_crl": "The CRL is older than the target's current CRL.",
+    "conflict": "The current CRL has the same CRL number and thisUpdate but other contents.",
+    "non_orderable": "Only one of this CRL and the current CRL has a CRL number, so they cannot be ordered.",
+    "concurrent_update": "The data kept changing during the upload. Try again.",
+    "internal": "The server failed. Try again later.",
+    "network": "The server could not be reached.",
+    "invalid_response": "The server sent a response this page cannot read.",
+    "unknown": "Unexpected error ({code})."
   }
 }

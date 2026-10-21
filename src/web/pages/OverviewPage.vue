@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import { Badge } from "@/components/ui/badge";
+import CertificateTable from "@/components/overview/CertificateTable.vue";
+import CrlTargetTable from "@/components/overview/CrlTargetTable.vue";
+import StatsBar from "@/components/overview/StatsBar.vue";
+import { usePageTitle } from "@/composables/usePageTitle";
 
+// The landing page (plan §8; the old single-page App.vue of worker-aia-cdp@5b570aa): counts, the
+// certificates, the CRL targets.
 const { t } = useI18n();
+usePageTitle(() => t("pages.overview.title"));
 </script>
 
 <template>
-  <section class="grid gap-4">
-    <div class="flex flex-wrap items-center gap-2">
-      <h1 class="text-2xl font-semibold tracking-tight">{{ t("pages.overview.title") }}</h1>
-      <Badge variant="outline">{{ t("pages.placeholder") }}</Badge>
-    </div>
-    <p class="max-w-prose text-muted-foreground">{{ t("pages.overview.body") }}</p>
+  <section class="grid gap-6">
+    <h1 class="text-2xl font-semibold tracking-tight">{{ t("pages.overview.title") }}</h1>
+    <StatsBar />
+    <CertificateTable />
+    <CrlTargetTable />
   </section>
 </template>

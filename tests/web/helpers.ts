@@ -2,8 +2,12 @@
 // @/client/types with the facts of tests/fixtures/pki (ids, serials, validity, CRL numbers and
 // times from manifest.json; subject names from generate-test-data.sh), a fetch stub that answers
 // hc's requests by method and path, and a deferred promise for ordering tests.
+import { QueryClient, VueQueryPlugin } from "@tanstack/vue-query";
+import { flushPromises, mount } from "@vue/test-utils";
 import { vi } from "vitest";
+import { createMemoryHistory } from "vue-router";
 import manifest from "../fixtures/pki/manifest.json";
+import App from "@/App.vue";
 import type {
   AlgorithmIdentifier,
   CertificateDetail,
@@ -17,6 +21,9 @@ import type {
   Stats,
   Time,
 } from "@/client/types";
+import { createAppI18n } from "@/i18n";
+import type { AppLocale } from "@/i18n";
+import { createAppRouter } from "@/router";
 
 /** manifest.now: the clock of every test that depends on one. */
 export const NOW = manifest.now;
@@ -329,6 +336,24 @@ export function publishedCrl(outcome: PublishedCrl["outcome"]): PublishedCrl {
     issuer: ISSUING.id,
     downloads: ["/crl/ca01.crl", "/crl/ca01.crl.pem"],
   } satisfies PublishedCrl;
+}
+
+// Mounting -------------------------------------------------------------------------------------------
+
+/**
+ * The whole app at `path` (memory history), without query retries; resolves once the lazy route
+ * component is loaded and the first answers are rendered. The caller unmounts `wrapper` and clears
+ * `queryClient`.
+ */
+export async function mountApp(path: string, locale: AppLocale = "en") {
+  const router = createAppRouter(createMemoryHistory());
+  await router.push(path);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = mount(App, {
+    global: { plugins: [router, createAppI18n(locale), [VueQueryPlugin, { queryClient }]] },
+  });
+  await flushPromises();
+  return { router, wrapper, queryClient };
 }
 
 // Fetch ------------------------------------------------------------------------------------------

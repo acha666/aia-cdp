@@ -23,7 +23,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: `/crls/:targetId(${TARGET_ID})`,
     name: "crl",
-    component: () => import("@/pages/CrlPage.vue"),
+    component: () => import("@/pages/CrlTargetPage.vue"),
     props: true,
     sensitive: true,
   },
