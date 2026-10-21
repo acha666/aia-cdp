@@ -6,7 +6,13 @@
     "backToOverview": "Back to overview"
   },
   "common": {
-    "notAvailable": "N/A"
+    "language": "Language",
+    "notAvailable": "N/A",
+    "emptyValue": "(empty)",
+    "unknown": "Unknown",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyFailed": "Could not copy to the clipboard"
   },
   "dates": {
     "now": "now",
@@ -17,6 +23,17 @@
       "hour": "h",
       "minute": "m"
     }
+  },
+  "status": {
+    "valid": "Valid",
+    "expiring": "Expiring",
+    "expired": "Expired",
+    "notYetValid": "Not Yet Valid",
+    "current": "Current",
+    "stale": "Stale"
+  },
+  "crl": {
+    "unpublished": "Not published"
   },
   "algorithm": {
     "salt": "salt {length}"
@@ -60,9 +77,6 @@
       "light": "light",
       "dark": "dark"
     }
-  },
-  "locale": {
-    "switchTo": "Switch language to"
   },
   "pages": {
     "placeholder": "Placeholder",

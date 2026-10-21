@@ -6,7 +6,13 @@
     "backToOverview": "返回总览"
   },
   "common": {
-    "notAvailable": "无"
+    "language": "语言",
+    "notAvailable": "无",
+    "emptyValue": "（空）",
+    "unknown": "未知",
+    "copy": "复制",
+    "copied": "已复制",
+    "copyFailed": "无法复制到剪贴板"
   },
   "dates": {
     "now": "现在",
@@ -17,6 +23,17 @@
       "hour": "小时",
       "minute": "分钟"
     }
+  },
+  "status": {
+    "valid": "有效",
+    "expiring": "即将过期",
+    "expired": "已过期",
+    "notYetValid": "尚未生效",
+    "current": "最新",
+    "stale": "过时"
+  },
+  "crl": {
+    "unpublished": "未发布"
   },
   "algorithm": {
     "salt": "盐值长度 {length}"
@@ -60,9 +77,6 @@
       "light": "浅色",
       "dark": "深色"
     }
-  },
-  "locale": {
-    "switchTo": "切换语言为"
   },
   "pages": {
     "placeholder": "占位页",

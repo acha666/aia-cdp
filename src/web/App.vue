@@ -3,7 +3,7 @@ import { watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink, RouterView } from "vue-router";
 import HealthBadge from "@/components/HealthBadge.vue";
-import LocaleSwitch from "@/components/LocaleSwitch.vue";
+import LocaleSelect from "@/components/LocaleSelect.vue";
 import ThemeToggle from "@/components/ThemeToggle.vue";
 import { siteName } from "@/site";
 
@@ -29,7 +29,7 @@ watchEffect(() => {
           {{ siteName }}
         </RouterLink>
         <HealthBadge />
-        <LocaleSwitch />
+        <LocaleSelect />
         <ThemeToggle />
       </div>
     </header>
