@@ -12,7 +12,7 @@ import type { CatalogCertificate } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { PkiParseError } from "./pki/errors.ts";
 import type { PkiParseReason } from "./pki/errors.ts";
-import { parseCertificate } from "./pki/parsers.ts";
+import { parseCertificate, sameSignatureAlgorithms } from "./pki/parsers.ts";
 import { toDer } from "./pki/pem.ts";
 import type { ObjectStore } from "./store.ts";
 import { buildCertificateSummary } from "./summary/catalog-summary.ts";
@@ -32,9 +32,12 @@ export interface ImportedCertificate {
   entry: CatalogCertificate;
 }
 
+/** The details.reason of invalid_certificate (implementation §2.6). */
+export type InvalidCertificateReason = PkiParseReason | "signature_algorithm_mismatch";
+
 export type ImportResult =
   | ImportedCertificate
-  | { error: "invalid_certificate"; details: { reason: PkiParseReason } }
+  | { error: "invalid_certificate"; details: { reason: InvalidCertificateReason } }
   | { error: "concurrent_update"; id: string };
 
 /** The DER blob is written with this type (R2 keeps it as httpMetadata). */
@@ -45,23 +48,28 @@ interface Parsed {
   summary: CertificateSummary;
 }
 
-// toDer → parseCertificate (strict DER, RFC 5280 times) → summary; every PkiParseError is a 422.
-// The summary is checked against the catalog format here, before the blob write: a value the
-// catalog cannot hold would otherwise only fail in updateCatalog, after it (a 500 and a blob).
-async function parse(bytes: Uint8Array): Promise<Parsed | PkiParseError> {
+// toDer → parseCertificate (strict DER, RFC 5280 times) → the two signature algorithms → summary;
+// every PkiParseError is a 422. The outer signatureAlgorithm must be the TBS signature, octet for
+// octet as received (RFC 5280 §4.1.1.2; the same comparison as the CRL upload policy, M11): it is
+// outside the signature, and the detail shows it (slice 5a review). The summary is checked against
+// the catalog format here, before the blob write: a value the catalog cannot hold would otherwise
+// only fail in updateCatalog, after it (a 500 and a blob).
+async function parse(bytes: Uint8Array): Promise<Parsed | { reason: InvalidCertificateReason }> {
   try {
     const der = toDer(bytes, "certificate");
-    const summary = await buildCertificateSummary(parseCertificate(der), der);
-    const checked = CertificateSummarySchema.safeParse(summary);
-    if (!checked.success) {
-      return new PkiParseError("certificate", "structure", "No catalog form for the summary", {
-        cause: checked.error,
-      });
+    const certificate = parseCertificate(der);
+    if (!sameSignatureAlgorithms(certificate)) {
+      return { reason: "signature_algorithm_mismatch" };
+    }
+    const summary = await buildCertificateSummary(certificate, der);
+    if (!CertificateSummarySchema.safeParse(summary).success) {
+      // No catalog form for the summary.
+      return { reason: "structure" };
     }
     return { der, summary };
   } catch (error) {
     if (error instanceof PkiParseError) {
-      return error;
+      return { reason: error.reason };
     }
     throw error;
   }
@@ -84,7 +92,7 @@ export async function importCertificate(
 ): Promise<ImportResult> {
   const now = deps.now();
   const parsed = await parse(bytes);
-  if (parsed instanceof PkiParseError) {
+  if ("reason" in parsed) {
     return { error: "invalid_certificate", details: { reason: parsed.reason } };
   }
   const { der, summary } = parsed;

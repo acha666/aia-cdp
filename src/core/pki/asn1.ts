@@ -7,7 +7,6 @@ import {
   BaseBlock,
   BitString,
   Boolean as Asn1Boolean,
-  Enumerated,
   GeneralizedTime,
   Integer,
   Null,
@@ -55,8 +54,26 @@ function asciiOf(view: Uint8Array): string {
   return text;
 }
 
+/**
+ * The UTC date of these fields. Not Date.UTC: it reads the years 0–99 as 1900–1999 (a
+ * GeneralizedTime can hold 0000–0099; 1900 is no leap year, 0000 is).
+ */
+function utcDate(
+  year: number,
+  monthIndex: number,
+  day: number,
+  hour = 0,
+  minute = 0,
+  second = 0
+): Date {
+  const date = new Date(0);
+  date.setUTCFullYear(year, monthIndex, day);
+  date.setUTCHours(hour, minute, second, 0);
+  return date;
+}
+
 function daysInMonth(year: number, month: number): number {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return utcDate(year, month, 0).getUTCDate();
 }
 
 /**
@@ -99,7 +116,7 @@ export function readStrictTime(block: BaseBlock): StrictTime {
   if (!valid) {
     throw new Asn1TimeError(`Invalid ASN.1 time: ${JSON.stringify(raw)}`);
   }
-  const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  const date = utcDate(year, month - 1, day, hour, minute, second);
   return { type: isUtc ? "utcTime" : "generalizedTime", raw, date };
 }
 
@@ -117,6 +134,21 @@ export function formatGeneralizedTime(date: Date): string {
     throw new RangeError(`No GeneralizedTime for ${iso}`);
   }
   return `${match.slice(1).join("")}Z`;
+}
+
+/**
+ * The value of an INTEGER (or ENUMERATED, an asn1js Integer) as a number, read from its contents
+ * octets: asn1js's valueDec is 0 from four contents octets on (2^23 and up), and PKIjs copies
+ * valueDec into its numeric fields. Throws a RangeError beyond Number.MAX_SAFE_INTEGER in either
+ * direction, which a number cannot hold exactly; a detail builder reports that as a parse error.
+ */
+export function integerNumber(block: Integer): number {
+  const value = block.toBigInt();
+  const limit = BigInt(Number.MAX_SAFE_INTEGER);
+  if (value > limit || value < -limit) {
+    throw new RangeError(`INTEGER ${value} is beyond Number.MAX_SAFE_INTEGER`);
+  }
+  return Number(value);
 }
 
 /**
@@ -368,13 +400,9 @@ export function primitiveText(block: BaseBlock): string | undefined {
   if (block instanceof Asn1Boolean) {
     return block.valueBlock.value ? "TRUE" : "FALSE";
   }
+  // ENUMERATED too (an asn1js Integer). Not valueDec: it is 0 from four contents octets on.
   if (block instanceof Integer) {
-    return block.valueBlock.valueHexView.length <= 6
-      ? String(block.valueBlock.valueDec)
-      : block.toBigInt().toString(10);
-  }
-  if (block instanceof Enumerated) {
-    return String(block.valueBlock.valueDec);
+    return block.toBigInt().toString(10);
   }
   if (block instanceof ObjectIdentifier) {
     return describeOid(block.valueBlock.toString());

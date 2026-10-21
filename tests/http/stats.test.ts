@@ -7,10 +7,17 @@ import { describe, expect, it } from "vitest";
 import { CATALOG_KEY, CONFIG_KEY } from "../../src/core/catalog.ts";
 import { Stats } from "../../src/http/schemas.ts";
 import { fixture, NOW } from "../fixtures/pki.ts";
-import { patchStore } from "../helpers/app.ts";
-import { cert, crlEntry } from "../helpers/catalog.ts";
+import { logRecords, patchStore } from "../helpers/app.ts";
+import { cert, crlEntry, putCatalog } from "../helpers/catalog.ts";
 import { DEFAULT_TARGETS, IMPORTED } from "../helpers/publish.ts";
-import { expectHead, okJson, readService, recordReads } from "../helpers/reads.ts";
+import {
+  expectHead,
+  expectInternal,
+  okJson,
+  readService,
+  recordReads,
+  stateOf,
+} from "../helpers/reads.ts";
 import type { ReadServiceOptions } from "../helpers/reads.ts";
 
 const STATS = "/api/v1/stats";
@@ -106,6 +113,20 @@ describe("GET /api/v1/stats", () => {
     expect(Object.keys(body as object).sort()).toEqual(
       ["certificates", "derBytes", "published", "targets", "totalRevocations"].sort()
     );
+  });
+
+  // As GET /api/v1/crls does (tests/http/crl-targets.test.ts): no counts of a state the lists refuse.
+  it("answers 500 when a configured target's issuer is missing from the catalog", async () => {
+    const service = await readService({ publish: [FULL_01] });
+    const { catalog } = await stateOf(service);
+    const issuer = cert("issuing-ca-2").sha256;
+    const { [issuer]: _removed, ...certificates } = catalog.certificates;
+    await putCatalog(service.base, { ...catalog, certificates });
+    await expectInternal(await service.app.request(STATS), issuer);
+    expect(logRecords(service.deps).slice(-2)).toEqual([
+      expect.objectContaining({ msg: "read_inconsistent", reason: "issuer_missing", issuer }),
+      expect.objectContaining({ msg: "request", status: 500 }),
+    ]);
   });
 
   it("answers HEAD with the headers and no body", async () => {

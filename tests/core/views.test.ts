@@ -226,7 +226,9 @@ describe("certificateDetail", () => {
     expect(detail.tbsCertificate).toEqual(await buildTBSCertificate(parseCertificate(der)));
     expect(detail.tbsCertificate.serialNumber.hex).toBe(issuing.serial);
     expect(detail.tbsCertificate.extensions?.count).toBeGreaterThan(0);
-    // Signed by the EC P-384 root (§10 #8: the outer algorithm, with an ECDSA (r, s)).
+    // Signed by the EC P-384 root (§10 #8: the outer algorithm, with an ECDSA (r, s)). Import
+    // rejects a certificate whose outer algorithm is not its TBS signature octet for octet
+    // (tests/core/import.test.ts), so no stored certificate tells the two apart.
     expect(detail.signatureAlgorithm).toEqual({
       algorithm: { oid: "1.2.840.10045.4.3.3", name: "ecdsa-with-SHA384" },
     });
@@ -258,6 +260,12 @@ describe("certificateDetail", () => {
     expect(await inconsistency(() => certificateDetail(source, fixture(cert(ROOT).der)))).toBe(
       "blob_mismatch"
     );
+    // The digest is compared before parsing: foreign bytes that do not parse are a mismatch too.
+    expect(
+      await inconsistency(() =>
+        certificateDetail(source, new TextEncoder().encode("not this certificate"))
+      )
+    ).toBe("blob_mismatch");
     // A catalog entry whose id is the digest of bytes that are no certificate.
     const garbage = new TextEncoder().encode("not a certificate");
     const id = await sha256Hex(garbage);
@@ -476,6 +484,10 @@ describe("crlTargetDetail", () => {
     expect(await inconsistency(() => crlTargetDetail(source, fixture(DELTA_ADCS)))).toBe(
       "blob_mismatch"
     );
+    // The digest is compared before parsing: foreign bytes that do not parse are a mismatch too.
+    expect(
+      await inconsistency(() => crlTargetDetail(source, new TextEncoder().encode("not this CRL")))
+    ).toBe("blob_mismatch");
     const garbage = new TextEncoder().encode("not a CRL");
     const current = { ...source.current!, sha256: await sha256Hex(garbage) };
     expect(await inconsistency(() => crlTargetDetail({ ...source, current }, garbage))).toBe(
@@ -493,6 +505,15 @@ describe("crlTargetDetail", () => {
 });
 
 describe("stats", () => {
+  // Like the CRL lists: the counts never describe a state the lists refuse to show.
+  it("throws when a configured target's issuer is not in the catalog", async () => {
+    const { config, catalog } = await state();
+    const { [cert(ISSUING_2).sha256]: _removed, ...certificates } = catalog.certificates;
+    expect(await inconsistency(() => stats(config, { ...catalog, certificates }))).toBe(
+      "issuer_missing"
+    );
+  });
+
   it("counts from config.json and catalog.json, with no time fields", async () => {
     const { config, catalog } = await state();
     const published = TARGETS.flatMap((spec) => (spec.published === undefined ? [] : [spec]));

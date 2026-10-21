@@ -403,7 +403,9 @@ export async function crlTargetDetail(
 
 /**
  * GET /api/v1/stats, from config.json and catalog.json alone: no blob is read and the store is
- * never listed (history blobs are not counted; listing them is an admin operation).
+ * never listed (history blobs are not counted; listing them is an admin operation). A configured
+ * target whose issuer is not in the catalog throws ReadInconsistencyError, as in the CRL lists:
+ * the counts never describe a state the lists refuse to show.
  */
 export function stats(config: Config | null, catalog: Catalog): Stats {
   const result: Stats = {
@@ -418,6 +420,9 @@ export function stats(config: Config | null, catalog: Catalog): Stats {
     result.derBytes += entry.size;
   }
   for (const [targetId, target] of Object.entries(config?.targets ?? {})) {
+    if (own(catalog.certificates, target.issuer) === undefined) {
+      throw new ReadInconsistencyError("issuer_missing", { targetId, issuer: target.issuer });
+    }
     result.targets[target.kind]++;
     const current = own(catalog.targets, targetId)?.current ?? null;
     if (current === null) {

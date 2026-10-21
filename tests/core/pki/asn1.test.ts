@@ -106,6 +106,20 @@ describe("strict RFC 5280 times", () => {
     });
   });
 
+  // Date.UTC reads the years 0–99 as 1900–1999 (slice 5a review).
+  it("reads GeneralizedTime years 0000–0099 as such, not as 1900–1999", () => {
+    expect(readStrictTime(decodedTime(24, "00010101000000Z"))).toEqual({
+      type: "generalizedTime",
+      raw: "00010101000000Z",
+      date: new Date("0001-01-01T00:00:00Z"),
+    });
+    // 0000 is a leap year (proleptic Gregorian, like 2000); 1900 is not.
+    expect(readStrictTime(decodedTime(24, "00000229120000Z")).date.toISOString()).toBe(
+      "0000-02-29T12:00:00.000Z"
+    );
+    expect(() => readStrictTime(decodedTime(24, "19000229120000Z"))).toThrow(Asn1TimeError);
+  });
+
   it("readStrictTime throws Asn1TimeError", () => {
     expect(() => readStrictTime(new asn1.Integer({ value: 1 }))).toThrow(Asn1TimeError);
     expect(() => readStrictTime(new asn1.Integer({ value: 1 }))).toThrow(/not a time/);

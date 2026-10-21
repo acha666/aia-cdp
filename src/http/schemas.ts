@@ -130,7 +130,7 @@ export const ImportedCertificate = z
 
 export const InvalidCertificateError = detailedErrorSchema(
   ["invalid_certificate"],
-  z.object({ reason: z.enum(PKI_PARSE_REASONS) })
+  z.object({ reason: z.enum([...PKI_PARSE_REASONS, "signature_algorithm_mismatch"]) })
 ).openapi("InvalidCertificateError");
 
 /** One entry of config_invalid's details.issues (src/core/admin.ts ConfigIssue). */
@@ -280,26 +280,30 @@ export const CrlMediaTypeError = detailedErrorSchema(
 // here.
 
 /**
- * Path parameter of GET /api/v1/certificates/{id}: 64 hex digits, uppercase accepted and
- * normalised to the lowercase catalog id. One path segment, so `/` (sent as `%2F`) is a 400.
+ * Path parameter of GET /api/v1/certificates/{id}: 64 hex digits in either case, normalised to the
+ * lowercase catalog id. Checked before it is lowercased, so the documented pattern is the input's
+ * (either case). One path segment, so `/` (sent as `%2F`) is a 400.
  */
 export const CertificateIdParam = z.object({
   id: z
     .string()
+    .regex(/^[0-9a-fA-F]{64}$/)
     .toLowerCase()
-    .regex(/^[0-9a-f]{64}$/)
     .openapi({ description: "The certificate id: SHA-256 of the DER, hex (either case)" }),
 });
 
 /**
- * Path parameter of GET /api/v1/crls/{targetId}: an RFC 9562 UUID (z.uuid(), the validator of
- * config.json's target ids), uppercase accepted and normalised (RFC 9562 §4: case-insensitive on
- * input), as for certificate ids.
+ * Path parameter of GET /api/v1/crls/{targetId}: an RFC 9562 UUID in either case (§4:
+ * case-insensitive on input), normalised to lowercase like certificate ids. Lowercased before the
+ * check: z.uuid() (the validator of config.json's target ids, used here as a check, which is what
+ * the deprecated z.string().uuid() does) accepts the Max UUID in lowercase only. Documented as
+ * format uuid.
  */
 export const TargetIdParam = z.object({
   targetId: z
-    .uuid()
+    .string()
     .toLowerCase()
+    .check(z.uuid())
     .openapi({ description: "The target id from config.json (UUID, either case)" }),
 });
 

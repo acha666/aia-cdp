@@ -2,12 +2,21 @@
 // identifiers, times, names, public keys and fingerprints (implementation slice 5a step 3). From
 // worker-aia-cdp@5b570aa:src/worker/api/v2/builders/primitives.ts with these changes: buildTime
 // takes the pkijs.Time it formats (reading .value and .type), buildFingerprints takes the DER
-// bytes as a Uint8Array, formatGeneralizedTime is the one in ../pki/asn1.ts, and the ECDSA / DSA
-// signature is decoded through decodeBer like every other fromBER.
-import { BaseBlock, Integer, Null, ObjectIdentifier, Sequence, Set as Asn1Set } from "asn1js";
+// bytes as a Uint8Array, formatGeneralizedTime is the one in ../pki/asn1.ts, the ECDSA / DSA
+// signature is decoded through decodeBer like every other fromBER, and the RSASSA-PSS integers are
+// read from their contents octets (slice 5a review: PKIjs's numbers are asn1js's valueDec).
+import {
+  BaseBlock,
+  Constructed,
+  Integer,
+  Null,
+  ObjectIdentifier,
+  Sequence,
+  Set as Asn1Set,
+} from "asn1js";
 import type { BitString as Asn1BitString } from "asn1js";
 import * as pkijs from "pkijs";
-import { decodeBer, formatGeneralizedTime } from "../pki/asn1.ts";
+import { decodeBer, formatGeneralizedTime, integerNumber } from "../pki/asn1.ts";
 import {
   OID_DICTIONARY,
   KEY_ALG_NAMES,
@@ -137,6 +146,19 @@ export function buildObjectIdentifier(
 
 const RSASSA_PSS_OID = "1.2.840.113549.1.1.10";
 
+/**
+ * The INTEGER of the [tagNumber] EXPLICIT field of `params`, as a number; undefined when the field
+ * is absent (RFC 4055 §3.1: saltLength [2], trailerField [3]). PKIjs's own numbers are valueDec,
+ * 0 from four contents octets on.
+ */
+function explicitInteger(params: Sequence, tagNumber: number): number | undefined {
+  const field = params.valueBlock.value.find(
+    (block) => block.idBlock.tagClass === 3 && block.idBlock.tagNumber === tagNumber
+  );
+  const [value] = field instanceof Constructed ? field.valueBlock.value : [];
+  return value instanceof Integer ? integerNumber(value) : undefined;
+}
+
 function parseRsassaPssParams(params: Sequence): AlgorithmParametersParsed | undefined {
   try {
     const pss = new pkijs.RSASSAPSSParams({ schema: params });
@@ -155,8 +177,9 @@ function parseRsassaPssParams(params: Sequence): AlgorithmParametersParsed | und
       hashAlgorithm: buildObjectIdentifier(pss.hashAlgorithm.algorithmId, HASH_ALG_NAMES),
       maskGenAlgorithm: buildObjectIdentifier(pss.maskGenAlgorithm.algorithmId, MASK_GEN_ALG_NAMES),
       maskGenHashAlgorithm,
-      saltLength: pss.saltLength,
-      trailerField: pss.trailerField,
+      // PKIjs's defaults (20 and 1, RFC 4055 §3.1) when absent.
+      saltLength: explicitInteger(params, 2) ?? pss.saltLength,
+      trailerField: explicitInteger(params, 3) ?? pss.trailerField,
     };
   } catch {
     return undefined;

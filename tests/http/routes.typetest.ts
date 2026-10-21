@@ -2,7 +2,7 @@
 // by `pnpm run typecheck:node` (tsconfig.node.json includes tests/), never run (not a *.test.ts).
 // Each @ts-expect-error must stay live: if a route's response types widened (to the constraint
 // type, or to any through hc<any>), the line would compile and the directive itself would fail.
-import type { OpenAPIHono } from "@hono/zod-openapi";
+import type { OpenAPIHono, z } from "@hono/zod-openapi";
 import { hc } from "hono/client";
 import type { InferResponseType } from "hono/client";
 import { expectTypeOf } from "vitest";
@@ -12,6 +12,7 @@ import type { AppType } from "../../src/http/app.ts";
 import { getCertificateRoute } from "../../src/http/routes/certificates.ts";
 import { getCrlTargetRoute } from "../../src/http/routes/crls.ts";
 import { getStatsRoute } from "../../src/http/routes/stats.ts";
+import type { CertificateDetail, CrlTargetDetail } from "../../src/http/schemas.ts";
 import type { AppEnv } from "../../src/http/types.ts";
 
 const STATS = {
@@ -22,6 +23,11 @@ const STATS = {
   derBytes: 0,
 };
 
+// Valid detail bodies: each wrong body below is one of these with only the claimed property wrong,
+// so that its @ts-expect-error fails for that property and not for missing ones.
+const CERTIFICATE_DETAIL = {} as z.output<typeof CertificateDetail>;
+const CRL_TARGET_DETAIL = {} as z.output<typeof CrlTargetDetail>;
+
 // Handlers: the body must match the declared schema of the status, and the status must be declared.
 export function handlers(app: OpenAPIHono<AppEnv>): void {
   app.openapi(getStatsRoute, (c) => c.json(STATS, 200));
@@ -31,10 +37,13 @@ export function handlers(app: OpenAPIHono<AppEnv>): void {
   app.openapi(getStatsRoute, (c) => c.json({ ...STATS, derBytes: undefined }, 200));
   // @ts-expect-error -- 201 is not a status of GET /api/v1/stats
   app.openapi(getStatsRoute, (c) => c.json(STATS, 201));
-  // @ts-expect-error -- a CRL target detail is not a certificate detail
-  app.openapi(getCertificateRoute, (c) => c.json({ ...STATS, id: "x" }, 200));
+  app.openapi(getCertificateRoute, (c) => c.json(CERTIFICATE_DETAIL, 200));
+  const withoutAlgorithm = { ...CERTIFICATE_DETAIL, signatureAlgorithm: undefined };
+  // @ts-expect-error -- signatureAlgorithm is required in the detail (§10 #8)
+  app.openapi(getCertificateRoute, (c) => c.json(withoutAlgorithm, 200));
+  app.openapi(getCrlTargetRoute, (c) => c.json(CRL_TARGET_DETAIL, 200));
   // @ts-expect-error -- current is the detail's CrlCurrentDetail or null, never a string
-  app.openapi(getCrlTargetRoute, (c) => c.json({ current: "none" }, 200));
+  app.openapi(getCrlTargetRoute, (c) => c.json({ ...CRL_TARGET_DETAIL, current: "none" }, 200));
 }
 
 const client = hc<AppType>("");

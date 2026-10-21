@@ -13,6 +13,7 @@ interface Operation {
   summary?: unknown;
   tags?: unknown;
   security?: Record<string, string[]>[];
+  parameters?: { name: string; in: string; schema?: Record<string, unknown> }[];
   responses?: Record<string, { content?: Record<string, { schema?: unknown }> }>;
 }
 
@@ -189,6 +190,34 @@ describe("GET /api/v1/openapi.json", () => {
       }
     }
   );
+
+  // Slice 5a step 6: both detail routes accept their id in either case and lowercase it, so the
+  // documented parameter must accept either case too, or a client validating against the
+  // document refuses a request the server serves.
+  it("documents the detail ids as the routes accept them, in either case", async () => {
+    const { doc } = await served();
+    const parameter = (path: string) => doc.paths[path]?.get?.parameters?.[0];
+    const id = parameter("/api/v1/certificates/{id}");
+    expect(id).toMatchObject({ name: "id", in: "path", schema: { type: "string" } });
+    const pattern = new RegExp(String(id?.schema?.pattern));
+    for (const accepted of [
+      "0a".repeat(32),
+      "0A".repeat(32),
+      `${"0a".repeat(16)}${"0A".repeat(16)}`,
+    ]) {
+      expect(accepted).toMatch(pattern);
+    }
+    for (const rejected of ["0a".repeat(31), "0g".repeat(32), "0a".repeat(33)]) {
+      expect(rejected).not.toMatch(pattern);
+    }
+    // RFC 9562 §4: UUIDs are case-insensitive on input; format uuid says no more.
+    expect(parameter("/api/v1/crls/{targetId}")).toMatchObject({
+      name: "targetId",
+      in: "path",
+      schema: { type: "string", format: "uuid" },
+    });
+    expect(parameter("/api/v1/crls/{targetId}")?.schema).not.toHaveProperty("pattern");
+  });
 
   it("names the extension variants, so that the extensionType discriminator has a mapping", async () => {
     const { doc } = await served();

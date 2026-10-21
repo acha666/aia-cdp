@@ -461,7 +461,7 @@ async function readSegment(base: URL, targets: Targets): Promise<void> {
     `GET /api/v1/stats: ${stats.status} ${show(stats.text)}`
   );
 
-  for (const each of ["/api/v1/certificates", path, targetPath, "/api/v1/stats"]) {
+  for (const each of ["/api/v1/certificates", path, "/api/v1/crls", targetPath, "/api/v1/stats"]) {
     const head = await read(base, each, "HEAD");
     check(head.ok && head.text === "", `HEAD ${each}: ${head.status}, no body`);
   }

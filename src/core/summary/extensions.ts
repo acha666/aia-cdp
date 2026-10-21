@@ -1,9 +1,13 @@
 // Detail builders for X.509 extensions: one decoder per supported OID (41 extensionType values),
 // a generic ASN.1 dump for the rest (implementation slice 5a step 3). From
-// worker-aia-cdp@5b570aa:src/worker/api/v2/builders/extensions.ts; only the imports changed and
-// buildTime now takes a pkijs.Time. The extensionType literals and field names are the contract
-// with the slice 5b views. Key identifiers are uppercase hex here (for display); catalog summaries
-// and ids are lowercase (M4), so compare across endpoints only through the summary fields.
+// worker-aia-cdp@5b570aa:src/worker/api/v2/builders/extensions.ts with these changes: the imports,
+// buildTime takes a pkijs.Time, isBlock guards and `?? 0` for noUncheckedIndexedAccess (same
+// behaviour); and from the slice 5a review, integers are read from their contents octets (asn1js's
+// valueDec, which PKIjs copies, is 0 from four octets on; beyond a safe integer the extension is a
+// parse error) and an SCT list must decode whole. The extensionType literals and field names are
+// the contract with the slice 5b views. Key identifiers are uppercase hex here (for display);
+// catalog summaries and ids are lowercase (M4), so compare across endpoints only through the
+// summary fields.
 import {
   BaseBlock,
   BitString as Asn1BitString,
@@ -41,7 +45,7 @@ import {
   readExtensionTime,
   readCRLInteger,
 } from "../pki/extensions.ts";
-import { displayText, dumpAsn1, readStrictTime } from "../pki/asn1.ts";
+import { displayText, dumpAsn1, integerNumber, readStrictTime } from "../pki/asn1.ts";
 import { toHex } from "../pki/conversion.ts";
 import type {
   Extensions,
@@ -204,11 +208,21 @@ function stringOf(block: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+// PKIjs keeps the Integer itself where asn1js could not decode it (four contents octets and more),
+// a number otherwise; integerNumber reads the contents (valueDec is 0 there).
 function integerValue(value: number | Integer | undefined): number | undefined {
   if (value === undefined) {
     return undefined;
   }
-  return typeof value === "number" ? value : value.valueBlock.valueDec;
+  return typeof value === "number" ? value : integerNumber(value);
+}
+
+/** An implicitly tagged INTEGER (a context-specific primitive) as a number. */
+function implicitInteger(block: BaseBlock): number {
+  if (!(block instanceof Primitive) || block.valueBlock.valueHexView.length === 0) {
+    throw new Error("Invalid implicitly tagged INTEGER");
+  }
+  return integerNumber(new Integer({ valueHex: block.valueBlock.valueHexView }));
 }
 
 function formatGuid(bytes: Uint8Array): string {
@@ -602,7 +616,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
         : typeof rawPath === "number"
           ? rawPath
           : rawPath instanceof Integer
-            ? rawPath.valueBlock.valueDec
+            ? integerNumber(rawPath)
             : undefined;
     return {
       extensionType: "basicConstraints",
@@ -619,7 +633,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
 
   // CRL Reason (2.5.29.21) - CRL entry extension
   "2.5.29.21": (ext): CRLReasonValue => {
-    const code = readExtensionValue(ext, Enumerated).valueBlock.valueDec;
+    const code = integerNumber(readExtensionValue(ext, Enumerated));
     return {
       extensionType: "cRLReason",
       code,
@@ -732,11 +746,19 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
 
   // Policy Constraints (2.5.29.36)
   "2.5.29.36": (ext): PolicyConstraintsValue => {
-    const constraints = readExtensionValue(ext, pkijs.PolicyConstraints);
+    // PKIjs checks the shape; its numbers are valueDec, so they are read from the fields' contents.
+    readExtensionValue(ext, pkijs.PolicyConstraints);
+    const fields = requireSequence(ext).valueBlock.value;
+    const skipCerts = (tagNumber: number) => {
+      const field = fields.find(
+        (block) => block.idBlock.tagClass === 3 && block.idBlock.tagNumber === tagNumber
+      );
+      return field === undefined ? undefined : implicitInteger(field);
+    };
     return {
       extensionType: "policyConstraints",
-      requireExplicitPolicy: constraints.requireExplicitPolicy,
-      inhibitPolicyMapping: constraints.inhibitPolicyMapping,
+      requireExplicitPolicy: skipCerts(0),
+      inhibitPolicyMapping: skipCerts(1),
     };
   },
 
@@ -759,7 +781,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   // Inhibit anyPolicy (2.5.29.54)
   "2.5.29.54": (ext): InhibitAnyPolicyValue => ({
     extensionType: "inhibitAnyPolicy",
-    skipCerts: readExtensionValue(ext, Integer).valueBlock.valueDec,
+    skipCerts: integerNumber(readExtensionValue(ext, Integer)),
   }),
 
   // Expired Certificates on CRL (2.5.29.60)
@@ -799,7 +821,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
       if (!(item instanceof Integer)) {
         throw new Error(`Invalid TLS feature in ${ext.extnID}`);
       }
-      const code = item.valueBlock.valueDec;
+      const code = integerNumber(item);
       return { code, name: TLS_FEATURE_NAMES[code] ?? null };
     }),
   }),
@@ -810,23 +832,32 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
     return { extensionType: "ocspNoCheck" };
   },
 
-  // Signed Certificate Timestamp List (1.3.6.1.4.1.11129.2.4.2)
+  // Signed Certificate Timestamp List (1.3.6.1.4.1.11129.2.4.2). PKIjs does not fail on truncated
+  // TLS data or on an SCT version it does not know: it leaves the defaults (no version, an empty
+  // logID, timestamp 0, no signature). Every SCT must have been read whole (RFC 6962 §3.2: v1 is
+  // 0, a 32-octet LogID, a signature), or the list is an error instead of invented SCTs.
   "1.3.6.1.4.1.11129.2.4.2": (ext): SignedCertificateTimestampListValue => ({
     extensionType: "signedCertificateTimestampList",
     timestamps: readExtensionValue(ext, pkijs.SignedCertificateTimestampList).timestamps.map(
       (sct) => {
         const signature: unknown = sct.signature;
+        const signatureHex = isBlock(signature)
+          ? blockHex(signature)
+          : signature instanceof ArrayBuffer || ArrayBuffer.isView(signature)
+            ? toHex(signature as ArrayBuffer | Uint8Array).toUpperCase()
+            : "";
+        // version is typed number but is undefined when the data ended before it.
+        const version: unknown = sct.version;
+        if (typeof version !== "number" || sct.logID.byteLength !== 32 || signatureHex === "") {
+          throw new Error(`Invalid SCT in ${ext.extnID}`);
+        }
         return {
-          version: sct.version,
+          version,
           logId: toHex(sct.logID).toUpperCase(),
           timestamp: sct.timestamp.toISOString(),
           hashAlgorithm: sct.hashAlgorithm,
           signatureAlgorithm: sct.signatureAlgorithm,
-          signature: isBlock(signature)
-            ? blockHex(signature)
-            : signature instanceof ArrayBuffer || ArrayBuffer.isView(signature)
-              ? toHex(signature as ArrayBuffer | Uint8Array).toUpperCase()
-              : "",
+          signature: signatureHex,
         };
       }
     ),
@@ -891,11 +922,13 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   // Microsoft Certificate Template Information v2 (1.3.6.1.4.1.311.21.7)
   "1.3.6.1.4.1.311.21.7": (ext): MsCertificateTemplateValue => {
     const template = readExtensionValue(ext, pkijs.CertificateTemplate);
+    // PKIjs's versions are valueDec: read them from the INTEGERs after the templateID.
+    const [, major, minor] = requireSequence(ext).valueBlock.value;
     return {
       extensionType: "msCertificateTemplate",
       templateId: buildObjectIdentifier(template.templateID),
-      majorVersion: template.templateMajorVersion,
-      minorVersion: template.templateMinorVersion,
+      majorVersion: major instanceof Integer ? integerNumber(major) : undefined,
+      minorVersion: minor instanceof Integer ? integerNumber(minor) : undefined,
     };
   },
 

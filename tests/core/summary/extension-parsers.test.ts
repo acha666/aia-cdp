@@ -852,6 +852,48 @@ describe("decoders the old tests did not reach", () => {
     });
   });
 
+  // PKIjs does not fail on truncated TLS data: it yields SCTs without a version, with an empty
+  // logID and a timestamp of 0 (1970). Such a list is an error, not a parsed list of invented SCTs.
+  it("reports a truncated or malformed SCT list as an error with the dump", () => {
+    const logId = Uint8Array.from({ length: 32 }, (_, index) => index);
+    const sct = [0, ...logId, ...new Array<number>(8).fill(0), 0, 0, 4, 3, 0, 2, 0x30, 0x00];
+    const list = (...scts: number[][]) => {
+      const body = scts.flatMap((each) => [each.length >> 8, each.length & 0xff, ...each]);
+      return new asn1.OctetString({
+        valueHex: Uint8Array.from([body.length >> 8, body.length & 0xff, ...body]).buffer,
+      });
+    };
+    expect(parsedOf("1.3.6.1.4.1.11129.2.4.2", list(sct))).toMatchObject({
+      timestamps: [{ version: 0, signature: "3000" }],
+    });
+    const malformed = [
+      // The probe of the slice 5a review: extnValue 04 04 00 02 09 09.
+      new asn1.OctetString({ valueHex: Uint8Array.of(0, 2, 9, 9).buffer }),
+      // An empty SCT behind a valid one.
+      list(sct, []),
+      // Another version: PKIjs reads nothing after the version octet.
+      list([1]),
+      // An empty signature.
+      list([...sct.slice(0, -4), 0, 0]),
+    ];
+    const results = malformed.map((value) =>
+      buildExtension(extension("1.3.6.1.4.1.11129.2.4.2", value))
+    );
+    expect(results.map(({ parseStatus, parsed }) => ({ parseStatus, parsed }))).toEqual(
+      malformed.map(() => ({ parseStatus: "error", parsed: undefined }))
+    );
+    expect(results.map((result) => result.asn1)).toEqual(
+      malformed.map((value) => [
+        {
+          depth: 0,
+          tag: "OCTET STRING",
+          length: value.valueBlock.valueHexView.length,
+          value: toHex(value.valueBlock.valueHexView).toUpperCase(),
+        },
+      ])
+    );
+  });
+
   it("decodes Subject Directory Attributes", () => {
     const attributes = new pkijs.SubjectDirectoryAttributes({
       attributes: [

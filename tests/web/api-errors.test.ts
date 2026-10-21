@@ -94,9 +94,22 @@ describe("unwrap", () => {
     ["JSON that is not the envelope", Response.json({ status: "unhealthy" }, { status: 503 })],
     ["an envelope without a message", Response.json({ error: { code: "x" } }, { status: 400 })],
     ["HTML with 200", new Response("<!doctype html><title>UI</title>", { status: 200 })],
+    // An empty success is no success: not null, not undefined.
+    ["an empty body with 200", new Response(null, { status: 200 })],
+    ["a 204", new Response(null, { status: 204 })],
   ])("throws invalid_response for %s", async (_name, response) => {
     const error = await apiError(unwrap(response));
     expect(error).toMatchObject({ code: "invalid_response", status: response.status });
+  });
+
+  // The connection dropped after the headers: no response to speak of, as when fetch rejects.
+  it("throws network with the cause when the body cannot be read", async () => {
+    const failure = new TypeError("terminated");
+    const error = await apiError(
+      unwrap({ ok: true, status: 200, text: () => Promise.reject(failure) })
+    );
+    expect(error).toMatchObject({ code: "network", status: 0 });
+    expect(error.cause).toBe(failure);
   });
 });
 

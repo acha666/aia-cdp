@@ -1,21 +1,27 @@
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
 import { describe, expect, it } from "vitest";
-import { parseCertificate } from "../../../src/core/pki/parsers.ts";
+import { toHex } from "../../../src/core/pki/conversion.ts";
+import { parseCertificate, parseCRL } from "../../../src/core/pki/parsers.ts";
 import { buildTBSCertificate } from "../../../src/core/summary/certificate.ts";
 import { buildTBSCertList } from "../../../src/core/summary/crl.ts";
 import { buildExtension } from "../../../src/core/summary/extensions.ts";
-import { buildName, buildSubjectPublicKeyInfo } from "../../../src/core/summary/primitives.ts";
+import {
+  buildAlgorithmIdentifier,
+  buildName,
+  buildSubjectPublicKeyInfo,
+} from "../../../src/core/summary/primitives.ts";
 import { fixture, manifest } from "../../fixtures/pki.ts";
 import type { ManifestCertificate } from "../../fixtures/pki.ts";
-import { extension } from "../../helpers/pki.ts";
+import { extension, pkiError } from "../../helpers/pki.ts";
 
 // The builder cases of worker-aia-cdp@5b570aa:tests/worker/pki-values.test.ts (L28, L96, L111,
-// L124, L181, L202); its parser cases are in tests/core/pki/parsers.test.ts (slice 2) and its
-// upload case in tests/core/publish.test.ts (slice 4). L224 tested the builders' options to skip
-// extensions and revocations, which are gone (slice 5a step 3). The fixture root is EC P-384 now
-// (the old one was RSA-2048): the RSA key comes from certs/issuing-ca-1, and the algorithm
-// assertions follow certs/root-ca. Plus the DN labels of slice 5a step 4.
+// L124, L181, L202, and the builder halves of L55 and L75); its parser cases are in
+// tests/core/pki/parsers.test.ts (slice 2) and its upload case in tests/core/publish.test.ts
+// (slice 4). L224 tested the builders' options to skip extensions and revocations, which are gone
+// (slice 5a step 3). The fixture root is EC P-384 now (the old one was RSA-2048): the RSA key comes
+// from certs/issuing-ca-1, and the algorithm assertions follow certs/root-ca. Plus the DN labels of
+// slice 5a step 4, and integers of four contents octets and more (slice 5a review).
 
 function certificateEntry(name: string): ManifestCertificate {
   const found = manifest.certificates.find((c) => c.name === name);
@@ -23,6 +29,12 @@ function certificateEntry(name: string): ManifestCertificate {
     throw new Error(`no manifest entry for ${name}`);
   }
   return found;
+}
+
+function parsedOf(oid: string, value: { toBER(sizeOnly?: boolean): ArrayBuffer }) {
+  const result = buildExtension(extension(oid, value));
+  expect(result.parseStatus, `${oid}: ${result.parseError}`).toBe("parsed");
+  return result.parsed!;
 }
 
 /** A Name with one single-attribute RDN per [type, value], in order. */
@@ -71,6 +83,45 @@ describe("extension values", () => {
     });
   });
 
+  it("AKI keeps the key identifier, the issuer names and the serial number (hex)", () => {
+    const aki = new pkijs.AuthorityKeyIdentifier({
+      keyIdentifier: new asn1.OctetString({ valueHex: Uint8Array.of(0xab, 0xcd).buffer }),
+      authorityCertIssuer: [new pkijs.GeneralName({ type: 6, value: "https://ca.example/issuer" })],
+      authorityCertSerialNumber: new asn1.Integer({ value: 17 }),
+    });
+    const result = buildExtension(extension("2.5.29.35", aki.toSchema()));
+    expect(result.parseStatus).toBe("parsed");
+    expect(result.parsed).toEqual({
+      extensionType: "authorityKeyIdentifier",
+      keyIdentifier: "ABCD",
+      authorityCertSerialNumber: "11",
+      authorityCertIssuer: [
+        { type: "uniformResourceIdentifier", value: "https://ca.example/issuer" },
+      ],
+    });
+  });
+
+  it("CRL integers preserve precision and reject negative or wrong-tag values", () => {
+    for (const [oid, field] of [
+      ["2.5.29.20", "number"],
+      ["2.5.29.27", "baseCRLNumber"],
+    ] as const) {
+      const large = 2n ** 100n + 123n;
+      const result = buildExtension(extension(oid, asn1.Integer.fromBigInt(large)));
+      expect(result.parseStatus, oid).toBe("parsed");
+      expect(result.parsed, oid).toMatchObject({ [field]: "1267650600228229401496703205499" });
+      for (const value of [
+        new asn1.Integer({ value: -1 }),
+        new asn1.Enumerated({ value: 1 }),
+        new asn1.OctetString({ valueHex: Uint8Array.of(1).buffer }),
+      ]) {
+        const bad = buildExtension(extension(oid, value));
+        expect(bad.parseStatus, `${oid} ${value.constructor.name}`).toBe("error");
+        expect(bad.parsed).toBeUndefined();
+      }
+    }
+  });
+
   it("malformed known extensions report errors; unknown extensions retain raw bytes", () => {
     for (const oid of ["2.5.29.19", "2.5.29.35", "2.5.29.37", "2.5.29.31", "1.3.6.1.5.5.7.1.1"]) {
       const result = buildExtension(extension(oid, new asn1.Null()));
@@ -95,6 +146,17 @@ describe("extension values", () => {
     expect(result.parsed).toEqual({
       extensionType: "invalidityDate",
       date: { iso: "2026-01-02T03:04:05.000Z", type: "generalizedTime", raw: "20260102030405Z" },
+    });
+  });
+
+  it("invalidity date keeps a GeneralizedTime year before 100 (not 19xx)", () => {
+    const time = new asn1.Primitive({
+      idBlock: { tagClass: 1, tagNumber: 24 },
+      valueHex: new TextEncoder().encode("00010101000000Z").buffer,
+    });
+    expect(buildExtension(extension("2.5.29.24", time)).parsed).toEqual({
+      extensionType: "invalidityDate",
+      date: { iso: "0001-01-01T00:00:00.000Z", type: "generalizedTime", raw: "00010101000000Z" },
     });
   });
 });
@@ -205,5 +267,215 @@ describe("distinguished names", () => {
     expect(buildName(name).rfc4514).toBe(
       "CN=Example,title=Operator,description=Test CA,businessCategory=Private Organization,postalCode=8001"
     );
+  });
+});
+
+// asn1js sets valueDec to 0 for INTEGER and ENUMERATED contents of four octets or more (from 2^23
+// on), and PKIjs copies valueDec into its numeric fields. Numbers are read from the contents
+// instead: exactly while they are safe integers, a parse error (with the dump) beyond.
+describe("INTEGER and ENUMERATED values of four contents octets and more", () => {
+  const FOUR_OCTETS = 2 ** 23; // 00 80 00 00
+  const SIX_OCTETS = 2 ** 40; // 01 00 00 00 00 00
+  const UNSAFE = BigInt(Number.MAX_SAFE_INTEGER) + 1n;
+
+  /** The contents octets of the INTEGER `value`, for implicitly tagged fields. */
+  function contents(value: bigint): ArrayBuffer {
+    return asn1.Integer.fromBigInt(value).valueBlock.valueHexView.slice().buffer;
+  }
+
+  function explicit(tagNumber: number, value: asn1.BaseBlock): asn1.Constructed {
+    return new asn1.Constructed({ idBlock: { tagClass: 3, tagNumber }, value: [value] });
+  }
+
+  it("dump them in decimal, exactly", () => {
+    const dump = buildExtension(
+      extension(
+        "1.2.3.4",
+        new asn1.Sequence({
+          value: [
+            new asn1.Integer({ value: FOUR_OCTETS }),
+            new asn1.Integer({ value: -FOUR_OCTETS - 1 }),
+            asn1.Integer.fromBigInt(2n ** 100n + 123n),
+            new asn1.Enumerated({ value: 2 ** 31 }),
+          ],
+        })
+      )
+    ).asn1;
+    expect(dump?.slice(1).map((line) => [line.tag, line.value])).toEqual([
+      ["INTEGER", "8388608"],
+      ["INTEGER", "-8388609"],
+      ["INTEGER", "1267650600228229401496703205499"],
+      ["ENUMERATED", "2147483648"],
+    ]);
+  });
+
+  it("decode the numeric fields of the extensions", () => {
+    expect(
+      parsedOf(
+        "2.5.29.19",
+        new pkijs.BasicConstraints({ cA: true, pathLenConstraint: SIX_OCTETS }).toSchema()
+      )
+    ).toEqual({ extensionType: "basicConstraints", cA: true, pathLenConstraint: SIX_OCTETS });
+    expect(parsedOf("2.5.29.54", new asn1.Integer({ value: FOUR_OCTETS }))).toEqual({
+      extensionType: "inhibitAnyPolicy",
+      skipCerts: FOUR_OCTETS,
+    });
+    expect(
+      parsedOf(
+        "1.3.6.1.5.5.7.1.24",
+        new asn1.Sequence({ value: [new asn1.Integer({ value: 2 ** 31 })] })
+      )
+    ).toEqual({ extensionType: "tlsFeature", features: [{ code: 2 ** 31, name: null }] });
+    expect(
+      parsedOf(
+        "2.5.29.36",
+        new pkijs.PolicyConstraints({
+          requireExplicitPolicy: FOUR_OCTETS,
+          inhibitPolicyMapping: SIX_OCTETS,
+        }).toSchema()
+      )
+    ).toEqual({
+      extensionType: "policyConstraints",
+      requireExplicitPolicy: FOUR_OCTETS,
+      inhibitPolicyMapping: SIX_OCTETS,
+    });
+    expect(
+      parsedOf(
+        "1.3.6.1.4.1.311.21.7",
+        new pkijs.CertificateTemplate({
+          templateID: "1.3.6.1.4.1.311.21.8.1.2.3",
+          templateMajorVersion: FOUR_OCTETS,
+          templateMinorVersion: SIX_OCTETS,
+        }).toSchema()
+      )
+    ).toMatchObject({ majorVersion: FOUR_OCTETS, minorVersion: SIX_OCTETS });
+    expect(parsedOf("2.5.29.21", new asn1.Enumerated({ value: FOUR_OCTETS }))).toEqual({
+      extensionType: "cRLReason",
+      code: FOUR_OCTETS,
+      name: `reason_${FOUR_OCTETS}`,
+    });
+    const constraints = new pkijs.NameConstraints({
+      permittedSubtrees: [
+        new pkijs.GeneralSubtree({
+          base: new pkijs.GeneralName({ type: 2, value: "example.com" }),
+          minimum: FOUR_OCTETS,
+          maximum: SIX_OCTETS,
+        }),
+      ],
+    });
+    expect(parsedOf("2.5.29.30", constraints.toSchema())).toMatchObject({
+      permittedSubtrees: [{ minimum: FOUR_OCTETS, maximum: SIX_OCTETS }],
+    });
+  });
+
+  it.each<[string, string, asn1.BaseBlock]>([
+    [
+      "pathLenConstraint",
+      "2.5.29.19",
+      new asn1.Sequence({
+        value: [new asn1.Boolean({ value: true }), asn1.Integer.fromBigInt(UNSAFE)],
+      }),
+    ],
+    ["skipCerts", "2.5.29.54", asn1.Integer.fromBigInt(UNSAFE)],
+    [
+      "a TLS feature",
+      "1.3.6.1.5.5.7.1.24",
+      new asn1.Sequence({ value: [asn1.Integer.fromBigInt(UNSAFE)] }),
+    ],
+    [
+      "requireExplicitPolicy",
+      "2.5.29.36",
+      new asn1.Sequence({
+        value: [
+          new asn1.Primitive({
+            idBlock: { tagClass: 3, tagNumber: 0 },
+            valueHex: contents(UNSAFE),
+          }),
+        ],
+      }),
+    ],
+    [
+      "a template version",
+      "1.3.6.1.4.1.311.21.7",
+      new asn1.Sequence({
+        value: [new asn1.ObjectIdentifier({ value: "1.2.3" }), asn1.Integer.fromBigInt(UNSAFE)],
+      }),
+    ],
+    ["a reason code", "2.5.29.21", new asn1.Enumerated({ valueHex: contents(UNSAFE) })],
+    [
+      "a subtree maximum",
+      "2.5.29.30",
+      new pkijs.NameConstraints({
+        permittedSubtrees: [
+          new pkijs.GeneralSubtree({
+            base: new pkijs.GeneralName({ type: 2, value: "example.com" }),
+            maximum: asn1.Integer.fromBigInt(UNSAFE),
+          }),
+        ],
+      }).toSchema(),
+    ],
+  ])("report %s beyond Number.MAX_SAFE_INTEGER as an error with the dump", (_, oid, value) => {
+    const result = buildExtension(extension(oid, value));
+    expect(result.parseStatus).toBe("error");
+    expect(result.parsed).toBeUndefined();
+    expect(result.parseError).toMatch(/beyond Number\.MAX_SAFE_INTEGER/);
+    // The dump has the value: an INTEGER in decimal, an implicitly tagged one as its octets.
+    const shown = [UNSAFE.toString(), toHex(new Uint8Array(contents(UNSAFE))).toUpperCase()];
+    expect(result.asn1?.some((line) => shown.includes(line.value ?? ""))).toBe(true);
+  });
+
+  it("decode RSASSA-PSS saltLength and trailerField", () => {
+    const parameters = (saltLength: asn1.Integer, trailerField: asn1.Integer) =>
+      new asn1.Sequence({ value: [explicit(2, saltLength), explicit(3, trailerField)] });
+    const parsed = buildAlgorithmIdentifier(
+      "1.2.840.113549.1.1.10",
+      parameters(new asn1.Integer({ value: FOUR_OCTETS }), new asn1.Integer({ value: SIX_OCTETS }))
+    ).parameters?.parsed;
+    expect(parsed).toMatchObject({
+      type: "rsassaPss",
+      saltLength: FOUR_OCTETS,
+      trailerField: SIX_OCTETS,
+    });
+    // Beyond a safe integer the parameters keep their raw form only, like any undecodable ones.
+    const unsafe = buildAlgorithmIdentifier(
+      "1.2.840.113549.1.1.10",
+      parameters(asn1.Integer.fromBigInt(UNSAFE), new asn1.Integer({ value: 1 }))
+    );
+    expect(unsafe.parameters?.rawHex).toMatch(/^30/);
+    expect(unsafe.parameters?.parsed).toBeUndefined();
+  });
+
+  it("read the TBS version of a certificate and a CRL", async () => {
+    /** `der` re-encoded from its fields with the version INTEGER `version` (signatures break). */
+    function withVersion(der: Uint8Array, kind: "certificate" | "crl", version: asn1.Integer) {
+      const parsed = kind === "certificate" ? parseCertificate(der) : parseCRL(der);
+      // PKIjs types toSchema(true) as any.
+      const schema = parsed.toSchema(true) as asn1.Sequence;
+      const tbs = schema.valueBlock.value[0] as asn1.Sequence;
+      tbs.valueBlock.value[0] = kind === "certificate" ? explicit(0, version) : version;
+      return new Uint8Array(schema.toBER(false));
+    }
+    const certificate = fixture(certificateEntry("root-ca").der);
+    const crl = fixture("crls/issuing-ca-1/full-01.der");
+
+    const tbsCertificate = await buildTBSCertificate(
+      parseCertificate(
+        withVersion(certificate, "certificate", new asn1.Integer({ value: SIX_OCTETS }))
+      )
+    );
+    expect(tbsCertificate.version).toEqual({ raw: SIX_OCTETS, display: "v3" });
+    expect(
+      buildTBSCertList(parseCRL(withVersion(crl, "crl", new asn1.Integer({ value: FOUR_OCTETS }))))
+        .version
+    ).toEqual({ raw: FOUR_OCTETS, display: "v3" });
+
+    expect(
+      await pkiError(() =>
+        parseCertificate(withVersion(certificate, "certificate", asn1.Integer.fromBigInt(UNSAFE)))
+      )
+    ).toEqual({ kind: "certificate", reason: "structure" });
+    expect(
+      await pkiError(() => parseCRL(withVersion(crl, "crl", asn1.Integer.fromBigInt(UNSAFE))))
+    ).toEqual({ kind: "crl", reason: "structure" });
   });
 });

@@ -166,6 +166,7 @@ describe("GET /api/v1/certificates/{id}", () => {
     ["a blob key", `blobs%2Fcertificates%2F${"a".repeat(64)}.der`],
     ["a parent segment", "..%2Fcatalog.json"],
     ["unicode", "%C3%A9".repeat(32)],
+    ["a malformed escape", "%ZZ"],
   ])("rejects %s with 400 bad_request", async (_case, id) => {
     const service = await readService();
     const error = await errorOf(await service.app.request(`${LIST}/${id}`), 400, "bad_request");

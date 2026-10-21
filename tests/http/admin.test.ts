@@ -14,6 +14,7 @@ import { fixture, fixturePath, NOW } from "../fixtures/pki.ts";
 import { logRecords, MINIMAL_CONFIG, putText, testDeps } from "../helpers/app.ts";
 import type { TestOverrides } from "../helpers/app.ts";
 import { cert, certificateEntry } from "../helpers/catalog.ts";
+import { withOuterAlgorithm } from "../helpers/pki.ts";
 import { flakyStore, opaqueEtagStore, recordingStore, writtenKeys } from "../helpers/store.ts";
 
 const TOKEN = "admin-s3cret-token";
@@ -441,6 +442,17 @@ describe("POST /api/v1/admin/certificates", () => {
       "a two-certificate bundle",
       () => text(cert("issuing-ca-1").pem) + text(cert("root-ca").pem),
       "pem_blocks",
+    ],
+    [
+      "an outer signatureAlgorithm other than the TBS signature",
+      () =>
+        new Uint8Array(
+          withOuterAlgorithm(der("root-ca"), (algorithm) =>
+            // ecdsa-with-SHA384 → ecdsa-with-SHA256: the last octet of the OID.
+            Uint8Array.from([...algorithm.subarray(0, -1), 0x02])
+          )
+        ),
+      "signature_algorithm_mismatch",
     ],
   ])("answers %s with 422 invalid_certificate and its reason", async (_, body, reason) => {
     const { app, deps } = setup();

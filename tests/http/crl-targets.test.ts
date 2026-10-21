@@ -198,6 +198,29 @@ describe("GET /api/v1/crls/{targetId}", () => {
     expect((upper as { targetId: string }).targetId).toBe(targetId);
   });
 
+  // RFC 9562 §5.10. zod's UUID pattern spells the Max UUID in lowercase only, so the parameter is
+  // lowercased before the check, not after it.
+  it("normalises the uppercase Max UUID", async () => {
+    const max = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+    const service = await readService({
+      setup: {
+        configure: (config) => {
+          const [targetId, target] = Object.entries(config.targets)[0]!;
+          delete config.targets[targetId];
+          config.targets[max] = target;
+          for (const path of Object.values(config.paths)) {
+            if ("target" in path && path.target === targetId) {
+              path.target = max;
+            }
+          }
+        },
+      },
+    });
+    const upper = await okJson(await service.app.request(`${LIST}/${max.toUpperCase()}`));
+    expect(upper).toEqual(await okJson(await service.app.request(`${LIST}/${max}`)));
+    expect((upper as { targetId: string }).targetId).toBe(max);
+  });
+
   it.each([
     ["not a UUID", "issuing-ca-1"],
     ["a UUID without dashes", "0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d"],
@@ -205,6 +228,7 @@ describe("GET /api/v1/crls/{targetId}", () => {
     ["version 9", "0a1b2c3d-4e5f-9a6b-8c7d-9e0f1a2b3c4d"],
     ["an archive-style id (§10 #2)", "crl%2Farchive%2Fissuing-ca-1.crl"],
     ["a certificate id", "a".repeat(64)],
+    ["a malformed escape", "%ZZ"],
   ])("rejects %s with 400 bad_request", async (_case, id) => {
     const service = await published();
     const error = await errorOf(await service.app.request(`${LIST}/${id}`), 400, "bad_request");
