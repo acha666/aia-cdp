@@ -10,6 +10,8 @@
     "notAvailable": "N/A",
     "emptyValue": "(empty)",
     "unknown": "Unknown",
+    "yes": "Yes",
+    "no": "No",
     "copy": "Copy",
     "copied": "Copied",
     "copyFailed": "Could not copy to the clipboard"
@@ -35,10 +37,27 @@
   "crl": {
     "unpublished": "Not published"
   },
+  "nameFields": {
+    "commonName": "Common Name",
+    "organization": "Organization",
+    "organizationalUnit": "Organizational Unit",
+    "countryName": "Country Name",
+    "stateProvince": "State/Province",
+    "locality": "Locality"
+  },
   "algorithm": {
     "salt": "salt {length}"
   },
   "extension": {
+    "critical": "Critical",
+    "error": "Error",
+    "rawHex": "Raw value (hex)",
+    "asn1": "ASN.1 structure",
+    "status": {
+      "parsed": "Decoded",
+      "unsupported": "Not decoded",
+      "error": "Decode error"
+    },
     "generalName": {
       "otherName": "Other",
       "rfc822Name": "Email",
@@ -49,6 +68,48 @@
       "uniformResourceIdentifier": "URI",
       "iPAddress": "IP",
       "registeredID": "RID"
+    },
+    "fields": {
+      "ca": "CA",
+      "pathLength": "Path Length",
+      "keyId": "Key ID",
+      "authorityCertIssuer": "Authority certificate issuer",
+      "authorityCertSerialNumber": "Authority certificate serial",
+      "crlNumber": "CRL Number",
+      "baseCrlNumber": "Base CRL Number",
+      "reason": "Reason",
+      "holdInstruction": "Hold instruction",
+      "invalidityDate": "Invalidity date",
+      "expiredCertsOnCRL": "Expired certificates since",
+      "nextCrlPublish": "Next CRL publish",
+      "notBefore": "Not before",
+      "notAfter": "Not after",
+      "requireExplicitPolicy": "Require explicit policy",
+      "inhibitPolicyMapping": "Inhibit policy mapping",
+      "skipCerts": "Skip certificates",
+      "logId": "Log ID",
+      "timestamp": "Timestamp",
+      "signatureAlgorithm": "Signature",
+      "ocspNoCheck": "OCSP no-check",
+      "comment": "Comment",
+      "certificateIndex": "CA certificate index",
+      "keyIndex": "CA key index",
+      "templateName": "Template name",
+      "templateId": "Template OID",
+      "templateVersion": "Template version",
+      "previousCaCertificateHash": "Previous CA certificate hash",
+      "sid": "Security identifier (SID)",
+      "permittedSubtrees": "Permitted",
+      "excludedSubtrees": "Excluded",
+      "onlyContainsUserCerts": "Only user certificates",
+      "onlyContainsCACerts": "Only CA certificates",
+      "onlyContainsAttributeCerts": "Only attribute certificates",
+      "indirectCRL": "Indirect CRL",
+      "reasons": "Reasons",
+      "crlIssuer": "CRL issuer",
+      "nameRelativeToCRLIssuer": "Relative to CRL issuer",
+      "cps": "CPS",
+      "userNotice": "User notice"
     }
   },
   "health": {

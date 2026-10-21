@@ -10,6 +10,8 @@
     "notAvailable": "无",
     "emptyValue": "（空）",
     "unknown": "未知",
+    "yes": "是",
+    "no": "否",
     "copy": "复制",
     "copied": "已复制",
     "copyFailed": "无法复制到剪贴板"
@@ -35,10 +37,27 @@
   "crl": {
     "unpublished": "未发布"
   },
+  "nameFields": {
+    "commonName": "通用名称",
+    "organization": "组织",
+    "organizationalUnit": "组织单位",
+    "countryName": "国家/地区",
+    "stateProvince": "省/州",
+    "locality": "城市"
+  },
   "algorithm": {
     "salt": "盐值长度 {length}"
   },
   "extension": {
+    "critical": "关键",
+    "error": "错误",
+    "rawHex": "原始值（十六进制）",
+    "asn1": "ASN.1 结构",
+    "status": {
+      "parsed": "已解码",
+      "unsupported": "未解码",
+      "error": "解码出错"
+    },
     "generalName": {
       "otherName": "其他",
       "rfc822Name": "邮箱",
@@ -49,6 +68,48 @@
       "uniformResourceIdentifier": "URI",
       "iPAddress": "IP",
       "registeredID": "注册 ID"
+    },
+    "fields": {
+      "ca": "CA",
+      "pathLength": "路径长度",
+      "keyId": "密钥标识符",
+      "authorityCertIssuer": "颁发机构证书签发者",
+      "authorityCertSerialNumber": "颁发机构证书序列号",
+      "crlNumber": "CRL 编号",
+      "baseCrlNumber": "基础 CRL 编号",
+      "reason": "原因",
+      "holdInstruction": "暂停指令",
+      "invalidityDate": "失效日期",
+      "expiredCertsOnCRL": "收录过期证书的起始时间",
+      "nextCrlPublish": "下次 CRL 发布",
+      "notBefore": "起始时间",
+      "notAfter": "截止时间",
+      "requireExplicitPolicy": "要求显式策略",
+      "inhibitPolicyMapping": "禁止策略映射",
+      "skipCerts": "跳过证书数",
+      "logId": "日志 ID",
+      "timestamp": "时间戳",
+      "signatureAlgorithm": "签名",
+      "ocspNoCheck": "OCSP 免检",
+      "comment": "注释",
+      "certificateIndex": "CA 证书索引",
+      "keyIndex": "CA 密钥索引",
+      "templateName": "模板名称",
+      "templateId": "模板 OID",
+      "templateVersion": "模板版本",
+      "previousCaCertificateHash": "上一 CA 证书哈希",
+      "sid": "安全标识符（SID）",
+      "permittedSubtrees": "允许",
+      "excludedSubtrees": "排除",
+      "onlyContainsUserCerts": "仅用户证书",
+      "onlyContainsCACerts": "仅 CA 证书",
+      "onlyContainsAttributeCerts": "仅属性证书",
+      "indirectCRL": "间接 CRL",
+      "reasons": "原因",
+      "crlIssuer": "CRL 签发者",
+      "nameRelativeToCRLIssuer": "相对 CRL 签发者的名称",
+      "cps": "CPS",
+      "userNotice": "用户声明"
     }
   },
   "health": {
