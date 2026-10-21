@@ -386,13 +386,14 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 9. 返回 `created`（之前无 current）或 `updated`。
 
 CRL 的大小：解码按输入设 asn1js 的限额（节点数与内容长度都取输入字节数），唯一的上界是 `AIA_MAX_UPLOAD_BYTES`。内存约每 10 000 个
-吊销条目 100 MB 堆（Node 实测：10 000 条目 410 KB 需 96–128 MB 堆、0.5 s；100 000 条目 4 MB 需 1 GB、4.7 s；10 MiB 约 249 000 条目
-需 3 GB、12.8 s）。Workers 的隔离区 128 MB，实际可支持约 5 000 条目（≈ 200 KB），10 000 在边缘，与上限无关；Node 受堆上限约束。
+吊销条目 85–100 MB 堆（Node 实测：10 000 条目 420 KB 的堆门槛为 104 MB 失败、108 MB 通过，0.5 s；128 MB 堆约到 12 500 条目；100 000
+条目 4 MB 需 1 GB、4.7 s；10 MiB 约 249 000 条目需 3 GB、12.8 s）。Workers 的隔离区 128 MB 还装着包与运行时，Node 的门槛不能直接换算：
+按约 5 000 条目（≈ 200 KB）留安全余量（未在 Cloudflare 上验证），与上限无关；Node 受堆上限约束。
 上传默认不要令牌而解码先于任何检查，畸形输入（全 NULL 的 SEQUENCE）每 MiB 约需 384 MB 堆，10 MiB 需约 3 GB，超过堆上限即整个 Node
 进程退出。所以默认上限是 1 MiB（≈ 25 000 条目；评审后改的规划默认值，原为 10 MiB）；需要更大 CRL 的部署调高它，并应设
 `AIA_UPLOAD_TOKEN`，让只有持令牌的人能送来大体。实测数字见 implementation 切片 4 的风险。线上 CRL 目前 0 个条目。
-目标详情（§7.1）每次请求也解码一次当前 CRL（10 000 条目约 1 s、响应 5.5 MB、堆增长约 150 MB，implementation 切片 5a 出口 9），
-所以 Workers 上详情的可用规模同样约 5 000 条目；CPU 不是瓶颈，不设 `limits.cpu_ms`（`docs/operations.md`"容量"）。
+目标详情（§7.1）每次请求也解码一次当前 CRL，堆峰值与上传相同（10 000 条目 0.6–1 s、响应 4.3–5.5 MB，implementation 切片 5a 出口 9），
+所以 Workers 上详情的安全余量同样约 5 000 条目；CPU 不是瓶颈，不设 `limits.cpu_ms`（`docs/operations.md`"容量"）。
 
 第 7 步后崩溃只留下一个无人引用、不进历史的 blob，无害；第 8 步 catalog 写成功即完成，不存在"权威写成功但
 派生写失败"的状态。第 1–6 步的拒绝与 `unchanged` 零写入；输掉的竞争只留下本次 blob 与旧 current 的标记（§5.3）。R2 对单键每秒一次写
@@ -421,7 +422,8 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 - 验证：AKI/SKI 匹配 + 签名验证。CRL 没有 AKI `keyIdentifier` → `issuer_not_found`（`details.reason = "missing_aki"`，implementation
   切片 4 owner 确认 3）；keyIdentifier 存在但为空 → `invalid_crl` / `extension_value`（同证书摘要：空 key id 不标识任何密钥）；
   外层 `signatureAlgorithm` 与 TBS 内 `signature` 收到的字节不同（OID 或参数）→ `invalid_crl`（`signature_algorithm_mismatch`，
-  owner 确认 5；比较收到的字节而不是重编码，外层不在签名之内）。严格 DER 含 X.690 的内容规则
+  owner 确认 5；比较收到的字节而不是重编码，外层不在签名之内）；证书导入同样比较（RFC 5280 §4.1.1.2），不同 → `invalid_certificate`
+  （`signature_algorithm_mismatch`，implementation 切片 5a 评审修复：证书详情显示外层算法，导入后它必与 TBS 内的相同）。严格 DER 含 X.690 的内容规则
   （INTEGER 最短、OID 子标识符不以 0x80 开头、NULL 无内容、BOOLEAN 为 00 / FF），所以没有人能改写外层算法造出 OpenSSL 读不了、
   却先成为 current 的变体。ECDSA 签名本身可延展：`(r, n − s)` 是另一份 OpenSSL 也验得过的合法 CRL，谁先上传谁成为 current，CA 的原始
   字节随后得 `conflict`（只是 409 的麻烦，不是完整性问题）。`issuer_mismatch` 指 AKI 解析到的证书不是该目标配置的签发者：上传按目标配置的
@@ -536,7 +538,7 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
   `issuer_not_found`、`target_not_configured`、`invalid_signature`、`issuer_mismatch`、
   `stale_crl`、`conflict`、`non_orderable`、`concurrent_update`、`internal`。`issuer_mismatch` 只由切片 7 的临时历史导入
   路由产生，随该路由在 `slice/7-cleanup` 删除（§6）。`details.reason`：`invalid_certificate` / `invalid_crl` 为 `der`、`trailing_bytes`、
-  `time`、`structure`、`extension_value`、`pem_label`、`pem_blocks`、`pem_base64`，`invalid_crl` 另有 `signature_algorithm_mismatch`；
+  `time`、`structure`、`extension_value`、`pem_label`、`pem_blocks`、`pem_base64`，两者另有 `signature_algorithm_mismatch`；
   `issuer_not_found` 为 `missing_aki`（否则 `details.authorityKeyId`）。
 - 中间件顺序：`secureHeaders({ strictTransportSecurity: false })`（§6）→ 请求日志 →
   `methodNotAllowed({ app, onMethodNotAllowed })`（`hono/method-not-allowed`，hono ≥ 4.13.0；`onMethodNotAllowed` 产出

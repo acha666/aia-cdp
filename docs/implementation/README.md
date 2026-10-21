@@ -208,7 +208,8 @@ canary 都放过；依赖的 `/// <reference types="node" />` 会让 `process` �
 - 失败体 `{ "error": { "code", "message", "details"? } }`，每个状态码一个 schema，code 枚举按路由收窄；成功体直接返回资源，不包
   `{ data }`。异常文本与栈只进日志；未预期错误一律 500 `internal` + 固定文案。
 - `details.reason` 词表：`invalid_certificate` / `invalid_crl` 用 `der`、`trailing_bytes`、`time`、`structure`、`extension_value`、
-  `pem_label`、`pem_blocks`、`pem_base64`（切片 2）；CRL 另有 `signature_algorithm_mismatch`（切片 4 owner 确认 5）；`issuer_not_found` 另有
+  `pem_label`、`pem_blocks`、`pem_base64`（切片 2）；两者另有 `signature_algorithm_mismatch`（外层与 TBS 签名算法收到的字节不同：CRL 为切片 4
+  owner 确认 5，证书导入为切片 5a 评审修复）；`issuer_not_found` 另有
   `missing_aki`（切片 4 owner 确认 3）。新增取值同步 `docs/api.md` 的码表（切片 6 的 docs-consistency 测试检查）。
 - 头：API JSON（含错误）`Cache-Control: no-store`；`/api/v1/openapi.json` `public, max-age=300`。HTTP `ETag` 永远来自内容 sha256
   （下载 DER `"<sha256>"`、PEM `"<sha256>-pem"`，管理 config `"<sha256(存储字节)>"`）；store ETag 只回传给同一适配器，绝不外露（B14）。

@@ -176,17 +176,22 @@ Windows Server、服务账户与 gMSA、经 TLS 的 `https://`（验证用的是
 
 ## 容量
 
-大 CRL 的成本在解码（asn1js 节点树 + PKIjs 对象），上传与详情各解码一次：约每 10 000 个吊销条目 100–150 MB 堆。实测（Node 24，本机；
-切片 4 风险表与切片 5a 出口 9）：
+大 CRL 的成本在解码（asn1js 节点树 + PKIjs 对象），上传与详情各解码一次，堆峰值相同：约 21 MB 基底 + 每 1 000 个吊销条目 8.5 MB。
+实测（Node 24，本机，2026-10-20；新进程只处理这一个请求，按 4 MB 步长找 `--max-old-space-size` 的门槛；条目为 9 字节序列号 +
+reasonCode，约 42 B / 条，同切片 4 风险表；方法见切片 5a 出口 9）：
 
-| 条目数 | DER | 上传（`POST /api/v1/crls`） | 目标详情（`GET /api/v1/crls/{targetId}`） |
-| --- | --- | --- | --- |
-| 5 000 | 约 205–240 KB | 0.3 s | 0.4–0.5 s，响应 2.7 MB，128 MB 堆内可完成 |
-| 10 000 | 约 410–480 KB | 0.5 s | 0.8–1.0 s，响应 5.5 MB，堆增长约 145–165 MB，128 MB 堆内 OOM |
+| 条目数 | DER | 上传（`POST /api/v1/crls`） | 目标详情（`GET /api/v1/crls/{targetId}`） | 堆门槛（两者相同；最高失败 / 最低通过） |
+| --- | --- | --- | --- | --- |
+| 5 000 | 210 KB | 0.3 s | 0.3–0.4 s，响应 2.1 MB | 56 / 60–64 MB |
+| 10 000 | 420 KB | 0.5 s | 0.6 s，响应 4.3 MB | 104 / 108 MB |
+| 20 000 | 840 KB | 0.9–1.0 s | 1.1 s，响应 8.5 MB | 188 / 192 MB |
 
-- **Workers**：隔离区 128 MB，实际可用约 5 000 条目（≈ 200 KB）的 CRL；更大的 CRL 上传与详情都会因内存超限失败（未在 Cloudflare 上验证）。
+- 128 MB 堆下两条路径都能处理到约 12 500 条目。条目的扩展越多越重：夹具式条目（reasonCode + invalidityDate）10 000 条 480 KB，详情
+  0.7–1.0 s、响应 5.5 MB、门槛 120 / 124 MB。不 gc 时看到的堆增长（10 000 条 100–150 MB）几乎全是可回收的垃圾，不是需求。
+- **Workers**：隔离区 128 MB 还要装 Worker 包与运行时，Node 的堆门槛不能直接换算；按约 5 000 条目（≈ 200 KB）的 CRL 留安全余量
+  （未在 Cloudflare 上验证），更大的 CRL 上传与详情可能因内存超限失败。
   CPU 不是瓶颈：Standard 套餐默认每请求 30 s，所以 `wrangler.jsonc` 不设 `limits.cpu_ms`（旧配置的 `limits.cpu_seconds` 是无效键）。
-  Free 套餐每请求只有 10 ms CPU，按上表约 0.09 ms / 条目估计，约百条以上的 CRL 就会超时（未验证）。
+  Free 套餐每请求只有 10 ms CPU，按上表约 0.05–0.1 ms / 条目估计，一两百条以上的 CRL 就会超时（未验证）。
 - **Node / Docker**：上限是堆（`--max-old-space-size`，默认随内存）；`AIA_MAX_UPLOAD_BYTES` 默认 1 MiB（≈ 25 000 条目），调高时同时设
   `AIA_UPLOAD_TOKEN`，并按上表给够堆。
 - 列表与 stats 只读 `config.json`、`catalog.json`，与条目数无关；目前线上 CRL 为 0 条。
