@@ -30,6 +30,7 @@
     "build": "pnpm run build:web && pnpm run build:server",
     "build:web": "vite build",
     "build:server": "tsc -p tsconfig.build.json",
+    "size:web": "node scripts/check-web-size.ts",
     "start": "node --enable-source-maps dist/server/runtime/node.js",
     "dev:web": "vite",
     "dev:node": "mkdir -p .data && PORT=8787 AIA_DATA_DIR=.data node src/runtime/node.ts",
@@ -42,7 +43,7 @@
     "verify": "pnpm run check && pnpm run test && pnpm run build",
     "ci:check": "pnpm run check",
     "ci:test": "pnpm run test && pnpm run build && pnpm run smoke:node",
-    "ci:worker": "pnpm run build:web && WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true wrangler deploy --dry-run --outdir dist/worker && ! grep -q '\"node:' dist/worker/worker.js && pnpm run smoke:worker && pnpm run test:r2",
+    "ci:worker": "pnpm run build:web && pnpm run size:web && WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true wrangler deploy --dry-run --outdir dist/worker && ! grep -q '\"node:' dist/worker/worker.js && pnpm run smoke:worker && pnpm run test:r2",
     "ci:docker": "bash scripts/docker-smoke.sh"
   },
   "dependencies": {
