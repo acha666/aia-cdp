@@ -2,13 +2,14 @@
 
 X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloudflare Workers + R2 或 Node 24 + 本地磁盘（Docker）。
 
-当前状态：切片 4（发布）——在切片 1 的骨架（两条运行时、ObjectStore 与 memory / fs / r2 适配器、health、OpenAPI、UI 占位、
+当前状态：切片 5a（API 与客户端）——在切片 1 的骨架（两条运行时、ObjectStore 与 memory / fs / r2 适配器、health、OpenAPI、UI 占位、
 测试夹具、Docker 镜像与本地 CI 脚本）、切片 2 的 catalog/config 与导入（PKI 解析、`config.json` / `catalog.json` 的 schema 与规则 V1–V9、
-管理接口与 CLI `aia`）与切片 3 的下载（按路径表提供 `/ca/`、`/crl/`、`/dcrl/`，`.pem` 读取时派生，摘要 `ETag` 与 304，纯文本 404 / 405）
-之上，加了 CRL 发布：`POST /api/v1/crls`（multipart 字段 `crl` 或原始 DER / PEM 体，可选上传令牌 `AIA_UPLOAD_TOKEN`）按 AKI 与 kind 找到
-配置的目标，经扩展与时钟策略、算法白名单验签与新鲜度比较，结果为 created / updated / unchanged 或带原因的拒绝，被取代的版本留下 history
-标记；CLI `aia publish`；Windows AD CS 上的助手 `scripts/adcs-crl-uploader.ps1`（安装与计划任务见 [docs/operations.md](docs/operations.md)）。
-完整的使用与运维文档在切片 6。
+管理接口与 CLI `aia`）、切片 3 的下载（按路径表提供 `/ca/`、`/crl/`、`/dcrl/`，`.pem` 读取时派生，摘要 `ETag` 与 304，纯文本 404 / 405）
+与切片 4 的 CRL 发布（`POST /api/v1/crls`、可选上传令牌、验签与新鲜度、history 标记、`aia publish`、Windows AD CS 助手
+`scripts/adcs-crl-uploader.ps1`）之上，加了公开只读 API：`GET /api/v1/certificates`、`/certificates/{id}`、`/crls`、`/crls/{targetId}`
+与 `/stats`（完整列表无分页；详情每次从存储的 DER 全量构建，含 41 种扩展解析、签名算法与参数、全部吊销条目；均 `no-store`），
+OpenAPI 文档补全（`docs/openapi.json`），以及网页客户端 `src/web/client/`（`hc<AppType>`、`ApiError` / `unwrap`、类型与错误码）。
+UI 页面在切片 5b；AD CS 助手的安装与计划任务、大 CRL 的容量见 [docs/operations.md](docs/operations.md)；完整的使用与运维文档在切片 6。
 
 - [docs/plan.md](docs/plan.md)：设计文档（决策、存储模型、领域规则、API、切片划分）。
 - [docs/implementation/](docs/implementation/README.md)：分步实施计划。`README.md` 是总则（决策、完成定义、通用约定），每个切片一份文件

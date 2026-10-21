@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import * as asn1 from "asn1js";
+import * as pkijs from "pkijs";
 import { describe, expect, it, vi } from "vitest";
 import {
   CATALOG_KEY,
@@ -17,7 +19,7 @@ import { MemoryStore } from "../../src/storage/memory.ts";
 import { fixture, fixturePath, NOW } from "../fixtures/pki.ts";
 import { patchStore, putText } from "../helpers/app.ts";
 import { cert, certificateEntry, putCatalog } from "../helpers/catalog.ts";
-import { berVariants, withEmptySerial, withSkiPrefix } from "../helpers/pki.ts";
+import { berVariants, withEmptySerial, withOuterAlgorithm, withSkiPrefix } from "../helpers/pki.ts";
 import { flakyStore, puts, recordingStore } from "../helpers/store.ts";
 
 // importCertificate (slice 2 step 5): the second half of case 1 of
@@ -32,6 +34,15 @@ vi.mock(import("../../src/core/summary/catalog-summary.ts"), async (importOrigin
 });
 
 const noSleep = async () => undefined;
+
+/** The DER of an AlgorithmIdentifier. */
+function algorithm(algorithmId: string, algorithmParams?: asn1.BaseBlock): Uint8Array {
+  const identifier = new pkijs.AlgorithmIdentifier({
+    algorithmId,
+    ...(algorithmParams === undefined ? {} : { algorithmParams }),
+  });
+  return new Uint8Array(identifier.toSchema().toBER(false));
+}
 
 function importInto(
   store: ObjectStore,
@@ -120,6 +131,23 @@ describe("importCertificate", () => {
     ],
     ["a broken notBefore", () => withBrokenNotBefore("issuing-ca-1"), "time"],
     ["an empty serialNumber", () => withEmptySerial(fixture(cert("issuing-ca-1").der)), "der"],
+    // RFC 5280 §4.1.1.2: the outer signatureAlgorithm must equal the TBS signature. The outer one
+    // is outside the signature, so anyone holding the file can rewrite it (root-ca signs with
+    // ecdsa-with-SHA384, parameters absent).
+    [
+      "an outer signatureAlgorithm with another OID",
+      () =>
+        withOuterAlgorithm(fixture(cert("root-ca").der), () => algorithm("1.2.840.10045.4.3.2")),
+      "signature_algorithm_mismatch",
+    ],
+    [
+      "an outer signatureAlgorithm with parameters the TBS signature lacks",
+      () =>
+        withOuterAlgorithm(fixture(cert("root-ca").der), () =>
+          algorithm("1.2.840.10045.4.3.3", new asn1.Null())
+        ),
+      "signature_algorithm_mismatch",
+    ],
     ...berVariants(fixture(cert("issuing-ca-1").der)).map(
       ([variant, bytes]): [string, () => Uint8Array, string] => [
         `BER with ${variant}`,

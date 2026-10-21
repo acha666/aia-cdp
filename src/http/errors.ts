@@ -5,6 +5,7 @@ import type { Hook, z } from "@hono/zod-openapi";
 import type { Context, ErrorHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { ReadInconsistencyError } from "../core/views.ts";
 import { describeError } from "./log.ts";
 import type { Logger } from "./log.ts";
 import type { ErrorCode } from "./schemas.ts";
@@ -86,6 +87,20 @@ export function createErrorHandler(log: Logger): ErrorHandler<AppEnv> {
   return (err, c) => {
     if (err instanceof ApiError) {
       return c.json(errorBody(err.code, err.message, err.details), err.status, NO_STORE);
+    }
+    // A read the store cannot back (src/core/views.ts): its own line with the ids and store key
+    // involved (the parse error, if any, without a stack), then the plain 500.
+    if (err instanceof ReadInconsistencyError) {
+      log({
+        level: "error",
+        msg: "read_inconsistent",
+        method: c.req.method,
+        path: c.req.path,
+        reason: err.reason,
+        ...err.refs,
+        ...(err.cause === undefined ? {} : { error: describeError(err.cause) }),
+      });
+      return c.json(errorBody("internal", ERROR_MESSAGES.internal), 500, NO_STORE);
     }
     if (err instanceof HTTPException) {
       const code = CODE_BY_STATUS[err.status] ?? (err.status >= 500 ? "internal" : "bad_request");

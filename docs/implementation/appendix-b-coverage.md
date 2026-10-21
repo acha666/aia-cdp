@@ -7,22 +7,22 @@
 | 编号 | 缺陷（简） | 处理 |
 | --- | --- | --- |
 | §10 #1 | 下载无 304、HEAD 无 `Content-Length`、`ETag` 无引号 | 切片 3 步骤 3–4（摘要 `ETag`、`ifNoneMatchHit` 先于读 blob、显式 `Content-Length`）；测试 `tests/http/downloads.test.ts`、`tests/integration/downloads.test.ts` |
-| §10 #2 | 下载暴露 `archive/`、`by-keyid/` 与任意对象；详情接受归档 id | 切片 3 步骤 2（只走路径表，内部键不可达）；切片 5a 步骤 6（id 参数格式，归档形 id → 400）；切片 5b 步骤 6（UI 对非法 id 不发请求）；切片 7 步骤 8（按访问日志决定是否给旧 URL 加路径） |
+| §10 #2 | 下载暴露 `archive/`、`by-keyid/` 与任意对象；详情接受归档 id | 切片 3 步骤 2（只走路径表，内部键不可达）；切片 5a 步骤 6（id 参数格式，归档形、嵌套与非 hex id → 400，字面多段路径 → JSON 404；测试 `tests/http/certificates.test.ts`、`tests/http/crl-targets.test.ts`）；切片 5b 步骤 6（UI 对非法 id 不发请求）；切片 7 步骤 8（按访问日志决定是否给旧 URL 加路径） |
 | §10 #3 | CRL `max-age` 无上限、过期后为 0 | 切片 3 步骤 3（夹紧 [60 s, 3600 s]，无 `nextUpdate` 300 s） |
 | §10 #4 | 相同 CRL 重复上传 409 | 切片 4 步骤 5（`unchanged` 200）；测试 `tests/core/freshness.test.ts`、`tests/http/crls-upload.test.ts`；切片 5b 步骤 7（`unchanged` 是成功文案） |
 | §10 #5 | 伴随写失败报 500；`caches.default` 在 Node 上崩 | 切片 2 步骤 5（导入单提交点）；切片 4 步骤 6（无伴随写、无边缘缓存，catalog 写成功即完成）；测试 `tests/core/publish.test.ts` 的写日志 |
 | §10 #6 | 归档写无条件、并发发布无保护 | 切片 4 步骤 2、6（内容寻址 blob + `ifMatch` 条件写重试）；测试 `tests/core/publish.test.ts`、`tests/storage/publish-stores.test.ts`（fs 与 R2 上的竞争）；已被 Gen A/B 覆盖的旧版本不可恢复，切片 7 步骤 4 在报告写明 |
-| §10 #7 | `revokedCount` 未知时显示 0 | 切片 4 步骤 2（发布时必有非空 `revokedCount`）；切片 5a 步骤 5（"未知"只以 `current: null` 出现）；切片 5b 步骤 6 |
-| §10 #8 | 详情缺 `signatureAlgorithm`、`parameters` 不输出、死变体 | 切片 5a 步骤 1、3（构建器迁入；删 `UnknownExtensionValueSchema`；签名算法必填） |
-| §10 #9 | 全 null 信封通过 200 校验成空列表 | 切片 5a 步骤 5–6（按状态码 schema；store 抛错 500，不是 `200 []`） |
-| §10 #10 | `relationships` 恒空 | 切片 5a 步骤 5（证书 `targets`、CRL `issuer`）；切片 5b 步骤 6（页面链接） |
+| §10 #7 | `revokedCount` 未知时显示 0 | 切片 4 步骤 2（发布时必有非空 `revokedCount`）；切片 5a 步骤 5（"未知"只以 `current: null` 出现；测试 `tests/core/views.test.ts`、`tests/http/crl-targets.test.ts`）；切片 5b 步骤 6 |
+| §10 #8 | 详情缺 `signatureAlgorithm`、`parameters` 不输出、死变体 | 切片 5a 步骤 1、3（构建器迁入；删 `UnknownExtensionValueSchema`；签名算法必填）；测试 `tests/core/summary/schemas.test.ts`（无 `unknown` 变体、41 个字面量）、`tests/core/summary/values.test.ts`、`tests/http/certificates.test.ts` 与 `tests/http/crl-targets.test.ts`（详情带 `signatureAlgorithm` / `signatureValue`） |
+| §10 #9 | 全 null 信封通过 200 校验成空列表 | 切片 5a 步骤 5–6（按状态码 schema；store 抛错 500，不是 `200 []`；测试 `tests/http/lists.test.ts`）；切片 5a 步骤 10（客户端 `unwrap`：非 JSON / 非信封为 `invalid_response`，不成为空的成功；测试 `tests/web/api-errors.test.ts`） |
+| §10 #10 | `relationships` 恒空 | 切片 5a 步骤 5（证书 `targets`、CRL `issuer`；测试 `tests/core/views.test.ts`、`tests/http/certificates.test.ts`、`tests/http/crl-targets.test.ts`）；切片 5b 步骤 6（页面链接） |
 | §10 #11 | 畸形 ASN.1 时间成 1899 | 切片 2 步骤 1（`assertWellFormed` 随 pki 迁入，证书导入即拒）；切片 4 步骤 6（CRL `reason: "time"`，测试 `tests/core/publish.test.ts` 的 `full-bad-time`） |
 | §10 #12 | 未来 `thisUpdate`、未知关键扩展、作用域 CRL 无策略 | 切片 4 步骤 3；测试 `tests/core/pki/crl-policy.test.ts` |
 | §10 #13 | `constructor.name` 判编码 | 切片 2 步骤 1（`toDer` 按字节识别 PEM / DER）；DN 编码按 tag 判定随切片 5a 步骤 3 的构建器迁入 |
 | §10 #14 | 证书只能手工放进 R2 | 切片 2 步骤 3、5、8（导入接口，导入时生成完整摘要） |
 | §10 #15 | 健康检查硬编码 | 切片 1 步骤 4（真实 store / configuration 检查，D5）；切片 2 步骤 7（完整 schema 与规则） |
-| §10 #16 | 统计按桶前缀字节 | 切片 5a 步骤 5 |
-| §10 #17 | ts-rest 忽略 `no-store` | 切片 1 步骤 6（`hc` 的 `init.cache`）；切片 5a 步骤 7（API `no-store`）；切片 5b 步骤 5（上传后全量失效） |
+| §10 #16 | 统计按桶前缀字节 | 切片 5a 步骤 5（按资源计数，`derBytes` 来自 catalog，不 `list`）；测试 `tests/core/views.test.ts`、`tests/http/stats.test.ts` |
+| §10 #17 | ts-rest 忽略 `no-store` | 切片 1 步骤 6（`hc` 的 `init.cache`）；切片 5a 步骤 7（API `no-store`；测试 `tests/http/{certificates,crl-targets,stats}.test.ts` 的各状态码）、步骤 10（每请求的 `init` 与 `cache` 合并；测试 `tests/web/api-errors.test.ts`）；切片 5b 步骤 5（上传后全量失效） |
 | §10 #18 | `SITE_NAME` 多条死通道 | 切片 1 步骤 6（只剩构建期 `VITE_SITE_NAME`，校验与默认值）；切片 5b 步骤 6（页头、页脚） |
 | §10 #19 | 上传无体积上限、无鉴权 | 切片 4 步骤 8（`bodyLimit`、可选 `bearerAuth`）；测试 `tests/http/crls-upload.test.ts`；切片 7 开工前需 owner 确认第 3 项（生产启用令牌） |
 | §10 #20 | 助手 PS5 死分支、手搓 multipart、按扩展名判格式、409 当失败 | 切片 4 步骤 11（手动 Windows 验证记录在 `docs/operations.md`）；切片 7 步骤 9（生产安装） |
@@ -32,8 +32,8 @@
 | §10 #24 | 日志无结构 | 切片 1 步骤 4（请求日志）；切片 2 步骤 8、切片 4 步骤 6、切片 6 步骤 2（导入 / 发布 / 退役各一行）；总则 §2.6 |
 | §10 #25 | `thisUpdate` 缺失序列化为空串 | 切片 4 步骤 6（解析期拒绝）、步骤 8（成功体 `thisUpdate` 必填）；测试 `tests/core/publish.test.ts`、`tests/http/crls-upload.test.ts` |
 | §10 #26 | 文档与代码多处不一致 | 切片 6 步骤 8–12（OpenAPI 漂移、docs-consistency 测试、README / `docs/api.md` / `docs/operations.md` 重写） |
-| §10 #27 | 详情解析覆盖不足 | 切片 5a 步骤 1、3（41 个解析器与 schema 迁入）；回归改用合成夹具（D7，切片 5a 测试表）；线上工件的解码核对在切片 7 步骤 7 |
-| §10 #28 | 未识别扩展只给 hex；UI 签名算法 Unknown | 切片 5a 步骤 5（详情一次全量）；切片 5b 步骤 3、6（ASN.1 dump、带参数的签名算法） |
+| §10 #27 | 详情解析覆盖不足 | 切片 5a 步骤 1、3（41 个解析器与 schema 迁入）；回归改用合成夹具（D7，测试 `tests/core/summary/extension-parsers.test.ts`、`values.test.ts`、`extensions-structure.test.ts`，workerd 上 `scripts/worker-smoke.ts` 的读取段）；线上工件的解码核对在切片 7 步骤 7 |
+| §10 #28 | 未识别扩展只给 hex；UI 签名算法 Unknown | 切片 5a 步骤 5（详情一次全量；测试 `tests/http/certificates.test.ts`（每张夹具证书的详情过 schema）、`tests/http/crl-targets.test.ts`）；切片 5b 步骤 3、6（ASN.1 dump、带参数的签名算法） |
 
 ## B.2 完整性评审：计划矛盾
 
@@ -68,7 +68,7 @@
 | M8 | 上传 body：字段 `crl`、字符串字段、415 `details.received` | 切片 4 步骤 8（测试 `tests/http/crls-upload.test.ts`）；切片 5b 步骤 7 |
 | M9 | 任何拒绝零写入 | 切片 2 步骤 5（导入）；切片 4 步骤 6（发布，测试 `tests/core/publish.test.ts` 的写日志）；切片 6 步骤 3（退役后上传） |
 | M10 | 可验算法集与 SHA-1 | 切片 4 步骤 4（SHA-1 接受，owner 确认 1；测试 `tests/core/pki/verify.test.ts`） |
-| M11 | 外层与 TBS 签名算法须相同（比较收到的字节） | 切片 4 步骤 3（`invalid_crl` / `signature_algorithm_mismatch`，owner 确认 5；测试 `tests/core/pki/crl-policy.test.ts`；改写外层算法的上传见 `tests/core/publish.test.ts`） |
+| M11 | 外层与 TBS 签名算法须相同（比较收到的字节） | 切片 4 步骤 3（`invalid_crl` / `signature_algorithm_mismatch`，owner 确认 5；测试 `tests/core/pki/crl-policy.test.ts`；改写外层算法的上传见 `tests/core/publish.test.ts`）；证书导入同样比较（切片 5a 评审修复，`invalid_certificate` / `signature_algorithm_mismatch`；`tests/core/import.test.ts`、`tests/http/admin.test.ts`） |
 | M12 | 对收到的 TBS 字节验签 | 切片 4 步骤 4；测试 `tests/core/pki/verify.test.ts` |
 | M13 | CRL 条目扩展的关键性 | 切片 4 步骤 3；测试 `tests/core/pki/crl-policy.test.ts` |
 | M14 | 已识别扩展标为关键时接受 | 切片 4 步骤 3；测试 `tests/core/pki/crl-policy.test.ts` |

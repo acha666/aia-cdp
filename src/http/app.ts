@@ -10,9 +10,11 @@ import { secureHeaders } from "hono/secure-headers";
 import { createErrorHandler, onMethodNotAllowed, validationHook } from "./errors.ts";
 import { createLogger, requestLog } from "./log.ts";
 import { adminRoutes } from "./routes/admin.ts";
+import { certificateRoutes } from "./routes/certificates.ts";
 import { crlRoutes } from "./routes/crls.ts";
 import { downloadRoutes } from "./routes/downloads.ts";
 import { healthRoutes } from "./routes/health.ts";
+import { statsRoutes } from "./routes/stats.ts";
 import type { AppDeps, AppEnv } from "./types.ts";
 import { uiFallback } from "./ui.ts";
 
@@ -22,6 +24,14 @@ export type { AppDeps, AppEnv, AppSettings, ClientIpHeader } from "./types.ts";
 export const OPENAPI_CONFIG = {
   openapi: "3.1.0",
   info: { title: "aia-cdp API", version: "1" },
+  // Every operation carries one of these (tests/http/openapi.test.ts).
+  tags: [
+    { name: "health", description: "Service health" },
+    { name: "certificates", description: "Imported CA certificates" },
+    { name: "crls", description: "CRL targets: their current CRLs, and the upload" },
+    { name: "stats", description: "Counts and sizes" },
+    { name: "admin", description: "Certificate import and config.json (AIA_ADMIN_TOKEN)" },
+  ],
 };
 
 export function createApp(deps: AppDeps) {
@@ -50,10 +60,15 @@ export function createApp(deps: AppDeps) {
   });
 
   // The chained value carries the route types: AppType (hc<AppType>) is inferred from it. Only
-  // public routes join the chain; the admin routes are served and documented, but stay out of the
-  // web client's types (slice 5a step 8). The download routes (/ca/*, /crl/*, /dcrl/*) are a plain
-  // Hono app: neither in AppType nor in the OpenAPI document.
-  const routes = app.route("/api/v1", healthRoutes(deps)).route("/api/v1", crlRoutes(deps));
+  // the public routes (health, certificates, CRL targets with the upload, stats) join the chain;
+  // the admin routes are served and documented, but stay out of the web client's types (slice 5a
+  // step 8). The download routes (/ca/*, /crl/*, /dcrl/*) are a plain Hono app: neither in AppType
+  // nor in the OpenAPI document.
+  const routes = app
+    .route("/api/v1", healthRoutes(deps))
+    .route("/api/v1", certificateRoutes(deps))
+    .route("/api/v1", crlRoutes(deps))
+    .route("/api/v1", statsRoutes(deps));
   app.route("/api/v1", adminRoutes(deps));
   app.route("/", downloadRoutes(deps));
   return routes;

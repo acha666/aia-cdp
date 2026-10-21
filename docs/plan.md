@@ -386,11 +386,14 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 9. 返回 `created`（之前无 current）或 `updated`。
 
 CRL 的大小：解码按输入设 asn1js 的限额（节点数与内容长度都取输入字节数），唯一的上界是 `AIA_MAX_UPLOAD_BYTES`。内存约每 10 000 个
-吊销条目 100 MB 堆（Node 实测：10 000 条目 410 KB 需 96–128 MB 堆、0.5 s；100 000 条目 4 MB 需 1 GB、4.7 s；10 MiB 约 249 000 条目
-需 3 GB、12.8 s）。Workers 的隔离区 128 MB，实际可支持约 5 000 条目（≈ 200 KB），10 000 在边缘，与上限无关；Node 受堆上限约束。
+吊销条目 85–100 MB 堆（Node 实测：10 000 条目 420 KB 的堆门槛为 104 MB 失败、108 MB 通过，0.5 s；128 MB 堆约到 12 500 条目；100 000
+条目 4 MB 需 1 GB、4.7 s；10 MiB 约 249 000 条目需 3 GB、12.8 s）。Workers 的隔离区 128 MB 还装着包与运行时，Node 的门槛不能直接换算：
+按约 5 000 条目（≈ 200 KB）留安全余量（未在 Cloudflare 上验证），与上限无关；Node 受堆上限约束。
 上传默认不要令牌而解码先于任何检查，畸形输入（全 NULL 的 SEQUENCE）每 MiB 约需 384 MB 堆，10 MiB 需约 3 GB，超过堆上限即整个 Node
 进程退出。所以默认上限是 1 MiB（≈ 25 000 条目；评审后改的规划默认值，原为 10 MiB）；需要更大 CRL 的部署调高它，并应设
 `AIA_UPLOAD_TOKEN`，让只有持令牌的人能送来大体。实测数字见 implementation 切片 4 的风险。线上 CRL 目前 0 个条目。
+目标详情（§7.1）每次请求也解码一次当前 CRL，堆峰值与上传相同（10 000 条目 0.6–1 s、响应 4.3–5.5 MB，implementation 切片 5a 出口 9），
+所以 Workers 上详情的安全余量同样约 5 000 条目；CPU 不是瓶颈，不设 `limits.cpu_ms`（`docs/operations.md`"容量"）。
 
 第 7 步后崩溃只留下一个无人引用、不进历史的 blob，无害；第 8 步 catalog 写成功即完成，不存在"权威写成功但
 派生写失败"的状态。第 1–6 步的拒绝与 `unchanged` 零写入；输掉的竞争只留下本次 blob 与旧 current 的标记（§5.3）。R2 对单键每秒一次写
@@ -406,8 +409,11 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 
 ### 5.6 读取
 
-每个请求读一次 `config.json` 与 `catalog.json`（两个小对象）再读 blob。进程内按 ETag 备忘、
-5 秒 TTL 是唯一允许的优化，默认关闭，切片 5a 测量后再决定开不开；写路径永远直读，不经备忘。
+公开读路由每个请求各 `get` 一次 `config.json` 与 `catalog.json`（两个小对象），详情再读它的一个 blob；列表与 stats 不读 blob，
+也不 `list`。config / catalog 指向的东西撑不住（blob 缺失、摘要与 catalog 不符、解析失败、目标的签发者不在 catalog）→ 500 + 一行
+`read_inconsistent` 日志；config / catalog 无效或 store 抛错也是 500，绝不当作空列表（§10 #9）。
+进程内按 ETag 备忘、5 秒 TTL 是唯一允许的优化，默认关闭，切片 5a 实测后不开：两份对象的读取与解析在亚毫秒级（夹具部署 memory
+约 0.05 ms、fs 约 0.3 ms，放大 20 倍约 1 ms），远小于一次详情构建；R2 的真实延迟在切片 7 演练 B 再看。写路径永远直读，不经备忘。
 
 ## 6. 领域规则（沿用旧方案，不再讨论）
 
@@ -416,7 +422,8 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 - 验证：AKI/SKI 匹配 + 签名验证。CRL 没有 AKI `keyIdentifier` → `issuer_not_found`（`details.reason = "missing_aki"`，implementation
   切片 4 owner 确认 3）；keyIdentifier 存在但为空 → `invalid_crl` / `extension_value`（同证书摘要：空 key id 不标识任何密钥）；
   外层 `signatureAlgorithm` 与 TBS 内 `signature` 收到的字节不同（OID 或参数）→ `invalid_crl`（`signature_algorithm_mismatch`，
-  owner 确认 5；比较收到的字节而不是重编码，外层不在签名之内）。严格 DER 含 X.690 的内容规则
+  owner 确认 5；比较收到的字节而不是重编码，外层不在签名之内）；证书导入同样比较（RFC 5280 §4.1.1.2），不同 → `invalid_certificate`
+  （`signature_algorithm_mismatch`，implementation 切片 5a 评审修复：证书详情显示外层算法，导入后它必与 TBS 内的相同）。严格 DER 含 X.690 的内容规则
   （INTEGER 最短、OID 子标识符不以 0x80 开头、NULL 无内容、BOOLEAN 为 00 / FF），所以没有人能改写外层算法造出 OpenSSL 读不了、
   却先成为 current 的变体。ECDSA 签名本身可延展：`(r, n − s)` 是另一份 OpenSSL 也验得过的合法 CRL，谁先上传谁成为 current，CA 的原始
   字节随后得 `conflict`（只是 409 的麻烦，不是完整性问题）。`issuer_mismatch` 指 AKI 解析到的证书不是该目标配置的签发者：上传按目标配置的
@@ -472,12 +479,12 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 | 方法与路径                        | 用途                                                   | 状态                                                    |
 | --------------------------------- | ------------------------------------------------------ | ------------------------------------------------------- |
 | `GET /api/v1/health`              | `{ status, checks: { store, configuration } }`：`status` healthy / degraded / unhealthy；`store` ok / error；`configuration` ok / missing / invalid（store 出错时 unknown）；`no-store`。切片 1 只看 `config.json` 存在、是 JSON 且 `version: 1`，切片 2 升级为完整 schema 与规则 | 200（含 degraded：配置缺失或无效）；store 抛错 503 unhealthy |
-| `GET /api/v1/certificates`        | 完整数组（无分页）                                     | 200                                                     |
-| `GET /api/v1/certificates/{id}`   | 详情：主体 / 签发者、有效期、SKI/AKI、指纹、签名算法（含参数）、扩展、`downloads`、`targets` | 200 / 404 |
-| `GET /api/v1/crls`                | 每个目标一项，`current` 为摘要或 `null`                | 200                                                     |
-| `GET /api/v1/crls/{targetId}`     | 详情：签发者证书 id、CRL 号、base 号、时间、吊销条目、扩展、`downloads` | 200 / 404                      |
+| `GET /api/v1/certificates`        | 完整数组（无分页），按 id 排序；每项 `{ id, label, importedAt, size, summary, downloads, targets }`：`label` 来自 config（未配置为 `null`），`summary` 是 catalog 的证书摘要，`targets` 是以它为签发者的 `{ targetId, kind, label }` | 200 / 500 |
+| `GET /api/v1/certificates/{id}`   | 列表项 + `fingerprints`、`tbsCertificate`（主体 / 签发者、有效期、公钥、全部扩展）、`signatureAlgorithm`（含参数）、`signatureValue`，每次全量构建；`id` 为 64 位 hex，大写规范化为小写 | 200 / 400 / 404 / 500 |
+| `GET /api/v1/crls`                | 每个 config 目标一项，按 `targetId` 排序：`{ targetId, kind, label, issuer: { id, label, subjectCN }, downloads, current }`，`current` 为 `{ sha256, size, publishedAt, summary }`（`summary` 含 `nextPublish`）或 `null` | 200 / 500 |
+| `GET /api/v1/crls/{targetId}`     | 列表项字段；`current` 另加 `verifier`、`fingerprints`、`tbsCertList`（CRL 号、base 号、时间、全部吊销条目 `{ count, items }`、扩展）、`signatureAlgorithm`、`signatureValue`；未发布为 `current: null`（200）；`targetId` 为 UUID，大写规范化 | 200 / 400 / 404 / 500 |
 | `POST /api/v1/crls`               | 上传 CRL：multipart 字段 `crl`，或原始 body（`application/pkix-crl` / `application/x-pem-file` / `application/octet-stream`） | 201 created；200 updated / unchanged；400 / 401 / 409 / 413 / 415 / 422 / 500 |
-| `GET /api/v1/stats`               | `{ certificates, targets: { full, delta }, published: { full, delta }, totalRevocations, derBytes }`：`totalRevocations` 为已发布 full CRL 的 `revokedCount` 之和（无已发布 full 时 `null`），`derBytes` 为证书与各 current CRL 的字节数；不含时间相关字段（"需关注"数由 UI 用客户端时钟算，§8） | 200                                             |
+| `GET /api/v1/stats`               | `{ certificates, targets: { full, delta }, published: { full, delta }, totalRevocations, derBytes }`：`totalRevocations` 为已发布 full CRL 的 `revokedCount` 之和（无已发布 full 时 `null`），`derBytes` 为 catalog 证书与 config 各目标 current CRL 的字节数（历史不计）；不含时间相关字段（"需关注"数由 UI 用客户端时钟算，§8） | 200 / 500                                       |
 | `GET /api/v1/openapi.json`        | 运行时从路由表生成（`getOpenAPI31Document`），按进程 / isolate 缓存；与提交的 `docs/openapi.json` 深等（§7.3） | 200，`public, max-age=300`               |
 
 上传成功体：
@@ -500,7 +507,7 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 | 413 | `payload_too_large`（`AIA_MAX_UPLOAD_BYTES`，无 `Content-Length` 的流式体也算） |
 | 415 | `unsupported_media_type`：`{ received, accepted }`，`received` 为小写、不带参数的媒体类型，缺失或空头为 `null` |
 | 422 | `invalid_crl` `{ reason }`；`not_yet_valid` `{ thisUpdate }`；`unknown_critical_extension`、`scoped_crl_unsupported` `{ oid, serialNumber? }`（序列号只对条目扩展）；`issuer_not_found` `{ reason: "missing_aki" }` 或 `{ authorityKeyId }`；`target_not_configured` `{ kind, certificates }`；`invalid_signature`、`unsupported_algorithm` `{ algorithm }` |
-| 500 | `internal`，不含异常文本（OpenAPI 里只有这条路由声明 500） |
+| 500 | `internal`，不含异常文本（OpenAPI 里上传与五条公开读路由声明 500，管理路由不声明） |
 
 OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
 
@@ -531,7 +538,7 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
   `issuer_not_found`、`target_not_configured`、`invalid_signature`、`issuer_mismatch`、
   `stale_crl`、`conflict`、`non_orderable`、`concurrent_update`、`internal`。`issuer_mismatch` 只由切片 7 的临时历史导入
   路由产生，随该路由在 `slice/7-cleanup` 删除（§6）。`details.reason`：`invalid_certificate` / `invalid_crl` 为 `der`、`trailing_bytes`、
-  `time`、`structure`、`extension_value`、`pem_label`、`pem_blocks`、`pem_base64`，`invalid_crl` 另有 `signature_algorithm_mismatch`；
+  `time`、`structure`、`extension_value`、`pem_label`、`pem_blocks`、`pem_base64`，两者另有 `signature_algorithm_mismatch`；
   `issuer_not_found` 为 `missing_aki`（否则 `details.authorityKeyId`）。
 - 中间件顺序：`secureHeaders({ strictTransportSecurity: false })`（§6）→ 请求日志 →
   `methodNotAllowed({ app, onMethodNotAllowed })`（`hono/method-not-allowed`，hono ≥ 4.13.0；`onMethodNotAllowed` 产出
@@ -589,8 +596,11 @@ owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-
 - 从旧实现迁移：`utils/status.ts`、`utils/dates.ts`、`utils/format.ts`、`utils/x509.ts`、
   `useCrlUploadInput`、`ExtensionView` 的 render-block 映射、`GeneralNameList` /
   `DistributionPointList` / `Asn1Dump`，以及 `tests/web` 的状态与上传输入用例（改写为 vitest）。
-- 客户端：`const api = hc<AppType>("", { init: { cache: "no-store" } })`，作为 vue-query 的
-  `queryFn`；删除 `readApiResponse`、`validateResponse`、`pagination.ts`、`collectPages`。客户端目录是 `src/web/client/`：
+- 客户端：`const api = hc<AppType>("", { init: { cache: "no-store" }, fetch: apiFetch })`，vue-query 的 `queryFn` 写
+  `unwrap(await api…$get(…))`：2xx 返回 hc 推断类型的体，否则抛 `ApiError { code, message, status, details }`（v1 信封的码；非 JSON 或
+  非信封为 `invalid_response`；拿不到响应为 `network`、`status: 0`，由 `apiFetch` 产出）；响应体类型与 core 的 X.509 类型从
+  `src/web/client/types.ts` 取，错误码的运行时数组在 `src/web/client/error-codes.ts`（implementation 切片 5a 步骤 10）。
+  删除 `readApiResponse`、`validateResponse`、`pagination.ts`、`collectPages`。客户端目录是 `src/web/client/`：
   Vite `root: src/web` 时 dev server 会把 `src/web` 下的目录当 URL 服务，叫 `api` 会与 `/api/` 冲突（`ca`、`crl`、`dcrl` 同理）。
   web 对服务端模块只许 `import type`（`AppType`、core 的 X.509 类型），运行时只导入 `hono/client`。切片 1 的健康徽标已走这条路径。
 - 下载链接来自 API 的 `downloads`；状态徽标与相对时间共用 `useNow({ interval: 60_000 })`。
@@ -628,8 +638,8 @@ owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-
 | 5   | PEM / alias / archive 伴随写失败使成功发布报 500；`caches.default` 在 Node 上崩 | 无伴随写、无边缘缓存，单提交点                   | 2, 4 |
 | 6   | 归档写无条件，重试覆盖来源信息；并发发布无保护                           | 内容寻址 blob + catalog 条件写重试                       | 4    |
 | 7   | `revokedCount` 未知时显示 0                                              | 发布时总能解析，`revokedCount` 是非空整数；"未知"只以 `current: null`（未发布）出现，见 implementation 切片 5a 步骤 5 | 4, 5a, 5b |
-| 8   | 详情缺 `signatureAlgorithm`；算法 `parameters` 从不输出；契约含永不产生的变体 | 已在迁移源 `5b570aa` 完成（参数解码、`SignatureValue.parsed`，死变体清理待新契约）；切片 5a 迁入 | 5a |
-| 9   | 全 null 信封通过 200 校验变成空列表                                      | 按状态码 schema，无可空信封                              | 5a   |
+| 8   | 详情缺 `signatureAlgorithm`；算法 `parameters` 从不输出；契约含永不产生的变体 | 已在迁移源 `5b570aa` 完成（参数解码、`SignatureValue.parsed`）；切片 5a 迁入，删死变体 `unknown`，详情的 `signatureAlgorithm` / `signatureValue` 必填 | 5a |
+| 9   | 全 null 信封通过 200 校验变成空列表                                      | 按状态码 schema，无可空信封；store 出错是 500；客户端 `unwrap` 把非 JSON / 非信封的错误体报为 `invalid_response` | 5a   |
 | 10  | `relationships` 永远为空                                                 | 从配置填充证书 `targets` 与 CRL `issuer`                 | 5a, 5b |
 | 11  | 畸形 ASN.1 时间解码成 1899 并进入新鲜度判断                              | 已在迁移源 `5b570aa` 完成（`pki/asn1.ts` 严格时间，解析期拒绝）；切片 2 随 `src/core/pki` 迁入（证书导入即需要），切片 4 用于 CRL | 2, 4 |
 | 12  | 未来 `thisUpdate`、未知关键扩展、作用域 CRL 无显式策略（实为 PKIjs 隐藏的已知扩展闸，见表后 C2） | 时钟策略与显式识别 / 关键性策略表，验签前执行 | 4    |

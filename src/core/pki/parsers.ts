@@ -1,7 +1,13 @@
-import { OctetString, Sequence } from "asn1js";
+import { Constructed, Integer, OctetString, Sequence } from "asn1js";
 import type { BaseBlock } from "asn1js";
 import * as pkijs from "pkijs";
-import { Asn1TimeError, assertWellFormed, decodeBer, readStrictTime } from "./asn1.ts";
+import {
+  Asn1TimeError,
+  assertWellFormed,
+  decodeBer,
+  integerNumber,
+  readStrictTime,
+} from "./asn1.ts";
 import { PkiParseError } from "./errors.ts";
 import type { PkiKind } from "./errors.ts";
 import { readCRLInteger, readExtensionSchema } from "./extensions.ts";
@@ -48,46 +54,98 @@ function construct<T>(kind: PkiKind, build: () => T): T {
   }
 }
 
-/** Throws PkiParseError (kind "certificate", reason der / trailing_bytes / time / structure). */
-export function parseCertificate(der: ArrayBuffer | Uint8Array): pkijs.Certificate {
-  const schema = decodeDer(der, "certificate");
-  return construct("certificate", () => new pkijs.Certificate({ schema }));
+/**
+ * The version INTEGER of the TBS in `schema` (a decoded certificate or CRL that PKIjs accepted) as
+ * a number; undefined when absent (v1, PKIjs's default). PKIjs copies asn1js's valueDec, which is 0
+ * from four contents octets on, so the parsers overwrite PKIjs's version with this. A version
+ * beyond Number.MAX_SAFE_INTEGER is a structure error.
+ */
+function versionOf(kind: PkiKind, schema: BaseBlock): number | undefined {
+  const [tbs] = schema instanceof Sequence ? schema.valueBlock.value : [];
+  const [first] = tbs instanceof Sequence ? tbs.valueBlock.value : [];
+  // TBSCertificate: version [0] EXPLICIT; TBSCertList: an optional INTEGER first.
+  const explicit = first instanceof Constructed && first.idBlock.tagClass === 3;
+  const field = kind === "certificate" ? (explicit ? first.valueBlock.value[0] : undefined) : first;
+  if (!(field instanceof Integer)) {
+    return undefined;
+  }
+  try {
+    return integerNumber(field);
+  } catch (error) {
+    throw new PkiParseError(kind, "structure", `Bad ${LABELS[kind]} version`, { cause: error });
+  }
 }
 
 /**
- * A CRL from parseCRL: PKIjs's object plus the octets of its two AlgorithmIdentifiers as received
- * (asn1js's valueBeforeDecodeView, a view of its copy of the input, like PKIjs's own tbsView). The
- * upload policy compares these (M11): the outer one is outside the signature, and comparing
+ * The octets of the two AlgorithmIdentifiers of a certificate or CRL as received (asn1js's
+ * valueBeforeDecodeView, a view of its copy of the input, like PKIjs's own tbsView). RFC 5280
+ * §4.1.1.2 and §5.1.1.2: they must be the same. Import and the upload policy compare these (M11):
+ * the outer one is outside the signature, so anyone holding the file can rewrite it, and comparing
  * re-encodings would hide what asn1js normalizes (slice 4 review C2).
  */
-export interface ReceivedCrl extends pkijs.CertificateRevocationList {
-  /** The outer signatureAlgorithm of the CertificateList, outside the signature. */
+export interface ReceivedAlgorithms {
+  /** The outer signatureAlgorithm of the Certificate / CertificateList, outside the signature. */
   signatureAlgorithmView: Uint8Array;
-  /** The signature field of the TBSCertList. */
+  /** The signature field of the TBSCertificate / TBSCertList. */
   signatureView: Uint8Array;
 }
 
-/** The first SEQUENCE of a constructed value: the TBSCertList's signature (version is an INTEGER). */
+/** A certificate from parseCertificate: PKIjs's object plus its AlgorithmIdentifiers as received. */
+export interface ReceivedCertificate extends pkijs.Certificate, ReceivedAlgorithms {}
+
+/** A CRL from parseCRL: PKIjs's object plus its AlgorithmIdentifiers as received. */
+export interface ReceivedCrl extends pkijs.CertificateRevocationList, ReceivedAlgorithms {}
+
+/** Whether the outer signatureAlgorithm and the TBS signature are the same octets (OID and parameters). */
+export function sameSignatureAlgorithms(received: ReceivedAlgorithms): boolean {
+  const { signatureAlgorithmView: outer, signatureView: inner } = received;
+  return (
+    outer.byteLength === inner.byteLength && outer.every((octet, index) => octet === inner[index])
+  );
+}
+
+/**
+ * The first SEQUENCE of a constructed value: the TBS signature (the TBSCertList's version is an
+ * INTEGER; the TBSCertificate's is [0] and its serialNumber an INTEGER).
+ */
 function firstSequence(block: BaseBlock | undefined): BaseBlock | undefined {
   return block instanceof Sequence
     ? block.valueBlock.value.find((child) => child instanceof Sequence)
     : undefined;
 }
 
+/** `schema`'s AlgorithmIdentifiers as received, once PKIjs accepted it as `kind`. */
+function receivedAlgorithms(kind: PkiKind, schema: BaseBlock): ReceivedAlgorithms {
+  // PKIjs accepted the shape: SEQUENCE { tbs SEQUENCE, signatureAlgorithm, signature }.
+  const [tbs, outer] = schema instanceof Sequence ? schema.valueBlock.value : [];
+  const inner = firstSequence(tbs);
+  if (outer === undefined || inner === undefined) {
+    throw new PkiParseError(
+      kind,
+      "structure",
+      `Bad ${LABELS[kind]} structure: no AlgorithmIdentifier`
+    );
+  }
+  return {
+    signatureAlgorithmView: outer.valueBeforeDecodeView,
+    signatureView: inner.valueBeforeDecodeView,
+  };
+}
+
+/** Throws PkiParseError (kind "certificate", reason der / trailing_bytes / time / structure). */
+export function parseCertificate(der: ArrayBuffer | Uint8Array): ReceivedCertificate {
+  const schema = decodeDer(der, "certificate");
+  const certificate = construct("certificate", () => new pkijs.Certificate({ schema }));
+  certificate.version = versionOf("certificate", schema) ?? certificate.version;
+  return Object.assign(certificate, receivedAlgorithms("certificate", schema));
+}
+
 /** Throws PkiParseError (kind "crl", reason der / trailing_bytes / time / structure). */
 export function parseCRL(der: ArrayBuffer | Uint8Array): ReceivedCrl {
   const schema = decodeDer(der, "crl");
   const crl = construct("crl", () => new pkijs.CertificateRevocationList({ schema }));
-  // PKIjs accepted the shape: SEQUENCE { tbsCertList SEQUENCE, signatureAlgorithm, signature }.
-  const [tbs, outer] = schema instanceof Sequence ? schema.valueBlock.value : [];
-  const inner = firstSequence(tbs);
-  if (outer === undefined || inner === undefined) {
-    throw new PkiParseError("crl", "structure", "Bad CRL structure: no AlgorithmIdentifier");
-  }
-  return Object.assign(crl, {
-    signatureAlgorithmView: outer.valueBeforeDecodeView,
-    signatureView: inner.valueBeforeDecodeView,
-  });
+  crl.version = versionOf("crl", schema) ?? crl.version;
+  return Object.assign(crl, receivedAlgorithms("crl", schema));
 }
 
 /** The first CN in RDN order; undefined when absent or when its value is not a string type. */

@@ -40,6 +40,7 @@ import type { AppDeps, AppEnv } from "../types.ts";
 
 const SECURITY_SCHEME = "adminBearer";
 const security = [{ [SECURITY_SCHEME]: [] }];
+const tags = ["admin"];
 
 function json<S extends z.ZodType>(schema: S) {
   return { "application/json": { schema } };
@@ -118,6 +119,7 @@ export const importCertificateRoute = createRoute({
     "multipart form; the format is recognized from the bytes. Importing does not authorize " +
     "anything: a certificate only issues CRLs once a config target names it. A PEM bundle is " +
     "rejected (`pem_blocks`): the CLI sends each block on its own.",
+  tags,
   security,
   middleware: [certificateMediaType],
   request: {
@@ -162,6 +164,7 @@ export const getConfigRoute = createRoute({
   description:
     "The stored bytes as they are, also when an out-of-band write left them invalid (so that " +
     "they can be repaired). The ETag is the SHA-256 of those bytes, for `If-Match` on PUT.",
+  tags,
   security,
   responses: {
     200: { description: "The stored config.json", headers: ETAG, content: json(ConfigSchema) },
@@ -227,6 +230,7 @@ export const applyConfigRoute = createRoute({
     "The whole configuration, checked against rules V1–V9 (every violation in " +
     '`details.issues`). Exactly one precondition: `If-Match: "<ETag>"` from GET, or ' +
     "`If-None-Match: *` for the first configuration.",
+  tags,
   security,
   middleware: [requirePrecondition],
   request: {

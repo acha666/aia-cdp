@@ -6,6 +6,7 @@ import { Constructed, Sequence } from "asn1js";
 import type { Extension } from "pkijs";
 import { toHex } from "./conversion.ts";
 import { readExtensionSchema } from "./extensions.ts";
+import { sameSignatureAlgorithms } from "./parsers.ts";
 import type { ReceivedCrl } from "./parsers.ts";
 
 /** How far thisUpdate may lie ahead of the clock: exactly five minutes is still accepted. */
@@ -63,10 +64,6 @@ export type CrlPolicyResult =
       details: { oid: string; serialNumber?: string };
       detail: string;
     };
-
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-  return a.byteLength === b.byteLength && a.every((octet, index) => octet === b[index]);
-}
 
 /**
  * The context tag numbers of an IssuingDistributionPoint (RFC 5280 §5.2.5: distributionPoint [0],
@@ -128,7 +125,7 @@ function serialOf(serial: { valueBlock: { valueHexView: Uint8Array } }): string 
  * Pure: nothing but `crl` and `now` is read, and the signature is not checked.
  */
 export function checkCrlPolicy(crl: ReceivedCrl, now: Date): CrlPolicyResult {
-  if (!sameBytes(crl.signatureAlgorithmView, crl.signatureView)) {
+  if (!sameSignatureAlgorithms(crl)) {
     return {
       ok: false,
       error: "invalid_crl",

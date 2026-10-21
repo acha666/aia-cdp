@@ -4,6 +4,28 @@
     "title": "aia-cdp API",
     "version": "1"
   },
+  "tags": [
+    {
+      "name": "health",
+      "description": "Service health"
+    },
+    {
+      "name": "certificates",
+      "description": "Imported CA certificates"
+    },
+    {
+      "name": "crls",
+      "description": "CRL targets: their current CRLs, and the upload"
+    },
+    {
+      "name": "stats",
+      "description": "Counts and sizes"
+    },
+    {
+      "name": "admin",
+      "description": "Certificate import and config.json (AIA_ADMIN_TOKEN)"
+    }
+  ],
   "components": {
     "securitySchemes": {
       "uploadBearer": {
@@ -93,6 +115,3026 @@
           "checks"
         ]
       },
+      "CertificateListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "importedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "size": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "description": "DER size in bytes"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/CertificateSummary"
+          },
+          "downloads": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The paths that serve the resource (config.json's path table), in code-unit order, each DER path followed by its `.pem`; [] when none is configured"
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CertificateTarget"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "importedAt",
+          "size",
+          "summary",
+          "downloads",
+          "targets"
+        ]
+      },
+      "CertificateSummary": {
+        "type": "object",
+        "properties": {
+          "subjectCN": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuerCN": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serialNumber": {
+            "type": "string",
+            "pattern": "^(?:[0-9A-F]{2})+$"
+          },
+          "notBefore": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notAfter": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "subjectKeyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:[0-9a-f]{2})+$"
+          },
+          "authorityKeyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:[0-9a-f]{2})+$"
+          },
+          "sha1": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          }
+        },
+        "required": [
+          "subjectCN",
+          "issuerCN",
+          "serialNumber",
+          "notBefore",
+          "notAfter",
+          "subjectKeyId",
+          "authorityKeyId",
+          "sha1"
+        ],
+        "additionalProperties": false
+      },
+      "CertificateTarget": {
+        "type": "object",
+        "properties": {
+          "targetId": {
+            "type": "string",
+            "pattern": "^[0-9a-f-]+$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "full",
+              "delta"
+            ]
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "targetId",
+          "kind",
+          "label"
+        ]
+      },
+      "InternalError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "internal"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "CertificateDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CertificateListItem"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "fingerprints": {
+                "type": "object",
+                "properties": {
+                  "sha1": {
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "sha1",
+                  "sha256"
+                ]
+              },
+              "tbsCertificate": {
+                "$ref": "#/components/schemas/TBSCertificate"
+              },
+              "signatureAlgorithm": {
+                "$ref": "#/components/schemas/AlgorithmIdentifier"
+              },
+              "signatureValue": {
+                "$ref": "#/components/schemas/SignatureValue"
+              }
+            },
+            "required": [
+              "fingerprints",
+              "tbsCertificate",
+              "signatureAlgorithm",
+              "signatureValue"
+            ]
+          }
+        ]
+      },
+      "TBSCertificate": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "object",
+            "properties": {
+              "raw": {
+                "type": "number"
+              },
+              "display": {
+                "type": "string",
+                "enum": [
+                  "v1",
+                  "v2",
+                  "v3"
+                ]
+              }
+            },
+            "required": [
+              "raw",
+              "display"
+            ]
+          },
+          "serialNumber": {
+            "type": "object",
+            "properties": {
+              "hex": {
+                "type": "string"
+              },
+              "decimal": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "hex"
+            ]
+          },
+          "signature": {
+            "$ref": "#/components/schemas/AlgorithmIdentifier"
+          },
+          "issuer": {
+            "$ref": "#/components/schemas/Name"
+          },
+          "validity": {
+            "type": "object",
+            "properties": {
+              "notBefore": {
+                "$ref": "#/components/schemas/Time"
+              },
+              "notAfter": {
+                "$ref": "#/components/schemas/Time"
+              }
+            },
+            "required": [
+              "notBefore",
+              "notAfter"
+            ]
+          },
+          "subject": {
+            "$ref": "#/components/schemas/Name"
+          },
+          "subjectPublicKeyInfo": {
+            "$ref": "#/components/schemas/SubjectPublicKeyInfo"
+          },
+          "issuerUniqueID": {
+            "type": "object",
+            "properties": {
+              "hex": {
+                "type": "string"
+              },
+              "bitLength": {
+                "type": "number"
+              },
+              "unusedBits": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "hex",
+              "bitLength",
+              "unusedBits"
+            ]
+          },
+          "subjectUniqueID": {
+            "type": "object",
+            "properties": {
+              "hex": {
+                "type": "string"
+              },
+              "bitLength": {
+                "type": "number"
+              },
+              "unusedBits": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "hex",
+              "bitLength",
+              "unusedBits"
+            ]
+          },
+          "extensions": {
+            "$ref": "#/components/schemas/Extensions"
+          }
+        },
+        "required": [
+          "version",
+          "serialNumber",
+          "signature",
+          "issuer",
+          "validity",
+          "subject",
+          "subjectPublicKeyInfo"
+        ]
+      },
+      "AlgorithmIdentifier": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "type": "object",
+            "properties": {
+              "oid": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "oid",
+              "name"
+            ]
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "rawHex": {
+                "type": "string",
+                "description": "DER encoding of the parameters value"
+              },
+              "parsed": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "objectIdentifier"
+                        ]
+                      },
+                      "oid": {
+                        "type": "object",
+                        "properties": {
+                          "oid": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "oid",
+                          "name"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "oid"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "rsassaPss"
+                        ]
+                      },
+                      "hashAlgorithm": {
+                        "type": "object",
+                        "properties": {
+                          "oid": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "oid",
+                          "name"
+                        ]
+                      },
+                      "maskGenAlgorithm": {
+                        "type": "object",
+                        "properties": {
+                          "oid": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "oid",
+                          "name"
+                        ]
+                      },
+                      "maskGenHashAlgorithm": {
+                        "type": "object",
+                        "properties": {
+                          "oid": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "oid",
+                          "name"
+                        ]
+                      },
+                      "saltLength": {
+                        "type": "number"
+                      },
+                      "trailerField": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "hashAlgorithm",
+                      "maskGenAlgorithm",
+                      "saltLength",
+                      "trailerField"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "rawHex"
+            ]
+          }
+        },
+        "required": [
+          "algorithm"
+        ]
+      },
+      "Name": {
+        "type": "object",
+        "properties": {
+          "commonName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "organization": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "organizationalUnit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "country": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stateOrProvince": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locality": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rdnSequence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "attributes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "object",
+                        "properties": {
+                          "oid": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "oid",
+                          "name"
+                        ]
+                      },
+                      "value": {
+                        "type": "object",
+                        "properties": {
+                          "string": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "encoding": {
+                            "type": "string",
+                            "enum": [
+                              "utf8String",
+                              "printableString",
+                              "ia5String",
+                              "bmpString",
+                              "universalString",
+                              "teletexString",
+                              "visibleString",
+                              "numericString",
+                              "generalString",
+                              "unknown"
+                            ]
+                          },
+                          "rawHex": {
+                            "type": "string",
+                            "description": "DER encoding of the value when it is not a string"
+                          }
+                        },
+                        "required": [
+                          "string",
+                          "encoding"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "value"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "attributes"
+              ]
+            }
+          },
+          "rfc4514": {
+            "type": "string",
+            "description": "RFC 4514 string form (most significant RDN last), with OpenSSL attribute names"
+          }
+        },
+        "required": [
+          "commonName",
+          "organization",
+          "organizationalUnit",
+          "country",
+          "stateOrProvince",
+          "locality",
+          "rdnSequence",
+          "rfc4514"
+        ]
+      },
+      "Time": {
+        "type": "object",
+        "properties": {
+          "iso": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "utcTime",
+              "generalizedTime"
+            ]
+          },
+          "raw": {
+            "type": "string",
+            "description": "ASN.1 time text in RFC 5280 form (YYMMDDHHMMSSZ or YYYYMMDDHHMMSSZ). Objects carrying any other time encoding are rejected when parsed."
+          }
+        },
+        "required": [
+          "iso",
+          "type",
+          "raw"
+        ]
+      },
+      "SubjectPublicKeyInfo": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "$ref": "#/components/schemas/AlgorithmIdentifier"
+          },
+          "subjectPublicKey": {
+            "type": "object",
+            "properties": {
+              "hex": {
+                "type": "string"
+              },
+              "bitLength": {
+                "type": "number"
+              },
+              "unusedBits": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "hex",
+              "bitLength",
+              "unusedBits"
+            ]
+          },
+          "parsed": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "rsa"
+                    ]
+                  },
+                  "modulus": {
+                    "type": "object",
+                    "properties": {
+                      "hex": {
+                        "type": "string"
+                      },
+                      "bitLength": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "hex",
+                      "bitLength"
+                    ]
+                  },
+                  "publicExponent": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "type",
+                  "modulus",
+                  "publicExponent"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "ec"
+                    ]
+                  },
+                  "curve": {
+                    "type": "object",
+                    "properties": {
+                      "oid": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "oid",
+                      "name"
+                    ]
+                  },
+                  "point": {
+                    "type": "object",
+                    "properties": {
+                      "hex": {
+                        "type": "string"
+                      },
+                      "x": {
+                        "type": "string"
+                      },
+                      "y": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "hex",
+                      "x",
+                      "y"
+                    ]
+                  },
+                  "keySize": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "type",
+                  "curve",
+                  "point",
+                  "keySize"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "ed25519",
+                      "ed448"
+                    ]
+                  },
+                  "publicKey": {
+                    "type": "object",
+                    "properties": {
+                      "hex": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "hex"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "publicKey"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "unknown"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            ]
+          },
+          "fingerprints": {
+            "type": "object",
+            "properties": {
+              "sha1": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sha1",
+              "sha256"
+            ]
+          }
+        },
+        "required": [
+          "algorithm",
+          "subjectPublicKey",
+          "parsed",
+          "fingerprints"
+        ]
+      },
+      "Extensions": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "number"
+          },
+          "critical": {
+            "type": "number"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Extension"
+            }
+          }
+        },
+        "required": [
+          "count",
+          "critical",
+          "items"
+        ]
+      },
+      "Extension": {
+        "type": "object",
+        "properties": {
+          "extnID": {
+            "type": "object",
+            "properties": {
+              "oid": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "oid",
+              "name"
+            ]
+          },
+          "critical": {
+            "type": "boolean"
+          },
+          "extnValue": {
+            "type": "object",
+            "properties": {
+              "hex": {
+                "type": "string"
+              },
+              "byteLength": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "hex",
+              "byteLength"
+            ]
+          },
+          "parseStatus": {
+            "type": "string",
+            "enum": [
+              "parsed",
+              "unsupported",
+              "error"
+            ]
+          },
+          "parseError": {
+            "type": "string"
+          },
+          "parsed": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BasicConstraintsValue"
+              },
+              {
+                "$ref": "#/components/schemas/KeyUsageValue"
+              },
+              {
+                "$ref": "#/components/schemas/ExtendedKeyUsageValue"
+              },
+              {
+                "$ref": "#/components/schemas/SubjectAltNameValue"
+              },
+              {
+                "$ref": "#/components/schemas/AuthorityKeyIdentifierValue"
+              },
+              {
+                "$ref": "#/components/schemas/SubjectKeyIdentifierValue"
+              },
+              {
+                "$ref": "#/components/schemas/CRLDistributionPointsValue"
+              },
+              {
+                "$ref": "#/components/schemas/AuthorityInfoAccessValue"
+              },
+              {
+                "$ref": "#/components/schemas/CertificatePoliciesValue"
+              },
+              {
+                "$ref": "#/components/schemas/NameConstraintsValue"
+              },
+              {
+                "$ref": "#/components/schemas/CRLNumberValue"
+              },
+              {
+                "$ref": "#/components/schemas/DeltaCRLIndicatorValue"
+              },
+              {
+                "$ref": "#/components/schemas/IssuingDistributionPointValue"
+              },
+              {
+                "$ref": "#/components/schemas/CRLReasonValue"
+              },
+              {
+                "$ref": "#/components/schemas/InvalidityDateValue"
+              },
+              {
+                "$ref": "#/components/schemas/FreshestCRLValue"
+              },
+              {
+                "$ref": "#/components/schemas/IssuerAltNameValue"
+              },
+              {
+                "$ref": "#/components/schemas/SubjectInfoAccessValue"
+              },
+              {
+                "$ref": "#/components/schemas/PolicyConstraintsValue"
+              },
+              {
+                "$ref": "#/components/schemas/PolicyMappingsValue"
+              },
+              {
+                "$ref": "#/components/schemas/InhibitAnyPolicyValue"
+              },
+              {
+                "$ref": "#/components/schemas/PrivateKeyUsagePeriodValue"
+              },
+              {
+                "$ref": "#/components/schemas/CertificateIssuerValue"
+              },
+              {
+                "$ref": "#/components/schemas/HoldInstructionCodeValue"
+              },
+              {
+                "$ref": "#/components/schemas/ExpiredCertsOnCRLValue"
+              },
+              {
+                "$ref": "#/components/schemas/SignedCertificateTimestampListValue"
+              },
+              {
+                "$ref": "#/components/schemas/TlsFeatureValue"
+              },
+              {
+                "$ref": "#/components/schemas/OcspNoCheckValue"
+              },
+              {
+                "$ref": "#/components/schemas/NetscapeCertTypeValue"
+              },
+              {
+                "$ref": "#/components/schemas/NetscapeCommentValue"
+              },
+              {
+                "$ref": "#/components/schemas/QcStatementsValue"
+              },
+              {
+                "$ref": "#/components/schemas/SubjectDirectoryAttributesValue"
+              },
+              {
+                "$ref": "#/components/schemas/MsCaVersionValue"
+              },
+              {
+                "$ref": "#/components/schemas/MsCertificateTemplateNameValue"
+              },
+              {
+                "$ref": "#/components/schemas/MsCertificateTemplateValue"
+              },
+              {
+                "$ref": "#/components/schemas/MsPreviousCaCertificateHashValue"
+              },
+              {
+                "$ref": "#/components/schemas/MsCrlNextPublishValue"
+              },
+              {
+                "$ref": "#/components/schemas/MsCrlSelfCdpValue"
+              },
+              {
+                "$ref": "#/components/schemas/MsCrlVirtualBaseValue"
+              },
+              {
+                "$ref": "#/components/schemas/MsApplicationPoliciesValue"
+              },
+              {
+                "$ref": "#/components/schemas/MsNtdsCaSecurityValue"
+              }
+            ],
+            "discriminator": {
+              "propertyName": "extensionType",
+              "mapping": {
+                "basicConstraints": "#/components/schemas/BasicConstraintsValue",
+                "keyUsage": "#/components/schemas/KeyUsageValue",
+                "extendedKeyUsage": "#/components/schemas/ExtendedKeyUsageValue",
+                "subjectAltName": "#/components/schemas/SubjectAltNameValue",
+                "authorityKeyIdentifier": "#/components/schemas/AuthorityKeyIdentifierValue",
+                "subjectKeyIdentifier": "#/components/schemas/SubjectKeyIdentifierValue",
+                "cRLDistributionPoints": "#/components/schemas/CRLDistributionPointsValue",
+                "authorityInfoAccess": "#/components/schemas/AuthorityInfoAccessValue",
+                "certificatePolicies": "#/components/schemas/CertificatePoliciesValue",
+                "nameConstraints": "#/components/schemas/NameConstraintsValue",
+                "cRLNumber": "#/components/schemas/CRLNumberValue",
+                "deltaCRLIndicator": "#/components/schemas/DeltaCRLIndicatorValue",
+                "issuingDistributionPoint": "#/components/schemas/IssuingDistributionPointValue",
+                "cRLReason": "#/components/schemas/CRLReasonValue",
+                "invalidityDate": "#/components/schemas/InvalidityDateValue",
+                "freshestCRL": "#/components/schemas/FreshestCRLValue",
+                "issuerAltName": "#/components/schemas/IssuerAltNameValue",
+                "subjectInfoAccess": "#/components/schemas/SubjectInfoAccessValue",
+                "policyConstraints": "#/components/schemas/PolicyConstraintsValue",
+                "policyMappings": "#/components/schemas/PolicyMappingsValue",
+                "inhibitAnyPolicy": "#/components/schemas/InhibitAnyPolicyValue",
+                "privateKeyUsagePeriod": "#/components/schemas/PrivateKeyUsagePeriodValue",
+                "certificateIssuer": "#/components/schemas/CertificateIssuerValue",
+                "holdInstructionCode": "#/components/schemas/HoldInstructionCodeValue",
+                "expiredCertsOnCRL": "#/components/schemas/ExpiredCertsOnCRLValue",
+                "signedCertificateTimestampList": "#/components/schemas/SignedCertificateTimestampListValue",
+                "tlsFeature": "#/components/schemas/TlsFeatureValue",
+                "ocspNoCheck": "#/components/schemas/OcspNoCheckValue",
+                "netscapeCertType": "#/components/schemas/NetscapeCertTypeValue",
+                "netscapeComment": "#/components/schemas/NetscapeCommentValue",
+                "qcStatements": "#/components/schemas/QcStatementsValue",
+                "subjectDirectoryAttributes": "#/components/schemas/SubjectDirectoryAttributesValue",
+                "msCaVersion": "#/components/schemas/MsCaVersionValue",
+                "msCertificateTemplateName": "#/components/schemas/MsCertificateTemplateNameValue",
+                "msCertificateTemplate": "#/components/schemas/MsCertificateTemplateValue",
+                "msPreviousCaCertificateHash": "#/components/schemas/MsPreviousCaCertificateHashValue",
+                "msCrlNextPublish": "#/components/schemas/MsCrlNextPublishValue",
+                "msCrlSelfCdp": "#/components/schemas/MsCrlSelfCdpValue",
+                "msCrlVirtualBase": "#/components/schemas/MsCrlVirtualBaseValue",
+                "msApplicationPolicies": "#/components/schemas/MsApplicationPoliciesValue",
+                "msNtdsCaSecurity": "#/components/schemas/MsNtdsCaSecurityValue"
+              }
+            }
+          },
+          "asn1": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "depth": {
+                  "type": "number"
+                },
+                "tag": {
+                  "type": "string"
+                },
+                "length": {
+                  "type": "number"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "depth",
+                "tag",
+                "length"
+              ]
+            },
+            "description": "Generic ASN.1 structure dump, present when the value is unsupported or malformed"
+          }
+        },
+        "required": [
+          "extnID",
+          "critical",
+          "extnValue",
+          "parseStatus"
+        ]
+      },
+      "BasicConstraintsValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "basicConstraints"
+            ]
+          },
+          "cA": {
+            "type": "boolean"
+          },
+          "pathLenConstraint": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "extensionType",
+          "cA"
+        ]
+      },
+      "KeyUsageValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "keyUsage"
+            ]
+          },
+          "digitalSignature": {
+            "type": "boolean"
+          },
+          "nonRepudiation": {
+            "type": "boolean"
+          },
+          "keyEncipherment": {
+            "type": "boolean"
+          },
+          "dataEncipherment": {
+            "type": "boolean"
+          },
+          "keyAgreement": {
+            "type": "boolean"
+          },
+          "keyCertSign": {
+            "type": "boolean"
+          },
+          "cRLSign": {
+            "type": "boolean"
+          },
+          "encipherOnly": {
+            "type": "boolean"
+          },
+          "decipherOnly": {
+            "type": "boolean"
+          },
+          "usages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "digitalSignature",
+          "nonRepudiation",
+          "keyEncipherment",
+          "dataEncipherment",
+          "keyAgreement",
+          "keyCertSign",
+          "cRLSign",
+          "encipherOnly",
+          "decipherOnly",
+          "usages"
+        ]
+      },
+      "ExtendedKeyUsageValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "extendedKeyUsage"
+            ]
+          },
+          "purposes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "oid": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "oid",
+                "name"
+              ]
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "purposes"
+        ]
+      },
+      "SubjectAltNameValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "subjectAltName"
+            ]
+          },
+          "names": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GeneralName"
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "names"
+        ]
+      },
+      "GeneralName": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "otherName",
+              "rfc822Name",
+              "dNSName",
+              "x400Address",
+              "directoryName",
+              "ediPartyName",
+              "uniformResourceIdentifier",
+              "iPAddress",
+              "registeredID"
+            ]
+          },
+          "value": {
+            "type": "string"
+          },
+          "typeOid": {
+            "type": "string",
+            "description": "otherName type-id"
+          },
+          "typeName": {
+            "type": "string",
+            "description": "Known name for otherName type-id"
+          },
+          "rawHex": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ]
+      },
+      "AuthorityKeyIdentifierValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "authorityKeyIdentifier"
+            ]
+          },
+          "keyIdentifier": {
+            "type": "string"
+          },
+          "authorityCertIssuer": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GeneralName"
+            }
+          },
+          "authorityCertSerialNumber": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "extensionType"
+        ]
+      },
+      "SubjectKeyIdentifierValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "subjectKeyIdentifier"
+            ]
+          },
+          "keyIdentifier": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "extensionType",
+          "keyIdentifier"
+        ]
+      },
+      "CRLDistributionPointsValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "cRLDistributionPoints"
+            ]
+          },
+          "distributionPoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DistributionPoint"
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "distributionPoints"
+        ]
+      },
+      "DistributionPoint": {
+        "type": "object",
+        "properties": {
+          "distributionPoint": {
+            "$ref": "#/components/schemas/DistributionPointName"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cRLIssuer": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GeneralName"
+            }
+          }
+        }
+      },
+      "DistributionPointName": {
+        "type": "object",
+        "properties": {
+          "fullName": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GeneralName"
+            }
+          },
+          "nameRelativeToCRLIssuer": {
+            "type": "object",
+            "properties": {
+              "attributes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "object",
+                      "properties": {
+                        "oid": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "oid",
+                        "name"
+                      ]
+                    },
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "string": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "encoding": {
+                          "type": "string",
+                          "enum": [
+                            "utf8String",
+                            "printableString",
+                            "ia5String",
+                            "bmpString",
+                            "universalString",
+                            "teletexString",
+                            "visibleString",
+                            "numericString",
+                            "generalString",
+                            "unknown"
+                          ]
+                        },
+                        "rawHex": {
+                          "type": "string",
+                          "description": "DER encoding of the value when it is not a string"
+                        }
+                      },
+                      "required": [
+                        "string",
+                        "encoding"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "value"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "attributes"
+            ]
+          }
+        }
+      },
+      "AuthorityInfoAccessValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "authorityInfoAccess"
+            ]
+          },
+          "accessDescriptions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "accessMethod": {
+                  "type": "object",
+                  "properties": {
+                    "oid": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "oid",
+                    "name"
+                  ]
+                },
+                "accessLocation": {
+                  "$ref": "#/components/schemas/GeneralName"
+                }
+              },
+              "required": [
+                "accessMethod",
+                "accessLocation"
+              ]
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "accessDescriptions"
+        ]
+      },
+      "CertificatePoliciesValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "certificatePolicies"
+            ]
+          },
+          "policies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "policyIdentifier": {
+                  "type": "object",
+                  "properties": {
+                    "oid": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "oid",
+                    "name"
+                  ]
+                },
+                "policyQualifiers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "qualifierId": {
+                        "type": "object",
+                        "properties": {
+                          "oid": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "oid",
+                          "name"
+                        ]
+                      },
+                      "cpsUri": {
+                        "type": "string"
+                      },
+                      "userNotice": {
+                        "type": "object",
+                        "properties": {
+                          "organization": {
+                            "type": "string"
+                          },
+                          "noticeNumbers": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "explicitText": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "rawHex": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "qualifierId",
+                      "rawHex"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "policyIdentifier"
+              ]
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "policies"
+        ]
+      },
+      "NameConstraintsValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "nameConstraints"
+            ]
+          },
+          "permittedSubtrees": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "base": {
+                  "$ref": "#/components/schemas/GeneralName"
+                },
+                "minimum": {
+                  "type": "number"
+                },
+                "maximum": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "base"
+              ]
+            }
+          },
+          "excludedSubtrees": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "base": {
+                  "$ref": "#/components/schemas/GeneralName"
+                },
+                "minimum": {
+                  "type": "number"
+                },
+                "maximum": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "base"
+              ]
+            }
+          }
+        },
+        "required": [
+          "extensionType"
+        ]
+      },
+      "CRLNumberValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "cRLNumber"
+            ]
+          },
+          "number": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "extensionType",
+          "number"
+        ]
+      },
+      "DeltaCRLIndicatorValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "deltaCRLIndicator"
+            ]
+          },
+          "baseCRLNumber": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "extensionType",
+          "baseCRLNumber"
+        ]
+      },
+      "IssuingDistributionPointValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "issuingDistributionPoint"
+            ]
+          },
+          "distributionPoint": {
+            "$ref": "#/components/schemas/DistributionPointName"
+          },
+          "onlyContainsUserCerts": {
+            "type": "boolean"
+          },
+          "onlyContainsCACerts": {
+            "type": "boolean"
+          },
+          "onlySomeReasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "indirectCRL": {
+            "type": "boolean"
+          },
+          "onlyContainsAttributeCerts": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "extensionType"
+        ]
+      },
+      "CRLReasonValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "cRLReason"
+            ]
+          },
+          "code": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "extensionType",
+          "code",
+          "name"
+        ]
+      },
+      "InvalidityDateValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "invalidityDate"
+            ]
+          },
+          "date": {
+            "$ref": "#/components/schemas/Time"
+          }
+        },
+        "required": [
+          "extensionType",
+          "date"
+        ]
+      },
+      "FreshestCRLValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "freshestCRL"
+            ]
+          },
+          "distributionPoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DistributionPoint"
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "distributionPoints"
+        ]
+      },
+      "IssuerAltNameValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "issuerAltName"
+            ]
+          },
+          "names": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GeneralName"
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "names"
+        ]
+      },
+      "SubjectInfoAccessValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "subjectInfoAccess"
+            ]
+          },
+          "accessDescriptions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "accessMethod": {
+                  "type": "object",
+                  "properties": {
+                    "oid": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "oid",
+                    "name"
+                  ]
+                },
+                "accessLocation": {
+                  "$ref": "#/components/schemas/GeneralName"
+                }
+              },
+              "required": [
+                "accessMethod",
+                "accessLocation"
+              ]
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "accessDescriptions"
+        ]
+      },
+      "PolicyConstraintsValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "policyConstraints"
+            ]
+          },
+          "requireExplicitPolicy": {
+            "type": "number"
+          },
+          "inhibitPolicyMapping": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "extensionType"
+        ]
+      },
+      "PolicyMappingsValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "policyMappings"
+            ]
+          },
+          "mappings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "issuerDomainPolicy": {
+                  "type": "object",
+                  "properties": {
+                    "oid": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "oid",
+                    "name"
+                  ]
+                },
+                "subjectDomainPolicy": {
+                  "type": "object",
+                  "properties": {
+                    "oid": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "oid",
+                    "name"
+                  ]
+                }
+              },
+              "required": [
+                "issuerDomainPolicy",
+                "subjectDomainPolicy"
+              ]
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "mappings"
+        ]
+      },
+      "InhibitAnyPolicyValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "inhibitAnyPolicy"
+            ]
+          },
+          "skipCerts": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "extensionType",
+          "skipCerts"
+        ]
+      },
+      "PrivateKeyUsagePeriodValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "privateKeyUsagePeriod"
+            ]
+          },
+          "notBefore": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "notAfter": {
+            "$ref": "#/components/schemas/Time"
+          }
+        },
+        "required": [
+          "extensionType"
+        ]
+      },
+      "CertificateIssuerValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "certificateIssuer"
+            ]
+          },
+          "names": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GeneralName"
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "names"
+        ]
+      },
+      "HoldInstructionCodeValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "holdInstructionCode"
+            ]
+          },
+          "instruction": {
+            "type": "object",
+            "properties": {
+              "oid": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "oid",
+              "name"
+            ]
+          }
+        },
+        "required": [
+          "extensionType",
+          "instruction"
+        ]
+      },
+      "ExpiredCertsOnCRLValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "expiredCertsOnCRL"
+            ]
+          },
+          "date": {
+            "$ref": "#/components/schemas/Time"
+          }
+        },
+        "required": [
+          "extensionType",
+          "date"
+        ]
+      },
+      "SignedCertificateTimestampListValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "signedCertificateTimestampList"
+            ]
+          },
+          "timestamps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "number"
+                },
+                "logId": {
+                  "type": "string"
+                },
+                "timestamp": {
+                  "type": "string"
+                },
+                "hashAlgorithm": {
+                  "type": "string"
+                },
+                "signatureAlgorithm": {
+                  "type": "string"
+                },
+                "signature": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "version",
+                "logId",
+                "timestamp",
+                "hashAlgorithm",
+                "signatureAlgorithm",
+                "signature"
+              ]
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "timestamps"
+        ]
+      },
+      "TlsFeatureValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "tlsFeature"
+            ]
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "number"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "name"
+              ]
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "features"
+        ]
+      },
+      "OcspNoCheckValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "ocspNoCheck"
+            ]
+          }
+        },
+        "required": [
+          "extensionType"
+        ]
+      },
+      "NetscapeCertTypeValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "netscapeCertType"
+            ]
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "flags"
+        ]
+      },
+      "NetscapeCommentValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "netscapeComment"
+            ]
+          },
+          "comment": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "extensionType",
+          "comment"
+        ]
+      },
+      "QcStatementsValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "qcStatements"
+            ]
+          },
+          "statements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "statementId": {
+                  "type": "object",
+                  "properties": {
+                    "oid": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "oid",
+                    "name"
+                  ]
+                },
+                "rawHex": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "statementId",
+                "rawHex"
+              ]
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "statements"
+        ]
+      },
+      "SubjectDirectoryAttributesValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "subjectDirectoryAttributes"
+            ]
+          },
+          "attributes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "object",
+                  "properties": {
+                    "oid": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "oid",
+                    "name"
+                  ]
+                },
+                "values": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "type",
+                "values"
+              ]
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "attributes"
+        ]
+      },
+      "MsCaVersionValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "msCaVersion"
+            ]
+          },
+          "certificateIndex": {
+            "type": "number"
+          },
+          "keyIndex": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "extensionType",
+          "certificateIndex",
+          "keyIndex"
+        ]
+      },
+      "MsCertificateTemplateNameValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "msCertificateTemplateName"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "extensionType",
+          "name"
+        ]
+      },
+      "MsCertificateTemplateValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "msCertificateTemplate"
+            ]
+          },
+          "templateId": {
+            "type": "object",
+            "properties": {
+              "oid": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "oid",
+              "name"
+            ]
+          },
+          "majorVersion": {
+            "type": "number"
+          },
+          "minorVersion": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "extensionType",
+          "templateId"
+        ]
+      },
+      "MsPreviousCaCertificateHashValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "msPreviousCaCertificateHash"
+            ]
+          },
+          "hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "extensionType",
+          "hash"
+        ]
+      },
+      "MsCrlNextPublishValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "msCrlNextPublish"
+            ]
+          },
+          "date": {
+            "$ref": "#/components/schemas/Time"
+          }
+        },
+        "required": [
+          "extensionType",
+          "date"
+        ]
+      },
+      "MsCrlSelfCdpValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "msCrlSelfCdp"
+            ]
+          },
+          "distributionPoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DistributionPoint"
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "distributionPoints"
+        ]
+      },
+      "MsCrlVirtualBaseValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "msCrlVirtualBase"
+            ]
+          },
+          "number": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "extensionType",
+          "number"
+        ]
+      },
+      "MsApplicationPoliciesValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "msApplicationPolicies"
+            ]
+          },
+          "policies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "policyIdentifier": {
+                  "type": "object",
+                  "properties": {
+                    "oid": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "oid",
+                    "name"
+                  ]
+                },
+                "policyQualifiers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "qualifierId": {
+                        "type": "object",
+                        "properties": {
+                          "oid": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "oid",
+                          "name"
+                        ]
+                      },
+                      "cpsUri": {
+                        "type": "string"
+                      },
+                      "userNotice": {
+                        "type": "object",
+                        "properties": {
+                          "organization": {
+                            "type": "string"
+                          },
+                          "noticeNumbers": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "explicitText": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "rawHex": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "qualifierId",
+                      "rawHex"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "policyIdentifier"
+              ]
+            }
+          }
+        },
+        "required": [
+          "extensionType",
+          "policies"
+        ]
+      },
+      "MsNtdsCaSecurityValue": {
+        "type": "object",
+        "properties": {
+          "extensionType": {
+            "type": "string",
+            "enum": [
+              "msNtdsCaSecurity"
+            ]
+          },
+          "sid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "extensionType",
+          "sid"
+        ]
+      },
+      "SignatureValue": {
+        "type": "object",
+        "properties": {
+          "hex": {
+            "type": "string"
+          },
+          "bitLength": {
+            "type": "number"
+          },
+          "unusedBits": {
+            "type": "number"
+          },
+          "parsed": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "ecdsa"
+                    ]
+                  },
+                  "r": {
+                    "type": "string"
+                  },
+                  "s": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "r",
+                  "s"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "dsa"
+                    ]
+                  },
+                  "r": {
+                    "type": "string"
+                  },
+                  "s": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "r",
+                  "s"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "hex",
+          "bitLength",
+          "unusedBits"
+        ]
+      },
+      "BadRequestError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "bad_request"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "NotFoundError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "not_found"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "CrlTargetListItem": {
+        "type": "object",
+        "properties": {
+          "targetId": {
+            "type": "string",
+            "pattern": "^[0-9a-f-]+$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "full",
+              "delta"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "issuer": {
+            "$ref": "#/components/schemas/CrlIssuer"
+          },
+          "downloads": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The paths that serve the resource (config.json's path table), in code-unit order, each DER path followed by its `.pem`; [] when none is configured"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CrlCurrent"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null while nothing is published (or after a retire)"
+          }
+        },
+        "required": [
+          "targetId",
+          "kind",
+          "label",
+          "issuer",
+          "downloads",
+          "current"
+        ]
+      },
+      "CrlIssuer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subjectCN": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "subjectCN"
+        ]
+      },
+      "CrlCurrent": {
+        "type": "object",
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "size": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "description": "DER size in bytes"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/CrlSummary"
+          }
+        },
+        "required": [
+          "sha256",
+          "size",
+          "publishedAt",
+          "summary"
+        ]
+      },
+      "CrlSummary": {
+        "type": "object",
+        "properties": {
+          "crlNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:0|[1-9][0-9]*)$"
+          },
+          "baseCrlNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:0|[1-9][0-9]*)$"
+          },
+          "thisUpdate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextUpdate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revokedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha1": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "nextPublish": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "crlNumber",
+          "baseCrlNumber",
+          "thisUpdate",
+          "nextUpdate",
+          "revokedCount",
+          "sha1",
+          "nextPublish"
+        ],
+        "additionalProperties": false
+      },
+      "CrlTargetDetail": {
+        "type": "object",
+        "properties": {
+          "targetId": {
+            "type": "string",
+            "pattern": "^[0-9a-f-]+$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "full",
+              "delta"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "issuer": {
+            "$ref": "#/components/schemas/CrlIssuer"
+          },
+          "downloads": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The paths that serve the resource (config.json's path table), in code-unit order, each DER path followed by its `.pem`; [] when none is configured"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CrlCurrentDetail"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null while nothing is published (or after a retire)"
+          }
+        },
+        "required": [
+          "targetId",
+          "kind",
+          "label",
+          "issuer",
+          "downloads",
+          "current"
+        ]
+      },
+      "CrlCurrentDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CrlCurrent"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "verifier": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "fingerprints": {
+                "type": "object",
+                "properties": {
+                  "sha1": {
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "sha1",
+                  "sha256"
+                ]
+              },
+              "tbsCertList": {
+                "$ref": "#/components/schemas/TBSCertList"
+              },
+              "signatureAlgorithm": {
+                "$ref": "#/components/schemas/AlgorithmIdentifier"
+              },
+              "signatureValue": {
+                "$ref": "#/components/schemas/SignatureValue"
+              }
+            },
+            "required": [
+              "verifier",
+              "fingerprints",
+              "tbsCertList",
+              "signatureAlgorithm",
+              "signatureValue"
+            ]
+          }
+        ]
+      },
+      "TBSCertList": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "object",
+            "properties": {
+              "raw": {
+                "type": "number"
+              },
+              "display": {
+                "type": "string",
+                "enum": [
+                  "v1",
+                  "v2",
+                  "v3"
+                ]
+              }
+            },
+            "required": [
+              "raw",
+              "display"
+            ]
+          },
+          "signature": {
+            "$ref": "#/components/schemas/AlgorithmIdentifier"
+          },
+          "issuer": {
+            "$ref": "#/components/schemas/Name"
+          },
+          "thisUpdate": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "nextUpdate": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "revokedCertificates": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "number"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RevokedCertificate"
+                }
+              }
+            },
+            "required": [
+              "count",
+              "items"
+            ]
+          },
+          "crlExtensions": {
+            "$ref": "#/components/schemas/Extensions"
+          }
+        },
+        "required": [
+          "version",
+          "signature",
+          "issuer",
+          "thisUpdate",
+          "revokedCertificates"
+        ]
+      },
+      "RevokedCertificate": {
+        "type": "object",
+        "properties": {
+          "userCertificate": {
+            "type": "object",
+            "properties": {
+              "hex": {
+                "type": "string"
+              },
+              "decimal": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "hex"
+            ]
+          },
+          "revocationDate": {
+            "$ref": "#/components/schemas/Time"
+          },
+          "crlEntryExtensions": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "number"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Extension"
+                }
+              }
+            },
+            "required": [
+              "count",
+              "items"
+            ]
+          }
+        },
+        "required": [
+          "userCertificate",
+          "revocationDate"
+        ]
+      },
       "PublishedCrl": {
         "type": "object",
         "properties": {
@@ -166,33 +3208,6 @@
           "nextUpdate",
           "issuer",
           "downloads"
-        ]
-      },
-      "BadRequestError": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "bad_request"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "details": {}
-            },
-            "required": [
-              "code",
-              "message"
-            ]
-          }
-        },
-        "required": [
-          "error"
         ]
       },
       "UnauthorizedError": {
@@ -681,33 +3696,6 @@
           }
         ]
       },
-      "InternalError": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "internal"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "details": {}
-            },
-            "required": [
-              "code",
-              "message"
-            ]
-          }
-        },
-        "required": [
-          "error"
-        ]
-      },
       "CrlUpload": {
         "type": "object",
         "properties": {
@@ -719,6 +3707,69 @@
         },
         "required": [
           "crl"
+        ]
+      },
+      "Stats": {
+        "type": "object",
+        "properties": {
+          "certificates": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "targets": {
+            "type": "object",
+            "properties": {
+              "full": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "delta": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "full",
+              "delta"
+            ]
+          },
+          "published": {
+            "type": "object",
+            "properties": {
+              "full": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "delta": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "full",
+              "delta"
+            ]
+          },
+          "totalRevocations": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Sum of revokedCount over the published full CRLs (delta entries reappear in the next full CRL); null while no full CRL is published"
+          },
+          "derBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "DER bytes of the imported certificates and of the configured targets' current CRLs (history not counted)"
+          }
+        },
+        "required": [
+          "certificates",
+          "targets",
+          "published",
+          "totalRevocations",
+          "derBytes"
         ]
       },
       "ImportedCertificate": {
@@ -754,64 +3805,6 @@
           "importedAt",
           "summary"
         ]
-      },
-      "CertificateSummary": {
-        "type": "object",
-        "properties": {
-          "subjectCN": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "issuerCN": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "serialNumber": {
-            "type": "string",
-            "pattern": "^(?:[0-9A-F]{2})+$"
-          },
-          "notBefore": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "notAfter": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "subjectKeyId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "pattern": "^(?:[0-9a-f]{2})+$"
-          },
-          "authorityKeyId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "pattern": "^(?:[0-9a-f]{2})+$"
-          },
-          "sha1": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{40}$"
-          }
-        },
-        "required": [
-          "subjectCN",
-          "issuerCN",
-          "serialNumber",
-          "notBefore",
-          "notAfter",
-          "subjectKeyId",
-          "authorityKeyId",
-          "sha1"
-        ],
-        "additionalProperties": false
       },
       "UnsupportedMediaTypeError": {
         "type": "object",
@@ -868,7 +3861,8 @@
                       "extension_value",
                       "pem_label",
                       "pem_blocks",
-                      "pem_base64"
+                      "pem_base64",
+                      "signature_algorithm_mismatch"
                     ]
                   }
                 },
@@ -1021,33 +4015,6 @@
         ],
         "additionalProperties": false
       },
-      "NotFoundError": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "not_found"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "details": {}
-            },
-            "required": [
-              "code",
-              "message"
-            ]
-          }
-        },
-        "required": [
-          "error"
-        ]
-      },
       "PreconditionFailedError": {
         "type": "object",
         "properties": {
@@ -1191,6 +4158,9 @@
       "get": {
         "operationId": "getHealth",
         "summary": "Service health",
+        "tags": [
+          "health"
+        ],
         "description": "Reads the object store and config.json. `degraded` (still 200) while the service is not configured yet or its configuration is invalid; 503 when the store cannot be read.",
         "responses": {
           "200": {
@@ -1216,11 +4186,147 @@
         }
       }
     },
+    "/api/v1/certificates": {
+      "get": {
+        "operationId": "listCertificates",
+        "summary": "List certificates",
+        "description": "Every imported certificate, in id order, with its catalog summary, config.json label, download paths and the targets it issues CRLs for. The whole list: no pagination.",
+        "tags": [
+          "certificates"
+        ],
+        "responses": {
+          "200": {
+            "description": "The certificates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CertificateListItem"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The store failed, or it cannot back what catalog.json names (logged, never sent); retry later",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/certificates/{id}": {
+      "get": {
+        "operationId": "getCertificate",
+        "summary": "Get a certificate",
+        "description": "The list item plus the decoded certificate: fingerprints, TBSCertificate (names, validity, public key, every extension), signature algorithm with its parameters and signature value.",
+        "tags": [
+          "certificates"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{64}$",
+              "description": "The certificate id: SHA-256 of the DER, hex (either case)"
+            },
+            "required": true,
+            "description": "The certificate id: SHA-256 of the DER, hex (either case)",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The certificate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificateDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The id is not 64 hex digits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No certificate with this id is imported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The store failed, or it cannot back what catalog.json names (logged, never sent); retry later",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/crls": {
+      "get": {
+        "operationId": "listCrlTargets",
+        "summary": "List CRL targets",
+        "description": "Every target config.json defines, in targetId order, with its kind, label, issuer, download paths and current CRL summary (`current: null` while nothing is published). The whole list: no pagination.",
+        "tags": [
+          "crls"
+        ],
+        "responses": {
+          "200": {
+            "description": "The targets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CrlTargetListItem"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The store failed, or it cannot back what catalog.json and config.json name (logged, never sent); retry later",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "operationId": "uploadCrl",
         "summary": "Publish a CRL",
         "description": "One CRL, DER or a single X509 CRL PEM block, as the raw body or as the field `crl` of a multipart form (a file, or PEM text); the format is recognized from the bytes. It goes to the target that the configuration binds to its issuer (found by the Authority Key Identifier) and its kind (full or delta), once the extension policy, the issuer's signature and the comparison with the target's current CRL accept it. `Authorization: Bearer <AIA_UPLOAD_TOKEN>` is needed only while that token is set.",
+        "tags": [
+          "crls"
+        ],
         "security": [
           {},
           {
@@ -1356,11 +4462,111 @@
         }
       }
     },
+    "/api/v1/crls/{targetId}": {
+      "get": {
+        "operationId": "getCrlTarget",
+        "summary": "Get a CRL target",
+        "description": "The list item, and for a published target its current CRL decoded: verifier, fingerprints, TBSCertList with every revoked entry and extension, signature algorithm with its parameters and signature value. An unpublished target is a 200 with `current: null`.",
+        "tags": [
+          "crls"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "The target id from config.json (UUID, either case)"
+            },
+            "required": true,
+            "description": "The target id from config.json (UUID, either case)",
+            "name": "targetId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The target",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrlTargetDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The target id is not a UUID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "config.json defines no target with this id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The store failed, or it cannot back what catalog.json and config.json name (logged, never sent); retry later",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/stats": {
+      "get": {
+        "operationId": "getStats",
+        "summary": "Service statistics",
+        "description": "Imported certificates, configured targets and published CRLs by kind, the revoked entries of the published full CRLs and the DER bytes of the certificates and current CRLs.",
+        "tags": [
+          "stats"
+        ],
+        "responses": {
+          "200": {
+            "description": "The statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stats"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The store failed (logged, never sent); retry later",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/certificates": {
       "post": {
         "operationId": "importCertificate",
         "summary": "Import a CA certificate",
         "description": "DER or a single PEM block, as the raw body or as the file field `certificate` of a multipart form; the format is recognized from the bytes. Importing does not authorize anything: a certificate only issues CRLs once a config target names it. A PEM bundle is rejected (`pem_blocks`): the CLI sends each block on its own.",
+        "tags": [
+          "admin"
+        ],
         "security": [
           {
             "adminBearer": []
@@ -1500,6 +4706,9 @@
         "operationId": "getConfig",
         "summary": "Read config.json",
         "description": "The stored bytes as they are, also when an out-of-band write left them invalid (so that they can be repaired). The ETag is the SHA-256 of those bytes, for `If-Match` on PUT.",
+        "tags": [
+          "admin"
+        ],
         "security": [
           {
             "adminBearer": []
@@ -1580,6 +4789,9 @@
         "operationId": "applyConfig",
         "summary": "Replace config.json",
         "description": "The whole configuration, checked against rules V1–V9 (every violation in `details.issues`). Exactly one precondition: `If-Match: \"<ETag>\"` from GET, or `If-None-Match: *` for the first configuration.",
+        "tags": [
+          "admin"
+        ],
         "security": [
           {
             "adminBearer": []

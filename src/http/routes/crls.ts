@@ -1,23 +1,29 @@
-// CRL upload (plan §7.1, implementation slice 4 step 8): POST /api/v1/crls hands one CRL to
-// publishCrl (src/core/publish.ts) and maps its result. A public route, so this sub-app joins the
-// AppType chain (slice 5a step 8, which adds the CRL list and detail routes here). The HTTP part is
-// a rewrite of worker-aia-cdp@5b570aa:src/worker/api/v2/crls/upload.ts:27-31, 184-203: raw bodies
-// besides multipart, a string field, and the format recognized from the bytes (M8, §10 #13).
+// CRL targets (plan §7.1): the upload POST /api/v1/crls (implementation slice 4 step 8) hands one
+// CRL to publishCrl (src/core/publish.ts) and maps its result; GET /api/v1/crls and
+// /api/v1/crls/{targetId} (slice 5a step 7) are the target views of src/core/views.ts. Public
+// routes, so this sub-app joins the AppType chain (slice 5a step 8). The upload is a rewrite of
+// worker-aia-cdp@5b570aa:src/worker/api/v2/crls/upload.ts:27-31, 184-203: raw bodies besides
+// multipart, a string field, and the format recognized from the bytes (M8, §10 #13). The reads
+// replace src/worker/api/v2/crls/{list,detail}.ts: one item per configured target (id = target
+// UUID, never a store key, §10 #2), every revoked entry in the detail, no pagination or include=.
 //
 // Route middleware runs before zod-openapi's media gate and form validator, in this order:
 // bearerAuth while AIA_UPLOAD_TOKEN is set (a missing or wrong token is 401 + WWW-Authenticate, a
 // malformed Authorization header 400; unset, uploads need no token, §10 #19); the media type gate
 // (415 with details); bodyLimit (AIA_MAX_UPLOAD_BYTES, 413, also for a streamed body without
 // Content-Length). So an anonymous client never gets its body read, nor a 413 that tells it the
-// limit. Failures are thrown as ApiError / HTTPException: onError writes every envelope (no-store),
-// and the handler only returns successes.
+// limit. Failures are thrown as ApiError / HTTPException (and, for the reads, ReadInconsistencyError
+// and store errors): onError writes every envelope (no-store), and the handlers only return
+// successes. HEAD of the reads is Hono's automatic HEAD of each GET.
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context, MiddlewareHandler } from "hono";
 import { bearerAuth } from "hono/bearer-auth";
 import { bodyLimit } from "hono/body-limit";
 import { createMiddleware } from "hono/factory";
+import { readState } from "../../core/catalog.ts";
 import { publishCrl } from "../../core/publish.ts";
 import type { PublishErrorCode, PublishFailure } from "../../core/publish.ts";
+import { crlTargetDetail, crlTargetList, findCrlTarget } from "../../core/views.ts";
 import { ApiError, NO_STORE } from "../errors.ts";
 import { createLogger } from "../log.ts";
 import { mediaType, MULTIPART } from "../media.ts";
@@ -27,10 +33,14 @@ import {
   CrlConflictError,
   CrlMediaTypeError,
   CrlRejectedError,
+  CrlTargetDetail,
+  CrlTargetListItem,
   CrlUpload,
   InternalError,
+  NotFoundError,
   PayloadTooLargeError,
   PublishedCrl,
+  TargetIdParam,
   UnauthorizedError,
 } from "../schemas.ts";
 import type { AppDeps, AppEnv, AppSettings } from "../types.ts";
@@ -46,6 +56,8 @@ function json<S extends z.ZodType>(schema: S) {
 }
 
 const binary = z.string().openapi({ format: "binary" });
+
+const TAGS = ["crls"];
 
 const ACCEPTED: ReadonlySet<string> = new Set(CRL_MEDIA_TYPES);
 
@@ -103,6 +115,7 @@ export function uploadCrlRoute(settings: AppSettings) {
       "Identifier) and its kind (full or delta), once the extension policy, the issuer's " +
       "signature and the comparison with the target's current CRL accept it. " +
       "`Authorization: Bearer <AIA_UPLOAD_TOKEN>` is needed only while that token is set.",
+    tags: TAGS,
     security,
     middleware: uploadGate(settings),
     request: {
@@ -163,6 +176,53 @@ export function uploadCrlRoute(settings: AppSettings) {
     },
   });
 }
+
+// Reads -----------------------------------------------------------------------------------------
+
+const READ_INTERNAL = {
+  description:
+    "The store failed, or it cannot back what catalog.json and config.json name (logged, never " +
+    "sent); retry later",
+  content: json(InternalError),
+};
+
+export const listCrlTargetsRoute = createRoute({
+  method: "get",
+  path: "/crls",
+  operationId: "listCrlTargets",
+  summary: "List CRL targets",
+  description:
+    "Every target config.json defines, in targetId order, with its kind, label, issuer, download " +
+    "paths and current CRL summary (`current: null` while nothing is published). The whole " +
+    "list: no pagination.",
+  tags: TAGS,
+  responses: {
+    200: { description: "The targets", content: json(CrlTargetListItem.array()) },
+    500: READ_INTERNAL,
+  },
+});
+
+export const getCrlTargetRoute = createRoute({
+  method: "get",
+  path: "/crls/{targetId}",
+  operationId: "getCrlTarget",
+  summary: "Get a CRL target",
+  description:
+    "The list item, and for a published target its current CRL decoded: verifier, fingerprints, " +
+    "TBSCertList with every revoked entry and extension, signature algorithm with its " +
+    "parameters and signature value. An unpublished target is a 200 with `current: null`.",
+  tags: TAGS,
+  request: { params: TargetIdParam },
+  responses: {
+    200: { description: "The target", content: json(CrlTargetDetail) },
+    400: { description: "The target id is not a UUID", content: json(BadRequestError) },
+    404: {
+      description: "config.json defines no target with this id",
+      content: json(NotFoundError),
+    },
+    500: READ_INTERNAL,
+  },
+});
 
 // Failures --------------------------------------------------------------------------------------
 
@@ -236,33 +296,49 @@ export function crlRoutes(deps: AppDeps) {
     description: "AIA_UPLOAD_TOKEN (optional: while it is unset, uploads need no token)",
   });
 
-  return crls.openapi(uploadCrlRoute(deps.settings), async (c) => {
-    const bytes = await uploadedBytes(c);
-    if (bytes.byteLength === 0) {
-      throw new ApiError(400, "bad_request", "Expected a CRL, but the upload is empty");
-    }
-    // Logs the call's one `publish` line, also when it throws (then onError's 500).
-    const result = await publishCrl(
-      { store: deps.store, now: deps.now, sleep: deps.sleep, log },
-      bytes
-    );
-    if ("error" in result) {
-      throw publishError(result);
-    }
-    const { outcome, targetId, kind, issuer, current, downloads } = result;
-    const { crlNumber, baseCrlNumber, thisUpdate, nextUpdate } = current.summary;
-    const body = {
-      outcome,
-      target: targetId,
-      kind,
-      sha256: current.sha256,
-      crlNumber,
-      baseCrlNumber,
-      thisUpdate,
-      nextUpdate,
-      issuer,
-      downloads,
-    };
-    return outcome === "created" ? c.json(body, 201, NO_STORE) : c.json(body, 200, NO_STORE);
-  });
+  return crls
+    .openapi(listCrlTargetsRoute, async (c) => {
+      const { config, catalog } = await readState(deps.store);
+      return c.json(crlTargetList(config, catalog), 200, NO_STORE);
+    })
+    .openapi(getCrlTargetRoute, async (c) => {
+      const { targetId } = c.req.valid("param");
+      const { config, catalog } = await readState(deps.store);
+      const source = findCrlTarget(config, catalog, targetId);
+      if (source === undefined) {
+        throw new ApiError(404, "not_found", "No target with this id is configured");
+      }
+      // An unpublished target reads no blob.
+      const blob = source.current === null ? null : await deps.store.get(source.current.key);
+      return c.json(await crlTargetDetail(source, blob?.bytes ?? null), 200, NO_STORE);
+    })
+    .openapi(uploadCrlRoute(deps.settings), async (c) => {
+      const bytes = await uploadedBytes(c);
+      if (bytes.byteLength === 0) {
+        throw new ApiError(400, "bad_request", "Expected a CRL, but the upload is empty");
+      }
+      // Logs the call's one `publish` line, also when it throws (then onError's 500).
+      const result = await publishCrl(
+        { store: deps.store, now: deps.now, sleep: deps.sleep, log },
+        bytes
+      );
+      if ("error" in result) {
+        throw publishError(result);
+      }
+      const { outcome, targetId, kind, issuer, current, downloads } = result;
+      const { crlNumber, baseCrlNumber, thisUpdate, nextUpdate } = current.summary;
+      const body = {
+        outcome,
+        target: targetId,
+        kind,
+        sha256: current.sha256,
+        crlNumber,
+        baseCrlNumber,
+        thisUpdate,
+        nextUpdate,
+        issuer,
+        downloads,
+      };
+      return outcome === "created" ? c.json(body, 201, NO_STORE) : c.json(body, 200, NO_STORE);
+    });
 }

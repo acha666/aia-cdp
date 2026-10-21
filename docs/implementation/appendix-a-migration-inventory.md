@@ -13,8 +13,8 @@
 | `src/worker/pki/utils/conversion.ts` | migrate-adapt | src/core/pki/conversion.ts | 2 |
 | `src/worker/pki/crls.ts` | reference-only | src/core/pki/verify.ts (rewrite) + freshness in src/core/publish.ts | 4 |
 | `src/worker/api/v2/builders/primitives.ts` | migrate-adapt | src/core/summary/primitives.ts（`formatGeneralizedTime` 移入 src/core/pki/asn1.ts，切片 4） | 4,5a |
-| `src/worker/api/v2/builders/extensions.ts` | migrate-as-is | src/core/summary/extensions.ts | 5a |
-| `src/worker/api/v2/builders/certificate.ts` | migrate-as-is | src/core/summary/certificate.ts | 5a |
+| `src/worker/api/v2/builders/extensions.ts` | migrate-adapt（导入；`buildTime` 收 `new pkijs.Time`；`noUncheckedIndexedAccess` 小修与 `isBlock` 守卫；评审修复：整数按内容字节读、SCT 列表校验；41 个字面量不变） | src/core/summary/extensions.ts | 5a |
+| `src/worker/api/v2/builders/certificate.ts` | migrate-adapt（导入；删 `options.extensions`） | src/core/summary/certificate.ts | 5a |
 | `src/worker/api/v2/builders/crl.ts` | migrate-adapt | src/core/summary/crl.ts | 5a |
 | `tests/data/adcs.ts` | drop（D7：不入库；改用合成 AD CS 风格夹具） | — | 1 |
 | `tests/worker/extension-parsers.test.ts` | migrate-adapt | tests/core/summary/extension-parsers.test.ts + tests/core/pki/asn1.test.ts | 2,5a |
@@ -49,13 +49,13 @@
 | `src/worker/api/v2/router.ts` | drop | — | 1 |
 | `src/worker/api/v2/response.ts` | rewrite | src/http/errors.ts | 1 |
 | `src/worker/api/v2/server.ts` | drop | — | 1 |
-| `src/worker/api/v2/stats.ts` | rewrite | src/http/routes/health.ts (slice 1) + src/http/routes/stats.ts (slice 5a); counting in core | 1,5a |
-| `src/worker/api/v2/certificates/list.ts` | rewrite | src/http/routes/certificates.ts | 5a |
-| `src/worker/api/v2/certificates/detail.ts` | rewrite | src/http/routes/certificates.ts (builders → src/core/summary/) | 5a |
+| `src/worker/api/v2/stats.ts` | rewrite | src/http/routes/health.ts (slice 1) + src/http/routes/stats.ts (slice 5a); counting in src/core/views.ts | 1,5a |
+| `src/worker/api/v2/certificates/list.ts` | rewrite | src/http/routes/certificates.ts + src/core/views.ts | 5a |
+| `src/worker/api/v2/certificates/detail.ts` | rewrite | src/http/routes/certificates.ts + src/core/views.ts (builders → src/core/summary/) | 5a |
 | `src/worker/api/v2/certificates/constants.ts` | drop | — | 2 |
 | `src/worker/api/v2/certificates/index.ts` | drop | — | none |
-| `src/worker/api/v2/crls/list.ts` | rewrite | src/http/routes/crls.ts | 5a |
-| `src/worker/api/v2/crls/detail.ts` | rewrite | src/http/routes/crls.ts | 5a |
+| `src/worker/api/v2/crls/list.ts` | rewrite | src/http/routes/crls.ts + src/core/views.ts | 5a |
+| `src/worker/api/v2/crls/detail.ts` | rewrite | src/http/routes/crls.ts + src/core/views.ts | 5a |
 | `src/worker/api/v2/crls/constants.ts` | drop | — | 2 |
 | `src/worker/api/v2/crls/index.ts` | drop | — | none |
 | `src/worker/api/v2/shared/pagination.ts` | drop | — | none |
@@ -81,8 +81,8 @@
 | `vite.config.ts` | rewrite | vite.config.ts | 1 |
 | `tsconfig.app.json` | rewrite | tsconfig.web.json | 1 |
 | `src/web/App.vue` | rewrite | src/web/App.vue (layout shell) + src/web/pages/OverviewPage.vue | 5b |
-| `src/web/api/client.ts` | rewrite | src/web/client/api.ts | 1,5a |
-| `src/web/api/response.ts` | rewrite | src/web/client/errors.ts | 5a |
+| `src/web/api/client.ts` | rewrite | src/web/client/api.ts（`hc<AppType>` + `apiFetch`）+ src/web/client/types.ts（类型再导出与响应体别名） | 1,5a |
+| `src/web/api/response.ts` | rewrite | src/web/client/errors.ts（`ApiError`、`unwrap`、`apiFetch`）+ src/web/client/error-codes.ts | 5a |
 | `src/web/api/pagination.ts` | drop | — | none |
 | `src/web/utils/status.ts` | migrate-adapt | src/web/utils/status.ts | 5b |
 | `src/web/utils/dates.ts` | migrate-adapt | src/web/utils/dates.ts | 5b |

@@ -1,6 +1,6 @@
 # aia-cdp 实施计划：总则与索引
 
-状态：切片 1–4 已完成（切片 1 = `main` 的 `0b391cc`；切片 2、3、4 见 `main` 上的 `Merge slice/2-catalog-import`、`Merge slice/3-downloads`、`Merge slice/4-publish`），下一个是切片 5a。owner 决策 D1–D12 已定，B1–B22 是规划默认值、可推翻（§0）；各切片未决事项列在
+状态：切片 1–5a 已完成（切片 1 = `main` 的 `0b391cc`；切片 2、3、4、5a 见 `main` 上的 `Merge slice/2-catalog-import`、`Merge slice/3-downloads`、`Merge slice/4-publish`、`Merge slice/5a-api`），下一个是切片 5b。owner 决策 D1–D12 已定，B1–B22 是规划默认值、可推翻（§0）；各切片未决事项列在
 该切片的"开工前需 owner 确认"，汇总见附录 C。设计文档是 `docs/plan.md`；二者冲突时以本目录为准，并在同一分支回写 plan.md。
 
 | 文件 | 内容 |
@@ -208,7 +208,8 @@ canary 都放过；依赖的 `/// <reference types="node" />` 会让 `process` �
 - 失败体 `{ "error": { "code", "message", "details"? } }`，每个状态码一个 schema，code 枚举按路由收窄；成功体直接返回资源，不包
   `{ data }`。异常文本与栈只进日志；未预期错误一律 500 `internal` + 固定文案。
 - `details.reason` 词表：`invalid_certificate` / `invalid_crl` 用 `der`、`trailing_bytes`、`time`、`structure`、`extension_value`、
-  `pem_label`、`pem_blocks`、`pem_base64`（切片 2）；CRL 另有 `signature_algorithm_mismatch`（切片 4 owner 确认 5）；`issuer_not_found` 另有
+  `pem_label`、`pem_blocks`、`pem_base64`（切片 2）；两者另有 `signature_algorithm_mismatch`（外层与 TBS 签名算法收到的字节不同：CRL 为切片 4
+  owner 确认 5，证书导入为切片 5a 评审修复）；`issuer_not_found` 另有
   `missing_aki`（切片 4 owner 确认 3）。新增取值同步 `docs/api.md` 的码表（切片 6 的 docs-consistency 测试检查）。
 - 头：API JSON（含错误）`Cache-Control: no-store`；`/api/v1/openapi.json` `public, max-age=300`。HTTP `ETag` 永远来自内容 sha256
   （下载 DER `"<sha256>"`、PEM `"<sha256>-pem"`，管理 config `"<sha256(存储字节)>"`）；store ETag 只回传给同一适配器，绝不外露（B14）。
@@ -219,6 +220,7 @@ canary 都放过；依赖的 `/// <reference types="node" />` 会让 `process` �
   400 `bad_request`（B9）。上传令牌可选，未设置时上传不鉴权。
 - 日志只经 `deps.log(line)`（Node 写 stdout，Workers `console.log`），每行一个 JSON 对象，必有 `level` 与 `msg`；`msg` 为事件名：
   `request`（每请求恰好一行，`method`、`path`、`status`、`ms`，可选 `client`）、`import`、`publish`、`retire`、`download_blob_missing`、
+  `read_inconsistent`（读路由的 500：`reason` 为 `blob_missing` / `blob_mismatch` / `blob_invalid` / `issuer_missing`，加 id 与 store 键；切片 5a）、
   `listening`、`shutdown`、`static_dir_missing`、`temp_files_removed` 等。`AIA_LOG_FORMAT=pretty` 只把同一内容排成一行人读文本：不含空格、`"`、`=`
   的可打印 ASCII 才裸写，其余一律 JSON 编码，并另把 DEL、C1 控制字符与 U+2028 / U+2029 转义（`path` 来自请求，ESC、BEL 等不能原样进终端）。
   永不记录令牌、请求体与查询串。

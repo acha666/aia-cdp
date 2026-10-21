@@ -21,7 +21,8 @@ export function cert(name: string): ManifestCertificate {
   return found;
 }
 
-function crl(file: string): ManifestCrl {
+/** The manifest entry of a CRL fixture (crls/<issuer>/<case>.der). */
+export function crlEntry(file: string): ManifestCrl {
   const found = manifest.crls.find((c) => c.file === file);
   if (!found) {
     throw new Error(`no manifest CRL ${file}`);
@@ -52,7 +53,7 @@ export async function certificateEntry(
  * NOW: blob key and summary come from crlBlobKey and buildCrlSummary (the blob is not written).
  */
 export async function currentCrl(file: string, targetId: string): Promise<CurrentCrl> {
-  const entry = crl(file);
+  const entry = crlEntry(file);
   const der = fixture(file);
   const summary = await buildCrlSummary(parseCRL(der), der);
   return {
