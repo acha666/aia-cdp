@@ -86,7 +86,7 @@
 | `src/web/api/pagination.ts` | drop | — | none |
 | `src/web/utils/status.ts` | migrate-adapt | src/web/utils/status.ts | 5b |
 | `src/web/utils/dates.ts` | migrate-adapt | src/web/utils/dates.ts | 5b |
-| `src/web/utils/format.ts` | migrate-adapt | src/web/utils/format.ts | 5b |
+| `src/web/utils/format.ts` | migrate-adapt | src/web/utils/format.ts（`copyToClipboard` → src/web/utils/clipboard.ts，检查 `execCommand` 的结果） | 5b |
 | `src/web/utils/x509.ts` | migrate-adapt | src/web/utils/x509.ts | 5b |
 | `src/web/composables/useCrlUploadInput.ts` | migrate-as-is | src/web/composables/useCrlUploadInput.ts | 5b |
 | `src/web/composables/useLocale.ts` | rewrite | src/web/composables/useLocale.ts | 5b |

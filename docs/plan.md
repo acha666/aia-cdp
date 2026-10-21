@@ -72,7 +72,7 @@
 | 前端          | `vue`、`vue-router`、`@tanstack/vue-query`、`vue-i18n` | 3.5.44 / 5.4.0 / 5.104.4 / 11.4.16 | vue-router 与 vue-query 新增，Pinia 退出（决策 5）                                     |
 | 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.4 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8 相对旧项目是大版本（Rolldown、默认 oxc 压缩）；`vue-tsc` 检查 `tsconfig.web.json` |
 | UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.59.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`（切片 5b）；`@tanstack/vue-table` 不随 shadcn Table 安装，切片 5b 也没用上（吊销列表分页只是 `slice()`）；备选 Naive UI 2.45（review §3.2） |
-| 前端工具      | `@vueuse/core`                                   | 14.4.0                            | 与 reka-ui 2.11.0 依赖的 `^14.1.0` 同一份（装 15 会出现两份）；`useColorMode`、`useNow`（统一时钟快照）、`useClipboard`、`useStorage` |
+| 前端工具      | `@vueuse/core`                                   | 14.4.0                            | 与 reka-ui 2.11.0 依赖的 `^14.1.0` 同一份（装 15 会出现两份）；`useColorMode`、`useNow`（统一时钟快照）、`useStorage`；复制不用 `useClipboard`（其 `execCommand` 退路失败也报成功，见切片 5b 步骤 4） |
 | 测试          | `vitest`、`@vue/test-utils`、`happy-dom`、`playwright-core` | 5.0.5 / 2.5.1 / 21.0.3 / 1.64.1 | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`；夹具由脚本生成后入库，vitest `globalSetup` 校验（§11）；`playwright-core` 只给浏览器冒烟（切片 5b，不进 CI，浏览器另装） |
 | Cloudflare    | `wrangler`                                      | 4.151.1（精确锁定）               | `wrangler types` 生成绑定类型 `worker-configuration.d.ts`（不入库）；不装 `@cloudflare/workers-types`；`compatibility_date` 随 wrangler 一起升 |
 | CLI           | `node:util` `parseArgs` + `fetch`               | 内置                              | 零依赖                                                                                         |
@@ -579,19 +579,21 @@ owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-
 - 基座：`vue-router`（history 模式）；`@tanstack/vue-query`（列表 / 详情 `useQuery`，`staleTime: 0`，4xx 不重试、5xx 与网络失败重试一次；
   上传 `useMutation` 成功后先 `cancelQueries` 再全量 `invalidateQueries`）；shadcn-vue 生成的组件（Reka UI 原语，`--style nova`、
   base color `neutral`，源码在 `src/web/components/ui/`，生成代码用 `cn`）；`@vueuse/core`（`useColorMode`、`useNow`、
-  `useClipboard`、`useStorage`）；`vue-sonner`（上传结果 toast，`src/web/main.ts` 需 `import "vue-sonner/style.css"`）；
+  `useStorage`；复制走 `src/web/utils/clipboard.ts`：Clipboard API，退回 `execCommand("copy")` 并检查其结果，都不行给 toast）；
+  `vue-sonner`（上传结果与复制失败的 toast，顶部居中，`src/web/main.ts` 需 `import "vue-sonner/style.css"`）；
   `@lucide/vue`（取代已弃用的 `lucide-vue-next`）；`tw-animate-css`。Pinia 退出：服务端数据归 vue-query，UI 偏好归 `useStorage`。
   浏览器包全部是 devDependencies（§2）。
 - 路由：`/`（总览）、`/certificates/:id`（小写 64 位 hex）、`/crls/:targetId`（小写 UUID），区分大小写；其余路径与格式不符的 id 进
-  NotFound 页，不发请求。详情页懒加载；`document.title` = `<页面> · <站名>`。未知 UI 路径由 §4.4 的 UI 兜底返回应用（Workers
-  `not_found_handling: "single-page-application"`，Node 回退 `index.html`）；保留前缀与末段带扩展名的路径不兜底。
+  NotFound 页，不发请求。详情页懒加载；`document.title` = `<页面> · <站名>`。链接打开的页面从顶部开始，前进 / 后退回到
+  原滚动位置。未知 UI 路径由 §4.4 的 UI 兜底返回应用（Workers `not_found_handling: "single-page-application"`，Node 回退
+  `index.html`）；保留前缀与末段带扩展名的路径不兜底。
 - 总览：统计条五格——证书数、CRL 目标数（full / delta）、已发布数、吊销条目（已发布 full CRL 的合计，没有时"未知"）、需关注（stale +
   expired + unknown 的目标数，客户端按徽标的同一时钟与规则算；`/api/v1/stats` 不含时间字段）；证书表（显示名 = 标签 ?? 主体 CN、
   签发者、有效期与剩余时间、状态、DER / PEM 下载，按显示名排序）；CRL 目标表（标签与签发者、类别徽标（证书蓝、full 紫、delta 绿）、
   CRL 号、thisUpdate – nextUpdate、吊销数、状态、下载；未发布显示"未发布"、吊销数 "—"；按标签排序，同名 full 在前）；上传卡片
   （拖放、选择文件或粘贴 PEM，都作为 multipart 文件字段 `crl` 发送；created / updated / unchanged 是三句成功文案，附 CRL 号与下载路径；
   错误按 `error.code` 映射 i18n，带 `details.reason` 时附原因，toast + 行内 Alert；可选上传令牌只存内存，`unauthorized` 时自动展开）。
-  骨架屏只在首次加载显示。
+  骨架屏只在首次加载显示。手机宽度（`sm` 以下）两张表只显示名称 / 标签、类别与状态，其余列在详情页。
 - 状态规则（徽标、相对时间与"需关注"共用一个 `useNow({ interval: 60_000 })` 时钟；owner 确认，implementation 切片 5b 末节第 2 项）：
   证书 `not-yet-valid`、`valid`、`expiring`（剩余不足有效期的 10%：根 20 年 → 2 年，签发 CA 10 年 → 1 年；`now == notAfter` 仍在有效期内）、
   `expired`；CRL 目标 `unpublished`（无 current）、`unknown`（无 nextUpdate）、`expired`（now > nextUpdate）、`stale`（带 AD CS Next CRL
@@ -613,7 +615,8 @@ owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-
   删除 `readApiResponse`、`validateResponse`、`pagination.ts`、`collectPages`。客户端目录是 `src/web/client/`：
   Vite `root: src/web` 时 dev server 会把 `src/web` 下的目录当 URL 服务，叫 `api` 会与 `/api/` 冲突（`ca`、`crl`、`dcrl` 同理）。
   web 对服务端模块只许 `import type`（`AppType`、core 的 X.509 类型），运行时只导入 `hono/client`。切片 1 的健康徽标已走这条路径。
-- 下载链接来自 API 的 `downloads`（`.pem` 结尾标 PEM，其余 DER）。
+- 下载链接来自 API 的 `downloads`（`.pem` 结尾标 PEM，其余 DER；多条 DER 路径时另显示文件名）；未发布目标的路径在发布前是 404，
+  不给链接（"—"）。
 - `SITE_NAME` 只来自 `import.meta.env.VITE_SITE_NAME`（页头与页面标题）；页脚是站名与 OpenAPI 文档链接，不再写 "Cloudflare Workers"。
 - i18n：`en` 与 `zh-CN`（完整翻译）；语言取存储的选择（`locale-preference`）→ 浏览器语言中第一个受支持的 → `en`，可切换并记住，
   `<html lang>` 跟随。主题 auto / light / dark（`theme-preference`）；`index.html` 的预绘制内联脚本在首帧前按同一规则设深色类，没有亮色闪烁。
@@ -622,7 +625,7 @@ owner 已确认（决策 5、12；评估与候选对比见 `docs/review-2026-10-
   object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'`，没有 `'unsafe-inline'` 与 `'unsafe-eval'`（组件经 CSSOM
   设样式，vue-i18n 11 不用 eval）。hash 写在 `src/http/csp.ts`，`tests/http/csp.test.ts` 与构建插件都对照 `index.html` 重算。
 - 体积与依赖卫生：`pnpm run size:web` 逐文件 gzip `dist/web` 的 `index.html`、JS、CSS，总计预算 250 000 字节（`ci:worker` 执行）；
-  切片 5b 完成时总计 164 476 字节，首屏（`index.html`、入口 JS、CSS）145 343 字节。构建插件在 web 运行时图解析到服务端模块
+  切片 5b 完成时总计 165 087 字节，首屏（`index.html`、入口 JS、CSS）145 291 字节。构建插件在 web 运行时图解析到服务端模块
   （`src/{core,http,storage,runtime,cli}/`）或 `zod`、`@hono/zod-openapi`、`pkijs`、`asn1js` 时让构建失败。
 - 浏览器冒烟：`node scripts/ui-smoke.ts <base> [截图目录]`（`playwright-core` + headless Chromium，对刚 `seed:dev` 的服务跑 en / zh-CN ×
   亮 / 暗，要求控制台无错误、无 CSP 违规；不进 CI，是切片出口里的步骤）。
