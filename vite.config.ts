@@ -20,12 +20,18 @@ const SERVER_PATHS = "^/(?:api|ca|crl|dcrl)/";
 /** Server code: the web graph may only `import type` from it (implementation §2.1). */
 const SERVER_SOURCES = /^src\/(?:core|http|storage|runtime|cli)\//;
 const SERVER_PACKAGES = /\/node_modules\/(?:zod|@hono\/zod-openapi|pkijs|asn1js)\//;
+/** Hono and the @hono packages: of these, src/web may import only hono/client at run time. */
+const HONO_PACKAGES = /\/node_modules\/(?:hono|@hono\/[^/]+)\//;
+const HONO_CLIENT = "/node_modules/hono/dist/client/";
 
 /**
- * Fails the build when the browser bundle's module graph reaches server code: a module under
- * src/{core,http,storage,runtime,cli}/, or zod, @hono/zod-openapi, pkijs or asn1js (slice 5b step
- * 11). `import type` is erased before modules are resolved, so the types the web client takes from
- * the server never trip it; hono/client is a browser package and passes.
+ * Fails the build when the browser bundle's module graph reaches server code (slice 5b step 11,
+ * implementation §2.1): a module under src/{core,http,storage,runtime,cli}/, zod,
+ * @hono/zod-openapi, pkijs or asn1js from anywhere, or any hono / @hono module other than
+ * hono/client that a src/web module imports (hono/client's own imports of hono's utilities have
+ * importers inside hono and pass). Each leak is listed with its static and dynamic importers.
+ * `import type` is erased before modules are resolved, so the types the web client takes from the
+ * server never trip it.
  */
 export function serverCodeGuard(): Plugin {
   // Repository-relative, without a query (`?vue&type=script`).
@@ -40,14 +46,24 @@ export function serverCodeGuard(): Plugin {
       const leaks: string[] = [];
       for (const id of this.getModuleIds()) {
         const path = display(id);
-        if (SERVER_SOURCES.test(path) || SERVER_PACKAGES.test(normalizePath(id))) {
-          const importers = this.getModuleInfo(id)?.importers.map(display) ?? [];
+        const module = normalizePath(id);
+        const info = this.getModuleInfo(id);
+        const importers = [...(info?.importers ?? []), ...(info?.dynamicImporters ?? [])].map(
+          display
+        );
+        const server = SERVER_SOURCES.test(path) || SERVER_PACKAGES.test(module);
+        const hono =
+          HONO_PACKAGES.test(module) &&
+          !module.includes(HONO_CLIENT) &&
+          importers.some((importer) => importer.startsWith("src/web/"));
+        if (server || hono) {
           leaks.push(`  ${path} (imported by ${importers.join(", ") || "?"})`);
         }
       }
       if (leaks.length > 0) {
         this.error(
-          `the web bundle reaches server code; import only types from it (\`import type\`):\n${leaks.join("\n")}`
+          "the web bundle reaches server code; import only types from it (`import type`), and " +
+            `nothing of hono but hono/client:\n${leaks.join("\n")}`
         );
       }
     },
