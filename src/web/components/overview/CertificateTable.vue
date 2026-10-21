@@ -97,7 +97,7 @@ const rows = computed(() => {
             {{ t("app.empty.certificates") }}
           </TableEmpty>
           <TableRow v-for="row in rows" v-else :key="row.id" :data-id="row.id">
-            <TableCell class="whitespace-normal">
+            <TableCell class="min-w-44 whitespace-normal">
               <RouterLink
                 :to="{ name: 'certificate', params: { id: row.id } }"
                 class="font-medium underline-offset-4 hover:underline"
@@ -108,7 +108,9 @@ const rows = computed(() => {
                 {{ row.subjectCN }}
               </div>
             </TableCell>
-            <TableCell class="whitespace-normal text-muted-foreground">{{ row.issuer }}</TableCell>
+            <TableCell class="min-w-40 whitespace-normal text-muted-foreground">{{
+              row.issuer
+            }}</TableCell>
             <TableCell class="text-xs">
               <div>{{ row.from }} – {{ row.until }}</div>
               <div v-if="row.remaining" class="text-muted-foreground" data-testid="remaining">

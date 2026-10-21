@@ -97,7 +97,7 @@ const rows = computed(() => {
             {{ t("app.empty.crls") }}
           </TableEmpty>
           <TableRow v-for="row in rows" v-else :key="row.targetId" :data-id="row.targetId">
-            <TableCell class="whitespace-normal">
+            <TableCell class="min-w-44 whitespace-normal">
               <RouterLink
                 :to="{ name: 'crl', params: { targetId: row.targetId } }"
                 class="font-medium underline-offset-4 hover:underline"
