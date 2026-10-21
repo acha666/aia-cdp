@@ -49,6 +49,10 @@ plan §7.2 / §7.4，浏览器里不放管理令牌）。
    `pnpm exec prettier --write src/web/styles/main.css components.json src/web/components/ui src/web/lib`（同切片 1 步骤 6）。
    不引入 `@tanstack/vue-table`：分页只是 `slice()`（默认值，可推翻）。
    注意：切片 1 只生成过 `button`、`badge`，其余 nova 组件是首次生成（见风险表）；生成文件与 lockfile 一并提交（plan §8）。
+   nova 组件的 `data-open:`、`data-active:`、`group-data-horizontal/tabs:` 等状态变体定义在 shadcn-vue 包自带的 `tailwind.css`，`init` / `add`
+   都不导入它；Tailwind 内置的 `data-*` 变体匹配的是 Reka UI 不设的属性（`[data-open]` 而非 `[data-state="open"]`），Tabs 会丢掉布局与选中态。
+   因此把该文件的 9 个 `@custom-variant` 原样抄进 `main.css`（不加 shadcn-vue 依赖；手风琴关键帧由 `tw-animate-css` 提供）。生成代码触发的
+   ESLint 规则只在 `src/web/components/ui/**` 关闭（`Input.vue`、`Textarea.vue` 的 `prefer-function-type`）。
 2. **纯逻辑迁入**（类型一律 `import type` 自 `@/client/types`）：
    - `src/web/utils/status.ts` ← `worker-aia-cdp@5b570aa:src/web/utils/status.ts`：`computeCertificateStatus` / `computeCrlStatus`
      的含边界与秒粒度原样保留；删死函数 `computeCertificateValidity`、`computeCrlValidity`；新增 `unpublished`（`current === null`）
