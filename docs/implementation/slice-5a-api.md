@@ -179,7 +179,7 @@ HTTP 用例照总则 §2.5，需要类型化 body 时用 `hono/testing` 的 `tes
 
 | 测量项 | 基线（2026-10-18 spike） | 5a 实测 | 判定（默认值） |
 | --- | --- | --- | --- |
-| `vue-tsc -p tsconfig.web.json --extendedDiagnostics` 的 Instantiations / Check time | 336 542 / 1.50 s（2 条详情路由 + 客户端） | 676 325 / 1.6–1.8 s（471 个文件：5 条读路由 + 上传 + health 的 `AppType`、`src/web/client/`、两个 web typetest；加客户端之前 626 314 / 1.42 s） | 2.0 倍 / 约 1.2 倍，未超 5 倍：保持 `hc<AppType>`（`AppType` 本来只含公开路由，步骤 8） |
+| `vue-tsc -p tsconfig.web.json --extendedDiagnostics` 的 Instantiations / Check time | 336 542 / 1.50 s（2 条详情路由 + 客户端） | 676 265 / 1.48–1.57 s（471 个文件：5 条读路由 + 上传 + health 的 `AppType`、`src/web/client/`、两个 web typetest；加客户端之前 626 314 / 1.42 s） | 2.0 倍 / 约 1.2 倍，未超 5 倍：保持 `hc<AppType>`（`AppType` 本来只含公开路由，步骤 8） |
 | OpenAPI 文档字节数（运行时紧凑 JSON） | 23 368（2 条详情路由，组件命名；内联为 91 732） | 运行时发出的紧凑 JSON 59 594（10 个操作、89 个组件 schema；评审修复前 59 560）；提交的缩进版 134 407（`main` `ab46f3e` 为 47 119） | ≤ 100 000，通过：预算按紧凑 JSON 计（与基线同口径），`tests/http/openapi.test.ts` 断言 |
 | 文档生成耗时（`node scripts/generate-openapi.ts` 输出） | 3.8 ms（2 条路由） | 18–22 ms（新进程的第一个 app；同进程后建的 app 约 7 ms；缓存后每请求 < 1 ms） | 仅记录：每个进程 / isolate 的第一个 `openapi.json` 请求付一次 |
 | Worker 包（`wrangler deploy --dry-run`，`minify: true`） | 526.83 KiB / gzip 118.86 KiB | 1039.42 KiB / gzip 240.35 KiB（`main` `ab46f3e` 996.36 / 227.87 KiB：本切片 +43.06 / +12.48 KiB，构建器与 X.509 schema；评审修复前 1038.01 / 239.95） | 仅记录 |
