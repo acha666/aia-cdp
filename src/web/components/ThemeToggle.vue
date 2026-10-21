@@ -9,9 +9,11 @@ type Preference = "auto" | "light" | "dark";
 
 // Same localStorage key and values as the old implementation's useTheme.ts, so a preference saved
 // on the same origin keeps applying. useColorMode sets class "dark" / "light" on <html> (main.css:
-// `@custom-variant dark (&:is(.dark *))`). Destructure `store`: the returned ref is auto-unwrapped
-// in templates, so `mode.store` would not be reachable there.
-const { store } = useColorMode({ storageKey: "theme-preference" });
+// `@custom-variant dark (&:is(.dark *))`); the inline script in index.html sets "dark" by the same
+// rule before the first paint. disableTransition would insert a <style> element on every change,
+// which a CSP without 'unsafe-inline' styles blocks. Destructure `store`: the returned ref is
+// auto-unwrapped in templates, so `mode.store` would not be reachable there.
+const { store } = useColorMode({ storageKey: "theme-preference", disableTransition: false });
 
 // Same cycle as before: auto → light → dark.
 const NEXT: Record<Preference, Preference> = { auto: "light", light: "dark", dark: "auto" };
