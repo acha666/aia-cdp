@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink, RouterView } from "vue-router";
 import HealthBadge from "@/components/HealthBadge.vue";
@@ -12,12 +11,7 @@ import { siteName } from "@/site";
 // outlet (upload results, copy failures). One container width for all three bands.
 const CONTAINER = "mx-auto w-full max-w-6xl px-4";
 
-const { locale, t } = useI18n();
-
-// <html lang> follows the UI language (screen readers, hyphenation, CJK font selection).
-watchEffect(() => {
-  document.documentElement.lang = locale.value;
-});
+const { t } = useI18n();
 </script>
 
 <template>
