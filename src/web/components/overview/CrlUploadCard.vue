@@ -24,7 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useCrlUploadInput } from "@/composables/useCrlUploadInput";
 import { useUploadToken } from "@/composables/useUploadToken";
-import { errorCode, errorMessage } from "@/utils/errors";
+import { errorCode, errorMessage, errorReason } from "@/utils/errors";
 
 // Publishing a CRL from the browser (implementation slice 5b step 7), from worker-aia-cdp@5b570aa:
 // src/web/components/CrlUpload.vue with its behaviour kept: no submit while the input is invalid
@@ -72,20 +72,6 @@ const submitButton = useTemplateRef<{ $el: HTMLElement }>("submitButton");
 const successAlert = useTemplateRef<{ $el: HTMLElement }>("successAlert");
 const failureAlert = useTemplateRef<{ $el: HTMLElement }>("failureAlert");
 
-/** details.reason values with a message (src/core/pki/errors.ts, src/core/publish.ts). */
-const REASONS: ReadonlySet<string> = new Set([
-  "der",
-  "trailing_bytes",
-  "time",
-  "structure",
-  "extension_value",
-  "pem_label",
-  "pem_blocks",
-  "pem_base64",
-  "signature_algorithm_mismatch",
-  "missing_aki",
-]);
-
 interface Success {
   message: string;
   published: PublishedCrl;
@@ -99,22 +85,6 @@ const success = shallowRef<Success | null>(null);
 const failure = shallowRef<Failure | null>(null);
 
 const showPemHint = computed(() => !isValid.value && text.value.trim() !== "");
-
-/** The `details.reason` of an upload failure, as the UI language says it. */
-function reasonOf(error: unknown): string | null {
-  if (!(error instanceof ApiError)) {
-    return null;
-  }
-  const { details } = error;
-  if (typeof details !== "object" || details === null || !("reason" in details)) {
-    return null;
-  }
-  const { reason } = details;
-  if (typeof reason !== "string") {
-    return null;
-  }
-  return REASONS.has(reason) ? t(`upload.reasons.${reason}`) : reason;
-}
 
 function openToken() {
   tokenOpen.value = true;
@@ -165,7 +135,7 @@ async function submit() {
     void focusResult(successAlert);
   } catch (error) {
     const message = errorMessage(error, t);
-    failure.value = { code: errorCode(error), message, reason: reasonOf(error) };
+    failure.value = { code: errorCode(error), message, reason: errorReason(error, t) };
     toast.error(message);
     if (error instanceof ApiError && error.code === "unauthorized") {
       openToken();
