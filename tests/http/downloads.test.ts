@@ -3,7 +3,7 @@
 // createApp().request() on a seeded MemoryStore.
 import { describe, expect, it } from "vitest";
 import { certificateBlobKey } from "../../src/core/catalog.ts";
-import { derToPem, PEM_BLOCK_MARKERS } from "../../src/core/pki/pem.ts";
+import { derToPem } from "../../src/core/pki/pem.ts";
 import { createApp } from "../../src/http/app.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { fixture } from "../fixtures/pki.ts";
@@ -91,14 +91,13 @@ function httpDate(iso: string | undefined): string {
 }
 
 describe("bytes", () => {
-  const { begin, end } = PEM_BLOCK_MARKERS.crl;
   it.each([
     [P.root, fixture(ROOT.der)],
     [`${P.root}.pem`, fixture(ROOT.pem)],
     [P.full, fixture(SEED_CRLS.full)],
     // OpenSSL's PEM of the fixture: the same text as the one derived on read.
     [`${P.full}.pem`, fixture(SEED_CRLS.full.replace(/\.der$/, ".pem"))],
-    [`${P.delta}.pem`, new TextEncoder().encode(derToPem(fixture(SEED_CRLS.delta), begin, end))],
+    [`${P.delta}.pem`, new TextEncoder().encode(derToPem(fixture(SEED_CRLS.delta), "crl"))],
   ])("GET %s sends the stored DER or the PEM derived from it", async (path, body) => {
     const { request } = await setup();
     const res = await request(path);

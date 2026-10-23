@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CatalogSchema, certificateBlobKey, ConfigSchema } from "../../src/core/catalog.ts";
 import type { Catalog, Config } from "../../src/core/catalog.ts";
-import { derToPem, PEM_BLOCK_MARKERS } from "../../src/core/pki/pem.ts";
+import { derToPem } from "../../src/core/pki/pem.ts";
 import {
   downloadHeaders,
   downloadPaths,
@@ -91,10 +91,8 @@ function bodyLength(path: string, file: string): string {
   if (!path.endsWith(".pem")) {
     return String(der.byteLength);
   }
-  const { begin, end } = path.startsWith("/ca/")
-    ? PEM_BLOCK_MARKERS.certificate
-    : PEM_BLOCK_MARKERS.crl;
-  return String(new TextEncoder().encode(derToPem(der, begin, end)).byteLength);
+  const pem = derToPem(der, path.startsWith("/ca/") ? "certificate" : "crl");
+  return String(new TextEncoder().encode(pem).byteLength);
 }
 
 describe("resolveDownload", () => {

@@ -1,11 +1,11 @@
 // Types the UI renders, all type-only: nothing here reaches the bundle. The X.509 projection comes
 // from core under its own names (Name, GeneralName, Extension, Extensions, DistributionPoint,
-// Asn1Line, AlgorithmIdentifier, the 41 *Value types and ExtensionType, …); the response bodies are
-// inferred by hc from the routes, so they cannot drift from the server's schemas.
+// Asn1Line, AlgorithmIdentifier, ParsedExtensionValue and ExtensionType, …); the response bodies
+// are inferred by hc from the routes, so they cannot drift from the server's schemas.
 import type { InferResponseType } from "hono/client";
 import type { api } from "./api";
 
-export type * from "../../core/summary/types.ts";
+export type * from "../../core/summary/schemas.ts";
 
 type V1 = typeof api.api.v1;
 

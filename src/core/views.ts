@@ -25,7 +25,7 @@ import {
   buildFingerprints,
   buildSignatureValue,
 } from "./summary/primitives.ts";
-import type { AlgorithmIdentifier, SignatureValue } from "./summary/types.ts";
+import type { AlgorithmIdentifier, SignatureValue } from "./summary/schemas.ts";
 
 // Helpers -----------------------------------------------------------------------------------------
 

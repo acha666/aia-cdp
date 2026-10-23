@@ -1,56 +1,42 @@
 import { PkiParseError } from "./errors.ts";
 import type { PkiKind } from "./errors.ts";
 
-export interface PemBlockMarkers {
-  begin: string;
-  end: string;
+/** RFC 7468 label of each kind. */
+const PEM_LABELS: Record<PkiKind, string> = { certificate: "CERTIFICATE", crl: "X509 CRL" };
+
+/** The BEGIN and END lines of the kind's PEM block, without their line ends. */
+function boundaryLines(kind: PkiKind): [begin: string, end: string] {
+  const label = PEM_LABELS[kind];
+  return [`-----BEGIN ${label}-----`, `-----END ${label}-----`];
 }
 
-export const PEM_BLOCK_MARKERS = {
-  certificate: {
-    begin: "-----BEGIN CERTIFICATE-----",
-    end: "-----END CERTIFICATE-----",
-  },
-  crl: {
-    begin: "-----BEGIN X509 CRL-----",
-    end: "-----END X509 CRL-----",
-  },
-} as const;
-
-export function derToPem(
-  bytes: ArrayBuffer | Uint8Array,
-  beginMarker: string,
-  endMarker: string
-): string {
-  const binaryBytes = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+export function derToPem(bytes: Uint8Array, kind: PkiKind): string {
   // Bound argument counts for large CRLs and preserve typed-array slice boundaries.
   const chunks: string[] = [];
-  for (let offset = 0; offset < binaryBytes.length; offset += 0x8000) {
-    chunks.push(String.fromCharCode(...binaryBytes.subarray(offset, offset + 0x8000)));
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 0x8000)));
   }
-  const base64 = btoa(chunks.join(""));
-  const lines = base64.match(/.{1,64}/g) ?? [];
-  return `${beginMarker}\n${lines.join("\n")}\n${endMarker}\n`;
+  const lines = btoa(chunks.join("")).match(/.{1,64}/g) ?? [];
+  const [begin, end] = boundaryLines(kind);
+  return `${begin}\n${lines.join("\n")}\n${end}\n`;
 }
 
 /**
  * Length in bytes (the text is ASCII) of derToPem's output for `derSize` ≥ 1 bytes of DER, without
- * encoding them: the markers, the base64 body, one LF per 64-column line and the LFs after
+ * encoding them: the boundary lines, the base64 body, one LF per 64-column line and the LFs after
  * the BEGIN and END lines. Downloads take a PEM HEAD's Content-Length from it, and the `-pem` ETag
  * stands for this exact format: a change to derToPem's line width or line ending must change the
  * ETag suffix as well.
  */
-export function pemLength(derSize: number, markers: PemBlockMarkers): number {
+export function pemLength(derSize: number, kind: PkiKind): number {
   const base64 = 4 * Math.ceil(derSize / 3);
-  return markers.begin.length + markers.end.length + base64 + Math.ceil(base64 / 64) + 2;
+  const [begin, end] = boundaryLines(kind);
+  return begin.length + end.length + base64 + Math.ceil(base64 / 64) + 2;
 }
 
 // Upload input. The format is always recognized from the bytes; the request's content type only
 // gates 415. Storage keys and file names are never consulted, and a bundle is rejected instead of
 // silently using its first block.
-
-/** RFC 7468 label of each kind. */
-const PEM_LABELS: Record<PkiKind, string> = { certificate: "CERTIFICATE", crl: "X509 CRL" };
 
 // An encapsulation boundary: `-----BEGIN <label>-----` or `-----END <label>-----`.
 const BOUNDARY = /-----(BEGIN|END) ([^\r\n]*?)-----/g;

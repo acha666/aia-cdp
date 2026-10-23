@@ -7,8 +7,8 @@
 // path table entry the catalog or config cannot back is reported as `inconsistent` (a 500) instead
 // of being served from somewhere else.
 import type { Catalog, Config, ConfigPath, CrlKind } from "./catalog.ts";
-import { PEM_BLOCK_MARKERS, pemLength } from "./pki/pem.ts";
-import type { PemBlockMarkers } from "./pki/pem.ts";
+import type { PkiKind } from "./pki/errors.ts";
+import { pemLength } from "./pki/pem.ts";
 
 /** A certificate (/ca/) or a target's CRL (/crl/ full, /dcrl/ delta): what the headers go by. */
 export type DownloadKind = "certificate" | CrlKind;
@@ -174,9 +174,9 @@ const CERTIFICATE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 /** CRL max-age bounds in seconds: an expired CRL still gets 60, a far one at most 3600. */
 const CRL_MAX_AGE = { min: 60, max: 3600, withoutNextUpdate: 300 } as const;
 
-/** The PEM boundaries of a kind (derToPem and pemLength take them). */
-export function pemMarkers(kind: DownloadKind): PemBlockMarkers {
-  return kind === "certificate" ? PEM_BLOCK_MARKERS.certificate : PEM_BLOCK_MARKERS.crl;
+/** The PkiKind of a download kind: derToPem and pemLength take it. */
+export function pemKind(kind: DownloadKind): PkiKind {
+  return kind === "certificate" ? "certificate" : "crl";
 }
 
 // Whole seconds until nextUpdate, clamped.
@@ -210,7 +210,7 @@ export function downloadHeaders(found: FoundDownload, now: Date): DownloadHeader
   return {
     "Content-Type": pem ? PEM_CONTENT_TYPE : DER_CONTENT_TYPES[found.kind],
     ETag: pem ? `"${found.sha256}-pem"` : `"${found.sha256}"`,
-    "Content-Length": String(pem ? pemLength(found.size, pemMarkers(found.kind)) : found.size),
+    "Content-Length": String(pem ? pemLength(found.size, pemKind(found.kind)) : found.size),
     "Cache-Control": cacheControl(found, now),
     "Last-Modified": found.lastModified.toUTCString(),
     "Content-Disposition": `attachment; filename="${found.filename}"`,

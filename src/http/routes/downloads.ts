@@ -11,12 +11,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { readState } from "../../core/catalog.ts";
 import { derToPem } from "../../core/pki/pem.ts";
-import {
-  downloadHeaders,
-  ifNoneMatchHit,
-  pemMarkers,
-  resolveDownload,
-} from "../../core/resources.ts";
+import { downloadHeaders, ifNoneMatchHit, pemKind, resolveDownload } from "../../core/resources.ts";
 import type { AppDeps } from "../types.ts";
 import { textNotFound } from "../ui.ts";
 
@@ -63,9 +58,9 @@ async function serveDownload(c: Context, deps: AppDeps): Promise<Response> {
   const der = object.bytes;
   let body = der;
   if (resolution.format === "pem") {
-    const { begin, end } = pemMarkers(resolution.kind);
+    const pem = derToPem(der, pemKind(resolution.kind));
     // encode() returns a new ArrayBuffer-backed array; the Workers types only say Uint8Array.
-    body = new TextEncoder().encode(derToPem(der, begin, end)) as Uint8Array<ArrayBuffer>;
+    body = new TextEncoder().encode(pem) as Uint8Array<ArrayBuffer>;
   }
   return c.body(body, 200, { ...headers, "Content-Length": String(body.byteLength) });
 }

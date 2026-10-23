@@ -1,12 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import {
-  derToPem,
-  PEM_BLOCK_MARKERS,
-  pemLength,
-  splitPemBlocks,
-  toDer,
-} from "../../../src/core/pki/pem.ts";
+import { derToPem, pemLength, splitPemBlocks, toDer } from "../../../src/core/pki/pem.ts";
 import { fixture, fixturePath } from "../../fixtures/pki.ts";
 import { pkiError } from "../../helpers/pki.ts";
 
@@ -74,8 +68,7 @@ describe("toDer", () => {
   it("round-trips 6 MiB from a sliced buffer through derToPem", () => {
     const buffer = Uint8Array.from({ length: 6 * 1024 * 1024 + 7 }, (_, index) => index % 256);
     const bytes = buffer.subarray(3, buffer.length - 2);
-    const { begin, end } = PEM_BLOCK_MARKERS.crl;
-    const pem = derToPem(bytes, begin, end);
+    const pem = derToPem(bytes, "crl");
     // Buffer.compare instead of toEqual: a deep equality walk over MiBs takes seconds.
     expect(Buffer.compare(toDer(encode(pem), "crl"), bytes)).toBe(0);
   });
@@ -111,11 +104,11 @@ describe("splitPemBlocks", () => {
 
 describe("the download PEM format", () => {
   it("derToPem reproduces OpenSSL's PEM byte for byte", () => {
-    for (const [name, markers] of [
-      ["certs/root-ca", PEM_BLOCK_MARKERS.certificate],
-      ["crls/issuing-ca-1/full-01", PEM_BLOCK_MARKERS.crl],
+    for (const [name, kind] of [
+      ["certs/root-ca", "certificate"],
+      ["crls/issuing-ca-1/full-01", "crl"],
     ] as const) {
-      const pem = encode(derToPem(fixture(`${name}.der`), markers.begin, markers.end));
+      const pem = encode(derToPem(fixture(`${name}.der`), kind));
       expect(pem, name).toEqual(fixture(`${name}.pem`));
     }
   });
@@ -126,11 +119,11 @@ describe("the download PEM format", () => {
     const sizes = [...Array.from({ length: 4096 }, (_, index) => index + 1), bytes.length];
     // Collected rather than asserted one by one: 8194 cases.
     const mismatches: string[] = [];
-    for (const [kind, markers] of Object.entries(PEM_BLOCK_MARKERS)) {
+    for (const kind of ["certificate", "crl"] as const) {
       for (const size of sizes) {
-        const pem = derToPem(bytes.subarray(0, size), markers.begin, markers.end);
-        if (pemLength(size, markers) !== pem.length) {
-          mismatches.push(`${kind} ${size}: ${pemLength(size, markers)} ≠ ${pem.length}`);
+        const pem = derToPem(bytes.subarray(0, size), kind);
+        if (pemLength(size, kind) !== pem.length) {
+          mismatches.push(`${kind} ${size}: ${pemLength(size, kind)} ≠ ${pem.length}`);
         }
       }
     }
