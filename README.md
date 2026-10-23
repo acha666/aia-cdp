@@ -30,7 +30,7 @@ X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloud
 - Docker Engine ≥ 25：`ci:docker` 与镜像构建用。
 - 远端 `github.com/acha666/aia-cdp`：每个切片在 `slice/<n>-<name>` 分支开发，本地合入 `main` 后推送；GitHub Actions 在推送 `main` 与 PR 时
   运行，每个任务只调用对应的 `pnpm run ci:<job>`，本机也能原样执行。
-- 也可以用 `.devcontainer/`（Node 24、OpenSSL 3.0、PowerShell，非 root）；进入后先 `pnpm install --frozen-lockfile`。
+- 也可以用 `.devcontainer/`（Node 24、Debian 13、OpenSSL ≥ 3.0、PowerShell，非 root）；进入后先 `pnpm install --frozen-lockfile`。
 
 ## 常用命令
 

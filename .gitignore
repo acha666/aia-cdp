@@ -1,5 +1,6 @@
-# Dependencies
+# Dependencies; pnpm creates .pnpm-store/ when the checkout is a mount of its own (devcontainer)
 node_modules/
+.pnpm-store/
 
 # Build output
 dist/
