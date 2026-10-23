@@ -77,6 +77,6 @@
     "vue-router": "5.4.0",
     "vue-sonner": "2.0.9",
     "vue-tsc": "3.3.13",
-    "wrangler": "4.151.1"
+    "wrangler": "4.151.2"
   }
 }
