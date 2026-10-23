@@ -14,51 +14,26 @@ import {
 import { buildExtensions, buildExtension } from "./extensions.ts";
 
 export function buildTBSCertList(crl: pkijs.CertificateRevocationList): TBSCertList {
-  const version = buildVersion(crl.version);
-
-  const signature = buildAlgorithmIdentifier(
-    crl.signature.algorithmId,
-    crl.signature.algorithmParams,
-    SIGNATURE_ALG_NAMES
-  );
-  const issuer = buildName(crl.issuer);
-  const thisUpdate = buildTime(crl.thisUpdate);
-  const nextUpdate = crl.nextUpdate ? buildTime(crl.nextUpdate) : undefined;
-
-  // Every revoked entry; an absent list is an empty one.
+  // An absent list is an empty one.
   const items = (crl.revokedCertificates ?? []).map(buildRevokedCertificate);
-  const revokedCertificates = { count: items.length, items };
-
-  // Build CRL extensions
-  const crlExtensions = buildExtensions(crl.crlExtensions?.extensions);
-
   return {
-    version,
-    signature,
-    issuer,
-    thisUpdate,
-    nextUpdate,
-    revokedCertificates,
-    crlExtensions,
+    version: buildVersion(crl.version),
+    signature: buildAlgorithmIdentifier(crl.signature, SIGNATURE_ALG_NAMES),
+    issuer: buildName(crl.issuer),
+    thisUpdate: buildTime(crl.thisUpdate),
+    nextUpdate: crl.nextUpdate && buildTime(crl.nextUpdate),
+    revokedCertificates: { count: items.length, items },
+    crlExtensions: buildExtensions(crl.crlExtensions?.extensions),
   };
 }
 
 function buildRevokedCertificate(revoked: pkijs.RevokedCertificate): RevokedCertificate {
-  const userCertificate = buildSerialNumber(revoked.userCertificate);
-  const revocationDate = buildTime(revoked.revocationDate);
-
-  let crlEntryExtensions: RevokedCertificate["crlEntryExtensions"];
-  if (revoked.crlEntryExtensions?.extensions && revoked.crlEntryExtensions.extensions.length > 0) {
-    const items = revoked.crlEntryExtensions.extensions.map(buildExtension);
-    crlEntryExtensions = {
-      count: items.length,
-      items,
-    };
-  }
-
+  const extensions = revoked.crlEntryExtensions?.extensions;
   return {
-    userCertificate,
-    revocationDate,
-    crlEntryExtensions,
+    userCertificate: buildSerialNumber(revoked.userCertificate),
+    revocationDate: buildTime(revoked.revocationDate),
+    crlEntryExtensions: extensions?.length
+      ? { count: extensions.length, items: extensions.map(buildExtension) }
+      : undefined,
   };
 }

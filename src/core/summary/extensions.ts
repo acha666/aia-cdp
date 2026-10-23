@@ -18,7 +18,6 @@ import {
   Primitive,
   Sequence,
 } from "asn1js";
-import type { UTCTime } from "asn1js";
 import * as pkijs from "pkijs";
 import {
   EXTENSION_NAMES,
@@ -35,12 +34,7 @@ import {
   TLS_FEATURE_NAMES,
   QC_STATEMENT_NAMES,
 } from "../pki/constants.ts";
-import {
-  readExtensionValue,
-  readExtensionSchema,
-  readExtensionTime,
-  readCRLInteger,
-} from "../pki/extensions.ts";
+import { readExtensionValue, readExtensionSchema, readCRLInteger } from "../pki/extensions.ts";
 import { blockHex, displayText, dumpAsn1, integerNumber, readStrictTime } from "../pki/asn1.ts";
 import { toHex } from "../digest.ts";
 import type {
@@ -57,67 +51,37 @@ import type {
   Time,
   UserNotice,
 } from "./schemas.ts";
-import { buildObjectIdentifier, buildTime, buildName, isBlock } from "./primitives.ts";
+import { buildObjectIdentifier, buildTime, buildName, isBlock, stringOf } from "./primitives.ts";
 
 export function buildExtensions(extensions: pkijs.Extension[] | undefined): Extensions | undefined {
-  if (!extensions || extensions.length === 0) {
+  if (!extensions?.length) {
     return undefined;
   }
-
-  const items: Extension[] = extensions.map(buildExtension);
-  const critical = items.filter((ext) => ext.critical).length;
-
-  return {
-    count: items.length,
-    critical,
-    items,
-  };
+  const items = extensions.map(buildExtension);
+  return { count: items.length, critical: items.filter((ext) => ext.critical).length, items };
 }
 
 export function buildExtension(ext: pkijs.Extension): Extension {
-  const extnID = buildObjectIdentifier(ext.extnID, EXTENSION_NAMES);
-  const critical = ext.critical ?? false;
-  const rawBytes = ext.extnValue?.valueBlock?.valueHexView ?? new Uint8Array();
-  const rawHex = toHex(rawBytes).toUpperCase();
-  const byteLength = rawBytes.length;
-
-  const extnValue = { hex: rawHex, byteLength };
-
-  // Try to parse the extension
-  let parseStatus: Extension["parseStatus"] = "unsupported";
-  let parsed: ParsedExtensionValue | undefined;
-  let parseError: string | undefined;
-
+  const bytes = ext.extnValue.valueBlock.valueHexView;
+  const result: Extension = {
+    extnID: buildObjectIdentifier(ext.extnID, EXTENSION_NAMES),
+    critical: ext.critical,
+    extnValue: { hex: toHex(bytes).toUpperCase(), byteLength: bytes.length },
+    parseStatus: "unsupported",
+  };
   try {
-    const parser = EXTENSION_PARSERS[ext.extnID];
-    if (parser) {
-      parsed = parser(ext);
-      if (parsed) {
-        parseStatus = "parsed";
-      }
+    result.parsed = EXTENSION_PARSERS[ext.extnID]?.(ext);
+    if (result.parsed) {
+      result.parseStatus = "parsed";
     }
   } catch (error) {
-    parseStatus = "error";
-    parseError = error instanceof Error ? error.message : String(error);
+    result.parseStatus = "error";
+    result.parseError = error instanceof Error ? error.message : String(error);
   }
-
-  const result: Extension = {
-    extnID,
-    critical,
-    extnValue,
-    parseStatus,
-    parsed,
-    parseError,
-  };
-
-  if (parseStatus !== "parsed") {
+  if (result.parseStatus !== "parsed") {
     // Give readers a structural view even when no dedicated decoder exists.
-    const asn1 = dumpAsn1(rawBytes);
-    if (asn1) {
-      result.asn1 = asn1;
-    }
+    result.asn1 = dumpAsn1(bytes);
   }
-
   return result;
 }
 
@@ -143,21 +107,13 @@ function reasonFlags(bits: Asn1BitString): string[] {
   return bitFlags(bits.valueBlock.valueHexView, bits.valueBlock.unusedBits, REASON_FLAGS);
 }
 
-function timeFromBlock(block: UTCTime | GeneralizedTime): Time {
+function timeFromBlock(block: BaseBlock): Time {
   const strict = readStrictTime(block);
   return { iso: strict.date.toISOString(), type: strict.type, raw: strict.raw };
 }
 
 function generalizedTimeFromDate(date: Date): Time {
   return buildTime(new pkijs.Time({ type: 1, value: date }));
-}
-
-function stringOf(block: unknown): string | undefined {
-  if (!(block instanceof BaseBlock)) {
-    return undefined;
-  }
-  const value: unknown = (block.valueBlock as { value?: unknown }).value;
-  return typeof value === "string" ? value : undefined;
 }
 
 // PKIjs keeps the Integer itself where asn1js could not decode it (four contents octets and more),
@@ -241,53 +197,16 @@ function parseOtherName(block: unknown): GeneralName {
   return result;
 }
 
-function formatIPv4(bytes: Uint8Array): string {
-  return Array.from(bytes).join(".");
-}
-
-function formatIPv6(bytes: Uint8Array): string {
-  const segments: string[] = [];
-  for (let i = 0; i < 16; i += 2) {
-    segments.push((((bytes[i] ?? 0) << 8) | (bytes[i + 1] ?? 0)).toString(16));
-  }
-  // Find longest run of zeros
-  let bestStart = -1;
-  let bestLength = 0;
-  for (let i = 0; i < segments.length;) {
-    if (segments[i] !== "0") {
-      i++;
-      continue;
-    }
-    let j = i;
-    while (j < segments.length && segments[j] === "0") {
-      j++;
-    }
-    if (j - i > bestLength) {
-      bestStart = i;
-      bestLength = j - i;
-    }
-    i = j;
-  }
-  if (bestLength > 1) {
-    segments.splice(bestStart, bestLength, "");
-    if (bestStart === 0) {
-      segments.unshift("");
-    }
-    if (bestStart + bestLength === 8) {
-      segments.push("");
-    }
-  }
-  return segments.join(":");
-}
-
 function formatIpAddress(bytes: Uint8Array): string | undefined {
   if (bytes.length === 4) {
-    return formatIPv4(bytes);
+    return bytes.join(".");
   }
-  if (bytes.length === 16) {
-    return formatIPv6(bytes);
+  if (bytes.length !== 16) {
+    return undefined;
   }
-  return undefined;
+  // Eight groups of four hex digits; the WHATWG URL host serializer writes them in RFC 5952 form.
+  const groups = toHex(bytes).replace(/(.{4})(?=.)/g, "$1:");
+  return new URL(`http://[${groups}]`).hostname.slice(1, -1);
 }
 
 function prefixLength(mask: Uint8Array): number | undefined {
@@ -338,6 +257,7 @@ function parseGeneralName(gn: pkijs.GeneralName): GeneralName {
     case "rfc822Name":
     case "dNSName":
     case "uniformResourceIdentifier":
+    case "registeredID":
       return { type, value: typeof value === "string" ? value : "" };
     case "directoryName":
       return {
@@ -348,18 +268,10 @@ function parseGeneralName(gn: pkijs.GeneralName): GeneralName {
       const bytes = value instanceof OctetString ? value.valueBlock.valueHexView : new Uint8Array();
       return { type, ...formatIpGeneralName(bytes) };
     }
-    case "registeredID": {
-      const oid = typeof value === "string" ? value : "";
-      return { type, value: oid };
-    }
     default:
       // x400Address and ediPartyName keep their DER; there is no useful text form.
       return { type, value: "", rawHex: isBlock(value) ? blockHex(value) : undefined };
   }
-}
-
-function parseGeneralNames(names: pkijs.GeneralName[] | undefined): GeneralName[] {
-  return (names ?? []).map(parseGeneralName);
 }
 
 function buildDistributionPointName(
@@ -382,12 +294,8 @@ function buildDistributionPoint(dp: pkijs.DistributionPoint): DistributionPoint 
   return {
     distributionPoint: buildDistributionPointName(dp.distributionPoint),
     reasons: dp.reasons ? reasonFlags(dp.reasons) : undefined,
-    cRLIssuer: dp.cRLIssuer ? parseGeneralNames(dp.cRLIssuer) : undefined,
+    cRLIssuer: dp.cRLIssuer?.map(parseGeneralName),
   };
-}
-
-function buildDistributionPoints(points: pkijs.CRLDistributionPoints): DistributionPoint[] {
-  return points.distributionPoints.map(buildDistributionPoint);
 }
 
 function buildAccessDescriptions(info: pkijs.InfoAccess): AccessDescription[] {
@@ -449,9 +357,12 @@ function buildPolicyQualifier(info: pkijs.PolicyQualifierInfo): PolicyQualifier 
   return result;
 }
 
-function buildPolicies(policies: pkijs.CertificatePolicies): PolicyInformation[] {
+function buildPolicies(
+  policies: pkijs.CertificatePolicies,
+  names = CERTIFICATE_POLICY_NAMES
+): PolicyInformation[] {
   return policies.certificatePolicies.map((policy) => ({
-    policyIdentifier: buildObjectIdentifier(policy.policyIdentifier, CERTIFICATE_POLICY_NAMES),
+    policyIdentifier: buildObjectIdentifier(policy.policyIdentifier, names),
     policyQualifiers: policy.policyQualifiers?.map(buildPolicyQualifier),
   }));
 }
@@ -471,27 +382,6 @@ function requireSequence(ext: pkijs.Extension): Sequence {
     throw new Error(`Invalid extension ${ext.extnID}`);
   }
   return schema;
-}
-
-function findFirst<T extends BaseBlock>(
-  block: BaseBlock,
-  predicate: (candidate: BaseBlock) => candidate is T
-): T | undefined {
-  if (predicate(block)) {
-    return block;
-  }
-  const value: unknown = (block.valueBlock as { value?: unknown }).value;
-  if (Array.isArray(value)) {
-    for (const child of value) {
-      if (isBlock(child)) {
-        const found = findFirst(child, predicate);
-        if (found) {
-          return found;
-        }
-      }
-    }
-  }
-  return undefined;
 }
 
 const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
@@ -552,31 +442,22 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   // Subject Alternative Name (2.5.29.17)
   "2.5.29.17": (ext): Parsed<"subjectAltName"> => ({
     extensionType: "subjectAltName",
-    names: parseGeneralNames(readExtensionValue(ext, pkijs.AltName).altNames),
+    names: readExtensionValue(ext, pkijs.AltName).altNames.map(parseGeneralName),
   }),
 
   // Issuer Alternative Name (2.5.29.18)
   "2.5.29.18": (ext): Parsed<"issuerAltName"> => ({
     extensionType: "issuerAltName",
-    names: parseGeneralNames(readExtensionValue(ext, pkijs.AltName).altNames),
+    names: readExtensionValue(ext, pkijs.AltName).altNames.map(parseGeneralName),
   }),
 
   // Basic Constraints (2.5.29.19)
   "2.5.29.19": (ext): Parsed<"basicConstraints"> => {
     const bc = readExtensionValue(ext, pkijs.BasicConstraints);
-    const rawPath: unknown = bc.pathLenConstraint;
-    const pathLenConstraint =
-      rawPath === undefined || rawPath === null
-        ? undefined
-        : typeof rawPath === "number"
-          ? rawPath
-          : rawPath instanceof Integer
-            ? integerNumber(rawPath)
-            : undefined;
     return {
       extensionType: "basicConstraints",
-      cA: bc.cA ?? false,
-      pathLenConstraint,
+      cA: bc.cA,
+      pathLenConstraint: integerValue(bc.pathLenConstraint),
     };
   },
 
@@ -642,7 +523,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   // Certificate Issuer (2.5.29.29) - CRL entry extension
   "2.5.29.29": (ext): Parsed<"certificateIssuer"> => ({
     extensionType: "certificateIssuer",
-    names: parseGeneralNames(readExtensionValue(ext, pkijs.GeneralNames).names),
+    names: readExtensionValue(ext, pkijs.GeneralNames).names.map(parseGeneralName),
   }),
 
   // Name Constraints (2.5.29.30)
@@ -658,8 +539,8 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   // CRL Distribution Points (2.5.29.31)
   "2.5.29.31": (ext): Parsed<"cRLDistributionPoints"> => ({
     extensionType: "cRLDistributionPoints",
-    distributionPoints: buildDistributionPoints(
-      readExtensionValue(ext, pkijs.CRLDistributionPoints)
+    distributionPoints: readExtensionValue(ext, pkijs.CRLDistributionPoints).distributionPoints.map(
+      buildDistributionPoint
     ),
   }),
 
@@ -728,8 +609,8 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   // Freshest CRL (2.5.29.46)
   "2.5.29.46": (ext): Parsed<"freshestCRL"> => ({
     extensionType: "freshestCRL",
-    distributionPoints: buildDistributionPoints(
-      readExtensionValue(ext, pkijs.CRLDistributionPoints)
+    distributionPoints: readExtensionValue(ext, pkijs.CRLDistributionPoints).distributionPoints.map(
+      buildDistributionPoint
     ),
   }),
 
@@ -795,15 +676,10 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
     extensionType: "signedCertificateTimestampList",
     timestamps: readExtensionValue(ext, pkijs.SignedCertificateTimestampList).timestamps.map(
       (sct) => {
-        const signature: unknown = sct.signature;
-        const signatureHex = isBlock(signature)
-          ? blockHex(signature)
-          : signature instanceof ArrayBuffer || ArrayBuffer.isView(signature)
-            ? toHex(signature as ArrayBuffer | Uint8Array).toUpperCase()
-            : "";
+        const signature = toHex(sct.signature).toUpperCase();
         // version is typed number but is undefined when the data ended before it.
         const version: unknown = sct.version;
-        if (typeof version !== "number" || sct.logID.byteLength !== 32 || signatureHex === "") {
+        if (typeof version !== "number" || sct.logID.byteLength !== 32 || signature === "") {
           throw new Error(`Invalid SCT in ${ext.extnID}`);
         }
         return {
@@ -812,7 +688,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
           timestamp: sct.timestamp.toISOString(),
           hashAlgorithm: sct.hashAlgorithm,
           signatureAlgorithm: sct.signatureAlgorithm,
-          signature: signatureHex,
+          signature,
         };
       }
     ),
@@ -871,7 +747,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   // Microsoft Next CRL Publish (1.3.6.1.4.1.311.21.4)
   "1.3.6.1.4.1.311.21.4": (ext): Parsed<"msCrlNextPublish"> => ({
     extensionType: "msCrlNextPublish",
-    date: timeFromBlock(readExtensionTime(ext)),
+    date: timeFromBlock(readExtensionSchema(ext)),
   }),
 
   // Microsoft Certificate Template Information v2 (1.3.6.1.4.1.311.21.7)
@@ -890,30 +766,27 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   // Microsoft Application Policies (1.3.6.1.4.1.311.21.10)
   "1.3.6.1.4.1.311.21.10": (ext): Parsed<"msApplicationPolicies"> => ({
     extensionType: "msApplicationPolicies",
-    policies: buildPolicies(readExtensionValue(ext, pkijs.CertificatePolicies)).map((policy) => ({
-      ...policy,
-      policyIdentifier: buildObjectIdentifier(policy.policyIdentifier.oid, EKU_NAMES),
-    })),
+    policies: buildPolicies(readExtensionValue(ext, pkijs.CertificatePolicies), EKU_NAMES),
   }),
 
   // Microsoft CRL Self CDP (1.3.6.1.4.1.311.21.14): same syntax as CRL Distribution Points
   "1.3.6.1.4.1.311.21.14": (ext): Parsed<"msCrlSelfCdp"> => ({
     extensionType: "msCrlSelfCdp",
-    distributionPoints: buildDistributionPoints(
-      new pkijs.CRLDistributionPoints({ schema: requireSequence(ext) })
-    ),
+    distributionPoints: new pkijs.CRLDistributionPoints({
+      schema: requireSequence(ext),
+    }).distributionPoints.map(buildDistributionPoint),
   }),
 
-  // Microsoft NTDS CA Security Extension (1.3.6.1.4.1.311.25.2): OtherName carrying the SID
+  // Microsoft NTDS CA Security Extension (1.3.6.1.4.1.311.25.2): SEQUENCE { otherName }, whose
+  // value is the SID text in an OCTET STRING
   "1.3.6.1.4.1.311.25.2": (ext): Parsed<"msNtdsCaSecurity"> => {
-    const octets = findFirst(
-      requireSequence(ext),
-      (block): block is OctetString => block instanceof OctetString
-    );
-    if (!octets) {
-      throw new Error(`Invalid SID in ${ext.extnID}`);
-    }
-    const sid = new TextDecoder("latin1").decode(octets.valueBlock.valueHexView);
+    const [otherName] = requireSequence(ext).valueBlock.value;
+    const [, wrapper] = otherName instanceof Constructed ? otherName.valueBlock.value : [];
+    const [octets] = wrapper instanceof Constructed ? wrapper.valueBlock.value : [];
+    const sid =
+      octets instanceof OctetString
+        ? new TextDecoder("latin1").decode(octets.valueBlock.valueHexView)
+        : "";
     if (!/^S-1-[0-9-]+$/.test(sid)) {
       throw new Error(`Invalid SID in ${ext.extnID}`);
     }

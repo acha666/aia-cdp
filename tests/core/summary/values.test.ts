@@ -18,16 +18,20 @@ import { cert } from "../../helpers/catalog.ts";
 const spkiOf = (name: string) => parseCertificate(fixture(cert(name).der)).subjectPublicKeyInfo;
 
 it("decodes NULL, named curve and RSASSA-PSS algorithm parameters", () => {
+  const algorithm = (algorithmId: string, algorithmParams: asn1.BaseBlock) =>
+    new pkijs.AlgorithmIdentifier({ algorithmId, algorithmParams });
   expect(
-    buildAlgorithmIdentifier("1.2.840.113549.1.1.11", new asn1.Null(), SIGNATURE_ALG_NAMES)
+    buildAlgorithmIdentifier(
+      algorithm("1.2.840.113549.1.1.11", new asn1.Null()),
+      SIGNATURE_ALG_NAMES
+    )
   ).toEqual({
     algorithm: { oid: "1.2.840.113549.1.1.11", name: "sha256WithRSAEncryption" },
     parameters: { rawHex: "0500", parsed: { type: "null" } },
   });
   expect(
     buildAlgorithmIdentifier(
-      "1.2.840.10045.2.1",
-      new asn1.ObjectIdentifier({ value: "1.2.840.10045.3.1.7" })
+      algorithm("1.2.840.10045.2.1", new asn1.ObjectIdentifier({ value: "1.2.840.10045.3.1.7" }))
     ).parameters?.parsed
   ).toEqual({ type: "objectIdentifier", oid: { oid: "1.2.840.10045.3.1.7", name: "P-256" } });
   const sha256 = new pkijs.AlgorithmIdentifier({
@@ -43,7 +47,9 @@ it("decodes NULL, named curve and RSASSA-PSS algorithm parameters", () => {
     saltLength: 32,
   });
   const reparsed = asn1.fromBER(pss.toSchema().toBER(false)).result;
-  expect(buildAlgorithmIdentifier("1.2.840.113549.1.1.10", reparsed, SIGNATURE_ALG_NAMES)).toEqual({
+  expect(
+    buildAlgorithmIdentifier(algorithm("1.2.840.113549.1.1.10", reparsed), SIGNATURE_ALG_NAMES)
+  ).toEqual({
     algorithm: { oid: "1.2.840.113549.1.1.10", name: "RSASSA-PSS" },
     parameters: {
       rawHex: expect.any(String) as unknown,

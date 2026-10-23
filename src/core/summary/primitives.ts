@@ -40,8 +40,6 @@ import type {
   SubjectPublicKeyInfo,
   RSAPublicKey,
   ECPublicKey,
-  EdPublicKey,
-  UnknownPublicKey,
   Fingerprints,
 } from "./schemas.ts";
 
@@ -51,6 +49,15 @@ import type {
  */
 export function isBlock(value: unknown): value is BaseBlock {
   return value instanceof BaseBlock;
+}
+
+/** The text of a string-typed block (asn1js keeps it in valueBlock.value); undefined otherwise. */
+export function stringOf(block: unknown): string | undefined {
+  if (!(block instanceof BaseBlock)) {
+    return undefined;
+  }
+  const value: unknown = (block.valueBlock as { value?: unknown }).value;
+  return typeof value === "string" ? value : undefined;
 }
 
 export function buildVersion(version: number | undefined): X509Version {
@@ -65,19 +72,13 @@ export function buildSerialNumber(integer: Integer): SerialNumber {
 }
 
 function buildBitString(bitString: Asn1BitString): BitString {
-  const bytes = new Uint8Array(bitString.valueBlock.valueHex);
-  const hex = toHex(bytes).toUpperCase();
-  const unusedBits =
-    typeof bitString.valueBlock.unusedBits === "number" ? bitString.valueBlock.unusedBits : 0;
-  const bitLength = bytes.length * 8 - unusedBits;
-  return { hex, bitLength, unusedBits };
+  const { valueHexView: bytes, unusedBits } = bitString.valueBlock;
+  return { hex: toHex(bytes).toUpperCase(), bitLength: bytes.length * 8 - unusedBits, unusedBits };
 }
 
 /** Raw content of an implicitly tagged BIT STRING (first octet is the unused-bit count). */
-export function buildBitStringFromContent(
-  content: ArrayBuffer | Uint8Array
-): BitString | undefined {
-  const bytes = content instanceof Uint8Array ? content : new Uint8Array(content);
+export function buildBitStringFromContent(content: ArrayBuffer): BitString | undefined {
+  const bytes = new Uint8Array(content);
   const [first] = bytes;
   if (first === undefined) {
     return undefined;
@@ -166,7 +167,7 @@ function parseRsassaPssParams(params: Sequence): AlgorithmParametersParsed | und
         const hash = new pkijs.AlgorithmIdentifier({ schema: mgfParams });
         maskGenHashAlgorithm = buildObjectIdentifier(hash.algorithmId, HASH_ALG_NAMES);
       } catch {
-        maskGenHashAlgorithm = undefined;
+        // An MGF1 hash that does not decode is left out.
       }
     }
     return {
@@ -200,35 +201,25 @@ function buildAlgorithmParameters(algorithmId: string, params: BaseBlock): Algor
 }
 
 export function buildAlgorithmIdentifier(
-  algorithmId: string,
-  algorithmParams?: unknown,
+  algorithm: pkijs.AlgorithmIdentifier,
   dictionary?: Record<string, string>
 ): AlgorithmIdentifier {
+  const params: unknown = algorithm.algorithmParams;
   const result: AlgorithmIdentifier = {
-    algorithm: buildObjectIdentifier(algorithmId, dictionary),
+    algorithm: buildObjectIdentifier(algorithm.algorithmId, dictionary),
   };
-  if (isBlock(algorithmParams)) {
-    result.parameters = buildAlgorithmParameters(algorithmId, algorithmParams);
+  if (isBlock(params)) {
+    result.parameters = buildAlgorithmParameters(algorithm.algorithmId, params);
   }
   return result;
 }
 
+/** Throws a RangeError for an invalid date (toISOString). */
 export function buildTime(time: pkijs.Time): Time {
-  const jsDate = time.value;
-  if (Number.isNaN(jsDate.getTime())) {
-    throw new Error("Invalid time value");
-  }
-  const iso = jsDate.toISOString();
-
-  // PKI.js uses type 0 for UTCTime, 1 for GeneralizedTime
-  const type: "utcTime" | "generalizedTime" =
-    time.type === pkijs.TimeType.GeneralizedTime ? "generalizedTime" : "utcTime";
-  const raw = type === "utcTime" ? formatUtcTime(jsDate) : formatGeneralizedTime(jsDate);
-  return { iso, type, raw };
-}
-
-function formatUtcTime(date: Date): string {
-  return formatGeneralizedTime(date).slice(2);
+  const iso = time.value.toISOString();
+  const type = time.type === pkijs.TimeType.GeneralizedTime ? "generalizedTime" : "utcTime";
+  const generalized = formatGeneralizedTime(time.value);
+  return { iso, type, raw: type === "utcTime" ? generalized.slice(2) : generalized };
 }
 
 // =============================================================================
@@ -286,83 +277,39 @@ function formatRfc4514(rdnSequence: RelativeDistinguishedName[]): string {
 }
 
 export function buildName(name: pkijs.RelativeDistinguishedNames): Name {
-  const rdnSequence: RelativeDistinguishedName[] = [];
-
-  // Normalized fields
-  let commonName: string | null = null;
-  let organization: string | null = null;
-  let organizationalUnit: string | null = null;
-  let country: string | null = null;
-  let stateOrProvince: string | null = null;
-  let locality: string | null = null;
-
-  for (const group of name.toSchema().valueBlock.value) {
+  const rdnSequence = name.toSchema().valueBlock.value.map((group): RelativeDistinguishedName => {
     if (!(group instanceof Asn1Set)) {
       throw new Error("Invalid RDN set");
     }
-    const attributes: AttributeTypeAndValue[] = [];
-    for (const schema of group.valueBlock.value) {
-      const tv = new pkijs.AttributeTypeAndValue({ schema });
-      const oid = tv.type;
-      const dictEntry = OID_DICTIONARY[oid];
-      const valueBlock: unknown = tv.value;
-      const rawValue: unknown =
-        valueBlock instanceof BaseBlock
-          ? (valueBlock.valueBlock as { value?: unknown }).value
-          : undefined;
-      const tagNumber =
-        valueBlock instanceof BaseBlock && valueBlock.idBlock.tagClass === 1
-          ? valueBlock.idBlock.tagNumber
-          : -1;
-      const encoding = ENCODING_BY_TAG[tagNumber] ?? "unknown";
-      const stringValue = typeof rawValue === "string" ? rawValue : null;
+    return {
+      attributes: group.valueBlock.value.map((schema): AttributeTypeAndValue => {
+        const tv = new pkijs.AttributeTypeAndValue({ schema });
+        const block: unknown = tv.value;
+        const tagNumber =
+          block instanceof BaseBlock && block.idBlock.tagClass === 1 ? block.idBlock.tagNumber : -1;
+        const value: AttributeValue = {
+          string: stringOf(block) ?? null,
+          encoding: ENCODING_BY_TAG[tagNumber] ?? "unknown",
+        };
+        if (value.string === null && isBlock(block)) {
+          value.rawHex = blockHex(block);
+        }
+        return { type: buildObjectIdentifier(tv.type), value };
+      }),
+    };
+  });
 
-      const value: AttributeValue = { string: stringValue, encoding };
-      if (stringValue === null && isBlock(valueBlock)) {
-        value.rawHex = blockHex(valueBlock);
-      }
-
-      attributes.push({
-        type: { oid, name: dictEntry?.name ?? null },
-        value,
-      });
-
-      if (stringValue === null) {
-        continue;
-      }
-      // Extract normalized fields
-      switch (oid) {
-        case "2.5.4.3":
-          commonName = commonName ?? stringValue;
-          break;
-        case "2.5.4.10":
-          organization = organization ?? stringValue;
-          break;
-        case "2.5.4.11":
-          organizationalUnit = organizationalUnit ?? stringValue;
-          break;
-        case "2.5.4.6":
-          country = country ?? stringValue;
-          break;
-        case "2.5.4.8":
-          stateOrProvince = stateOrProvince ?? stringValue;
-          break;
-        case "2.5.4.7":
-          locality = locality ?? stringValue;
-          break;
-      }
-    }
-
-    rdnSequence.push({ attributes });
-  }
-
+  // The normalized fields: the first string value of each attribute type, in RDN order.
+  const attributes = rdnSequence.flatMap((rdn) => rdn.attributes);
+  const first = (oid: string) =>
+    attributes.find((a) => a.type.oid === oid && a.value.string !== null)?.value.string ?? null;
   return {
-    commonName,
-    organization,
-    organizationalUnit,
-    country,
-    stateOrProvince,
-    locality,
+    commonName: first("2.5.4.3"),
+    organization: first("2.5.4.10"),
+    organizationalUnit: first("2.5.4.11"),
+    country: first("2.5.4.6"),
+    stateOrProvince: first("2.5.4.8"),
+    locality: first("2.5.4.7"),
     rdnSequence,
     rfc4514: formatRfc4514(rdnSequence),
   };
@@ -375,11 +322,7 @@ export function buildName(name: pkijs.RelativeDistinguishedNames): Name {
 export async function buildSubjectPublicKeyInfo(
   spki: pkijs.PublicKeyInfo
 ): Promise<SubjectPublicKeyInfo> {
-  const algorithm = buildAlgorithmIdentifier(
-    spki.algorithm.algorithmId,
-    spki.algorithm.algorithmParams,
-    KEY_ALG_NAMES
-  );
+  const algorithm = buildAlgorithmIdentifier(spki.algorithm, KEY_ALG_NAMES);
 
   const subjectPublicKey = buildBitString(spki.subjectPublicKey);
 
@@ -388,7 +331,7 @@ export async function buildSubjectPublicKeyInfo(
   const fingerprints = await buildFingerprints(spkiDer);
 
   // Parse key based on algorithm
-  let parsed: RSAPublicKey | ECPublicKey | EdPublicKey | UnknownPublicKey | undefined;
+  let parsed: SubjectPublicKeyInfo["parsed"] | undefined;
 
   const algOid = spki.algorithm.algorithmId;
 
@@ -422,11 +365,10 @@ function parseRSAPublicKey(spki: pkijs.PublicKeyInfo): RSAPublicKey | undefined 
   if (modulus <= 0n || exponent <= 0n || exponent > BigInt(Number.MAX_SAFE_INTEGER)) {
     return undefined;
   }
-  const bytes = key.modulus.valueBlock.valueHexView;
   return {
     type: "rsa",
     modulus: {
-      hex: toHex(bytes[0] === 0 ? bytes.subarray(1) : bytes).toUpperCase(),
+      hex: unsignedHex(key.modulus),
       bitLength: modulus.toString(2).length,
     },
     publicExponent: Number(exponent),

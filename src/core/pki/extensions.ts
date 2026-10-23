@@ -1,4 +1,4 @@
-import { BaseBlock, fromBER, GeneralizedTime, Integer, UTCTime } from "asn1js";
+import { BaseBlock, fromBER, Integer } from "asn1js";
 import type { Extension } from "pkijs";
 
 /** PKIjs decodes and caches extension values; validate its result before using it. */
@@ -29,14 +29,6 @@ export function readExtensionSchema(extension: Extension): BaseBlock {
     throw new Error(`Invalid extension ${extension.extnID}`);
   }
   return parsed.result;
-}
-
-export function readExtensionTime(extension: Extension): UTCTime | GeneralizedTime {
-  const value: unknown = extension.parsedValue;
-  if ((value instanceof UTCTime || value instanceof GeneralizedTime) && value.error === "") {
-    return value;
-  }
-  throw new Error(`Invalid time in ${extension.extnID}`);
 }
 
 /**

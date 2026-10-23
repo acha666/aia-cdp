@@ -180,12 +180,10 @@ export const EdPublicKeySchema = z.object({
   type: z.enum(["ed25519", "ed448"]),
   publicKey: z.object({ hex: z.string() }),
 });
-export type EdPublicKey = z.infer<typeof EdPublicKeySchema>;
 
 export const UnknownPublicKeySchema = z.object({
   type: z.literal("unknown"),
 });
-export type UnknownPublicKey = z.infer<typeof UnknownPublicKeySchema>;
 
 export const PublicKeyParsedSchema = z.discriminatedUnion("type", [
   RSAPublicKeySchema,

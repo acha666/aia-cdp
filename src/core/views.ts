@@ -167,11 +167,7 @@ function signature(signed: {
 }): { signatureAlgorithm: AlgorithmIdentifier; signatureValue: SignatureValue } {
   const algorithm = signed.signatureAlgorithm;
   return {
-    signatureAlgorithm: buildAlgorithmIdentifier(
-      algorithm.algorithmId,
-      algorithm.algorithmParams,
-      SIGNATURE_ALG_NAMES
-    ),
+    signatureAlgorithm: buildAlgorithmIdentifier(algorithm, SIGNATURE_ALG_NAMES),
     signatureValue: buildSignatureValue(signed.signatureValue, algorithm.algorithmId),
   };
 }

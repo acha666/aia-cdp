@@ -585,7 +585,7 @@ describe("decoders on values built in the test", () => {
     ],
   ])("reports %s as an error, not as a parsed value", (_case, oid, value) => {
     const result = buildExtension(extension(oid, value));
-    expect(result).toMatchObject({ parseStatus: "error", parsed: undefined });
+    expect([result.parseStatus, result.parsed]).toEqual(["error", undefined]);
     expect(result.asn1).toBeDefined();
   });
 });
