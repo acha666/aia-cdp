@@ -43,12 +43,12 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 
 | # | 默认值（可推翻） | 落实 |
 | --- | --- | --- |
-| B1 | 精确锁 `typescript@5.9.3`（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）、`wrangler@4.151.1`、`packageManager: pnpm@10.34.7`（npm latest 是 12.x，pnpm 一律经 corepack）；其余版本按 plan §2 | `package.json` |
+| B1 | 精确锁 `typescript@5.9.3`（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）、`wrangler@4.152.0`、`packageManager: pnpm@10.34.7`（npm latest 是 12.x，pnpm 一律经 corepack）；其余版本按 plan §2 | `package.json` |
 | B2 | 包修正：`@lucide/vue` 取代 `lucide-vue-next`；生成代码用 `cn`；补 `tw-animate-css`、`@vitejs/plugin-vue`、`@tailwindcss/vite`、`vue-tsc`、`eslint-plugin-vue`、`vue-eslint-parser`、`jiti`；`vue-sonner` 需 `import "vue-sonner/style.css"`；浏览器包都是 devDependencies；`@tanstack/vue-table` 仅需要时加；`@vueuse/core` 用 reka-ui 依赖的同一 major | `package.json` |
 | B3 | 模块约定：相对导入带 `.ts`；`allowImportingTsExtensions` + `rewriteRelativeImportExtensions` + `verbatimModuleSyntax` + `erasableSyntaxOnly`、`types: []`、`skipLibCheck`；服务端无路径别名，web 可用 `@/`；共享代码只用裸 `crypto` / `performance`、`Uint8Array<ArrayBuffer>`，core / http 无 `Buffer`、`process` | 总则 §2.1 |
 | B4 | tsconfig 拓扑：解决方案式 `tsconfig.json` + base / worker / node / build / web；三套程序都编译 `src/core` 与 `src/http`；R2 适配器用结构化类型 `R2BucketLike` | 总则 §2.2 |
 | B5 | `wrangler types --env-file=/dev/null` 生成的 `worker-configuration.d.ts` 不入库，`pnpm run types` 在 check / typecheck / lint 前重生成；ESLint、Prettier 排除它 | `package.json` |
-| B6 | wrangler：`name: "aia-cdp"`（不与账号里已有的 Worker 同名）、`compatibility_date: "2026-10-12"`、无兼容标志、logs、`minify`、source maps、`STORE` 不写 `bucket_name`（共用旧桶与否是切片 7 的 owner 项）、assets `run_worker_first` + SPA；令牌是可选 secret；脚本关遥测；dry-run 前先建 `dist/web` | `wrangler.jsonc` |
+| B6 | wrangler：`name: "aia-cdp"`（不与账号里已有的 Worker 同名）、`compatibility_date: "2026-10-19"`、无兼容标志、logs、`minify`、source maps、`STORE` 不写 `bucket_name`（共用旧桶与否是切片 7 的 owner 项）、assets `run_worker_first` + SPA；令牌是可选 secret；脚本关遥测；dry-run 前先建 `dist/web` | `wrangler.jsonc` |
 | B7 | `createApp({ store, now, settings, log, sleep?, ui? })`（`sleep` 是 catalog 条件写重试的退避，测试注入，缺省用真实计时器）；保留前缀 `/api/`、`/ca/`、`/crl/`、`/dcrl/` 不进 UI 兜底（API JSON 404、下载纯文本 404）；末段带扩展名的路径不兜底；UI 缓存头由 app 设置（先复制 ASSETS 响应）；405 用 `hono/method-not-allowed`；不注册 `app.get("*")`；路由在首个请求前注册完 | `src/http/app.ts`、`src/http/ui.ts` |
 | B8 | `secureHeaders({ strictTransportSecurity: false })`，其余默认；UI 另有 `contentSecurityPolicy`（`src/http/csp.ts`，预绘制脚本按 hash 放行，无 `'unsafe-inline'`） | `src/http/app.ts`、`src/http/csp.ts` |
 | B9 | 下载不用 `hono/etag`，手写 `If-None-Match`（列表、`W/`、`*`）且先于读 blob；显式 `Content-Length`；`bearerAuth` 对畸形头回 400，进管理与上传的状态表 | `src/http/routes/` 的 `downloads.ts`、`admin.ts`、`crls.ts` |
@@ -59,7 +59,7 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | B14 | 适配器（D5）：memory sha256 ETag；fs 临时文件 + fsync + `rename`、按键互斥、拒 `..` 与绝对路径、递归 `list`；r2 `onlyIf` 用不带引号的 `R2Object.etag`、`put` 返回 `null` 即 `precondition-failed`、`list` 跟随游标；一致性套件 memory + fs 每次跑，r2 在 `AIA_TEST_R2=1` 下经 `getPlatformProxy`；store ETag 从不当 HTTP ETag | `src/storage/` |
 | B15 | vitest 5 `projects` = node + web（happy-dom）；独立 `vitest.config.ts`；没有 `globalSetup`；HTTP 用 `createApp(...).request()` | `vitest.config.ts`、总则 §2.5 |
 | B16 | 夹具：`tests/fixtures/generate-test-data.sh` 不带参数，固定日期 / 序列号 / CRL 号，每次完整重写 `tests/fixtures/pki/`（含 `manifest.json`），产物入库（`.gitattributes` `tests/fixtures/pki/** -text`），生成需要 OpenSSL ≥ 3.0；测试从文件或 manifest 读值、`now` = `manifest.now`；`.gitattributes` `*.sh text eol=lf` | `tests/fixtures/`、总则 §2.5 |
-| B17 | ESLint 10 flat `eslint.config.ts`、typescript-eslint 8.71.2 projectService、eslint-plugin-vue、`consistent-type-imports` + `no-import-type-side-effects`、`--max-warnings 0`；`pnpm-workspace.yaml` 的 `ignoredBuiltDependencies` 与 `publicHoistPattern`；Prettier 3 的 `.prettierrc.json`，生成组件每次 `add` 后重排 | `eslint.config.ts`、`pnpm-workspace.yaml`、`.prettierrc.json` |
+| B17 | ESLint 10 flat `eslint.config.ts`、typescript-eslint 8.72.0 projectService、eslint-plugin-vue、`consistent-type-imports` + `no-import-type-side-effects`、`--max-warnings 0`；`pnpm-workspace.yaml` 的 `ignoredBuiltDependencies` 与 `publicHoistPattern`；Prettier 3 的 `.prettierrc.json`，生成组件每次 `add` 后重排 | `eslint.config.ts`、`pnpm-workspace.yaml`、`.prettierrc.json` |
 | B18 | Docker：base → prod-deps ∥ build → runtime（`node:24-slim`、uid 1000、`/data`、`NODE_ENV=production`、exec 形式 CMD、HEALTHCHECK）；`ARG VITE_SITE_NAME`；白名单 `.dockerignore`；浮动基础标签 | `Dockerfile` |
 | B19 | `.github/workflows/ci.yml` 四个任务 check / test / worker / docker 各调 `pnpm run ci:<job>`；dependabot 管 npm、github-actions、docker；`pnpm verify` = check + test + build | `.github/workflows/ci.yml`、`package.json` |
 | B20 | Web：Vite root `src/web`、`outDir` `dist/web`、`envDir` 仓库根；`shadcn-vue@2.8.2 init` 固定参数（不用 `--defaults`）；vue-router、vue-query、i18n `en` + `zh-CN`、主题、`VITE_SITE_NAME`、经 `hc<AppType>` 的客户端；客户端目录 `src/web/client/`；dev 代理键 `^/(?:api\|ca\|crl\|dcrl)/` | `vite.config.ts`、`src/web/` |
@@ -156,7 +156,7 @@ D8：批次 1 = 本目录（当时为单文件 `docs/implementation.md`）+ plan
 
 - 依赖一律精确版本（`.npmrc` `save-exact=true`、`engine-strict=true`），提交 `pnpm-lock.yaml`；Docker、CI、全新克隆都用
   `pnpm install --frozen-lockfile`。
-- pnpm 只经 corepack 按 `packageManager: pnpm@10.34.7` 解析；`typescript` 锁 `5.9.3`、`wrangler` 锁 `4.151.1`；dependabot 忽略
+- pnpm 只经 corepack 按 `packageManager: pnpm@10.34.7` 解析；`typescript` 锁 `5.9.3`、`wrangler` 锁 `4.152.0`；dependabot 忽略
   `typescript` ≥ 6.1 与 `@types/node` 的 major 升级。`compatibility_date` 随 wrangler 一起升。
 - 版本见 `package.json`。`pkijs@3.4.1`、`asn1js@3.1.0` 是 dependencies；切片 8 加 `@aws-sdk/client-s3`（dependencies，开工时
   `npm view` 复核版本）。

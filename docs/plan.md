@@ -63,15 +63,15 @@
 | 校验与 OpenAPI | `@hono/zod-openapi` + `zod`                    | 1.6.3 / 4.6.7                     | 路由声明即 schema，处理器返回值按状态码类型检查；OpenAPI 文档运行时从路由表生成，另写出提交的 `docs/openapi.json` 作漂移基线（§7.3） |
 | 类型化客户端  | `hono/client` 的 `hc<AppType>`                  | 随 hono                           | 前端类型从服务端路由推导；`init: { cache: "no-store" }`                                        |
 | PKI           | `pkijs` + `asn1js`                              | 3.4.1 / 3.1.0                     | 解析、扩展、验签、摘要构建器                                                                   |
-| 前端          | `vue`、`vue-router`、`@tanstack/vue-query`、`vue-i18n` | 3.5.44 / 5.4.0 / 5.104.4 / 11.4.16 | 不用 Pinia（决策 5）                                                                   |
-| 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.4 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8（Rolldown、默认 oxc 压缩）；`vue-tsc` 检查 `tsconfig.web.json` |
-| UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.59.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`；`@tanstack/vue-table` 不随 shadcn Table 安装，也没用上（吊销列表分页只是 `slice()`） |
+| 前端          | `vue`、`vue-router`、`@tanstack/vue-query`、`vue-i18n` | 3.5.44 / 5.4.0 / 5.104.5 / 11.4.16 | 不用 Pinia（决策 5）                                                                   |
+| 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.5 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8（Rolldown、默认 oxc 压缩）；`vue-tsc` 检查 `tsconfig.web.json` |
+| UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.61.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`；`@tanstack/vue-table` 不随 shadcn Table 安装，也没用上（吊销列表分页只是 `slice()`） |
 | 前端工具      | `@vueuse/core`                                   | 14.4.0                            | 与 reka-ui 2.11.0 依赖的 `^14.1.0` 同一份（装 15 会出现两份）；`useColorMode`、`useNow`（统一时钟快照）、`useStorage`；复制不用 `useClipboard`（其 `execCommand` 退路失败也报成功） |
-| 测试          | `vitest`、`@vue/test-utils`、`happy-dom`        | 5.0.5 / 2.5.1 / 21.0.3            | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`；夹具由脚本生成后入库（§10） |
-| Cloudflare    | `wrangler`                                      | 4.151.1（精确锁定）               | `wrangler types` 生成绑定类型 `worker-configuration.d.ts`（不入库）；不装 `@cloudflare/workers-types`；`compatibility_date` 随 wrangler 一起升 |
+| 测试          | `vitest`、`@vue/test-utils`、`happy-dom`        | 5.0.5 / 2.5.1 / 21.0.4            | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`；夹具由脚本生成后入库（§10） |
+| Cloudflare    | `wrangler`                                      | 4.152.0（精确锁定）               | `wrangler types` 生成绑定类型 `worker-configuration.d.ts`（不入库）；不装 `@cloudflare/workers-types`；`compatibility_date` 随 wrangler 一起升 |
 | CLI           | `node:util` `parseArgs` + `fetch`               | 内置                              | 零依赖                                                                                         |
 | 后续          | `@aws-sdk/client-s3`                            | 3.1152.0                          | S3 适配器切片，仅进 Node bundle                                                                |
-| 质量          | `typescript`；`eslint` + `@eslint/js` + `typescript-eslint` + `eslint-plugin-vue` + `vue-eslint-parser` + `jiti`；`prettier` | 5.9.3；10.13.0 / 10.0.1 / 8.71.2 / 10.11.1 / 10.4.1 / 2.7.0；3.9.10 | `typescript` 精确锁 5.9.3（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）；`jiti` 供 ESLint 10 加载 `eslint.config.ts`；`@types/node` 24.19.2 |
+| 质量          | `typescript`；`eslint` + `@eslint/js` + `typescript-eslint` + `eslint-plugin-vue` + `vue-eslint-parser` + `jiti`；`prettier` | 5.9.3；10.13.0 / 10.0.1 / 8.72.0 / 10.11.1 / 10.4.1 / 2.7.0；3.9.10 | `typescript` 精确锁 5.9.3（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）；`jiti` 供 ESLint 10 加载 `eslint.config.ts`；`@types/node` 24.19.2 |
 | 开发前置      | OpenSSL CLI、bash、Docker Engine                 | OpenSSL ≥ 3.0（不是 LibreSSL）、Docker ≥ 25 | 只在开发与 CI 用：OpenSSL 只在重新生成测试夹具时需要，bash 用于夹具生成与冒烟脚本（`smoke:worker`、`ci:docker`）（§10，`pnpm test` 两者都不需要），Docker 构建镜像（`HEALTHCHECK --start-interval` 需要 25）；运行时都不需要 |
 
 `dependencies` 只放 Node 运行时要的包（`hono`、`@hono/zod-openapi`、`zod`、`@hono/node-server`，切片 2 起加 `pkijs`、`asn1js`）；
@@ -146,7 +146,7 @@ aia-cdp/
 ### 4.1 Cloudflare Workers
 
 - `wrangler.jsonc`：`name: "aia-cdp"`（`wrangler deploy` 会覆盖同一账号里的同名 Worker，名字不能与已有的 Worker 相同）；
-  `main: src/runtime/worker.ts`；`compatibility_date: "2026-10-12"`（= wrangler 4.151.1 自带的 workerd，随 wrangler 一起升）；
+  `main: src/runtime/worker.ts`；`compatibility_date: "2026-10-19"`（= wrangler 4.152.0 自带的 workerd，随 wrangler 一起升）；
   不设兼容标志（`nodejs_compat` 自 2026-08-04 起默认开启，真正的护栏是 tsconfig 的 `types`，§3）；
   `observability.logs.enabled: true`（§4.3）；`minify: true`；`upload_source_maps: true`；
   `r2_buckets: [{ binding: "STORE" }]`，不写 `bucket_name`（自动置备；是否共用旧桶是切片 7 的 owner 项）；
