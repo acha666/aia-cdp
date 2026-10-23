@@ -68,6 +68,10 @@ docker build -t aia-cdp .   # 站名：--build-arg VITE_SITE_NAME='Acha PKI'（�
 docker run -d --name aia-cdp -p 8080:8080 -v aia-cdp-data:/data aia-cdp
 ```
 
+预构建镜像 `ghcr.io/acha666/aia-cdp`（linux/amd64，站名是默认的 `PKI AIA/CDP`）由 `.github/workflows/docker-publish.yml` 发布：
+推送 `main` 更新 `:main`，推送 `vX.Y.Z` 标签发布 `:X.Y.Z`、`:X.Y` 与 `:latest`。用法同上，把最后的 `aia-cdp` 换成例如
+`ghcr.io/acha666/aia-cdp:main`。
+
 容器以 uid 1000（`node`）运行，数据在 `/data`。命名卷自动属 uid 1000；bind mount 的宿主目录必须属 uid 1000
 （`sudo chown 1000:1000 <目录>`），或以目录属主的 uid 运行（`--user <uid>:<gid>`），否则启动时记 `data_dir_unusable` 并以 1 退出（容器停止）。
 未写配置时 `/api/v1/health` 返回 `degraded`（容器仍算 healthy）。

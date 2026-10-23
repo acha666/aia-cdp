@@ -92,7 +92,7 @@ aia-cdp/
   tsconfig.build.json  tsconfig.web.json
   wrangler.jsonc  worker-configuration.d.ts（`pnpm run types` 生成，不入库）
   Dockerfile  vite.config.ts  vitest.config.ts  eslint.config.ts  components.json（shadcn-vue）
-  .github/             workflows/ci.yml  dependabot.yml
+  .github/             workflows/ci.yml  workflows/docker-publish.yml  dependabot.yml
   .devcontainer/       devcontainer.json（决策 15）
   src/
     core/              纯 TS：不引用 node:*、process、R2Bucket
@@ -665,6 +665,8 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   `ci:test` = test + build；`ci:worker` = `build:web` + `wrangler deploy --dry-run` + `smoke:worker` + `test:r2`；`ci:docker` =
   `scripts/docker-smoke.sh`。`.github/dependabot.yml` 管 npm、github-actions、docker。GitHub Actions 在推送 `main` 与 PR 时运行（决策 10），
   本机执行的是同一组脚本。`pnpm verify` = check + test + build。
+- 镜像发布：`.github/workflows/docker-publish.yml` 在推送 `main` 与 `v*.*.*` 标签时用 docker/metadata-action + build-push-action
+  构建同一个 Dockerfile（linux/amd64）并以 `GITHUB_TOKEN` 推送到 `ghcr.io/acha666/aia-cdp`：`main` → `:main`，`vX.Y.Z` → `:X.Y.Z`、`:X.Y`、`:latest`。
 
 ## 11. 实施切片
 
