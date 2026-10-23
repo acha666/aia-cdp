@@ -167,7 +167,7 @@ export const CRL_MEDIA_TYPES = [
   "application/octet-stream",
 ] as const;
 
-/** 200 / 201 of POST /api/v1/crls (plan §7.1, M16). */
+/** 200 / 201 of POST /api/v1/crls (plan §7.1). */
 export const PublishedCrl = z
   .object({
     /** created → 201; updated, unchanged → 200. */
@@ -257,7 +257,7 @@ export const CrlMediaTypeError = detailedErrorSchema(
   })
 ).openapi("CrlMediaTypeError");
 
-// Public reads (plan §7.1, implementation slice 5a steps 5–6) --------------------------------------
+// Public reads (plan §7.1) ------------------------------------------------------------------------
 // The bodies of src/core/views.ts. The X.509 projection is the core schemas as they are (named with
 // .meta({ id }), so the document references them as components); only the wrappers are defined
 // here.

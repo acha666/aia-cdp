@@ -4,8 +4,8 @@ import { useI18n } from "vue-i18n";
 import { useLocale } from "@/composables/useLocale";
 import { LOCALE_NAMES, SUPPORTED_LOCALES } from "@/i18n";
 
-// The UI language, as a native select (two entries, each named in its own language). Replaces
-// slice 1's LocaleSwitch.vue; useLocale remembers the choice (locale-preference).
+// The UI language, as a native select (two entries, each named in its own language); useLocale
+// remembers the choice (locale-preference).
 const locale = useLocale();
 const { t } = useI18n();
 </script>

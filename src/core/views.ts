@@ -1,11 +1,8 @@
-// The read model of the public API (plan §5.6, §7.1; implementation slice 5a step 5): certificate
-// and CRL target lists, their details and the stats, as pure functions of config.json and
-// catalog.json (one `get` each per request, through readState in ./catalog.ts) plus, for a
-// detail, the DER of the one blob it shows. Semantic reference only:
-// worker-aia-cdp@5b570aa:src/worker/api/v2/{certificates,crls}/{list,detail}.ts and stats.ts; their
-// search, pagination, include=, storage block, empty relationships and waitUntil backfills are
-// gone. Ids and kinds come from the catalog and config, never from a store key, and a store key
-// never appears in a view (§10 #2).
+// The read model of the public API (plan §5.6, §7.1): certificate and CRL target lists, their
+// details and the stats, as pure functions of config.json and catalog.json (one `get` each per
+// request, through readState in ./catalog.ts) plus, for a detail, the DER of the one blob it shows.
+// Ids and kinds come from the catalog and config, never from a store key, and a store key never
+// appears in a view.
 //
 // Lists are complete arrays (no pagination), certificates in id order and targets in targetId
 // order (code units; the UI sorts for display). Without config.json the certificates come from the
@@ -36,7 +33,7 @@ import type {
 
 // Views -------------------------------------------------------------------------------------------
 
-/** A target that names the certificate as its issuer (§10 #10). */
+/** A target that names the certificate as its issuer. */
 export interface CertificateTarget {
   targetId: string;
   kind: CrlKind;
@@ -51,7 +48,7 @@ export interface CertificateListItem {
   importedAt: string;
   /** DER size in bytes. */
   size: number;
-  /** The catalog summary as imported (CN and key ids may be null, M21). */
+  /** The catalog summary as imported (CN and key ids may be null). */
   summary: CatalogCertificate["summary"];
   /** downloadPaths of the certificate: DER paths in code-unit order, each followed by its .pem. */
   downloads: string[];
@@ -59,7 +56,7 @@ export interface CertificateListItem {
   targets: CertificateTarget[];
 }
 
-/** The list item, plus the projection of the stored DER, built whole on every request (§10 #28). */
+/** The list item, plus the projection of the stored DER, built whole on every request. */
 export interface CertificateDetail extends CertificateListItem {
   fingerprints: Fingerprints;
   tbsCertificate: TBSCertificate;
@@ -67,7 +64,7 @@ export interface CertificateDetail extends CertificateListItem {
   signatureValue: SignatureValue;
 }
 
-/** A target's issuer certificate (§10 #10): its config label and its subject CN. */
+/** A target's issuer certificate: its config label and its subject CN. */
 export interface CrlIssuer {
   id: string;
   label: string | null;
@@ -79,13 +76,13 @@ export interface CrlCurrent {
   sha256: string;
   size: number;
   publishedAt: string;
-  /** buildCrlSummary at publish time: revokedCount always known (§10 #7), nextPublish nullable. */
+  /** buildCrlSummary at publish time: revokedCount always known, nextPublish nullable. */
   summary: CurrentCrl["summary"];
 }
 
 export interface CrlTargetListItem {
   targetId: string;
-  /** From config.json (M6), not from a Delta CRL Indicator. */
+  /** From config.json, not from a Delta CRL Indicator. */
   kind: CrlKind;
   label: string;
   issuer: CrlIssuer;
@@ -114,8 +111,8 @@ export interface KindCounts {
 }
 
 /**
- * Counts and bytes of what the lists show (§10 #16). No time-dependent field: what is expired,
- * stale or needs attention is computed by the UI with its own clock (slice 5b).
+ * Counts and bytes of what the lists show. No time-dependent field: what is expired, stale or
+ * needs attention is computed by the UI with its own clock.
  */
 export interface Stats {
   /** Imported certificates (catalog). */
@@ -162,7 +159,7 @@ async function checkedBlob(
 
 /**
  * The outer signatureAlgorithm (with its parameters) and signatureValue of a certificate or CRL:
- * required in both details (the v2 `include=` switch is gone, §10 #8, #28).
+ * required in both details.
  */
 function signature(signed: {
   signatureAlgorithm: pkijs.AlgorithmIdentifier;
@@ -339,7 +336,7 @@ export async function crlTargetDetail(
     return { ...item, current: null };
   }
   const blob = await checkedBlob(der, current.sha256, current.key);
-  // One parse per request: on a large CRL it costs several times the projection (slice 5a step 11).
+  // One parse per request: on a large CRL it costs several times the projection.
   const crl = parseCRL(blob.der);
   return {
     ...item,

@@ -1,8 +1,6 @@
-// GET /api/v1/stats (plan §7.1, implementation slice 5a step 7; §10 #16): counts and bytes by
-// resource from config.json and catalog.json alone, never a store listing. Replaces
-// worker-aia-cdp@5b570aa:src/worker/api/v2/stats.ts, which listed every object under the bucket
-// prefixes. No time-dependent field: the UI computes what is expiring or stale with its own clock
-// (slice 5b). A public sub-app in the AppType chain.
+// GET /api/v1/stats (plan §7.1): counts and bytes by resource from config.json and catalog.json
+// alone, never a store listing. No time-dependent field: the UI computes what is expiring or stale
+// with its own clock. A public sub-app in the AppType chain.
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { readState } from "../../core/catalog.ts";
 import { stats } from "../../core/views.ts";

@@ -3,9 +3,9 @@ import type { ObjectStore } from "../core/store.ts";
 /** Runtime-independent settings (plan §4.2); parsed from the environment by src/runtime/settings.ts. */
 export interface AppSettings {
   maxUploadBytes: number;
-  /** Unset: every admin route answers 503 admin_disabled (slice 2). */
+  /** Unset: every admin route answers 503 admin_disabled. */
   adminToken?: string;
-  /** Unset: uploads need no token (slice 4). */
+  /** Unset: uploads need no token. */
   uploadToken?: string;
 }
 

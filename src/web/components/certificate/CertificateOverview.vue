@@ -14,12 +14,11 @@ import { compareTargets } from "@/utils/labels";
 import { computeCertificateStatus } from "@/utils/status";
 import { formatAlgorithm } from "@/utils/x509";
 
-// The overview tab of a certificate, from worker-aia-cdp@5b570aa:src/web/components/
-// CertificateDetails.vue: subject and issuer, validity (status with the detailed time to its next
-// boundary, :47-59), serial number, public key summary (:20-37), the signature algorithm with its
-// parameters (plan §10 #28: the detail carries every part, nothing reads "Unknown" for want of a
-// request), the ECDSA / DSA (r, s) values, fingerprints, unique identifiers when present, and the
-// CRL targets this certificate issues for (§10 #10), in the overview table's order.
+// The overview tab of a certificate: subject and issuer, validity (status with the detailed time
+// to its next boundary), serial number, public key summary, the signature algorithm with its
+// parameters (the detail carries every part, so nothing reads "Unknown"), the ECDSA / DSA (r, s)
+// values, fingerprints, unique identifiers when present, and the CRL targets this certificate
+// issues for, in the overview table's order.
 const props = defineProps<{ certificate: CertificateDetail }>();
 
 const { t, locale } = useI18n();
@@ -64,7 +63,7 @@ const general = computed(() => [
   },
 ]);
 
-/** Key type and size or curve (CertificateDetails.vue:20-37). */
+/** Key type and size or curve. */
 const publicKey = computed(() => {
   const spki = tbs.value.subjectPublicKeyInfo;
   const key = spki.parsed;

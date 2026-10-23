@@ -1,9 +1,7 @@
 // Detail builders for the X.509 building blocks: version, serial, bit strings, algorithm
-// identifiers, times, names, public keys and fingerprints (implementation slice 5a step 3). From
-// worker-aia-cdp@5b570aa:src/worker/api/v2/builders/primitives.ts with these changes: buildTime
-// takes the pkijs.Time it formats (reading .value and .type), buildFingerprints takes the DER
-// bytes as a Uint8Array, formatGeneralizedTime is the one in ../pki/asn1.ts, and the RSASSA-PSS
-// integers are read from their contents octets (PKIjs's numbers are asn1js's valueDec).
+// identifiers, times, names, public keys and fingerprints. buildTime takes the pkijs.Time it
+// formats (reading .value and .type), formatGeneralizedTime is the one in ../pki/asn1.ts, and the
+// RSASSA-PSS integers are read from their contents octets (PKIjs's numbers are asn1js's valueDec).
 import {
   BaseBlock,
   Constructed,

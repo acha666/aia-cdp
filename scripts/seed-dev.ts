@@ -10,8 +10,6 @@
 //   AIA_URL=http://127.0.0.1:8787 AIA_ADMIN_TOKEN=dev-admin-token pnpm run seed:dev
 //
 // The CRLs go up with the upload token when AIA_UPLOAD_TOKEN is set (the CLI's publish).
-//
-// Rewrite of worker-aia-cdp@5b570aa:scripts/seed-dev.sh, which wrote R2 objects directly.
 import process from "node:process";
 import { encodeJson } from "../src/core/catalog.ts";
 import type { Config } from "../src/core/catalog.ts";

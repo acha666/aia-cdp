@@ -24,10 +24,9 @@ import { issuerName } from "@/utils/labels";
 import { computeTargetStatus } from "@/utils/status";
 import { formatAlgorithm } from "@/utils/x509";
 
-// One CRL target (plan §8; replaces slice 1's CrlPage.vue, after worker-aia-cdp@5b570aa:src/web/
-// components/CrlDetails.vue): header with label, kind, status and downloads, then the current CRL
-// in tabs (overview with the issuer link, CRL and base CRL numbers, thisUpdate / nextUpdate / Next
-// CRL Publish, algorithm and fingerprints; revoked certificates; extensions). A target without a
+// One CRL target (plan §8): header with label, kind, status and downloads, then the current CRL in
+// tabs (overview with the issuer link, CRL and base CRL numbers, thisUpdate / nextUpdate / Next CRL
+// Publish, algorithm and fingerprints; revoked certificates; extensions). A target without a
 // current CRL says it is not published instead, and offers no downloads (its paths answer 404).
 // `targetId` matched the router's pattern. Tabs and panels as on CertificatePage.
 const props = defineProps<{ targetId: string }>();

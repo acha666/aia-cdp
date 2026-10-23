@@ -130,7 +130,7 @@
   /*
    * --destructive (darker than shadcn's 0.577 0.245 27.325) and the app's status colours --success
    * and --warning are badge text on a 10 % tint of themselves (dark theme: 20 %) over the page, a
-   * card or a hovered table row: at least 4.5:1 there in both themes (tests/web/contrast.test.ts).
+   * card or a hovered table row: at least 4.5:1 there in both themes.
    */
   --destructive: oklch(0.53 0.22 27.4);
   --success: oklch(0.49 0.14 150.5);

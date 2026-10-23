@@ -2,7 +2,7 @@
  * Data conversion utilities: hex and hash
  */
 
-// core has one SHA-256 implementation (slice 1); it hashes exactly the bytes of the view.
+// core has one SHA-256 implementation; it hashes exactly the bytes of the view.
 export { sha256Hex } from "../digest.ts";
 
 export const toHex = (input: ArrayBuffer | Uint8Array) =>

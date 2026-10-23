@@ -1,6 +1,6 @@
-// Admin routes (plan §7.2, implementation slice 2 step 8): certificate import and config.json.
-// An independent sub-app that createApp mounts at /api/v1 outside the AppType chain: the web
-// client only gets the public routes' types (slice 5a step 8); the CLI uses plain fetch.
+// Admin routes (plan §7.2): certificate import and config.json. An independent sub-app that
+// createApp mounts at /api/v1 outside the AppType chain: the web client only gets the public
+// routes' types; the CLI uses plain fetch.
 //
 // Every /api/v1/admin/* request first passes, in order: 503 admin_disabled while no token is
 // configured (before auth, and before the body is read); bearerAuth (constant time; a missing or
@@ -156,10 +156,10 @@ export const getConfigRoute = createRoute({
 const STRONG_SHA256_ETAG = /^"([0-9a-f]{64})"$/;
 
 /**
- * The precondition of PUT /admin/config (owner decision 4 of slice 2): exactly one of `If-Match`
- * or `If-None-Match: *`. Neither, both, or an If-None-Match other than `*` → 428
- * precondition_required. An If-Match that is not one strong ETag as GET sends it (`W/`, a list,
- * unquoted, `*`) can never match → 412; so can a well-formed one for another state (applyConfig).
+ * The precondition of PUT /admin/config: exactly one of `If-Match` or `If-None-Match: *`. Neither,
+ * both, or an If-None-Match other than `*` → 428 precondition_required. An If-Match that is not one
+ * strong ETag as GET sends it (`W/`, a list, unquoted, `*`) can never match → 412; so can a
+ * well-formed one for another state (applyConfig).
  */
 export function configPrecondition(headers: Headers): ConfigPrecondition {
   const ifMatch = headers.get("If-Match");

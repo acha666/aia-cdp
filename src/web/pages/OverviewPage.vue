@@ -6,8 +6,7 @@ import CrlTargetTable from "@/components/overview/CrlTargetTable.vue";
 import StatsBar from "@/components/overview/StatsBar.vue";
 import { usePageTitle } from "@/composables/usePageTitle";
 
-// The landing page (plan §8; the old single-page App.vue of worker-aia-cdp@5b570aa): counts, the
-// certificates, the CRL targets and the CRL upload.
+// The landing page (plan §8): counts, the certificates, the CRL targets and the CRL upload.
 const { t } = useI18n();
 usePageTitle(() => t("pages.overview.title"));
 </script>

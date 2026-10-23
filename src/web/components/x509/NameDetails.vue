@@ -4,9 +4,9 @@ import { useI18n } from "vue-i18n";
 import type { Name } from "@/client/types";
 import KeyValueList from "@/components/KeyValueList.vue";
 
-// From worker-aia-cdp@5b570aa:src/web/components/NameDetails.vue: the RFC 4514 string, the six
-// usual attributes (always listed, "(empty)" when absent) and every other attribute of the RDNs
-// (DC, emailAddress, serialNumber, ...), whose string type shows on hover.
+// A distinguished name: the RFC 4514 string, the six usual attributes (always listed, "(empty)"
+// when absent) and every other attribute of the RDNs (DC, emailAddress, serialNumber, ...), whose
+// string type shows on hover.
 const props = defineProps<{ name: Name; title?: string }>();
 
 const { t } = useI18n();

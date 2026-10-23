@@ -1,4 +1,4 @@
-# Dormant until the repository has a GitHub remote. Commit messages come out as
+# Commit messages come out as
 # "chore(deps): ..." / "ci(deps): ...": the prefix carries no colon or scope of its own.
 version: 2
 updates:

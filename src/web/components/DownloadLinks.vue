@@ -4,9 +4,9 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 // Download links of a certificate or CRL target, from the API's `downloads` (config paths: each DER
-// path is followed by its .pem). After worker-aia-cdp@5b570aa:src/web/components/ResourceCard.vue:
-// 44-51, 76-85, which derived the PEM path itself; the server's list is used as it is. A resource
-// served at more than one DER path also shows each file name, so the pairs can be told apart.
+// path is followed by its .pem). The server's list is used as it is: no path is derived here. A
+// resource served at more than one DER path also shows each file name, so the pairs can be told
+// apart.
 // Through cn like Button.vue: the variant's border-border then replaces the base's
 // border-transparent, which otherwise wins in the generated CSS (no outline in the light theme).
 const props = defineProps<{ downloads: readonly string[] }>();

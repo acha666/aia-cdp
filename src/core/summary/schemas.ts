@@ -1,18 +1,16 @@
 // X.509 projection schemas: what the detail builders (primitives.ts, extensions.ts,
-// certificate.ts, crl.ts) return, and what the certificate and CRL detail routes document
-// (implementation slice 5a step 1). From worker-aia-cdp@5b570aa:src/contracts/schemas.ts:12-497,
-// 542-556 and 578-604; the v2 envelope, storage, pagination and query schemas are not migrated, and
-// the CRL kind comes from config (CrlKind in ../catalog.ts).
+// certificate.ts, crl.ts) return, and what the certificate and CRL detail routes document. The CRL
+// kind is not here: it comes from config (CrlKind in ../catalog.ts).
 //
-// Changes from the source: no "unknown" extension variant (no parser produced it, §10 #8); fields
-// the builders always produce are required (SubjectPublicKeyInfo.parsed, ECPublicKey.point.x / y,
-// TBSCertList.version); revokedCertificates is { count, items } with every entry (no pagination);
-// DistributionPointName is a schema of its own, shared by DistributionPoint and the IDP.
+// There is no "unknown" extension variant (no parser produces one); fields the builders always
+// produce are required (SubjectPublicKeyInfo.parsed, ECPublicKey.point.x / y, TBSCertList.version);
+// revokedCertificates is { count, items } with every entry (no pagination); DistributionPointName
+// is a schema of its own, shared by DistributionPoint and the IDP.
 //
 // Named schemas carry `.meta({ id })` where they are defined: a derived instance (`.extend()`,
 // `.shape.x`) does not inherit the id, and the OpenAPI generator only writes
 // `discriminator.mapping` when every member of a union has one (implementation §2.1). The 41
-// `extensionType` literals and the field names are the contract with the slice 5b views.
+// `extensionType` literals and the field names are the contract with the UI's views.
 import { z } from "zod";
 
 // =============================================================================

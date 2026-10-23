@@ -1,7 +1,6 @@
-// Failures of API calls as one error type (implementation slice 5a step 10). Rewrite of
-// worker-aia-cdp@5b570aa:src/web/api/response.ts: no `{ data, meta }` envelope to unpack and no zod
-// at run time. A success body is returned as the server sent it, typed by hc from the route's
-// schema; every failure is an ApiError, whose `code` the UI maps to a message (slice 5b).
+// Failures of API calls as one error type. A success body is returned as the server sent it (no
+// envelope to unpack, no zod at run time), typed by hc from the route's schema; every failure is
+// an ApiError, whose `code` the UI maps to a message.
 //
 // Where each code comes from:
 // - a v1 code (error-codes.ts, or one this build does not know yet): unwrap, from the envelope

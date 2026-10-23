@@ -1,6 +1,5 @@
-// Content-Security-Policy of the UI (implementation slice 5b step 10, owner answer 1). The app
-// sends it through secureHeaders on every response, so both runtimes serve the UI under the same
-// policy; on JSON and downloads it changes nothing.
+// Content-Security-Policy of the UI. The app sends it through secureHeaders on every response, so
+// both runtimes serve the UI under the same policy; on JSON and downloads it changes nothing.
 //
 // The UI loads its scripts and styles from its own origin only. The one exception is the pre-paint
 // theme script inlined in src/web/index.html (no light flash before the bundle runs), allowed by

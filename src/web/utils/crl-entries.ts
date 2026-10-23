@@ -1,5 +1,4 @@
-// The columns of a revoked-certificates row that come from its CRL entry extensions. From
-// describeEntry in worker-aia-cdp@5b570aa:src/web/components/CrlDetails.vue:46-65.
+// The columns of a revoked-certificates row that come from its CRL entry extensions.
 import type { Extension } from "@/client/types";
 import { formatGeneralName } from "@/utils/x509";
 import type { GeneralNameLabel } from "@/utils/x509";

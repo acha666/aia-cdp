@@ -221,7 +221,7 @@ function derProblem(block: BaseBlock): string | undefined {
 }
 
 /**
- * Strict DER (M1): reject decoder errors, BER that DER forbids, and time values that decoded into
+ * Strict DER: reject decoder errors, BER that DER forbids, and time values that decoded into
  * garbage. PKIjs copies decoded dates without checking them, which turns malformed input into
  * real-looking timestamps (year 1899 and similar).
  *

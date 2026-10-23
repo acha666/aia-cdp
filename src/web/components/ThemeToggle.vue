@@ -8,19 +8,18 @@ import { Button } from "@/components/ui/button";
 
 type Preference = "auto" | "light" | "dark";
 
-// Same localStorage key and values as the old implementation's useTheme.ts, so a preference saved
-// on the same origin keeps applying. useColorMode sets class "dark" / "light" on <html> (main.css:
-// `@custom-variant dark (&:is(.dark *))`); the inline script in index.html sets "dark" by the same
-// rule before the first paint. disableTransition would insert a <style> element on every change,
-// which a CSP without 'unsafe-inline' styles blocks. The stored preference is our own useStorage
-// ref because useColorMode does not pass `onError` on: blocked storage only loses the memory and
-// is not worth a console error.
+// The preference (auto / light / dark) is kept in localStorage. useColorMode sets class "dark" /
+// "light" on <html> (main.css: `@custom-variant dark (&:is(.dark *))`); the inline script in
+// index.html sets "dark" by the same rule before the first paint. disableTransition would insert a
+// <style> element on every change, which a CSP without 'unsafe-inline' styles blocks. The stored
+// preference is our own useStorage ref because useColorMode does not pass `onError` on: blocked
+// storage only loses the memory and is not worth a console error.
 const store = useStorage<BasicColorSchema>("theme-preference", "auto", undefined, {
   onError: () => undefined,
 });
 useColorMode({ storageRef: store, disableTransition: false });
 
-// Same cycle as before: auto → light → dark.
+// Each click moves on: auto → light → dark → auto.
 const NEXT: Record<Preference, Preference> = { auto: "light", light: "dark", dark: "auto" };
 const ICONS = { auto: MonitorIcon, light: SunIcon, dark: MoonIcon };
 

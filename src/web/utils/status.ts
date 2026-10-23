@@ -1,8 +1,7 @@
 // Validity states of certificates and CRL targets, the one rule behind the status badges and the
-// overview's "needs attention" count (implementation slice 5b, owner answer 2). From
-// worker-aia-cdp@5b570aa:src/web/utils/status.ts: bounds stay inclusive (valid at notAfter,
-// expired one millisecond later) and the distances stay in whole seconds. The clock is always
-// passed in (useClock in components), so every badge on a page reads the same instant.
+// overview's "needs attention" count. Bounds are inclusive (valid at notAfter, expired one
+// millisecond later) and the distances are in whole seconds. The clock is always passed in
+// (useClock in components), so every badge on a page reads the same instant.
 import type { CrlTargetListItem } from "@/client/types";
 
 /** `expiring`: valid, with less than 10% of the validity period left. */
@@ -124,7 +123,7 @@ export function computeTargetStatus(
   return computeCrlStatus(thisUpdate, nextUpdate, nowMs, nextPublish);
 }
 
-/** The overview's "needs attention" count: stale, expired and unknown targets (owner answer 2). */
+/** The overview's "needs attention" count: stale, expired and unknown targets. */
 export function needsAttention(state: CrlStatusState): boolean {
   return state === "stale" || state === "expired" || state === "unknown";
 }

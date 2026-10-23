@@ -9,8 +9,8 @@ import { computeTargetStatus, needsAttention } from "@/utils/status";
 
 // The overview's counts (plan §8). Everything but "needs attention" comes from /api/v1/stats, which
 // has no time-dependent field; that one is counted here from the target list with the page's clock
-// and the badges' rule (stale, expired or unknown: owner answer 2 of slice 5b), so the number
-// always matches the badges in the table below.
+// and the badges' rule (stale, expired or unknown), so the number always matches the badges in the
+// table below.
 interface Tile {
   key: string;
   label: string;

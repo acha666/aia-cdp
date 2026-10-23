@@ -2,10 +2,9 @@
 import { useI18n } from "vue-i18n";
 import HexValue from "@/components/HexValue.vue";
 
-// Label / value pairs as a description list: replaces FingerprintDetails.vue and the dt/dd grids
-// repeated across the old detail views. Rows of extension blocks (utils/extension-blocks.ts) fit
-// as they are. An empty value reads "(empty)" rather than a blank cell; the `value` slot replaces
-// the default rendering of any item.
+// Label / value pairs as a description list, shared by the detail views. Rows of extension blocks
+// (utils/extension-blocks.ts) fit as they are. An empty value reads "(empty)" rather than a blank
+// cell; the `value` slot replaces the default rendering of any item.
 interface KeyValueItem {
   label: string;
   value: string | null | undefined;

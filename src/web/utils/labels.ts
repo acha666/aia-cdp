@@ -1,4 +1,4 @@
-// Display names of certificates and CRL targets (implementation slice 5b step 6).
+// Display names of certificates and CRL targets.
 
 /** The fields a certificate's name comes from: a list item, a detail or a target's issuer. */
 interface NamedCertificate {

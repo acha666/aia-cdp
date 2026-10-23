@@ -22,7 +22,7 @@ const app = createApp({
   settings: settings.value.app,
   log: () => undefined,
 });
-// The time the runtime spends on the first GET /api/v1/openapi.json (slice 5a exit condition 9).
+// The time the runtime spends on the first GET /api/v1/openapi.json.
 const started = performance.now();
 const doc = app.getOpenAPI31Document(OPENAPI_CONFIG);
 const generated = `generated in ${(performance.now() - started).toFixed(1)} ms`;

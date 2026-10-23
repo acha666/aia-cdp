@@ -3,12 +3,10 @@ import { createI18n } from "vue-i18n";
 import en from "./locales/en.json";
 import zhCN from "./locales/zh-CN.json";
 
-// The UI languages (implementation slice 5b step 8), from worker-aia-cdp@5b570aa:src/web/i18n.ts:
-// en and zh-CN instead of en / en-US / en-GB, the language taken from a stored choice, else the
-// first supported browser language (the old normalizeLocale never returned null, so only the first
-// one was ever looked at), else en. The stored choice keeps the old key; storage is read inside
-// try/catch (the old module read localStorage bare at import time, which throws where storage is
-// blocked). Intl formats with the message locale (utils/dates.ts), so there is no en-GB style.
+// The UI languages, en and zh-CN: the language is taken from a stored choice, else the first
+// supported language in the browser's list, else en. Storage is read inside try/catch (reading
+// localStorage throws where storage is blocked). Intl formats with the message locale
+// (utils/dates.ts), so there is no en-GB style.
 
 export const SUPPORTED_LOCALES = ["en", "zh-CN"] as const;
 export type AppLocale = (typeof SUPPORTED_LOCALES)[number];
@@ -16,13 +14,13 @@ export type AppLocale = (typeof SUPPORTED_LOCALES)[number];
 /** Each language named in itself, for the language switch. */
 export const LOCALE_NAMES: Record<AppLocale, string> = { en: "English", "zh-CN": "简体中文" };
 
-/** localStorage key of the chosen language (the old UI's, which stored en / en-US / en-GB). */
+/** localStorage key of the chosen language. */
 export const LOCALE_STORAGE_KEY = "locale-preference";
 
 // en is the reference schema: a key missing from zh-CN is a type error.
 type MessageSchema = typeof en;
 
-/** A language tag as a UI language: `zh*` → zh-CN, `en*` → en (old en-US / en-GB too); else null. */
+/** A language tag as a UI language: `zh*` → zh-CN, `en*` → en; else null. */
 export function normalizeLocale(tag: string): AppLocale | null {
   const primary = tag.trim().toLowerCase().split(/[-_]/)[0];
   if (primary === "zh") {

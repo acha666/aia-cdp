@@ -6,7 +6,7 @@ import { copyText } from "@/utils/clipboard";
 
 /**
  * A copy button's state: `copy(text)` puts the text on the clipboard and sets `copied` for a moment
- * (the button reads "Copied"); a failure is reported as a toast (implementation slice 5b step 4).
+ * (the button reads "Copied"); a failure is reported as a toast.
  */
 export function useCopy() {
   const { t } = useI18n();

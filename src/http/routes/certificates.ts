@@ -1,9 +1,7 @@
-// Public certificate reads (plan §7.1, implementation slice 5a step 7): GET /api/v1/certificates
-// and /api/v1/certificates/{id}, the views of src/core/views.ts. A public sub-app, so it joins the
-// AppType chain (slice 5a step 8). Each request reads config.json and catalog.json once (plan
-// §5.6); the detail also reads its blob. Rewrite of worker-aia-cdp@5b570aa:src/worker/api/v2/
-// certificates/{list,detail}.ts: no search, pagination, include= or storage block, and the id is
-// the certificate's SHA-256, never a store key (§10 #2: an archive-style id is a 400).
+// Public certificate reads (plan §7.1): GET /api/v1/certificates and /api/v1/certificates/{id}, the
+// views of src/core/views.ts. A public sub-app, so it joins the AppType chain. Each request reads
+// config.json and catalog.json once (plan §5.6); the detail also reads its blob. The id is the
+// certificate's SHA-256, never a store key (an archive-style id is a 400).
 //
 // Failures are thrown: ApiError for the 404, and for the 500 a blob the catalog names that is
 // missing or wrong, or a store error, so onError writes every envelope (no-store) and the handlers

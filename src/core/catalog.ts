@@ -1,10 +1,9 @@
 // config.json and catalog.json (plan §5.2, §5.3): schemas, the canonical format, reading and the
-// conditional catalog write with retries. Formats per implementation slice 2 step 4 (M4, M21): a
-// value that is not in its canonical form (uppercase hex, a time without milliseconds, a misspelled
-// key) is invalid, never normalized, so every reader can compare strings.
+// conditional catalog write with retries. A value that is not in its canonical form (uppercase
+// hex, a time without milliseconds, a misspelled key) is invalid, never normalized, so every reader
+// can compare strings.
 //
-// There is no rebind ledger (owner decision 2 of slice 2): the catalog only holds what the service
-// imported and published.
+// There is no rebind ledger: the catalog only holds what the service imported and published.
 import { z } from "zod";
 import type { ObjectStore } from "./store.ts";
 
@@ -103,7 +102,7 @@ export const CrlSummarySchema = z
     baseCrlNumber: Decimal.nullable(),
     thisUpdate: Timestamp,
     nextUpdate: Timestamp.nullable(),
-    /** Always known once published (§10 #7): "unknown" is only a target without a current CRL. */
+    /** Always known once published: "unknown" is only a target without a current CRL. */
     revokedCount: z.number().int().nonnegative(),
     sha1: Sha1Hex,
     /** AD CS Next CRL Publish (1.3.6.1.4.1.311.21.4), null without the extension. */
@@ -211,7 +210,7 @@ export interface State {
 
 /**
  * One `get` each of config.json and catalog.json. Throws InvalidStoredObjectError when either is
- * present but not valid; store errors propagate. ETags are the store's (opaque, B14).
+ * present but not valid; store errors propagate. ETags are the store's (opaque).
  */
 export async function readState(store: ObjectStore): Promise<State> {
   const [configObject, { catalog, etag: catalogEtag }] = await Promise.all([

@@ -1,9 +1,8 @@
-// Server state of the UI (implementation slice 5b step 5): one TanStack Query key per API read and
-// the CRL upload as a mutation. Replaces worker-aia-cdp@5b570aa's stores/*, useCollectionLoader and
-// useDetailCache: the query cache dedupes requests, drops the answers of superseded ones and keeps
-// the previous data while a key refetches. Every read is `unwrap(await api…$get(…))`, so a failure
-// is an ApiError (errors.ts) or an abort. ["health"] is HealthBadge's own query: its 503 body is not
-// an envelope, so it reads the status code itself.
+// Server state of the UI: one TanStack Query key per API read and the CRL upload as a mutation.
+// The query cache dedupes requests, drops the answers of superseded ones and keeps the previous
+// data while a key refetches. Every read is `unwrap(await api…$get(…))`, so a failure is an
+// ApiError (errors.ts) or an abort. ["health"] is HealthBadge's own query: its 503 body is not an
+// envelope, so it reads the status code itself.
 import { QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { toValue } from "vue";
 import type { MaybeRefOrGetter } from "vue";
@@ -36,7 +35,7 @@ export function shouldRetry(failureCount: number, error: unknown): boolean {
 export function createQueryClient(): QueryClient {
   return new QueryClient({
     // staleTime 0: every mount and window focus (TanStack's default refetchOnWindowFocus) asks the
-    // server again; API responses are `no-store` anyway (plan §10 #17).
+    // server again; API responses are `no-store` anyway.
     defaultOptions: { queries: { staleTime: 0, retry: shouldRetry } },
   });
 }
@@ -58,7 +57,7 @@ export function useCertificates() {
 
 /**
  * One certificate. `id` must be one the router's pattern matched or the server sent: hono/client
- * puts path parameters into the URL as they are (slice 5a review).
+ * puts path parameters into the URL as they are.
  */
 export function useCertificate(id: MaybeRefOrGetter<string>) {
   return useQuery({

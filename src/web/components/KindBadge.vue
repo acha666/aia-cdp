@@ -3,8 +3,7 @@ import { cva } from "class-variance-authority";
 import { useI18n } from "vue-i18n";
 import { Badge } from "@/components/ui/badge";
 
-// What a resource is, in the old cards' colours (worker-aia-cdp@5b570aa:src/web/components/
-// ResourceCard.vue tones): certificates blue, full CRLs purple, delta CRLs green.
+// What a resource is, by colour: certificates blue, full CRLs purple, delta CRLs green.
 type Kind = "certificate" | "full" | "delta";
 
 const kindVariants = cva("", {

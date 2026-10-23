@@ -473,7 +473,7 @@ PREV_CA_HASH=$("$OPENSSL" dgst -sha1 -r "$STAGE/certs/issuing-ca-1.der" | cut -d
 
 # The same key pair (and SKI) once more, under another subject CN: the CRLs of
 # issuing-ca-1 name an issuer this certificate is not, so only a check that
-# ignores issuer names (C1) verifies them with it.
+# ignores issuer names verifies them with it.
 cp "$WORK/keys/issuing-ca-1.pem" "$WORK/keys/issuing-ca-1-renamed.pem"
 issue issuing-ca-1-renamed root-ca ext_issuing 20250101000000Z 20350101000000Z "$ICA1_RENAMED_SUBJ"
 
@@ -576,7 +576,7 @@ crl $I1 14 $EDGE $EDGE_NEXT crl_ext_idp_scoped $I1/full-idp-scoped.der
 crl_entry $I1/full-idp-scoped.der $I1 full 14 - $EDGE $EDGE_NEXT scoped_crl_unsupported "critical IDP, onlyContainsUserCerts"
 crl $I1 15 $EDGE $EDGE_NEXT crl_ext_idp_dp_only $I1/full-idp-dp-only.der
 crl_entry $I1/full-idp-dp-only.der $I1 full 15 - $EDGE $EDGE_NEXT created \
-  "critical IDP naming only the DP (AD CS option): accepted (slice 4 owner answer 2)"
+  "critical IDP naming only the DP (AD CS option): accepted"
 crl $I1 16 $EDGE $EDGE_NEXT crl_ext $I1/full-pss.der \
   -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:digest -sigopt rsa_mgf1_md:sha256
 crl_entry $I1/full-pss.der $I1 full 16 - $EDGE $EDGE_NEXT created "RSASSA-PSS SHA-256, MGF1 SHA-256, salt 32"
@@ -597,7 +597,7 @@ NEXT_PUBLISH=${ADCS_DELTA_PUBLISH:2} BASE_CRL_NUMBER=19 \
   crl $I1 20 20260103175000Z 20260105061000Z crl_ext_adcs_delta $I1/delta-adcs.der
 PUBLISH=$ADCS_DELTA_PUBLISH crl_entry $I1/delta-adcs.der $I1 delta 20 19 20260103175000Z 20260105061000Z created \
   "AD CS delta extension set"
-# SHA-1 signatures are accepted (slice 4 owner answer 1). The later -md wins.
+# SHA-1 signatures are accepted. The later -md wins.
 crl $I1 21 $EDGE $EDGE_NEXT crl_ext $I1/full-sha1.der -md sha1
 [[ $("$OPENSSL" crl -inform DER -in "$STAGE/crls/$I1/full-sha1.der" -noout -text) == \
   *'Signature Algorithm: sha1WithRSAEncryption'* ]] || die "full-sha1.der is not signed with SHA-1"

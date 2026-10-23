@@ -24,12 +24,11 @@ import { formatDateDay, formatDateDayWithoutTimezone, getRelativeTime } from "@/
 import { compareTargets, issuerName } from "@/utils/labels";
 import { computeTargetStatus } from "@/utils/status";
 
-// The configured CRL targets (plan §8), after worker-aia-cdp@5b570aa:src/web/components/
-// CrlCard.vue, one table for full and delta targets: label with the issuer, kind, CRL number,
-// thisUpdate / nextUpdate (time left only while current), revoked count, status and downloads. A
-// target without a current CRL reads "Not published" with dashes, never 0 (plan §10 #7), and has no
-// downloads (its paths answer 404). On a phone (below sm) only label, kind and status show, as in
-// CertificateTable.
+// The configured CRL targets (plan §8), one table for full and delta targets: label with the
+// issuer, kind, CRL number, thisUpdate / nextUpdate (time left only while current), revoked count,
+// status and downloads. A target without a current CRL reads "Not published" with dashes, never 0,
+// and has no downloads (its paths answer 404). On a phone (below sm) only label, kind and status
+// show, as in CertificateTable.
 const { data, isPending, isError, error, refetch } = useCrlTargets();
 
 const SECONDARY = "hidden sm:table-cell";

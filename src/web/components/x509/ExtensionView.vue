@@ -23,7 +23,7 @@ import { formatGeneralName } from "@/utils/x509";
 // (OID beside a known name), marks it critical and, unless decoded, gives its parse status. The
 // body shows the render blocks of utils/extension-blocks.ts; an extension the server could not
 // decode (or of a type this build does not know) shows the parse error, the server's ASN.1 dump
-// and the raw value. From worker-aia-cdp@5b570aa:src/web/components/ExtensionView.vue.
+// and the raw value.
 const props = defineProps<{ extension: Extension; value: string }>();
 
 const { t } = useI18n();

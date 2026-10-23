@@ -1,8 +1,7 @@
-// Dates and relative times for display. From worker-aia-cdp@5b570aa:src/web/utils/dates.ts, with
-// the module-level i18n instance replaced by a DateText argument (useDateText in components), the
-// clock passed in to the relative times (nowMs, from useClock), hourCycle "h23" instead of
-// hour12: false (which some engines render as 24:05 for five past midnight), and without the
-// duplicate formatDateReadable. Times show in the browser's time zone, labelled with its offset.
+// Dates and relative times for display. vue-i18n comes in as a DateText argument (useDateText in
+// components) and the clock as nowMs (from useClock) for the relative times. Hours use hourCycle
+// "h23": hour12: false renders five past midnight as 24:05 in some engines. Times show in the
+// browser's time zone, labelled with its offset.
 
 /** What the formatters need from vue-i18n. */
 export interface DateText {

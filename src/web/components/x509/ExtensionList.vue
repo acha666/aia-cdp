@@ -4,9 +4,8 @@ import type { Extension } from "@/client/types";
 import { Accordion } from "@/components/ui/accordion";
 import ExtensionView from "@/components/x509/ExtensionView.vue";
 
-// From worker-aia-cdp@5b570aa:src/web/components/ExtensionList.vue: critical extensions first,
-// then by name (or OID), sorting a copy so the query data is never reordered. Any number of
-// items can be open at once.
+// Extensions, critical ones first, then by name (or OID), sorting a copy so the query data is
+// never reordered. Any number of items can be open at once.
 const props = defineProps<{ extensions: readonly Extension[] }>();
 
 const label = (extension: Extension) => extension.extnID.name ?? extension.extnID.oid;

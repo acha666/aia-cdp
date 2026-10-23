@@ -1,8 +1,7 @@
 // What the UI shows for each decoded extension value: a list of render blocks (plan §8: rows, tags,
 // general names, distribution points, access descriptions, policies, subtrees), drawn by
-// components/x509/ExtensionView.vue. From worker-aia-cdp@5b570aa:src/web/components/ExtensionView.vue
-// (Block, describe(), describeSubtree and helpers), with the texts that depend on the UI language
-// injected through ExtensionContext so the mapping is testable without a component.
+// components/x509/ExtensionView.vue. The texts that depend on the UI language are injected through
+// ExtensionContext, so the mapping is testable without a component.
 //
 // The 41 extensionType values and their fields are the contract with src/core/summary/schemas.ts:
 // the switch is exhaustive, so a value added there fails to compile here until it has a case. A

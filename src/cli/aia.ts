@@ -1,8 +1,7 @@
-// aia: the command-line client of the admin API and the CRL upload route (plan §7.4,
-// implementation slice 2 step 9, slice 4 step 9). A thin HTTP client on node:util parseArgs and
-// fetch, with no dependencies of its own. From the core it shares isDerSequence / splitPemBlocks
-// (the API takes one certificate per request, so a PEM bundle goes block by block) and the static
-// config rules (`config validate` runs offline).
+// aia: the command-line client of the admin API and the CRL upload route (plan §7.4). A thin HTTP
+// client on node:util parseArgs and fetch, with no dependencies of its own. From the core it shares
+// isDerSequence / splitPemBlocks (the API takes one certificate per request, so a PEM bundle goes
+// block by block) and the static config rules (`config validate` runs offline).
 //
 //   node src/cli/aia.ts <command> …          (pnpm aia …; Node runs the source)
 //   node dist/server/cli/aia.js <command> …  (the Docker image)
@@ -826,7 +825,7 @@ async function configApply(ctx: Context, file: string): Promise<number> {
 // new-target-id, health --------------------------------------------------------------------------
 
 function newTargetId(ctx: Context): number {
-  // Target ids are assigned by tools, never by the service (slice 2 step 6).
+  // Target ids are assigned by tools, never by the service.
   const id = crypto.randomUUID();
   if (ctx.json) {
     printJson(ctx.io, { id });

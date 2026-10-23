@@ -1,6 +1,5 @@
-// The TBSCertificate projection of the certificate detail (implementation slice 5a step 3), built
-// whole on every request (§10 #28). From worker-aia-cdp@5b570aa:src/worker/api/v2/builders/
-// certificate.ts without its `options.extensions` switch (the v2 `include=` parameter is gone).
+// The TBSCertificate projection of the certificate detail, built whole on every request: the
+// extensions are always included, there is no switch to leave parts out.
 import type * as pkijs from "pkijs";
 import { SIGNATURE_ALG_NAMES } from "../pki/constants.ts";
 import type { TBSCertificate } from "./types.ts";

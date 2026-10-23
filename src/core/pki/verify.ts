@@ -1,10 +1,9 @@
-// Signature check of an uploaded CRL (implementation slice 4 step 4, plan §6, B21; C1, C2, C4, M10,
-// M12). Rewrite of worker-aia-cdp@5b570aa:src/worker/pki/crls.ts:5-15 (verifyCRLWithIssuer), which
-// used the verify method of PKIjs's CertificateRevocationList: that compares the CRL's issuer name
-// with the certificate's subject (C1) and silently fails a critical extension outside PKIjs's own
-// list (C2). Here the key is whichever certificate the target names, the CRL extension policy
-// (crl-policy.ts) has already run, and PKIjs only does the cryptography, on the engine it installs
-// from globalThis.crypto by itself (B21: the engine is never replaced).
+// Signature check of an uploaded CRL (plan §6). Not the verify method of PKIjs's
+// CertificateRevocationList: that compares the CRL's issuer name with the certificate's subject and
+// silently fails a critical extension outside PKIjs's own list. Here the key is whichever
+// certificate the target names, the CRL extension policy (crl-policy.ts) has already run, and PKIjs
+// only does the cryptography, on the engine it installs from globalThis.crypto by itself (the
+// engine is never replaced).
 import { Any, fromBER, Integer, Null, ObjectIdentifier, Sequence } from "asn1js";
 import * as pkijs from "pkijs";
 import { assertWellFormed } from "./asn1.ts";
@@ -25,10 +24,10 @@ export type SignatureCheck =
 type Scheme = "pkcs1" | "pss" | "ecdsa";
 
 /**
- * The allow-list (C4, M10), by signature algorithm OID; everything else is unsupported_algorithm
- * before any cryptography: EdDSA, the SHA-224 variants, DSA, SM2, MD2 / MD5, unknown OIDs. SHA-1 is
- * accepted (owner answer 1): a distribution point does not judge the CA's choices. The hash of
- * RSASSA-PSS is in its parameters.
+ * The allow-list, by signature algorithm OID; everything else is unsupported_algorithm before any
+ * cryptography: EdDSA, the SHA-224 variants, DSA, SM2, MD2 / MD5, unknown OIDs. SHA-1 is accepted:
+ * a distribution point does not judge the CA's choices. The hash of RSASSA-PSS is in its
+ * parameters.
  */
 const ALLOWED_SIGNATURES: ReadonlyMap<string, Scheme> = new Map<string, Scheme>([
   ["1.2.840.113549.1.1.5", "pkcs1"], // sha1WithRSAEncryption
@@ -179,13 +178,13 @@ function admit(
 }
 
 /**
- * Whether `crl` was signed with the key `issuerSpki` (the target's configured issuer; owner answer
- * 4). The algorithm is admitted by OID first (unsupported_algorithm), then
+ * Whether `crl` was signed with the key `issuerSpki` (the target's configured issuer). The
+ * algorithm is admitted by OID first (unsupported_algorithm), then
  * `pkijs.getCrypto(true).verifyWithPublicKey` checks the signature over `crl.tbsView`: the
- * TBSCertList octets as received (parseCRL and parseCrlHeader both keep them), never a
- * re-encoding. False, or a throw from the cryptography, is invalid_signature with the exception
- * text in `detail` only. Issuer names are not compared (C1). The only throw left is a
- * missing crypto engine, a server fault rather than a bad signature.
+ * TBSCertList octets as received (parseCRL and parseCrlHeader both keep them), never a re-encoding.
+ * False, or a throw from the cryptography, is invalid_signature with the exception text in `detail`
+ * only. Issuer names are not compared. The only throw left is a missing crypto engine, a server
+ * fault rather than a bad signature.
  */
 export async function verifyCrlSignature(
   crl: pkijs.CertificateRevocationList,

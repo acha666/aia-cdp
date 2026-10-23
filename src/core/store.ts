@@ -14,7 +14,7 @@ export type PutResult = { ok: true; etag: string } | { ok: false; reason: "preco
 
 export interface ObjectStore {
   /**
-   * `bytes` is backed by an ArrayBuffer (B3), so it goes to WebCrypto and into a Response body as
+   * `bytes` is backed by an ArrayBuffer, so it goes to WebCrypto and into a Response body as
    * it is; it may be a view into a larger buffer.
    */
   get(key: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; etag: string } | null>;

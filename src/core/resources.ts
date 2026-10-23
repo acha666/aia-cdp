@@ -1,14 +1,11 @@
-// Downloads (plan §6, implementation slice 3 steps 2–3): which resource a request path names and
-// the headers it is served with. Pure: the route reads config.json and catalog.json once each, and
-// the blob only for a GET that is not answered 304.
+// Downloads (plan §6): which resource a request path names and the headers it is served with.
+// Pure: the route reads config.json and catalog.json once each, and the blob only for a GET that is
+// not answered 304.
 //
-// Only what the current config's path table and the catalog name is reachable (§10 #2, M20): the
-// request path is never a store key, so blobs/, history/, config.json and catalog.json cannot be
-// downloaded, and a path table entry the catalog or config cannot back is reported as
-// `inconsistent` (a 500) instead of being served from somewhere else. Rewrite of
-// worker-aia-cdp@5b570aa:src/worker/worker.ts:59-77, src/worker/utils/content.ts (content type by
-// key suffix → by kind) and src/worker/cache/config.ts:54-67 (now injected, CRL max-age clamped,
-// no edge directives).
+// Only what the current config's path table and the catalog name is reachable: the request path is
+// never a store key, so blobs/, history/, config.json and catalog.json cannot be downloaded, and a
+// path table entry the catalog or config cannot back is reported as `inconsistent` (a 500) instead
+// of being served from somewhere else.
 import type { Catalog, Config, ConfigPath, CrlKind } from "./catalog.ts";
 import { PEM_BLOCK_MARKERS, pemLength } from "./pki/pem.ts";
 import type { PemBlockMarkers } from "./pki/pem.ts";
@@ -59,8 +56,8 @@ function own<T>(record: Record<string, T>, key: string): T | undefined {
 }
 
 /**
- * The resource `path` names (slice 3 step 2, M20). `path` is Hono's `c.req.path` (decoded with
- * decodeURI, so `%2F` and malformed `%` sequences stay as they are) and is not decoded again.
+ * The resource `path` names. `path` is Hono's `c.req.path` (decoded with decodeURI, so `%2F` and
+ * malformed `%` sequences stay as they are) and is not decoded again.
  *
  * - An own key of config.paths, matched exactly and case-sensitively → DER; otherwise a path
  *   ending in `.pem` whose stripped form is such a key → PEM (one suffix: `.pem.pem` is not
@@ -130,9 +127,9 @@ export function resolveDownload(
 
 /**
  * The reverse of resolveDownload: the paths that serve a certificate or a target (`downloads` of
- * the upload response, plan §7.1, and of slice 5a's lists). Every config path mapped to
+ * the upload response, plan §7.1, and of the read API's lists). Every config path mapped to
  * `reference`, in code-unit order, each DER path followed by its `<path>.pem`; [] without
- * config.json. Only path table entries, never a store key (§10 #2).
+ * config.json. Only path table entries, never a store key.
  */
 export function downloadPaths(config: Config | null, reference: ConfigPath): string[] {
   if (config === null) {
@@ -161,7 +158,7 @@ export interface DownloadHeaders {
   "Content-Disposition": string;
 }
 
-// C6: by kind, not by path suffix (the old code served PEM as text/plain).
+// By kind, not by path suffix; PEM is application/x-pem-file, never text/plain.
 const DER_CONTENT_TYPES: Record<DownloadKind, string> = {
   certificate: "application/pkix-cert",
   full: "application/pkix-crl",
@@ -170,11 +167,11 @@ const DER_CONTENT_TYPES: Record<DownloadKind, string> = {
 
 const PEM_CONTENT_TYPE = "application/x-pem-file";
 
-// C7: no s-maxage / stale-while-revalidate. A certificate path never changes its bytes (V7; a
-// two-step rebind is the operator's responsibility, owner decision D11).
+// No s-maxage / stale-while-revalidate. A certificate path never changes its bytes (V7; a two-step
+// rebind is the operator's responsibility).
 const CERTIFICATE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
-/** CRL max-age bounds in seconds (§10 #3): an expired CRL still gets 60, a far one at most 3600. */
+/** CRL max-age bounds in seconds: an expired CRL still gets 60, a far one at most 3600. */
 const CRL_MAX_AGE = { min: 60, max: 3600, withoutNextUpdate: 300 } as const;
 
 /** The PEM boundaries of a kind (derToPem and pemLength take them). */
@@ -182,7 +179,7 @@ export function pemMarkers(kind: DownloadKind): PemBlockMarkers {
   return kind === "certificate" ? PEM_BLOCK_MARKERS.certificate : PEM_BLOCK_MARKERS.crl;
 }
 
-// Whole seconds until nextUpdate, clamped (rewrite of getArtifactCacheControlHeader).
+// Whole seconds until nextUpdate, clamped.
 function crlMaxAge(nextUpdate: Date | null, now: Date): number {
   if (nextUpdate === null) {
     return CRL_MAX_AGE.withoutNextUpdate;
@@ -198,15 +195,14 @@ function cacheControl(found: FoundDownload, now: Date): string {
 }
 
 /**
- * Response headers of a found download (slice 3 step 3, §10 #1), the same for GET, HEAD and (ETag,
- * Cache-Control) 304:
+ * Response headers of a found download, the same for GET, HEAD and (ETag, Cache-Control) 304:
  *
  * - ETag `"<sha256>"` (DER) or `"<sha256>-pem"` (PEM) from the catalog digest; a store ETag never
- *   leaves the adapter (B14).
+ *   leaves the adapter.
  * - Content-Length the catalog size, or pemLength of it: known without reading the blob.
  * - Cache-Control: certificates immutable for a year; CRLs `max-age` = whole seconds until
  *   nextUpdate clamped to [60, 3600], 300 without nextUpdate, and must-revalidate.
- * - Last-Modified (M18): importedAt / publishedAt as an HTTP date. Informational only:
+ * - Last-Modified: importedAt / publishedAt as an HTTP date. Informational only:
  *   If-Modified-Since is not evaluated (one-second precision; the ETag covers revalidation).
  */
 export function downloadHeaders(found: FoundDownload, now: Date): DownloadHeaders {
@@ -225,10 +221,10 @@ const stripWeak = (tag: string) => tag.replace(/^W\//, "");
 
 /**
  * Whether `If-None-Match` matches `etag` (a quoted download ETag), as hono/etag's etagMatches
- * compares, plus `*` (B9): the whole header trimmed is `*`, or one of its comma-separated members,
+ * compares, plus `*`: the whole header trimmed is `*`, or one of its comma-separated members,
  * trimmed, equals `etag` once a `W/` prefix is removed from both (weak comparison, RFC 9110
- * §13.1.2). An unquoted value never matches (a client holding the old service's unquoted MD5 gets
- * one full download); a missing or empty header never does.
+ * §13.1.2). An unquoted value never matches (the client gets a full download); a missing or empty
+ * header never does.
  */
 export function ifNoneMatchHit(header: string | null | undefined, etag: string): boolean {
   if (header === null || header === undefined) {

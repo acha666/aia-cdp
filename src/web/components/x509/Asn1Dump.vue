@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { Asn1Line } from "@/client/types";
 
-// From worker-aia-cdp@5b570aa:src/web/components/Asn1Dump.vue: the server's generic ASN.1 dump of
-// a value it could not decode, one line per element, indented two spaces per depth.
+// The server's generic ASN.1 dump of a value it could not decode, one line per element, indented
+// two spaces per depth.
 defineProps<{ lines: readonly Asn1Line[] }>();
 </script>
 

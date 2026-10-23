@@ -1,13 +1,12 @@
-// Download routes (plan §6, implementation slice 3 steps 4–5): `/ca/*`, `/crl/*` and `/dcrl/*`
-// serve what the current config's path table and the catalog name (src/core/resources.ts), DER as
-// stored and PEM derived on read. A plain Hono sub-app: not in the OpenAPI document, not part of
-// AppType. HEAD comes with each GET route; other methods get onMethodNotAllowed's text/plain 405.
+// Download routes (plan §6): `/ca/*`, `/crl/*` and `/dcrl/*` serve what the current config's path
+// table and the catalog name (src/core/resources.ts), DER as stored and PEM derived on read. A
+// plain Hono sub-app: not in the OpenAPI document, not part of AppType. HEAD comes with each GET
+// route; other methods get onMethodNotAllowed's text/plain 405.
 //
-// Rewrite of worker-aia-cdp@5b570aa:src/worker/worker.ts:47-84. The request path is looked up in
-// the path table and never used as a store key (§10 #2); it is `c.req.path`, Hono's decodeURI
-// form, and is not decoded again (M20). If-None-Match is compared by hand before the blob is read
-// (B9: hono/etag compares after the handler), and HEAD no longer reads the object. Range is
-// ignored: a full 200, as before.
+// The request path is looked up in the path table and never used as a store key; it is
+// `c.req.path`, Hono's decodeURI form, and is not decoded again. If-None-Match is compared by hand
+// before the blob is read (hono/etag compares after the handler), and HEAD does not read the
+// object. Range is ignored: always a full 200.
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { readState } from "../../core/catalog.ts";

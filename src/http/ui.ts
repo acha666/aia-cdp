@@ -1,6 +1,6 @@
-// Reserved prefixes and the UI fallback (plan §4.4, implementation slice 1 step 4). Both runtimes
-// share these rules: the Workers SPA asset layer and the Node static handler are only reached
-// through deps.ui, so /api and download-prefix misses never become 200 HTML (C12).
+// Reserved prefixes and the UI fallback (plan §4.4). Both runtimes share these rules: the Workers
+// SPA asset layer and the Node static handler are only reached through deps.ui, so /api and
+// download-prefix misses never become 200 HTML.
 import type { Context, NotFoundHandler } from "hono";
 import { ERROR_MESSAGES, errorBody, NO_STORE } from "./errors.ts";
 import type { AppDeps, AppEnv } from "./types.ts";

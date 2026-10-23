@@ -1,8 +1,7 @@
-// Extension and clock policy of an uploaded CRL (implementation slice 4 step 3, plan §6; C2, M11,
-// M13, M14, §10 #12). checkCrlPolicy runs on parseCrlHeader's CRL before the signature check
-// (verify.ts), checkEntryPolicy on the whole CRL once the signature verified. The signature check
-// bypasses PKIjs's own CRL check and with it PKIjs's list of critical extensions (C2): these tables
-// are the only extension gate.
+// Extension and clock policy of an uploaded CRL (plan §6). checkCrlPolicy runs on parseCrlHeader's
+// CRL before the signature check (verify.ts), checkEntryPolicy on the whole CRL once the signature
+// verified. The signature check bypasses PKIjs's own CRL check and with it PKIjs's list of critical
+// extensions: these tables are the only extension gate.
 import { Sequence } from "asn1js";
 import type { CertificateRevocationList, Extension } from "pkijs";
 import { toHex } from "./conversion.ts";
@@ -14,7 +13,7 @@ import type { ReceivedCrl } from "./parsers.ts";
 export const MAX_CLOCK_SKEW_MS = 300_000;
 
 /**
- * CRL extensions the service recognizes, accepted whether or not they are marked critical (M14):
+ * CRL extensions the service recognizes, accepted whether or not they are marked critical:
  * recognition does not depend on criticality.
  */
 const RECOGNIZED_CRL_EXTENSIONS: ReadonlySet<string> = new Set([
@@ -22,7 +21,7 @@ const RECOGNIZED_CRL_EXTENSIONS: ReadonlySet<string> = new Set([
   "2.5.29.27", // Delta CRL Indicator
   "2.5.29.35", // Authority Key Identifier
   "2.5.29.46", // Freshest CRL
-  "2.5.29.18", // Issuer Alternative Name (PKIjs accepts it critical too, C2)
+  "2.5.29.18", // Issuer Alternative Name (PKIjs accepts it critical too)
   "1.3.6.1.5.5.7.1.1", // Authority Information Access (likewise)
   "1.3.6.1.4.1.311.21.1", // AD CS CA Version
   "1.3.6.1.4.1.311.21.4", // AD CS Next CRL Publish
@@ -91,19 +90,19 @@ function serialOf(serial: { valueBlock: { valueHexView: Uint8Array } }): string 
  * The upload policy of the CRL itself, in this order, the first violation winning:
  *
  * 1. The outer signatureAlgorithm and the TBS signature must be the same octets as received, OID
- *    and parameters (RFC 5280 §5.1.1.2; M11, owner answer 5) → invalid_crl /
- *    signature_algorithm_mismatch. Received, not re-encoded: the outer one is outside the signature,
- *    and asn1js would re-encode some non-DER forms canonically (slice 4 review C2).
+ *    and parameters (RFC 5280 §5.1.1.2) → invalid_crl / signature_algorithm_mismatch. Received,
+ *    not re-encoded: the outer one is outside the signature, and asn1js would re-encode some
+ *    non-DER forms canonically.
  * 2. Clock, in epoch milliseconds: thisUpdate more than MAX_CLOCK_SKEW_MS after `now` →
  *    not_yet_valid; a nextUpdate before `now` is accepted with `expired: true`.
  * 3. CRL extensions in their order: the recognized ones are accepted critical or not. The Issuing
  *    Distribution Point is read whatever its criticality: naming only the distributionPoint (the AD
- *    CS CDP option, owner answer 2) is accepted; any other field → scoped_crl_unsupported, also
- *    when the IDP is not marked critical, against RFC 5280 which requires it to be: the service
- *    keeps one full and one delta CRL per issuer, and a partition published as the issuer's CRL
- *    would read as complete to a client that skips a non-critical IDP; a value that is not a
- *    SEQUENCE → invalid_crl / extension_value. Any other extension: critical →
- *    unknown_critical_extension, otherwise accepted (its bytes stay in the blob).
+ *    CS CDP option) is accepted; any other field → scoped_crl_unsupported, also when the IDP is not
+ *    marked critical, against RFC 5280 which requires it to be: the service keeps one full and one
+ *    delta CRL per issuer, and a partition published as the issuer's CRL would read as complete to
+ *    a client that skips a non-critical IDP; a value that is not a SEQUENCE → invalid_crl /
+ *    extension_value. Any other extension: critical → unknown_critical_extension, otherwise
+ *    accepted (its bytes stay in the blob).
  *
  * Pure: nothing but `crl` and `now` is read, and the signature is not checked. The entries are
  * checkEntryPolicy's.
@@ -171,10 +170,10 @@ export function checkCrlPolicy(crl: ReceivedCrl, now: Date): CrlPolicyResult {
 }
 
 /**
- * The upload policy of the revoked entries (M13), the first violation winning: reasonCode,
- * invalidityDate and holdInstructionCode are accepted critical or not; certificateIssuer (an
- * indirect CRL) → scoped_crl_unsupported; any other critical one → unknown_critical_extension, both
- * with the entry's serial number. Pure, like checkCrlPolicy.
+ * The upload policy of the revoked entries, the first violation winning: reasonCode, invalidityDate
+ * and holdInstructionCode are accepted critical or not; certificateIssuer (an indirect CRL) →
+ * scoped_crl_unsupported; any other critical one → unknown_critical_extension, both with the
+ * entry's serial number. Pure, like checkCrlPolicy.
  */
 export function checkEntryPolicy(crl: CertificateRevocationList): { ok: true } | CrlPolicyFailure {
   for (const entry of crl.revokedCertificates ?? []) {

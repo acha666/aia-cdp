@@ -3,11 +3,10 @@ import { cva } from "class-variance-authority";
 import { Badge } from "@/components/ui/badge";
 import type { TagTone } from "@/utils/extension-blocks";
 
-// The tag blocks of an extension and the reasons of a distribution point. The old TAG_TONES
-// (worker-aia-cdp@5b570aa:src/web/components/ExtensionView.vue:277-281) as Badge variants with
-// theme tokens only: flags (blue) filled, purposes and scopes (purple) outlined, reasons (amber)
-// in the warning colour. Tones only tell lists apart within one extension, so the neutral pair
-// is enough there.
+// The tag blocks of an extension and the reasons of a distribution point. The three tones are
+// Badge variants with theme tokens only: flags (blue) filled, purposes and scopes (purple)
+// outlined, reasons (amber) in the warning colour. Tones only tell lists apart within one
+// extension, so the neutral pair is enough there.
 const tagVariants = cva("font-normal", {
   variants: {
     tone: {

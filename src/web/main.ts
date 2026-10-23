@@ -5,7 +5,7 @@ import { createQueryClient } from "./client/queries";
 import { createAppI18n } from "./i18n";
 import { createAppRouter } from "./router";
 import "./styles/main.css";
-// vue-sonner 2 no longer injects its styles at run time (implementation B2).
+// vue-sonner 2 does not inject its styles at run time.
 import "vue-sonner/style.css";
 
 createApp(App)

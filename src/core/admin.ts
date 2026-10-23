@@ -1,4 +1,4 @@
-// Configuration rules and apply (plan §5.2, implementation slice 2 step 6; M5, M17, C5, C13).
+// Configuration rules and apply (plan §5.2).
 //
 // The rules V1–V9 come in three layers, exported separately:
 // - static (V1–V3, V4 / V6 static parts): the document alone. The CLI's `config validate` runs it
@@ -8,10 +8,10 @@
 // - migration (V7–V9): the document against the current config.json and catalog.json, at apply
 //   time only.
 //
-// There is no rebind ledger (owner decision 2): V7 compares with the current config only, so a
-// `/ca/` path removed by one apply and re-added for another certificate by a later one is not
-// detected. Certificate downloads are cached `immutable` for a year: a new CA certificate needs a
-// new path, which is the operator's responsibility.
+// There is no rebind ledger: V7 compares with the current config only, so a `/ca/` path removed by
+// one apply and re-added for another certificate by a later one is not detected. Certificate
+// downloads are cached `immutable` for a year: a new CA certificate needs a new path, which is the
+// operator's responsibility.
 import type { z } from "zod";
 import {
   CONFIG_KEY,
@@ -47,8 +47,8 @@ function byRule(issues: ConfigIssue[]): ConfigIssue[] {
 
 // Static layer -----------------------------------------------------------------------------------
 
-// V2 (M17, C13): the character set is the canonical form, so "unique after normalization" is just
-// unique keys. Case-sensitive, matched exactly by the download routes (slice 3).
+// V2: the character set is the canonical form, so "unique after normalization" is just unique
+// keys. Case-sensitive, matched exactly by the download routes.
 const PATH_SYNTAX = /^\/(?:ca|crl|dcrl)(?:\/[A-Za-z0-9._~-]+)+$/;
 const PATH_PREFIX = /^\/(ca|crl|dcrl)\//;
 
@@ -173,8 +173,8 @@ export function checkConfigStatic(value: unknown): ConfigCheck {
 /**
  * V4 (certificates keys, path certificates and target issuers are in the catalog), V5 (a target's
  * issuer has a Subject Key Identifier: CRLs are matched to issuers by AKI = SKI) and V6's catalog
- * part (M5, C5): two different certificates with the same SKI, such as a renewal on the same key,
- * must not each have a target of the same kind, or a CRL could not be attributed to one of them.
+ * part: two different certificates with the same SKI, such as a renewal on the same key, must not
+ * each have a target of the same kind, or a CRL could not be attributed to one of them.
  */
 export function checkConfigState(config: Config, catalog: Catalog): ConfigIssue[] {
   const issues: ConfigIssue[] = [];
@@ -233,7 +233,7 @@ export function checkConfigState(config: Config, catalog: Catalog): ConfigIssue[
  * V7 (a `/ca/` path in both the current and the new config keeps its certificate) and V9 (a target
  * id in both keeps its issuer and kind: a target's current CRL and its whole history are verified
  * by one certificate) compare with `current`, and are skipped without one. V8 (a target with a
- * current CRL stays in the config until it is retired, slice 6) needs only the catalog.
+ * current CRL stays in the config until it is retired) needs only the catalog.
  */
 export function checkConfigMigration(
   config: Config,
@@ -346,8 +346,7 @@ function parseCurrent(bytes: Uint8Array): Config | undefined {
  * (`ifNoneMatch: "*"` for the first config). A lost write is precondition_failed, not retried.
  *
  * Only config.json is written. The catalog is not re-read before the write: a publish, retire or
- * certificate deletion in between is the accepted cross-object window (slice 6: one operator at a
- * time).
+ * certificate deletion in between is the accepted cross-object window (one operator at a time).
  */
 export async function applyConfig(
   deps: { store: ObjectStore },

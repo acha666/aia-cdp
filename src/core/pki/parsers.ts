@@ -9,9 +9,9 @@ import { toHex } from "./conversion.ts";
 
 const LABELS: Record<PkiKind, string> = { certificate: "certificate", crl: "CRL" };
 
-// Strict DER (M1): one top-level element, no decoder errors, RFC 5280 times. A Uint8Array may be a
-// view into a larger buffer: asn1js decodes the view, so the end offset is compared with its
-// byteLength (the old callers passed `bytes.buffer` and decoded whatever surrounded the view).
+// Strict DER: one top-level element, no decoder errors, RFC 5280 times. A Uint8Array may be a view
+// into a larger buffer: asn1js decodes the view, so the end offset is compared with the view's
+// byteLength, never the buffer's (whatever surrounds the view is not part of the input).
 // asn1js's default limits (10 000 nodes, 16 MiB of contents) apply unless `limits` says otherwise.
 function decodeDer(
   der: ArrayBuffer | Uint8Array,
@@ -78,9 +78,9 @@ function versionOf(kind: PkiKind, schema: BaseBlock): number | undefined {
 /**
  * The octets of the two AlgorithmIdentifiers of a certificate or CRL as received (asn1js's
  * valueBeforeDecodeView, a view of its copy of the input, like PKIjs's own tbsView). RFC 5280
- * §4.1.1.2 and §5.1.1.2: they must be the same. Import and the upload policy compare these (M11):
- * the outer one is outside the signature, so anyone holding the file can rewrite it, and comparing
- * re-encodings would hide what asn1js normalizes (slice 4 review C2).
+ * §4.1.1.2 and §5.1.1.2: they must be the same. Import and the upload policy compare these: the
+ * outer one is outside the signature, so anyone holding the file can rewrite it, and comparing
+ * re-encodings would hide what asn1js normalizes.
  */
 export interface ReceivedAlgorithms {
   /** The outer signatureAlgorithm of the Certificate / CertificateList, outside the signature. */

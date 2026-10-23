@@ -1,8 +1,6 @@
-// CRL publishing (plan §5.5, implementation slice 4 steps 2, 5 and 6): blob and history keys, the
-// freshness rule and publishCrl. There is one commit point, the catalog write: no PEM or alias
-// companions, no edge cache (§10 #5, #6). Rewrite of the core of
-// worker-aia-cdp@5b570aa:src/worker/api/v2/crls/upload.ts and of the issuer lookup in
-// src/worker/r2/certificates.ts; the HTTP route maps the result (slice 4 step 8).
+// CRL publishing (plan §5.5): blob and history keys, the freshness rule and publishCrl. There is
+// one commit point, the catalog write: no PEM or alias companions, no edge cache. The HTTP route
+// maps the result.
 import { encodeJson, JSON_CONTENT_TYPE, realSleep, updateState } from "./catalog.ts";
 import type { CatalogMutation, CrlKind, CurrentCrl, State } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
@@ -23,8 +21,8 @@ import type { CrlFields, CrlSummary } from "./summary/catalog-summary.ts";
 /**
  * `<YYYYMMDDHHMMSSZ of thisUpdate>-<crlNumber or "none">-<sha256>`: the name of one CRL version,
  * shared by its blob and by its history marker (plan §5.1). The fixed-width time first makes a
- * `list` of either prefix sort by thisUpdate; the number lets slice 6 list a target's history
- * without reading the blobs.
+ * `list` of either prefix sort by thisUpdate; the number lets a target's history be listed without
+ * reading the blobs.
  */
 export function crlVersionName(
   summary: Pick<CrlSummary, "thisUpdate" | "crlNumber">,
@@ -56,16 +54,15 @@ export function crlHistoryKey(
 }
 
 /**
- * Body of a history marker written when a publish supersedes `current`: that record verbatim
- * (slice 6's retire writes the same). No time of its own: a marker is create-only and may come from
- * a call whose catalog write was then lost (concurrent_update) while the version stayed current, so
- * a time written then would stay wrong forever (slice 4 review C6). When the version was superseded
- * is the `publishedAt` of the version that superseded it, which slice 6 derives when it lists the
- * history.
+ * Body of a history marker written when a publish supersedes `current`: that record verbatim. No
+ * time of its own: a marker is create-only and may come from a call whose catalog write was then
+ * lost (concurrent_update) while the version stayed current, so a time written then would stay
+ * wrong forever. When the version was superseded is the `publishedAt` of the version that
+ * superseded it.
  */
 export type HistoryMarker = CurrentCrl;
 
-// Freshness (step 5; C3, M15) ----------------------------------------------------------------------
+// Freshness ---------------------------------------------------------------------------------------
 
 /** What compareFreshness reads of a CRL: the catalog `current` record has this shape. */
 export interface FreshnessInput {
@@ -78,12 +75,11 @@ export type Freshness =
   "created" | "unchanged" | "updated" | "stale_crl" | "conflict" | "non_orderable";
 
 /**
- * Whether `incoming` may replace the target's `current` CRL (rewrite of
- * worker-aia-cdp@5b570aa:src/worker/pki/crls.ts:17-44, isNewerCRL), from the catalog summaries
- * alone, never the current DER:
+ * Whether `incoming` may replace the target's `current` CRL, from the catalog summaries alone,
+ * never the current DER:
  *
  * 0. no current → created;
- * 1. same sha256 → unchanged (§10 #4);
+ * 1. same sha256 → unchanged;
  * 2. a CRL Number on exactly one side → non_orderable;
  * 3. numbers on both sides: higher → updated, lower → stale_crl, equal → row 4;
  * 4. equal numbers or none on either side, by thisUpdate: later → updated, the same instant →
@@ -122,7 +118,7 @@ export function compareFreshness(
   return order > 0 ? "updated" : "stale_crl";
 }
 
-// publishCrl (step 6) ------------------------------------------------------------------------------
+// publishCrl --------------------------------------------------------------------------------------
 
 /** The DER blob is written with this type (R2 keeps it as httpMetadata). */
 const CRL_CONTENT_TYPE = "application/pkix-crl";
@@ -202,7 +198,7 @@ export type PublishFailure =
       /** serialNumber (uppercase hex) only for an entry extension. */
       details: { oid: string; serialNumber?: string };
     }
-  /** No AKI keyIdentifier (owner answer 3), or no imported certificate with that SKI. */
+  /** No AKI keyIdentifier, or no imported certificate with that SKI. */
   | { error: "issuer_not_found"; details: { reason: "missing_aki" } | { authorityKeyId: string } }
   /** `certificates`: the imported certificates with the AKI as SKI; no target of the kind names one. */
   | { error: "target_not_configured"; details: { kind: CrlKind; certificates: string[] } }
@@ -336,10 +332,10 @@ type Resolution =
     };
 
 /**
- * Step 5 (M3, M4, M23, C5): the certificates whose subjectKeyId is the AKI are the candidates; the
- * target is the config target of the CRL's kind whose issuer is one of them, and that issuer
- * verifies, whatever other certificates share its SKI (owner answer 4). V6 leaves at most one such
- * target; more than one means an out-of-band config.json and throws (500).
+ * The certificates whose subjectKeyId is the AKI are the candidates; the target is the config
+ * target of the CRL's kind whose issuer is one of them, and that issuer verifies, whatever other
+ * certificates share its SKI. V6 leaves at most one such target; more than one means an out-of-band
+ * config.json and throws (500).
  */
 function resolveTarget(state: State, aki: string | undefined, kind: CrlKind): Resolution {
   if (aki === undefined) {
@@ -378,8 +374,8 @@ function resolveTarget(state: State, aki: string | undefined, kind: CrlKind): Re
   return { targetId, issuer: target.issuer };
 }
 
-// Step 6: the issuer's DER by its catalog key. A missing blob (or one that no longer parses) is a
-// broken store, not a bad upload: it throws (500).
+// The issuer's DER by its catalog key. A missing blob (or one that no longer parses) is a broken
+// store, not a bad upload: it throws (500).
 async function verifyWithIssuer(
   store: ObjectStore,
   state: State,
@@ -575,9 +571,9 @@ const MAX_DETAIL_CHARS = 500;
  *    with ifMatch. A lost catalog write goes back to step 2 on re-read state after 250 / 500 /
  *    1000 ms (updateState); after 4 lost writes → concurrent_update.
  *
- * Every rejection and unchanged before a write leaves the store as it was (M9). A lost race leaves
- * this call's blob unreferenced, an orphan that is not history (C8), and possibly the marker of a
- * current that was really published. Exactly one `publish` record goes to deps.log per call, also
+ * Every rejection and unchanged before a write leaves the store as it was. A lost race leaves this
+ * call's blob unreferenced, an orphan that is not history, and possibly the marker of a current
+ * that was really published. Exactly one `publish` record goes to deps.log per call, also
  * when the call throws (an invalid stored object, a missing issuer blob, a store error): then with
  * reason `internal`, and the error is rethrown for the route's 500.
  */

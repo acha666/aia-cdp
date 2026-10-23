@@ -1,6 +1,5 @@
-// One-line texts for X.509 names, algorithms and general names. From
-// worker-aia-cdp@5b570aa:src/web/utils/x509.ts; formatAttribute is exported for
-// DistributionPointList and the "salt" of RSASSA-PSS parameters comes from i18n.
+// One-line texts for X.509 names, algorithms and general names. formatAttribute is exported for
+// DistributionPointList; the "salt" of RSASSA-PSS parameters comes from i18n.
 import type {
   AlgorithmIdentifier,
   AttributeTypeAndValue,

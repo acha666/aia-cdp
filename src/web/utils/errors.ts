@@ -1,7 +1,7 @@
-// What the UI says about a failed API call (implementation slice 5b steps 6–7): the message of its
-// code, `errors.<code>`, for every code the client knows (error-codes.ts); a code it does not know
-// (a newer server's) or a failure that is not an ApiError reads `errors.unknown` with that code. An
-// upload failure's `details.reason` reads `upload.reasons.<reason>`, an unknown reason as it is.
+// What the UI says about a failed API call: the message of its code, `errors.<code>`, for every
+// code the client knows (error-codes.ts); a code it does not know (a newer server's) or a failure
+// that is not an ApiError reads `errors.unknown` with that code. An upload failure's
+// `details.reason` reads `upload.reasons.<reason>`, an unknown reason as it is.
 import { CLIENT_ERROR_CODES, ERROR_CODES } from "@/client/error-codes";
 import { ApiError } from "@/client/errors";
 

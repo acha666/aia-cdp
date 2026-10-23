@@ -1,4 +1,4 @@
-// Certificate import (plan §5.5, implementation slice 2 step 5; §10 #5, #14; M1, M9, M23).
+// Certificate import (plan §5.5).
 // There is one commit point, the catalog write: no companion objects, no edge cache. Importing does
 // not authorize anything: a certificate only becomes an issuer once a config target names it.
 import { certificateBlobKey, readCatalog, realSleep, updateCatalog } from "./catalog.ts";
@@ -68,9 +68,9 @@ async function parse(bytes: Uint8Array): Promise<Parsed | { reason: InvalidCerti
  * key is the digest) and the entry added by updateCatalog, which checks again for the id on every
  * attempt, so two concurrent imports of one certificate end as one `created` and one `unchanged`.
  *
- * Any rejection happens before the first write (M9). If the catalog write is lost
- * (concurrent_update) or the process dies after the blob write, only an unreferenced blob remains;
- * certificates are listed from the catalog, so it stays invisible (C8).
+ * Any rejection happens before the first write. If the catalog write is lost (concurrent_update)
+ * or the process dies after the blob write, only an unreferenced blob remains; certificates are
+ * listed from the catalog, so it stays invisible.
  */
 export async function importCertificate(
   deps: ImportDeps,

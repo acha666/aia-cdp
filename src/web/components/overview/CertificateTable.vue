@@ -23,13 +23,12 @@ import { formatDateDay, formatDateDayWithoutTimezone, getRelativeTime } from "@/
 import { certificateName } from "@/utils/labels";
 import { computeCertificateStatus } from "@/utils/status";
 
-// The imported certificates (plan §8), after worker-aia-cdp@5b570aa:src/web/components/
-// CertificateCard.vue: name (config label, else subject CN), issuer, validity with the time left
-// while valid, status and downloads, sorted by name. The list keeps showing while it refetches;
-// skeleton rows appear only before the first answer. On a phone (below sm) only the name and the
-// status show: with every column the table scrolls sideways inside its card, which hides the
-// status; issuer, validity and downloads are on the detail page. From sm up, where the table may
-// still scroll, the name keeps a minimum width instead of one word per line.
+// The imported certificates (plan §8): name (config label, else subject CN), issuer, validity with
+// the time left while valid, status and downloads, sorted by name. The list keeps showing while it
+// refetches; skeleton rows appear only before the first answer. On a phone (below sm) only the name
+// and the status show: with every column the table scrolls sideways inside its card, which hides
+// the status; issuer, validity and downloads are on the detail page. From sm up, where the table
+// may still scroll, the name keeps a minimum width instead of one word per line.
 const { data, isPending, isError, error, refetch } = useCertificates();
 
 const SECONDARY = "hidden sm:table-cell";

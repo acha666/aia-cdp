@@ -5,8 +5,8 @@ import GeneralNameList from "@/components/x509/GeneralNameList.vue";
 import TagList from "@/components/x509/TagList.vue";
 import { formatAttribute } from "@/utils/x509";
 
-// From worker-aia-cdp@5b570aa:src/web/components/DistributionPointList.vue: the name (full name
-// or relative to the CRL issuer), the reasons and the CRL issuer of each point.
+// Distribution points: the name (full name or relative to the CRL issuer), the reasons and the CRL
+// issuer of each point.
 defineProps<{ points: readonly DistributionPoint[] }>();
 
 const { t } = useI18n();

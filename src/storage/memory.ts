@@ -1,6 +1,6 @@
-// In-memory ObjectStore for tests and the OpenAPI generator. ETag = content SHA-256.
-// Semantics follow worker-aia-cdp@5b570aa:tests/helpers/r2.ts (MemoryBucket), with the race fixed:
-// the conditional check and the write happen synchronously after the only await.
+// In-memory ObjectStore for tests and the OpenAPI generator. ETag = content SHA-256. The
+// conditional check and the write happen synchronously after the only await, so two concurrent
+// conditional puts cannot both succeed.
 import { sha256Hex } from "../core/digest.ts";
 import { assertStoreKey, assertStorePrefix } from "../core/store.ts";
 import type { ObjectStore, PutOptions, PutResult } from "../core/store.ts";

@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import { useCopy } from "@/composables/useCopy";
 import { formatHexGroups, normalizeHexForCopy } from "@/utils/format";
 
-// A hex value in monospace with a copy button (worker-aia-cdp@5b570aa:src/web/components/
-// HexValue.vue). "grouped" shows bytes as AB:CD and wraps only after a colon (<wbr>, which a
-// selection does not copy); "plain" shows the digits as they are. The copy button puts the bare
-// upper-case digits on the clipboard (useCopy: a failure is reported as a toast).
+// A hex value in monospace with a copy button. "grouped" shows bytes as AB:CD and wraps only after
+// a colon (<wbr>, which a selection does not copy); "plain" shows the digits as they are. The copy
+// button puts the bare upper-case digits on the clipboard (useCopy: a failure is reported as a
+// toast).
 const props = withDefaults(
   defineProps<{
     value?: string | null;

@@ -1,8 +1,5 @@
-// Catalog summaries (plan §5.3; formats in implementation slice 2 step 4 and slice 4 step 2). The
-// field derivation comes from worker-aia-cdp@5b570aa:src/worker/r2/summary.ts:68-112
-// (buildCertificateMetadata, buildCrlMetadata); ensureSummaryMetadata, the metadata merge and
-// SUMMARY_VERSION are not migrated: a summary is always built whole and replaces the previous one,
-// so there is one implementation of each summary.
+// Catalog summaries (plan §5.3). A summary is always built whole and replaces the previous one (no
+// merge, no summary version), so there is one implementation of each summary.
 import type { Certificate, CertificateRevocationList } from "pkijs";
 import { sha1Hex, toHex } from "../pki/conversion.ts";
 import { PkiParseError } from "../pki/errors.ts";
@@ -60,8 +57,8 @@ function readExtension<T>(kind: PkiKind, name: string, read: () => T): T {
   }
 }
 
-// The old code skipped a malformed SKI / AKI silently (M5); here it rejects the certificate. An
-// empty key id is rejected too: it cannot identify a key, and the catalog format requires hex.
+// A malformed SKI / AKI rejects the certificate, never skipped silently. An empty key id is
+// rejected too: it cannot identify a key, and the catalog format requires hex.
 function readKeyId(name: string, read: () => string | undefined): string | null {
   const keyId = readExtension("certificate", name, read);
   if (keyId === "") {

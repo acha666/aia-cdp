@@ -1,7 +1,6 @@
-// Types of the X.509 projection (schemas.ts) under the names the builders and the slice 5b views
-// use: the type exports of worker-aia-cdp@5b570aa:src/contracts/schemas.ts:768-866 that name a
-// migrated schema, plus DistributionPointName and ExtensionType. Type-only imports, so the web
-// client can import this module without bundling zod (implementation §2.1).
+// Types of the X.509 projection (schemas.ts) under the names the builders and the UI's views use:
+// one per schema, plus ExtensionType. Type-only imports, so the web client can import this module
+// without bundling zod (implementation §2.1).
 import type { z } from "zod";
 import type {
   AccessDescriptionSchema,

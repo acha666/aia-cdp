@@ -1,13 +1,9 @@
 // Detail builders for X.509 extensions: one decoder per supported OID (41 extensionType values),
-// a generic ASN.1 dump for the rest (implementation slice 5a step 3). From
-// worker-aia-cdp@5b570aa:src/worker/api/v2/builders/extensions.ts with these changes: the imports,
-// buildTime takes a pkijs.Time, isBlock guards and `?? 0` for noUncheckedIndexedAccess (same
-// behaviour); and from the slice 5a review, integers are read from their contents octets (asn1js's
+// a generic ASN.1 dump for the rest. Integers are read from their contents octets (asn1js's
 // valueDec, which PKIjs copies, is 0 from four octets on; beyond a safe integer the extension is a
 // parse error) and an SCT list must decode whole. The extensionType literals and field names are
-// the contract with the slice 5b views. Key identifiers are uppercase hex here (for display);
-// catalog summaries and ids are lowercase (M4), so compare across endpoints only through the
-// summary fields.
+// the contract with the UI's views. Key identifiers are uppercase hex here (for display); catalog
+// summaries and ids are lowercase, so compare across endpoints only through the summary fields.
 import {
   BaseBlock,
   BitString as Asn1BitString,

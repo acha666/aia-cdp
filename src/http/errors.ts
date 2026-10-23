@@ -1,6 +1,6 @@
-// Error envelope and handlers (plan §7.3, implementation §2.6). Rewrite of
-// worker-aia-cdp@5b570aa:src/worker/api/v2/response.ts: no `{ data, meta }` wrapper, one envelope
-// `{ error: { code, message, details? } }`, and exception text never reaches a response.
+// Error envelope and handlers (plan §7.3, implementation §2.6): a success body is the resource
+// itself, a failure is one envelope `{ error: { code, message, details? } }`, and exception text
+// never reaches a response.
 import type { Hook, z } from "@hono/zod-openapi";
 import type { Context, ErrorHandler } from "hono";
 import { HTTPException } from "hono/http-exception";

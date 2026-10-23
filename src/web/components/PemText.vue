@@ -10,9 +10,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useCopy } from "@/composables/useCopy";
 
 // The PEM text served at one of the resource's download paths, with a copy button (the raw tab of
-// a certificate, implementation slice 5b step 6). The path comes from the API's `downloads`; the
-// download routes are not part of the typed client, so this is a plain GET through apiFetch (no
-// response → ApiError `network`), revalidated with the route's ETag.
+// a certificate). The path comes from the API's `downloads`; the download routes are not part of
+// the typed client, so this is a plain GET through apiFetch (no response → ApiError `network`),
+// revalidated with the route's ETag.
 const props = defineProps<{ path: string }>();
 
 const { t } = useI18n();

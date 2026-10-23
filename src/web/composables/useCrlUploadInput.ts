@@ -1,7 +1,5 @@
 import { computed, shallowRef } from "vue";
 
-// From worker-aia-cdp@5b570aa:src/web/composables/useCrlUploadInput.ts, unchanged in behaviour.
-
 /** Editing text or selecting a file replaces the previous upload source. */
 export function useCrlUploadInput() {
   const input = shallowRef<string | File>("");

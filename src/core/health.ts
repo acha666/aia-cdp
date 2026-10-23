@@ -1,6 +1,5 @@
-// Health check (plan §7.1, §10 #15). Rewrite of the health part of
-// worker-aia-cdp@5b570aa:src/worker/api/v2/stats.ts, which only listed the bucket and reported a
-// hard-coded `cache: ok`. Here the store, config.json and catalog.json are really read.
+// Health check (plan §7.1): config.json and catalog.json are read from the store, so a store that
+// cannot serve them or an invalid stored object shows in the report.
 //
 // The configuration is what readState returns: the config rules are checked when a config is
 // applied, so a stored config is only invalid when it is not JSON or fails its schema.

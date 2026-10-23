@@ -1,8 +1,6 @@
-// The TBSCertList projection of the CRL detail (implementation slice 5a step 3), built whole on
-// every request (§10 #28). From worker-aia-cdp@5b570aa:src/worker/api/v2/builders/crl.ts without
-// its options: every revoked entry is returned (no v2 page of 10 entries and no cursor), and there
-// is no CRL type here, since the kind of a target comes from config.json, not from the presence of
-// a Delta CRL Indicator (M6).
+// The TBSCertList projection of the CRL detail, built whole on every request: every revoked entry
+// is returned (no pages and no cursor), and there is no CRL type here, since the kind of a target
+// comes from config.json, not from the presence of a Delta CRL Indicator.
 import type * as pkijs from "pkijs";
 import { SIGNATURE_ALG_NAMES } from "../pki/constants.ts";
 import type { TBSCertList, RevokedCertificate } from "./types.ts";

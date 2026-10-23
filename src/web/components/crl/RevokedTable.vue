@@ -9,12 +9,11 @@ import { useDateText } from "@/composables/useDateText";
 import { describeEntry } from "@/utils/crl-entries";
 import { formatDateTimeWithZone } from "@/utils/dates";
 
-// The revoked certificates of a target's current CRL (plan §8; after worker-aia-cdp@5b570aa:src/
-// web/components/CrlDetails.vue:198-270): serial number, revocation date, reason, invalidity date
-// and indirect issuer. `null` is a target without a current CRL: no list at all, never 0 (§10 #7);
-// an empty list says so. The API sends every entry (a 10 000-entry CRL is 5.5 MB of JSON), so the
-// table renders PAGE_SIZE rows at a time; the header row stays in view while the box scrolls. The
-// first and the last page disable one page button: the other one takes its focus.
+// The revoked certificates of a target's current CRL (plan §8): serial number, revocation date,
+// reason, invalidity date and indirect issuer. `null` is a target without a current CRL: no list at
+// all, never 0; an empty list says so. The API sends every entry (a 10 000-entry CRL is 5.5 MB of
+// JSON), so the table renders PAGE_SIZE rows at a time; the header row stays in view while the box
+// scrolls. The first and the last page disable one page button: the other one takes its focus.
 const props = defineProps<{ revoked: RevokedCertificates | null }>();
 
 const PAGE_SIZE = 200;

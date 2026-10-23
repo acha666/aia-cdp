@@ -1,5 +1,4 @@
-// R2 ObjectStore adapter (plan §5.4). Sources: worker-aia-cdp@5b570aa:src/worker/r2/objects.ts
-// (putBinary's put shape) and src/worker/r2/listing.ts (listAllWithPrefix's cursor loop).
+// R2 ObjectStore adapter (plan §5.4).
 //
 // The bucket is typed structurally (R2BucketLike) instead of against the Workers global R2Bucket,
 // so this file also compiles in the Node program (tests drive it through a fake bucket and through
@@ -62,8 +61,8 @@ export class R2Store implements ObjectStore {
       httpMetadata: opts.contentType ? { contentType: opts.contentType } : undefined,
       onlyIf: Object.keys(onlyIf).length > 0 ? onlyIf : undefined,
     });
-    // Any other failure (including R2's per-key write rate limit) is thrown, not mapped: slice 2's
-    // retry loop only retries precondition failures.
+    // Any other failure (including R2's per-key write rate limit) is thrown, not mapped: the
+    // catalog's retry loop only retries precondition failures.
     return object ? { ok: true, etag: object.etag } : { ok: false, reason: "precondition-failed" };
   }
 
