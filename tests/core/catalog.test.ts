@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CATALOG_KEY,
   CatalogSchema,
@@ -10,7 +10,6 @@ import {
   InvalidStoredObjectError,
   readCatalog,
   readState,
-  updateCatalog,
   updateState,
 } from "../../src/core/catalog.ts";
 import type { Catalog, CatalogMutation, State } from "../../src/core/catalog.ts";
@@ -36,23 +35,12 @@ function catalog(certificates: Catalog["certificates"], targets: Catalog["target
   return { ...emptyCatalog(), certificates, targets };
 }
 
-/** A sleep that records its arguments and returns at once. */
-function recordingSleep() {
-  const calls: number[] = [];
-  return {
-    calls,
-    sleep: async (ms: number) => {
-      calls.push(ms);
-    },
-  };
-}
-
 async function certificateIds(store: MemoryStore): Promise<string[]> {
   return Object.keys((await readCatalog(store)).catalog.certificates);
 }
 
 // Adds root-ca unless it is there (the shape importCertificate uses).
-function addRoot(current: Catalog): CatalogMutation<string> {
+function addRoot({ catalog: current }: State): CatalogMutation<string> {
   return current.certificates[ROOT.id]
     ? { result: "unchanged" }
     : {
@@ -138,20 +126,18 @@ describe("readState", () => {
   it("reads an empty store as no config and the empty catalog", async () => {
     expect(await readState(new MemoryStore())).toEqual({
       config: null,
-      configEtag: null,
       catalog: emptyCatalog(),
       catalogEtag: null,
     });
   });
 
-  it("returns both objects with their store ETags", async () => {
+  it("returns both objects and the catalog's store ETag", async () => {
     const store = new MemoryStore();
     await putText(store, CONFIG_KEY, MINIMAL_CONFIG);
     const value = catalog({ [ROOT.id]: ROOT.entry });
     await putCatalog(store, value);
     expect(await readState(store)).toEqual({
       config: JSON.parse(MINIMAL_CONFIG) as unknown,
-      configEtag: (await store.get(CONFIG_KEY))!.etag,
       catalog: value,
       catalogEtag: (await store.get(CATALOG_KEY))!.etag,
     });
@@ -170,20 +156,20 @@ describe("readState", () => {
   });
 });
 
-describe("updateCatalog", () => {
+describe("updateState", () => {
   it("creates catalog.json with ifNoneMatch, then replaces it with ifMatch", async () => {
     const base = new MemoryStore();
     const store = recordingStore(base);
-    const { sleep, calls } = recordingSleep();
-    expect(await updateCatalog(store, addRoot, { sleep })).toEqual({ result: "created" });
+    const sleep = vi.fn(() => Promise.resolve());
+    expect(await updateState(store, addRoot, sleep)).toEqual({ result: "created" });
     const first = await base.get(CATALOG_KEY);
     expect(first!.bytes).toEqual(encodeJson((await readCatalog(base)).catalog));
 
-    const addIssuing = (current: Catalog): CatalogMutation<string> => ({
+    const addIssuing = ({ catalog: current }: State): CatalogMutation<string> => ({
       next: { ...current, certificates: { ...current.certificates, [ISSUING.id]: ISSUING.entry } },
       result: "added",
     });
-    expect(await updateCatalog(store, addIssuing, { sleep })).toEqual({ result: "added" });
+    expect(await updateState(store, addIssuing, sleep)).toEqual({ result: "added" });
 
     expect(puts(store)).toEqual([
       { key: CATALOG_KEY, opts: { contentType: "application/json", ifNoneMatch: "*" }, ok: true },
@@ -193,7 +179,7 @@ describe("updateCatalog", () => {
         ok: true,
       },
     ]);
-    expect(calls).toEqual([]);
+    expect(sleep).not.toHaveBeenCalled();
     expect(await certificateIds(base)).toEqual([ROOT.id, ISSUING.id]);
   });
 
@@ -218,9 +204,9 @@ describe("updateCatalog", () => {
         base
       )
     );
-    const { sleep, calls } = recordingSleep();
-    expect(await updateCatalog(store, addRoot, { sleep })).toEqual({ result: "created" });
-    expect(calls).toEqual([250]);
+    const sleep = vi.fn(() => Promise.resolve());
+    expect(await updateState(store, addRoot, sleep)).toEqual({ result: "created" });
+    expect(sleep.mock.calls).toEqual([[250]]);
     expect(puts(store).map((put) => put.ok)).toEqual([false, true]);
     expect((await certificateIds(base)).sort()).toEqual([rival.id, ROOT.id].sort());
   });
@@ -230,11 +216,9 @@ describe("updateCatalog", () => {
     await putCatalog(base, emptyCatalog());
     const before = await base.get(CATALOG_KEY);
     const store = recordingStore(flakyStore(base, { failIfMatch: 4 }));
-    const { sleep, calls } = recordingSleep();
-    expect(await updateCatalog(store, addRoot, { sleep })).toEqual({
-      error: "concurrent_update",
-    });
-    expect(calls).toEqual([250, 500, 1000]);
+    const sleep = vi.fn(() => Promise.resolve());
+    expect(await updateState(store, addRoot, sleep)).toEqual({ error: "concurrent_update" });
+    expect(sleep.mock.calls).toEqual([[250], [500], [1000]]);
     expect(store.writes).toHaveLength(4);
     expect(writtenKeys(store)).toEqual([]);
     expect((await base.get(CATALOG_KEY))!.bytes).toEqual(before!.bytes);
@@ -243,20 +227,18 @@ describe("updateCatalog", () => {
   it("does not retry a put that throws", async () => {
     const failure = new Error("429 too many writes");
     const store = flakyStore(new MemoryStore(), { putError: failure });
-    const { sleep, calls } = recordingSleep();
-    await expect(updateCatalog(store, addRoot, { sleep })).rejects.toBe(failure);
-    expect(calls).toEqual([]);
+    const sleep = vi.fn(() => Promise.resolve());
+    await expect(updateState(store, addRoot, sleep)).rejects.toBe(failure);
+    expect(sleep).not.toHaveBeenCalled();
   });
-});
 
-describe("updateState", () => {
   it("gives every attempt a fresh readState and writes on the catalog ETag of that read", async () => {
     const base = new MemoryStore();
     await putText(base, CONFIG_KEY, MINIMAL_CONFIG);
     await putCatalog(base, emptyCatalog());
     const store = recordingStore(flakyStore(base, { failIfMatch: 1 }));
     const seen: State[] = [];
-    const { sleep, calls } = recordingSleep();
+    const sleep = vi.fn(() => Promise.resolve());
     const result = await updateState(
       store,
       async (state): Promise<CatalogMutation<number>> => {
@@ -264,10 +246,10 @@ describe("updateState", () => {
         await Promise.resolve();
         return { next: catalog({ [ROOT.id]: ROOT.entry }), result: seen.length };
       },
-      { sleep }
+      sleep
     );
     expect(result).toEqual({ result: 2 });
-    expect(calls).toEqual([250]);
+    expect(sleep.mock.calls).toEqual([[250]]);
     const minimal = JSON.parse(MINIMAL_CONFIG) as unknown;
     expect(seen.map((state) => state.config)).toEqual([minimal, minimal]);
     expect(puts(store).map((put) => [put.key, put.ok, put.opts.ifMatch])).toEqual([

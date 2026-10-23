@@ -370,15 +370,14 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 4. 用 AKI 在 catalog 的证书摘要里找 SKI 相等的证书，再在 config 里找绑定它且 kind 匹配的目标。
    无 AKI `keyIdentifier` 或找不到证书是 `issuer_not_found`，证书存在但无目标是 `target_not_configured`；两个匹配目标只会来自绕过
    规则 V6 手写的 config，按服务端故障 500。
-5. 读签发者 DER（按已知键），用目标配置的签发者对收到的原始 TBSCertList（含吊销列表）验签（同 SKI 的续期证书不影响选择）；
-   结果在重试间按签发者复用。
+5. 读签发者 DER（按已知键），用目标配置的签发者对收到的原始 TBSCertList（含吊销列表）验签（同 SKI 的续期证书不影响选择）。
 6. 与 `targets[id].current` 比较：按 catalog 里的 `crlNumber` / `thisUpdate` 摘要判新鲜度，不必再读当前 DER；`stale_crl`、`conflict`、
    `non_orderable` 到此结束。
 7. 只有将成为 `created` / `updated` 的 CRL 才完整解码（限额随输入放大），检查吊销条目的扩展，生成带 `revokedCount` 的摘要。
    每次调用至多做一次。
 8. `put` blob（内容寻址，`ifNoneMatch: "*"`，已存在即视为成功，幂等）。
 9. 若有旧 `current`，先 create-only 写它的 history 标记（§5.1）；再 `put catalog.json` 带 `ifMatch` 更新 `current`。
-   失败则重读 config 与 catalog 回到第 2 步（目标或签发者变了就重新验签），重试三次（共 4 次尝试，250 ms、500 ms、
+   失败则重读 config 与 catalog 回到第 2 步（重新找目标并验签），重试三次（共 4 次尝试，250 ms、500 ms、
    1 s 退避），之后返回 `concurrent_update`。
 10. 返回 `created`（之前无 current）或 `updated`。
 

@@ -330,8 +330,7 @@ export type ApplyConfigResult =
 // take part in V7 / V9.
 function parseCurrent(bytes: Uint8Array): Config | undefined {
   try {
-    const parsed = ConfigSchema.safeParse(decodeJson(bytes));
-    return parsed.success ? parsed.data : undefined;
+    return ConfigSchema.parse(decodeJson(bytes));
   } catch {
     return undefined;
   }

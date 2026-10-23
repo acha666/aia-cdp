@@ -19,7 +19,7 @@ export type CertificateSummary = z.infer<typeof CertificateSummarySchema>;
 export type CrlSummary = z.infer<typeof CrlSummarySchema>;
 
 /** `read()`, with whatever it throws reported as a malformed extension of `kind`. */
-function readExtension<T>(kind: PkiKind, name: string, read: () => T): T {
+export function readExtension<T>(kind: PkiKind, name: string, read: () => T): T {
   try {
     return read();
   } catch (error) {

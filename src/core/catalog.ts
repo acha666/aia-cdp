@@ -182,17 +182,11 @@ export class InvalidStoredObjectError extends Error {
 }
 
 function parseStored<T>(key: string, bytes: Uint8Array, schema: z.ZodType<T>): T {
-  let value: unknown;
   try {
-    value = decodeJson(bytes);
+    return schema.parse(decodeJson(bytes));
   } catch (error) {
     throw new InvalidStoredObjectError(key, { cause: error });
   }
-  const result = schema.safeParse(value);
-  if (!result.success) {
-    throw new InvalidStoredObjectError(key, { cause: result.error });
-  }
-  return result.data;
 }
 
 // Reading ---------------------------------------------------------------------------------------
@@ -211,120 +205,73 @@ export async function readCatalog(
 export interface State {
   /** null while config.json is missing (nothing configured yet). */
   config: Config | null;
-  configEtag: string | null;
   catalog: Catalog;
   catalogEtag: string | null;
 }
 
 /**
  * One `get` each of config.json and catalog.json. Throws InvalidStoredObjectError when either is
- * present but not valid; store errors propagate. ETags are the store's (opaque).
+ * present but not valid; store errors propagate. The catalog ETag is the store's (opaque).
  */
 export async function readState(store: ObjectStore): Promise<State> {
   const [configObject, { catalog, etag: catalogEtag }] = await Promise.all([
     store.get(CONFIG_KEY),
     readCatalog(store),
   ]);
-  if (configObject === null) {
-    return { config: null, configEtag: null, catalog, catalogEtag };
-  }
-  return {
-    config: parseStored(CONFIG_KEY, configObject.bytes, ConfigSchema),
-    configEtag: configObject.etag,
-    catalog,
-    catalogEtag,
-  };
+  const config =
+    configObject === null ? null : parseStored(CONFIG_KEY, configObject.bytes, ConfigSchema);
+  return { config, catalog, catalogEtag };
 }
 
 // Conditional catalog write ---------------------------------------------------------------------
 
 /** Waits before each retry of a lost catalog write (plan §5.5: 1 attempt + 3 retries). */
-export const CATALOG_BACKOFF_MS: readonly number[] = [250, 500, 1000];
+const BACKOFF_MS = [250, 500, 1000];
 
-export function realSleep(ms: number): Promise<void> {
+function realSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** What a mutation decided: write `next` and return `result`, or return `result` without a write. */
 export type CatalogMutation<R> = { next: Catalog; result: R } | { result: R };
 
-export interface UpdateCatalogOptions {
-  /** Injected so tests do not wait; production passes realSleep. */
-  sleep: (ms: number) => Promise<void>;
-  backoffMs?: readonly number[];
-}
-
-type UpdateResult<R> = { result: R } | { error: "concurrent_update" };
-
-// The loop of updateCatalog and updateState: `read` returns what `mutate` sees and the catalog ETag
-// the write is conditional on.
-async function writeCatalogLoop<S, R>(
+/**
+ * Read-modify-write of catalog.json under the store's precondition. Every attempt starts with
+ * readState, and the catalog write is conditional on the catalog ETag of that read (`ifMatch`, or
+ * `ifNoneMatch: "*"` while the catalog is missing). `mutate` must derive `next` from the state it
+ * is given: on a lost race (precondition-failed) it runs again on the re-read state after the next
+ * backoff, so whatever the other writer added is kept. It may be async and may write other objects
+ * before it returns `next`, as long as those writes are create-only: they stay when the catalog
+ * write is lost. A mutation without `next` ends the loop without a write. After 1 + 3 lost
+ * attempts → concurrent_update. `sleep` is injected so tests do not wait.
+ *
+ * A throwing `put` is not retried (it may have taken effect, and R2's per-key write rate limit is
+ * not a precondition failure); neither is an invalid `next`, which throws instead of being written.
+ * An invalid stored config.json or catalog.json throws InvalidStoredObjectError.
+ */
+export async function updateState<R>(
   store: ObjectStore,
-  read: () => Promise<{ seen: S; etag: string | null }>,
-  mutate: (seen: S) => CatalogMutation<R> | Promise<CatalogMutation<R>>,
-  { sleep, backoffMs = CATALOG_BACKOFF_MS }: UpdateCatalogOptions
-): Promise<UpdateResult<R>> {
-  for (let attempt = 0; attempt <= backoffMs.length; attempt++) {
-    const wait = backoffMs[attempt - 1];
+  mutate: (state: State) => CatalogMutation<R> | Promise<CatalogMutation<R>>,
+  sleep: (ms: number) => Promise<void> = realSleep
+): Promise<{ result: R } | { error: "concurrent_update" }> {
+  for (let attempt = 0; attempt <= BACKOFF_MS.length; attempt++) {
+    const wait = BACKOFF_MS[attempt - 1];
     if (wait !== undefined) {
       await sleep(wait);
     }
-    const { seen, etag } = await read();
-    const mutation = await mutate(seen);
+    const state = await readState(store);
+    const mutation = await mutate(state);
     if (!("next" in mutation)) {
       return { result: mutation.result };
     }
     const next = CatalogSchema.parse(mutation.next);
     const written = await store.put(CATALOG_KEY, encodeJson(next), {
       contentType: JSON_CONTENT_TYPE,
-      ...(etag === null ? { ifNoneMatch: "*" } : { ifMatch: etag }),
+      ...(state.catalogEtag === null ? { ifNoneMatch: "*" } : { ifMatch: state.catalogEtag }),
     });
     if (written.ok) {
       return { result: mutation.result };
     }
   }
   return { error: "concurrent_update" };
-}
-
-/**
- * Read-modify-write of catalog.json under the store's precondition: `ifMatch` with the ETag that
- * was read, or `ifNoneMatch: "*"` while the catalog is missing. `mutate` must be pure: on a lost
- * race (precondition-failed) it runs again on the re-read catalog after the next backoff, so
- * whatever the other writer added is kept. A mutation without `next` ends the loop without a
- * write. After 1 + backoffMs.length lost attempts → concurrent_update.
- *
- * A throwing `put` is not retried (it may have taken effect, and R2's per-key write rate limit is
- * not a precondition failure); neither is an invalid `next`, which throws instead of being written.
- * An invalid stored catalog throws InvalidStoredObjectError.
- */
-export function updateCatalog<R>(
-  store: ObjectStore,
-  mutate: (catalog: Catalog) => CatalogMutation<R>,
-  options: UpdateCatalogOptions
-): Promise<UpdateResult<R>> {
-  const read = async () => {
-    const { catalog, etag } = await readCatalog(store);
-    return { seen: catalog, etag };
-  };
-  return writeCatalogLoop(store, read, mutate, options);
-}
-
-/**
- * updateCatalog for a mutation that also needs config.json (publishCrl resolves its target there):
- * every attempt starts with readState, and the catalog write is conditional on the catalog ETag
- * of that read. `mutate` may be async and may write other objects before it returns `next`, as
- * long as those writes are create-only: they stay when the catalog write is lost, and the next
- * attempt runs `mutate` again on the re-read state. Otherwise as updateCatalog (also throws
- * InvalidStoredObjectError for an invalid stored config).
- */
-export function updateState<R>(
-  store: ObjectStore,
-  mutate: (state: State) => Promise<CatalogMutation<R>>,
-  options: UpdateCatalogOptions
-): Promise<UpdateResult<R>> {
-  const read = async () => {
-    const state = await readState(store);
-    return { seen: state, etag: state.catalogEtag };
-  };
-  return writeCatalogLoop(store, read, mutate, options);
 }

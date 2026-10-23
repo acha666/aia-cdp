@@ -1,7 +1,7 @@
 // CRL publishing (plan §5.5): blob and history keys, the freshness rule and publishCrl. There is
 // one commit point, the catalog write: no PEM or alias companions, no edge cache. The HTTP route
 // maps the result.
-import { encodeJson, JSON_CONTENT_TYPE, realSleep, updateState } from "./catalog.ts";
+import { encodeJson, JSON_CONTENT_TYPE, updateState } from "./catalog.ts";
 import type { CatalogMutation, CrlKind, CurrentCrl, State } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { formatGeneralizedTime } from "./pki/asn1.ts";
@@ -15,7 +15,7 @@ import { verifyCrlSignature } from "./pki/verify.ts";
 import type { SignatureCheck } from "./pki/verify.ts";
 import { downloadPaths } from "./resources.ts";
 import type { ObjectStore } from "./store.ts";
-import { buildCrlSummary, readCrlFields } from "./summary/catalog-summary.ts";
+import { buildCrlSummary, readCrlFields, readExtension } from "./summary/catalog-summary.ts";
 import type { CrlFields, CrlSummary } from "./summary/catalog-summary.ts";
 
 /**
@@ -123,22 +123,10 @@ export function compareFreshness(
 /** The DER blob is written with this type (R2 keeps it as httpMetadata). */
 const CRL_CONTENT_TYPE = "application/pkix-crl";
 
-/**
- * The call's one `publish` log line (plan §4.3, implementation §2.6). A field that is not known when
- * the call ends is left out (undefined): a CRL that does not parse has no kind, one rejected before
- * the target is resolved no targetId. null is a known absence (a CRL without a CRL Number). Open
- * like the HTTP layer's LogRecord, so that its logger can be passed as deps.log.
- */
-export interface PublishLogRecord {
-  [field: string]: unknown;
-  level: "info" | "warn" | "error";
-  msg: "publish";
+/** What the log line knows so far; publish fills it in as it goes. */
+interface Trace {
   targetId?: string;
   kind?: CrlKind;
-  /** created / updated / unchanged; on a failure `reason` instead. */
-  outcome?: PublishedCrl["outcome"];
-  /** The error code, or `internal` when publishCrl threw. */
-  reason?: PublishErrorCode | "internal";
   sha256?: string;
   crlNumber?: string | null;
   thisUpdate?: string;
@@ -146,15 +134,31 @@ export interface PublishLogRecord {
   expired?: boolean;
   /** How often the state was read: 1 + retries; 0 when toDer rejected the bytes. */
   attempts: number;
-  ms: number;
   /** Why, in English, for a failure (exception text included); never in a response. */
   detail?: string;
+}
+
+/**
+ * The call's one `publish` log line (plan §4.3, implementation §2.6). A field that is not known when
+ * the call ends is left out (undefined): a CRL that does not parse has no kind, one rejected before
+ * the target is resolved no targetId. null is a known absence (a CRL without a CRL Number). Open
+ * like the HTTP layer's LogRecord, so that its logger can be passed as deps.log.
+ */
+export interface PublishLogRecord extends Trace {
+  [field: string]: unknown;
+  level: "info" | "warn" | "error";
+  msg: "publish";
+  /** created / updated / unchanged; on a failure `reason` instead. */
+  outcome?: PublishedCrl["outcome"];
+  /** The error code, or `internal` when publishCrl threw. */
+  reason?: PublishErrorCode | "internal";
+  ms: number;
 }
 
 export interface PublishDeps {
   store: ObjectStore;
   now: () => Date;
-  /** Backoff between catalog write attempts; realSleep when omitted. */
+  /** Backoff between catalog write attempts; a timer when omitted. */
   sleep?: (ms: number) => Promise<void>;
   /** Receives exactly one record per call (the HTTP route passes its structured logger). */
   log: (record: PublishLogRecord) => void;
@@ -210,30 +214,10 @@ export type PublishErrorCode = PublishFailure["error"];
 
 export type PublishResult = PublishedCrl | PublishFailure;
 
-/** What the log line knows so far; publish fills it in as it goes. */
-interface Trace {
-  targetId?: string;
-  kind?: CrlKind;
-  sha256?: string;
-  crlNumber?: string | null;
-  thisUpdate?: string;
-  expired?: boolean;
-  attempts: number;
-  detail?: string;
-}
-
 /** A failure and the log line's detail of it. */
 interface Rejection {
   failure: PublishFailure;
   detail: string;
-}
-
-/** Every PkiParseError is invalid_crl with its reason. */
-function invalidCrl(error: PkiParseError): Rejection {
-  return {
-    failure: { error: "invalid_crl", details: { reason: error.reason } },
-    detail: `${error.reason}: ${error.message}`,
-  };
 }
 
 /** What the header of an upload says, checked before its signature is verified. */
@@ -247,28 +231,14 @@ interface Header {
 }
 
 // parseCrlHeader → readCrlFields (CRL Number, Delta CRL Indicator) and the AKI → kind →
-// checkCrlPolicy against the call's one `now`.
+// checkCrlPolicy against the call's one `now`. A PkiParseError propagates (invalid_crl).
 function checkHeader(der: Uint8Array, now: Date, trace: Trace): Header | Rejection {
-  let crl: ReceivedCrl;
-  let fields: CrlFields;
-  let aki: string | undefined;
-  try {
-    crl = parseCrlHeader(der);
-    fields = readCrlFields(crl);
-    try {
-      aki = getAuthorityKeyIdHex(crl.crlExtensions?.extensions);
-    } catch (error) {
-      throw new PkiParseError("crl", "extension_value", "Invalid Authority Key Identifier", {
-        cause: error,
-      });
-    }
-  } catch (error) {
-    if (error instanceof PkiParseError) {
-      return invalidCrl(error);
-    }
-    throw error;
-  }
-  // A valid Delta CRL Indicator makes a delta (an invalid one was rejected above).
+  const crl = parseCrlHeader(der);
+  const fields = readCrlFields(crl);
+  const aki = readExtension("crl", "Authority Key Identifier", () =>
+    getAuthorityKeyIdHex(crl.crlExtensions?.extensions)
+  );
+  // A valid Delta CRL Indicator makes a delta (an invalid one threw above).
   const kind: CrlKind = fields.baseCrlNumber === null ? "full" : "delta";
   trace.kind = kind;
   trace.crlNumber = fields.crlNumber;
@@ -284,22 +254,15 @@ function checkHeader(der: Uint8Array, now: Date, trace: Trace): Header | Rejecti
 }
 
 // The whole CRL, once its signature verified: the strict parseCRL, checkEntryPolicy and the
-// summary with revokedCount.
+// summary with revokedCount. A PkiParseError propagates (invalid_crl).
 async function checkWhole(der: Uint8Array): Promise<CrlSummary | Rejection> {
-  try {
-    const crl = parseCRL(der);
-    const policy = checkEntryPolicy(crl);
-    if (!policy.ok) {
-      const { ok: _ok, detail, ...failure } = policy;
-      return { failure, detail };
-    }
-    return await buildCrlSummary(crl, der);
-  } catch (error) {
-    if (error instanceof PkiParseError) {
-      return invalidCrl(error);
-    }
-    throw error;
+  const crl = parseCRL(der);
+  const policy = checkEntryPolicy(crl);
+  if (!policy.ok) {
+    const { ok: _ok, detail, ...failure } = policy;
+    return { failure, detail };
   }
+  return buildCrlSummary(crl, der);
 }
 
 /**
@@ -324,12 +287,7 @@ function alreadyCurrent(state: State, sha256: string): PublishedCrl | undefined 
   return undefined;
 }
 
-type Resolution =
-  | { targetId: string; issuer: string }
-  | {
-      failure: Extract<PublishFailure, { error: "issuer_not_found" | "target_not_configured" }>;
-      detail: string;
-    };
+type Resolution = { targetId: string; issuer: string } | Rejection;
 
 /**
  * The certificates whose subjectKeyId is the AKI are the candidates; the target is the config
@@ -407,29 +365,17 @@ async function publish(
   now: Date,
   trace: Trace
 ): Promise<PublishResult> {
-  let der: Uint8Array;
-  try {
-    der = toDer(bytes, "crl");
-  } catch (error) {
-    if (error instanceof PkiParseError) {
-      const { failure, detail } = invalidCrl(error);
-      trace.detail = detail;
-      return failure;
-    }
-    throw error;
-  }
+  const der = toDer(bytes, "crl");
   const sha256 = await sha256Hex(der);
   trace.sha256 = sha256;
 
-  // Each attempt runs on the state read for it. Header and whole CRL do not depend on the state:
-  // each is checked at most once per call. The signature only depends on the issuer's key (the id
-  // is the digest of its certificate), so a retry verifies again only when it resolved another
-  // issuer. Blob and marker are create-only and immutable: each is put at most once per call, and
-  // an existing one (precondition-failed) has the same bytes: the blob key holds its digest, and a
+  // Each attempt runs on the state read for it, and verifies the signature with the issuer it
+  // resolved. Header and whole CRL do not depend on the state: each is checked at most once per
+  // call. Blob and marker are create-only and immutable: each is put at most once per call, and an
+  // existing one (precondition-failed) has the same bytes: the blob key holds its digest, and a
   // marker is the superseded current record, which every writer reads alike.
   let header: Header | Rejection | undefined;
   let whole: CrlSummary | Rejection | undefined;
-  const checks = new Map<string, SignatureCheck>();
   const written = new Set<string>();
   const putOnce = async (key: string, body: Uint8Array, contentType: string) => {
     if (!written.has(key)) {
@@ -466,25 +412,20 @@ async function publish(
     const { targetId, issuer } = resolved;
     trace.targetId = targetId;
 
-    let check = checks.get(issuer);
-    if (check === undefined) {
-      check = await verifyWithIssuer(deps.store, state, issuer, crl);
-      checks.set(issuer, check);
-    }
+    const check = await verifyWithIssuer(deps.store, state, issuer, crl);
     if (!check.ok) {
       trace.detail = `${check.algorithm}: ${check.detail ?? check.reason}`;
       return { result: { error: check.reason, details: { algorithm: check.algorithm } } };
     }
 
-    // Terminal outcomes end the call without a write.
+    // Terminal outcomes end the call without a write (bytes already current were answered by
+    // alreadyCurrent).
     const entry = state.catalog.targets[targetId];
     const current = entry?.current ?? null;
     const downloads = downloadPaths(state.config, { target: targetId });
     const freshness = compareFreshness(current, { sha256, summary: fields });
     if (current !== null) {
       switch (freshness) {
-        case "unchanged":
-          return { result: { outcome: "unchanged", targetId, kind, issuer, current, downloads } };
         case "stale_crl":
         case "conflict":
         case "non_orderable": {
@@ -541,7 +482,7 @@ async function publish(
     };
   };
 
-  const update = await updateState(deps.store, attempt, { sleep: deps.sleep ?? realSleep });
+  const update = await updateState(deps.store, attempt, deps.sleep);
   if ("error" in update) {
     trace.detail = `The catalog write was lost ${trace.attempts} times`;
     return { error: "concurrent_update" };
@@ -587,14 +528,8 @@ export async function publishCrl(deps: PublishDeps, bytes: Uint8Array): Promise<
   ): PublishLogRecord => ({
     level,
     msg: "publish",
-    targetId: trace.targetId,
-    kind: trace.kind,
+    ...trace,
     ...end,
-    sha256: trace.sha256,
-    crlNumber: trace.crlNumber,
-    thisUpdate: trace.thisUpdate,
-    expired: trace.expired,
-    attempts: trace.attempts,
     ms: Math.round((performance.now() - started) * 10) / 10,
     detail: trace.detail?.slice(0, MAX_DETAIL_CHARS),
   });
@@ -603,9 +538,16 @@ export async function publishCrl(deps: PublishDeps, bytes: Uint8Array): Promise<
   try {
     result = await publish(deps, bytes, now, trace);
   } catch (error) {
-    trace.detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-    deps.log(line("error", { reason: "internal" }));
-    throw error;
+    // Every PkiParseError of the upload (toDer, the header, the whole CRL) is invalid_crl with its
+    // reason; one of the issuer certificate is a broken store.
+    if (error instanceof PkiParseError && error.kind === "crl") {
+      trace.detail = `${error.reason}: ${error.message}`;
+      result = { error: "invalid_crl", details: { reason: error.reason } };
+    } else {
+      trace.detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      deps.log(line("error", { reason: "internal" }));
+      throw error;
+    }
   }
   deps.log(
     "error" in result

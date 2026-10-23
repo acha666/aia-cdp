@@ -1,7 +1,7 @@
 // Certificate import (plan §5.5).
 // There is one commit point, the catalog write: no companion objects, no edge cache. Importing does
 // not authorize anything: a certificate only becomes an issuer once a config target names it.
-import { certificateBlobKey, readCatalog, realSleep, updateCatalog } from "./catalog.ts";
+import { certificateBlobKey, readCatalog, updateState } from "./catalog.ts";
 import type { CatalogCertificate } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { PkiParseError } from "./pki/errors.ts";
@@ -15,7 +15,7 @@ import type { CertificateSummary } from "./summary/catalog-summary.ts";
 export interface ImportDeps {
   store: ObjectStore;
   now: () => Date;
-  /** Backoff between catalog write attempts; realSleep when omitted. */
+  /** Backoff between catalog write attempts; a timer when omitted. */
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -37,35 +37,11 @@ export type ImportResult =
 /** The DER blob is written with this type (R2 keeps it as httpMetadata). */
 const CERTIFICATE_CONTENT_TYPE = "application/pkix-cert";
 
-interface Parsed {
-  der: Uint8Array;
-  summary: CertificateSummary;
-}
-
-// toDer → parseCertificate (strict DER, RFC 5280 times) → the two signature algorithms → summary;
-// every PkiParseError is a 422. The outer signatureAlgorithm must be the TBS signature, octet for
-// octet as received (RFC 5280 §4.1.1.2): it is outside the signature, and the detail shows it.
-async function parse(bytes: Uint8Array): Promise<Parsed | { reason: InvalidCertificateReason }> {
-  try {
-    const der = toDer(bytes, "certificate");
-    const certificate = parseCertificate(der);
-    if (!sameSignatureAlgorithms(certificate)) {
-      return { reason: "signature_algorithm_mismatch" };
-    }
-    return { der, summary: await buildCertificateSummary(certificate, der) };
-  } catch (error) {
-    if (error instanceof PkiParseError) {
-      return { reason: error.reason };
-    }
-    throw error;
-  }
-}
-
 /**
  * Imports one certificate (DER or a single PEM block; the format is recognized from the bytes).
  * The id is the SHA-256 of the DER. Already in the catalog → `unchanged` with the stored entry and
  * no write. Otherwise the blob is written create-only (an existing blob has the same bytes: the
- * key is the digest) and the entry added by updateCatalog, which checks again for the id on every
+ * key is the digest) and the entry added by updateState, which checks again for the id on every
  * attempt, so two concurrent imports of one certificate end as one `created` and one `unchanged`.
  *
  * Any rejection happens before the first write. If the catalog write is lost (concurrent_update)
@@ -77,11 +53,25 @@ export async function importCertificate(
   bytes: Uint8Array
 ): Promise<ImportResult> {
   const now = deps.now();
-  const parsed = await parse(bytes);
-  if ("reason" in parsed) {
-    return { error: "invalid_certificate", details: { reason: parsed.reason } };
+  // toDer → parseCertificate (strict DER, RFC 5280 times) → the two signature algorithms →
+  // summary; every PkiParseError is a 422. The outer signatureAlgorithm must be the TBS signature,
+  // octet for octet as received (RFC 5280 §4.1.1.2): it is outside the signature, and the detail
+  // shows it.
+  let der: Uint8Array;
+  let summary: CertificateSummary;
+  try {
+    der = toDer(bytes, "certificate");
+    const certificate = parseCertificate(der);
+    if (!sameSignatureAlgorithms(certificate)) {
+      return { error: "invalid_certificate", details: { reason: "signature_algorithm_mismatch" } };
+    }
+    summary = await buildCertificateSummary(certificate, der);
+  } catch (error) {
+    if (error instanceof PkiParseError) {
+      return { error: "invalid_certificate", details: { reason: error.reason } };
+    }
+    throw error;
   }
-  const { der, summary } = parsed;
   const id = await sha256Hex(der);
 
   const { catalog } = await readCatalog(deps.store);
@@ -100,9 +90,9 @@ export async function importCertificate(
     importedAt: now.toISOString(),
     summary,
   };
-  const update = await updateCatalog<Omit<ImportedCertificate, "id">>(
+  const update = await updateState<Omit<ImportedCertificate, "id">>(
     deps.store,
-    (current) => {
+    ({ catalog: current }) => {
       const raced = current.certificates[id];
       if (raced !== undefined) {
         return { result: { outcome: "unchanged", entry: raced } };
@@ -112,7 +102,7 @@ export async function importCertificate(
         result: { outcome: "created", entry },
       };
     },
-    { sleep: deps.sleep ?? realSleep }
+    deps.sleep
   );
   if ("error" in update) {
     return { error: update.error, id };

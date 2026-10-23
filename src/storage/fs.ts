@@ -8,9 +8,8 @@
 // editor's `x.der~`, `lost+found` at the root of a volume) is not a key: list() skips it. list()
 // reads every directory below its prefix, so one it cannot read fails it.
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import process from "node:process";
 import { sha256Hex } from "../core/digest.ts";
 import { assertStoreKey, assertStorePrefix, isStoreKeySegment } from "../core/store.ts";
 import type { ObjectStore, PutOptions, PutResult } from "../core/store.ts";
@@ -33,31 +32,17 @@ async function exclusive<T>(path: string, task: () => Promise<T>): Promise<T> {
   }
 }
 
-function errorCode(error: unknown): unknown {
-  return error instanceof Error && "code" in error ? error.code : undefined;
-}
-
-/** The key does not name a file: it is missing, below a file, or a directory of other keys. */
-function isAbsent(error: unknown): boolean {
-  const code = errorCode(error);
-  return code === "ENOENT" || code === "ENOTDIR" || code === "EISDIR" || code === "ERR_FS_EISDIR";
+function isMissing(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 async function fsyncDirectory(path: string): Promise<void> {
-  // Windows cannot open a directory for fsync; rename is the best it offers.
-  if (process.platform === "win32") {
-    return;
-  }
   const handle = await open(path, "r");
   try {
     await handle.sync();
   } finally {
     await handle.close();
   }
-}
-
-function byKey(a: { key: string }, b: { key: string }): number {
-  return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
 }
 
 /** ETag = content SHA-256 (lowercase hex). */
@@ -77,7 +62,7 @@ export class FsStore implements ObjectStore {
       const buffer = await readFile(path);
       return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
     } catch (error) {
-      if (isAbsent(error)) {
+      if (isMissing(error)) {
         return null;
       }
       throw error;
@@ -112,14 +97,9 @@ export class FsStore implements ObjectStore {
       await mkdir(dir, { recursive: true });
       // The dot-leading name keeps the temporary file out of list() and out of the key space.
       const temp = join(dir, `.${basename(path)}.${randomUUID()}.tmp`);
-      const handle = await open(temp, "wx");
       try {
-        try {
-          await handle.writeFile(copy);
-          await handle.sync();
-        } finally {
-          await handle.close();
-        }
+        // flush: the data is synced to disk before the file is renamed into place.
+        await writeFile(temp, copy, { flag: "wx", flush: true });
         await rename(temp, path);
       } catch (error) {
         await rm(temp, { force: true });
@@ -139,13 +119,14 @@ export class FsStore implements ObjectStore {
     try {
       names = await readdir(base, { recursive: true });
     } catch (error) {
-      if (isAbsent(error)) {
+      if (isMissing(error)) {
         return [];
       }
       throw error;
     }
+    // With sep "/", the names sort as their keys do.
     const objects = await Promise.all(
-      names.map(async (name) => {
+      names.sort().map(async (name) => {
         const segments = name.split(sep);
         // Only paths made of key segments: no temporary file (dot-leading), no stray file and
         // nothing below a directory whose name is not a key segment.
@@ -158,28 +139,19 @@ export class FsStore implements ObjectStore {
           return info.isFile() ? { key: prefix + segments.join("/"), size: info.size } : null;
         } catch (error) {
           // Deleted between readdir and stat (or a dangling link).
-          if (errorCode(error) === "ENOENT") {
+          if (isMissing(error)) {
             return null;
           }
           throw error;
         }
       })
     );
-    return objects.filter((object) => object !== null).sort(byKey);
+    return objects.filter((object) => object !== null);
   }
 
   async delete(key: string): Promise<void> {
     assertStoreKey(key);
     const path = this.#path(key);
-    await exclusive(path, async () => {
-      try {
-        await rm(path, { force: true });
-      } catch (error) {
-        // Not a file (below a file, or a directory of other keys): there is nothing to delete.
-        if (!isAbsent(error)) {
-          throw error;
-        }
-      }
-    });
+    await exclusive(path, () => rm(path, { force: true }));
   }
 }
