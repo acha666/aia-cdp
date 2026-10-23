@@ -1,6 +1,6 @@
 # aia-cdp 运维手册
 
-本文的部署、令牌、备份、迁移与回滚各节由切片 6 补全；目前只有切片 4 写的"AD CS 助手"一节与切片 5a 写的"容量"一节。
+本文的部署、令牌、备份、迁移与回滚各节由切片 6 补全；目前只有"AD CS 助手"与"容量"两节。
 
 ## AD CS 助手
 
@@ -49,7 +49,7 @@
    - 用 AD CS 默认 CDP 的本地发布目录 `%windir%\System32\CertSrv\CertEnroll`（加 `-SourceDir`）；那里还有 CA 证书 `.crt`，助手不读；
    - 或在 CA 属性的"扩展"页给 CDP 加一个文件位置 `C:\ProgramData\PKI\crl-uploader\CertEnroll\<CaName><CRLNameSuffix><DeltaCRLAllowed>.crl`，
      勾选发布 CRL 与发布增量 CRL 到此位置，即脚本默认的 SourceDir。AD CS 给 delta 文件名加 `+`（如 `Example CA+.crl`），与 full 同为 `.crl`。
-5. `certutil -setreg CA\LogLevel 4` 后 `Restart-Service certsvc`：旧部署的 README 说事件 68/69/70 在此级别才记录（未核对）。
+5. `certutil -setreg CA\LogLevel 4` 后 `Restart-Service certsvc`，让 CA 记录下面计划任务用的事件 68/69/70（是否要这一级别未核对）。
 6. 令牌文件 `C:\ProgramData\PKI\crl-uploader\upload-token.txt`，内容为服务端的 `AIA_UPLOAD_TOKEN`（`openssl rand -hex 32` 一类；只能含
    字母、数字与 `-._~+/`，可以 `=` 结尾），限权见下。
 
@@ -80,7 +80,7 @@
 
 - 触发器：
   1. 事件：日志 Application，来源 `Microsoft-Windows-CertificationAuthority`，事件 ID 68、69、70，延迟 1 分钟（让同一次发布的 full 与 delta
-     都写完）。事件号来自旧部署；Microsoft 的 AD CS CRL 发布事件表只列失败事件（62、65–67、74、75、130），68–70 的含义与所在日志未核对。
+     都写完）。Microsoft 的 AD CS CRL 发布事件表只列失败事件（62、65–67、74、75、130），68–70 的含义与所在日志未核对。
      另一个候选是 Security 日志的审核事件 4872（"Certificate Services published the certificate revocation list (CRL)"，要开启 CA 审核
      "吊销证书和发布 CRL"与"审核证书服务"策略），切片 7 在真实 CA 上比较两者再定（未核对）。
   2. 定时补扫：每小时一次。补上 `IgnoreNew` 丢掉的触发、上次的失败与服务端 500（R2 单键写限速不重试，plan §5.5）；无变化时账本让它零上传。
@@ -176,9 +176,10 @@ Windows Server、服务账户与 gMSA、经 TLS 的 `https://`（验证用的是
 
 ## 容量
 
-大 CRL 的成本在解码（asn1js 节点树 + PKIjs 对象），上传与详情各解码一次，堆峰值相同：约 21 MB 基底 + 每 1 000 个吊销条目 8.5 MB。
+大 CRL 的成本在完整解码（asn1js 节点树 + PKIjs 对象）。已验签的 CRL 在发布（created / updated）与目标详情时各完整解码一次，堆峰值
+相同：约 21 MB 基底 + 每 1 000 个吊销条目 8.5 MB；与当前字节相同的上传和未通过验签的上传不做完整解码（plan §5.5）。
 实测（Node 24，本机，2026-10-20；新进程只处理这一个请求，按 4 MB 步长找 `--max-old-space-size` 的门槛；条目为 9 字节序列号 +
-reasonCode，约 42 B / 条，同切片 4 风险表；方法见切片 5a 出口 9）：
+reasonCode，约 42 B / 条）：
 
 | 条目数 | DER | 上传（`POST /api/v1/crls`） | 目标详情（`GET /api/v1/crls/{targetId}`） | 堆门槛（两者相同；最高失败 / 最低通过） |
 | --- | --- | --- | --- | --- |
@@ -190,8 +191,9 @@ reasonCode，约 42 B / 条，同切片 4 风险表；方法见切片 5a 出口 
   0.7–1.0 s、响应 5.5 MB、门槛 120 / 124 MB。不 gc 时看到的堆增长（10 000 条 100–150 MB）几乎全是可回收的垃圾，不是需求。
 - **Workers**：隔离区 128 MB 还要装 Worker 包与运行时，Node 的堆门槛不能直接换算；按约 5 000 条目（≈ 200 KB）的 CRL 留安全余量
   （未在 Cloudflare 上验证），更大的 CRL 上传与详情可能因内存超限失败。
-  CPU 不是瓶颈：Standard 套餐默认每请求 30 s，所以 `wrangler.jsonc` 不设 `limits.cpu_ms`（旧配置的 `limits.cpu_seconds` 是无效键）。
+  CPU 不是瓶颈：Standard 套餐默认每请求 30 s，所以 `wrangler.jsonc` 不设 `limits.cpu_ms`。
   Free 套餐每请求只有 10 ms CPU，按上表约 0.05–0.1 ms / 条目估计，一两百条以上的 CRL 就会超时（未验证）。
-- **Node / Docker**：上限是堆（`--max-old-space-size`，默认随内存）；`AIA_MAX_UPLOAD_BYTES` 默认 1 MiB（≈ 25 000 条目），调高时同时设
-  `AIA_UPLOAD_TOKEN`，并按上表给够堆。
-- 列表与 stats 只读 `config.json`、`catalog.json`，与条目数无关；目前线上 CRL 为 0 条。
+- **Node / Docker**：上限是堆（`--max-old-space-size`，默认随内存），调高 `AIA_MAX_UPLOAD_BYTES` 时按上表给够堆。
+- `AIA_MAX_UPLOAD_BYTES`（默认 1 MiB，≈ 25 000 条目）限制 CRL 上传与管理路由的请求体，因而也限制能发布的 CRL 的大小与解码它的内存。
+  工具本身不做限速，限速交给前面的平台（Cloudflare、反向代理）。
+- 列表与 stats 只读 `config.json`、`catalog.json`，与条目数无关。

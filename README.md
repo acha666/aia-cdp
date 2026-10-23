@@ -16,7 +16,9 @@ X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloud
 - Web UI：总览（统计与"需关注"、证书表、CRL 目标表、CRL 上传）、证书与 CRL 目标详情（X.509 扩展、吊销列表、PEM），
   `en` / `zh-CN`，亮 / 暗主题。
 
-设计见 [docs/plan.md](docs/plan.md)。
+- [docs/plan.md](docs/plan.md)：设计文档（决策、存储模型、领域规则、API、切片划分）。
+- [docs/implementation/](docs/implementation/README.md)：实施总则（决策、完成定义、通用约定）与未完成的切片 6–8；与 plan.md
+  冲突时以它为准。
 
 ## 开发环境
 
@@ -67,5 +69,5 @@ docker run -d --name aia-cdp -p 8080:8080 -v aia-cdp-data:/data aia-cdp
 ```
 
 容器以 uid 1000（`node`）运行，数据在 `/data`。命名卷自动属 uid 1000；bind mount 的宿主目录必须属 uid 1000
-（`sudo chown 1000:1000 <目录>`），或以目录属主的 uid 运行（`--user <uid>:<gid>`），否则 store 检查失败、健康状态为 `unhealthy`。
+（`sudo chown 1000:1000 <目录>`），或以目录属主的 uid 运行（`--user <uid>:<gid>`），否则启动时记 `data_dir_unusable` 并以 1 退出（容器停止）。
 未写配置时 `/api/v1/health` 返回 `degraded`（容器仍算 healthy）。

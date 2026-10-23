@@ -1,20 +1,19 @@
 # 附录 D. 夹具用例矩阵（重写契约）
 
-与入库的 `tests/fixtures/pki/manifest.json` 一致（含切片 1 步骤 9 对 `leaf-min` 的修改）。
+与入库的 `tests/fixtures/pki/manifest.json` 一致。
 后续切片的测试按名字引用这些夹具、从 manifest 读值；重写生成器时，文件名、签发者、kind、声明值（序列号、有效期、CRL 号、base 号、时间、吊销条数）
 与期望结果必须逐项保持，sha256 与大小随密钥变、不在契约内。时间为 UTC，未写年份的是 2026；路径相对 `tests/fixtures/pki/`；`manifest.now` =
-`2026-01-04T00:00:00Z`。切片 4 步骤 1 加了 `certs/issuing-ca-1-renamed`、`crls/issuing-ca-1/full-sha1` 与 CRL 条目的 `nextPublish` 字段，
-并把 `full-idp-dp-only` 的期望改为 `created`（owner 确认 2）。
+`2026-01-04T00:00:00Z`。
 
 ## D.1 证书（`certs/<名>.der` 与 `.pem`，13 张）
 
 | 名 | 签发者 | 密钥 | 序列号（hex） | 有效期 | `import` | 用途 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `root-ca` | 自签 | EC P-384 | 1000 | 2025-01-01 – 2045-01-01 | 是 | 离线根，ecdsa-with-SHA384（同线上根） |
+| `root-ca` | 自签 | EC P-384 | 1000 | 2025-01-01 – 2045-01-01 | 是 | 离线根，ecdsa-with-SHA384 |
 | `issuing-ca-1` | root-ca | RSA-2048 | 1001 | 2025-01-01 – 2035-01-01 | 是 | AD CS SubCA 形状：CA Version 0、模板名 BMPString `SubCA`、AIA、CDP |
 | `issuing-ca-2` | root-ca | RSA-2048 | 1002 | 2025-01-01 – 2035-01-01 | 是 | 第二个签发 CA |
-| `issuing-ca-1-renewed` | root-ca | RSA-2048（issuing-ca-1 的钥） | 1003 | 2025-12-01 – 2035-12-01 | 否 | 同钥同 SKI 续期：CA Version 1、Previous CA Certificate Hash（V6、M5、C5） |
-| `issuing-ca-1-renamed` | root-ca | RSA-2048（issuing-ca-1 的钥） | 1004 | 2025-01-01 – 2035-01-01 | 否 | 同钥同 SKI、subject CN 不同（`Example Issuing CA 01 (RSA, renamed)`）：验签不比较签发者名称（C1） |
+| `issuing-ca-1-renewed` | root-ca | RSA-2048（issuing-ca-1 的钥） | 1003 | 2025-12-01 – 2035-12-01 | 否 | 同钥同 SKI 续期：CA Version 1、Previous CA Certificate Hash（V6） |
+| `issuing-ca-1-renamed` | root-ca | RSA-2048（issuing-ca-1 的钥） | 1004 | 2025-01-01 – 2035-01-01 | 否 | 同钥同 SKI、subject CN 不同（`Example Issuing CA 01 (RSA, renamed)`）：验签不比较签发者名称 |
 | `rogue-ca` | 自签 | RSA-2048 | 4000 | 2025-01-01 – 2035-01-01 | 否 | 主体与 issuing-ca-1 相同、密钥不同，从不导入 |
 | `ed25519-ca` | 自签 | Ed25519 | 5000 | 2025-01-01 – 2035-01-01 | 是 | `unsupported_algorithm` 的签发者 |
 | `ed448-ca` | 自签 | Ed448 | 6000 | 2025-01-01 – 2035-01-01 | 是 | `unsupported_algorithm` 的签发者 |
@@ -44,19 +43,19 @@ manifest 的 `nextPublish`（AD CS Next CRL Publish）只有 `full-adcs`（01-10
 | `issuing-ca-1/full-03` | full | 5 | — | 01-03 00:00 | 01-10 00:00 | 2 | `created` | 两条吊销 |
 | `issuing-ca-1/full-04-older-time` | full | 6 | — | 01-02 20:00 | 01-09 20:00 | 2 | `created` | 号比 full-03 大、thisUpdate 更早：号优先，updated |
 | `issuing-ca-1/full-no-number` | full | — | — | 01-03 06:00 | 01-10 06:00 | 2 | `created` | 无 CRL Number：与有号 current 双向 non_orderable |
-| `issuing-ca-1/full-no-aki` | full | — | — | 01-03 06:00 | 01-10 06:00 | 2 | `issuer_not_found` | 没有任何 CRL 扩展（无 AKI；切片 4 默认另带 `details.reason = "missing_aki"`） |
+| `issuing-ca-1/full-no-aki` | full | — | — | 01-03 06:00 | 01-10 06:00 | 2 | `issuer_not_found` | 没有任何 CRL 扩展（无 AKI；`details.reason = "missing_aki"`） |
 | `issuing-ca-1/full-broken-sig` | full | 10 | — | 01-03 12:00 | 01-10 12:00 | 2 | `invalid_signature` | 签名末字节翻转 |
 | `issuing-ca-1/full-forged-aki` | full | 11 | — | 01-03 12:00 | 01-10 12:00 | 0 | `invalid_signature` | issuing-ca-1 的名称与 AKI，rogue-ca 的密钥签名 |
 | `issuing-ca-1/full-unknown-critical` | full | 12 | — | 01-03 12:00 | 01-10 12:00 | 2 | `unknown_critical_extension` | 关键 `1.3.6.1.4.1.32473.1` |
 | `issuing-ca-1/full-unknown-noncritical` | full | 13 | — | 01-03 12:00 | 01-10 12:00 | 2 | `created` | 非关键 `1.3.6.1.4.1.32473.2`，原样保留 |
 | `issuing-ca-1/full-idp-scoped` | full | 14 | — | 01-03 12:00 | 01-10 12:00 | 2 | `scoped_crl_unsupported` | 关键 IDP，onlyContainsUserCerts |
-| `issuing-ca-1/full-idp-dp-only` | full | 15 | — | 01-03 12:00 | 01-10 12:00 | 2 | `created` | 只含 DP 的关键 IDP（AD CS 选项），切片 4 owner 确认 2 接受 |
+| `issuing-ca-1/full-idp-dp-only` | full | 15 | — | 01-03 12:00 | 01-10 12:00 | 2 | `created` | 只含 DP 的关键 IDP（AD CS 选项），附录 C 切片 4 第 2 项接受 |
 | `issuing-ca-1/full-pss` | full | 16 | — | 01-03 12:00 | 01-10 12:00 | 2 | `created` | RSASSA-PSS：SHA-256、MGF1 SHA-256、salt 32 |
 | `issuing-ca-1/full-no-next-update` | full | 17 | — | 01-03 12:00 | — | 2 | `created` | 去掉 nextUpdate 后重签：下载缓存 300 s |
 | `issuing-ca-1/full-bad-time` | full | 18 | — | 01-03 12:00 | 01-10 12:00 | 2 | `invalid_crl` | thisUpdate 为无秒 UTCTime `2601031200Z`，签名有效 |
 | `issuing-ca-1/full-adcs` | full | 19 | — | 01-03 11:50 | 01-11 00:10 | 2 | `created` | AD CS 扩展集：CA Version、Next CRL Publish（01-10 12:00）、Freshest CRL、CRL Self CDP，均非关键 |
 | `issuing-ca-1/delta-adcs` | delta | 20 | 19 | 01-03 17:50 | 01-05 06:10 | 2 | `created` | AD CS delta 扩展集：关键 Delta 指示、Next CRL Publish（01-04 18:00） |
-| `issuing-ca-1/full-sha1` | full | 21 | — | 01-03 12:00 | 01-10 12:00 | 2 | `created` | sha1WithRSAEncryption（切片 4 owner 确认 1 接受） |
+| `issuing-ca-1/full-sha1` | full | 21 | — | 01-03 12:00 | 01-10 12:00 | 2 | `created` | sha1WithRSAEncryption（附录 C 切片 4 第 1 项接受） |
 | `issuing-ca-1/full-future` | full | 30 | — | 2099-01-01 00:00 | 2099-01-08 00:00 | 2 | `not_yet_valid` | GeneralizedTime 2099，任何时钟下都超前 |
 | `issuing-ca-2/full-01` | full | 1 | — | 01-01 00:00 | 01-08 00:00 | 1 | `created` | certificateHold 条目 |
 | `issuing-ca-2/delta-01` | delta | 2 | 1 | 01-01 12:00 | 01-03 00:00 | 1 | `created` | base 1 的 delta |
