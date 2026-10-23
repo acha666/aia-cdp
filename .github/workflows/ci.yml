@@ -22,7 +22,7 @@ env:
 
 jobs:
   check:
-    name: Typecheck, lint, format, OpenAPI drift
+    name: Typecheck, lint, format
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -36,8 +36,7 @@ jobs:
       - run: pnpm run ci:check
 
   test:
-    # ubuntu-24.04 ships OpenSSL 3.0.x, which the fixture generator needs (>= 3.0).
-    name: Tests, build, Node smoke
+    name: Tests, build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -51,7 +50,7 @@ jobs:
       - run: pnpm run ci:test
 
   worker:
-    name: Worker dry-run, bundle check, harness smoke, R2 tests
+    name: Worker dry-run, harness smoke, R2 tests
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

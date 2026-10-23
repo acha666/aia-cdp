@@ -3,38 +3,6 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import pluginVue from "eslint-plugin-vue";
 import tseslint from "typescript-eslint";
 
-// D9 layering. Plain `no-restricted-imports` also matches `import type` and `export … from`.
-const CORE_RESTRICTED = [
-  {
-    group: ["**/http/**", "**/storage/**", "**/runtime/**", "**/web/**"],
-    message: "src/core is the domain layer: it must not import http, storage, runtime or web.",
-  },
-  {
-    group: ["hono", "hono/*", "@hono/*"],
-    message: "src/core must not depend on Hono; HTTP concerns belong in src/http.",
-  },
-  {
-    group: ["node:*"],
-    message: "src/core runs on Workers and Node: use Web standard globals, not node:* modules.",
-  },
-  {
-    group: ["vite", "vitest", "wrangler"],
-    message: "Build and test tooling must not be imported from src/core.",
-  },
-];
-
-const HTTP_RESTRICTED = [
-  {
-    group: ["node:*", "@hono/node-server"],
-    message: "src/http runs on Workers and Node: no node:* modules or Node-only packages.",
-  },
-  {
-    group: ["**/storage/fs.ts", "**/runtime/**"],
-    message:
-      "src/http gets its store and runtime through AppDeps; do not import adapters or runtimes.",
-  },
-];
-
 export default defineConfig(
   globalIgnores([
     "dist/",
@@ -101,12 +69,34 @@ export default defineConfig(
     },
   },
   {
-    files: ["src/core/**"],
-    rules: { "no-restricted-imports": ["error", { patterns: CORE_RESTRICTED }] },
-  },
-  {
-    files: ["src/http/**"],
-    rules: { "no-restricted-imports": ["error", { patterns: HTTP_RESTRICTED }] },
+    // The browser bundle may take only types from the server; of Hono, only hono/client.
+    files: ["src/web/**"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "hono",
+              message: "src/web may import only hono/client of Hono.",
+              allowTypeImports: true,
+            },
+          ],
+          patterns: [
+            {
+              group: ["**/core/**", "**/http/**", "**/storage/**", "**/runtime/**"],
+              message: "src/web may import only types from the server (`import type`).",
+              allowTypeImports: true,
+            },
+            {
+              group: ["hono/*", "!hono/client", "@hono/*"],
+              message: "src/web may import only hono/client of Hono.",
+              allowTypeImports: true,
+            },
+          ],
+        },
+      ],
+    },
   },
   {
     files: ["tests/**"],

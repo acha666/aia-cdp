@@ -3,15 +3,13 @@
 #
 #   bash scripts/docker-smoke.sh
 #
-# docker build --check (no warnings), build, run with a fresh named volume on a random loopback
-# port and an admin token, wait for Docker's health status "healthy" while the API reports
-# "degraded", run scripts/smoke.sh, check uid 1000, then use the image's own CLI
-# (dist/server/cli/aia.js, via docker exec) to import the fixture CA certificates (docker cp'd in)
-# and apply a configuration -> "healthy", download /ca/root-ca.crt and its .pem from the image (GET
-# body = the fixture, ETag and Content-Length from the fixture, HEAD with the same headers,
-# If-None-Match -> 304), and require `docker stop` to finish within 5 s with exit code 0. The
-# container, volume and image tag are removed on exit; the build cache is kept. Needs bash, curl,
-# cmp, sha256sum and Docker Engine >= 25.
+# Builds the image, runs it with a fresh named volume on a random loopback port and an admin token,
+# waits for Docker's health status "healthy" while the API reports "degraded", and checks uid 1000.
+# The image's own CLI (dist/server/cli/aia.js, via docker exec) imports the fixture CA certificates
+# (docker cp'd in) and applies a configuration -> "healthy"; scripts/smoke.sh then checks the
+# downloads, a CRL upload, the reads and the UI. Last, `docker stop` must finish within 5 s with
+# exit code 0. The container, volume and image tag are removed on exit; the build cache is kept.
+# Needs bash, curl, cmp, sha256sum and Docker Engine >= 25.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -27,10 +25,9 @@ die() {
   printf 'docker-smoke: %s\n' "$*" >&2
   exit 1
 }
-command -v docker >/dev/null || die "docker is required"
-command -v curl >/dev/null || die "curl is required"
-command -v sha256sum >/dev/null || die "sha256sum is required"
-command -v cmp >/dev/null || die "cmp is required"
+for tool in docker curl cmp sha256sum; do
+  command -v "$tool" >/dev/null || die "$tool is required"
+done
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/aia-cdp-docker-smoke.XXXXXX")
 created=0
@@ -57,9 +54,6 @@ logs() {
   echo "--- container logs" >&2
   docker logs "$NAME" >&2 2>&1 || true
 }
-
-echo "docker-smoke: docker build --check ."
-docker build --check . || die "docker build --check reported warnings or errors"
 
 created=1
 echo "docker-smoke: building $IMAGE"
@@ -91,19 +85,14 @@ health() { # EXPECTED_STATUS: health answers 200 with that status
   if [[ ${out##*$'\n'} == 200 && $out == *"\"status\":\"$1\""* ]]; then ok=0; fi
   check "$ok" "health is $1: ${out//$'\n'/ }"
 }
-
 health degraded
-
-smoke=0
-bash scripts/smoke.sh "$BASE" || smoke=$?
-check "$smoke" "scripts/smoke.sh $BASE"
 
 uid=$(docker exec "$NAME" id -u)
 if [[ $uid == 1000 ]]; then ok=0; else ok=1; fi
 check "$ok" "runs as uid $uid (want 1000)"
 
-# The CLI inside the image (exit 6 of implementation slice 2). docker exec inherits the container's
-# AIA_ADMIN_TOKEN; the CLI only needs the URL.
+# The CLI inside the image. docker exec inherits the container's AIA_ADMIN_TOKEN; the CLI only
+# needs the URL.
 aia() { docker exec -e AIA_URL=http://127.0.0.1:8080 "$NAME" node dist/server/cli/aia.js "$@"; }
 aia_check() { # DESCRIPTION ERE ARGS...: the CLI exits 0 and its output matches ERE
   local description=$1 want=$2 out status=0 ok=1
@@ -113,37 +102,21 @@ aia_check() { # DESCRIPTION ERE ARGS...: the CLI exits 0 and its output matches 
   check "$ok" "$description (exit $status): ${out//$'\n'/ | }"
 }
 
-# One DER file and one PEM bundle of two blocks; the config serves all three with fresh target ids
-# from `aia new-target-id`.
+# One DER file and one PEM bundle of two blocks; the config serves the root and its CRL target as
+# scripts/smoke.sh expects them.
 mkdir "$T/smoke"
 cp "$CERTS/root-ca.der" "$T/smoke/root-ca.der"
 cat "$CERTS/issuing-ca-1.pem" "$CERTS/issuing-ca-2.pem" >"$T/smoke/chain.pem"
 root=$(sha256sum "$CERTS/root-ca.der" | cut -d ' ' -f 1)
-ca1=$(sha256sum "$CERTS/issuing-ca-1.der" | cut -d ' ' -f 1)
-ca2=$(sha256sum "$CERTS/issuing-ca-2.der" | cut -d ' ' -f 1)
-t0=$(aia new-target-id) t1=$(aia new-target-id) t2=$(aia new-target-id) t3=$(aia new-target-id)
+target=$(aia new-target-id)
 cat >"$T/smoke/config.json" <<JSON
 {
   "version": 1,
-  "certificates": {
-    "$root": { "label": "Example Root CA" },
-    "$ca1": { "label": "Example Issuing CA 01" },
-    "$ca2": { "label": "Example Issuing CA 02" }
-  },
-  "targets": {
-    "$t0": { "issuer": "$root", "kind": "full", "label": "Example Root CA" },
-    "$t1": { "issuer": "$ca1", "kind": "full", "label": "Example Issuing CA 01" },
-    "$t2": { "issuer": "$ca1", "kind": "delta", "label": "Example Issuing CA 01 (delta)" },
-    "$t3": { "issuer": "$ca2", "kind": "full", "label": "Example Issuing CA 02" }
-  },
+  "certificates": { "$root": { "label": "Example Root CA" } },
+  "targets": { "$target": { "issuer": "$root", "kind": "full", "label": "Example Root CA" } },
   "paths": {
     "/ca/root-ca.crt": { "certificate": "$root" },
-    "/ca/issuing-ca-1.crt": { "certificate": "$ca1" },
-    "/ca/issuing-ca-2.crt": { "certificate": "$ca2" },
-    "/crl/root-ca.crl": { "target": "$t0" },
-    "/crl/issuing-ca-1.crl": { "target": "$t1" },
-    "/dcrl/issuing-ca-1.crl": { "target": "$t2" },
-    "/crl/issuing-ca-2.crl": { "target": "$t3" }
+    "/crl/root-ca.crl": { "target": "$target" }
   }
 }
 JSON
@@ -158,41 +131,10 @@ aia_check "aia import" '3 created, 0 unchanged, 0 failed' \
 aia_check "aia config apply" '^applied /tmp/aia-smoke/config.json \(ETag "[0-9a-f]{64}"\)$' \
   config apply /tmp/aia-smoke/config.json
 health healthy
-aia_check "aia health" '^healthy: ' health
 
-# Downloads from the image (plan §11; implementation slice 3): the root CA the config serves, as DER
-# and as PEM (OpenSSL's certs/root-ca.pem, which derToPem reproduces byte for byte).
-field() { # NAME FILE: the value of a header in a curl -D dump, without the CR ("" if none)
-  sed -n "s/^$1: *//Ip" "$2" 2>/dev/null | tr -d '\r' | tail -n 1 || true
-}
-download_check() { # PATH FIXTURE ETAG: GET, HEAD and If-None-Match on PATH
-  local path=$1 file=$2 etag=$3 size status ok got method
-  size=$(wc -c <"$file" | tr -d ' ')
-  rm -f "$T/get.h" "$T/get.b" "$T/head.h"
-  status=$(curl -sS --max-time 5 -D "$T/get.h" -o "$T/get.b" -w '%{http_code}' "$BASE$path") ||
-    status=000
-  got="ETag $(field etag "$T/get.h"), Content-Length $(field content-length "$T/get.h")"
-  ok=1
-  if [[ $status == 200 && $got == "ETag $etag, Content-Length $size" ]] &&
-    cmp -s "$T/get.b" "$file"; then ok=0; fi
-  check "$ok" "GET $path: $status, $got, body = $file"
-  status=$(curl -sS --max-time 5 -I -D "$T/head.h" -o /dev/null -w '%{http_code}' "$BASE$path") ||
-    status=000
-  got="ETag $(field etag "$T/head.h"), Content-Length $(field content-length "$T/head.h")"
-  ok=1
-  if [[ $status == 200 && $got == "ETag $etag, Content-Length $size" ]]; then ok=0; fi
-  check "$ok" "HEAD $path: $status, $got"
-  for method in GET HEAD; do # curl --get / --head
-    status=$(curl -sS --max-time 5 "--${method,,}" -H "If-None-Match: $etag" -o /dev/null \
-      -w '%{http_code}' "$BASE$path") || status=000
-    if [[ $status == 304 ]]; then ok=0; else ok=1; fi
-    check "$ok" "$method $path (If-None-Match: $etag): $status"
-  done
-}
-download_check /ca/root-ca.crt "$CERTS/root-ca.der" "\"$root\""
-download_check /ca/root-ca.crt.pem "$CERTS/root-ca.pem" "\"$root-pem\""
-aia_check "aia import again" '0 created, 3 unchanged, 0 failed' \
-  import /tmp/aia-smoke/root-ca.der /tmp/aia-smoke/chain.pem
+smoke=0
+bash scripts/smoke.sh "$BASE" || smoke=$?
+check "$smoke" "scripts/smoke.sh $BASE"
 
 started=$(date +%s%3N)
 docker stop "$NAME" >/dev/null

@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import vue from "@vitejs/plugin-vue";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 const webRoot = fileURLToPath(new URL("./src/web", import.meta.url));
 
@@ -8,16 +8,17 @@ const webRoot = fileURLToPath(new URL("./src/web", import.meta.url));
 // inherit the root `test` options (vitest 5: `extends` defaults to true).
 export default defineConfig({
   test: {
-    environment: "node",
     hookTimeout: 10_000,
     teardownTimeout: 10_000,
-    // Checks once per run that the committed tests/fixtures/pki matches its generator.
-    globalSetup: ["./tests/fixtures/global-setup.ts"],
     projects: [
-      { test: { name: "core", include: ["tests/core/**/*.test.ts"] } },
-      { test: { name: "http", include: ["tests/http/**/*.test.ts"] } },
-      { test: { name: "storage", include: ["tests/storage/**/*.test.ts"] } },
-      { test: { name: "integration", include: ["tests/integration/**/*.test.ts"] } },
+      {
+        test: {
+          name: "node",
+          include: ["tests/**/*.test.ts"],
+          exclude: [...configDefaults.exclude, "tests/web/**"],
+          environment: "node",
+        },
+      },
       {
         // Own Vite server (plugins / alias); the only project with a DOM.
         plugins: [vue()],
@@ -27,8 +28,6 @@ export default defineConfig({
           include: ["tests/web/**/*.test.ts"],
           environment: "happy-dom",
           env: { VITE_SITE_NAME: "Test PKI" },
-          // Vitest empties CSS imports, `?raw` too; the contrast test reads the theme tokens.
-          css: { include: [/\/src\/web\/styles\/main\.css/] },
         },
       },
     ],

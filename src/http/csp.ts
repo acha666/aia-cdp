@@ -5,9 +5,8 @@
 // The UI loads its scripts and styles from its own origin only. The one exception is the pre-paint
 // theme script inlined in src/web/index.html (no light flash before the bundle runs), allowed by
 // its sha256. Vite copies that script byte for byte into dist/web/index.html, so the hash below
-// holds for the build as well: tests/http/csp.test.ts recomputes it from the source file, and
-// `vite build` fails when the built page carries an inline script whose hash is not listed
-// (vite.config.ts). Change the script and its hash together.
+// holds for the build as well; tests/http/csp.test.ts recomputes it from the source file. Change
+// the script and its hash together.
 import type { secureHeaders } from "hono/secure-headers";
 
 type ContentSecurityPolicy = NonNullable<
@@ -39,24 +38,3 @@ export const CONTENT_SECURITY_POLICY: ContentSecurityPolicy = {
   // The upload card's form never submits itself (@submit.prevent, then fetch).
   formAction: ["'none'"],
 };
-
-const INLINE_SCRIPT = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
-
-/**
- * The `'sha256-…'` source expression of each inline script (a <script> without src) of an HTML
- * document, in document order, as browsers compute it: the SHA-256 of the text between the tags,
- * with CR LF and CR read as LF (the HTML parser does that first, so a CRLF checkout of index.html
- * keeps its hash). For the build check and the tests.
- */
-export async function inlineScriptHashes(html: string): Promise<string[]> {
-  const hashes: string[] = [];
-  for (const [, attributes = "", text = ""] of html.matchAll(INLINE_SCRIPT)) {
-    if (/\bsrc\s*=/i.test(attributes)) {
-      continue;
-    }
-    const bytes = new TextEncoder().encode(text.replace(/\r\n?/g, "\n"));
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    hashes.push(`'sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}'`);
-  }
-  return hashes;
-}

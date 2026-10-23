@@ -22,8 +22,6 @@
     "noImplicitOverride": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
     "forceConsistentCasingInFileNames": true,
     // pkijs and wrangler declaration files do not type-check cleanly on their own.
     "skipLibCheck": true

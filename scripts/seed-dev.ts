@@ -3,7 +3,7 @@
 // issuing CA certificates of tests/fixtures/pki, then, unless a configuration exists, applies one
 // with fresh target ids that serves them under /ca/<name>.crt, /crl/<name>.crl and
 // /dcrl/issuing-ca-{1,2}.crl, and publishes a CRL to every target but issuing-ca-2's delta (CRLS),
-// which stays unpublished: the UI shows that state, and scripts/ui-smoke.ts uploads its CRL.
+// which stays unpublished, so the UI shows that state too.
 // Idempotent: a second run reports every certificate and CRL unchanged and leaves the
 // configuration alone (pnpm run reset:dev starts over).
 //

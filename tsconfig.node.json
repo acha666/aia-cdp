@@ -20,5 +20,5 @@
     "vite.config.ts",
     "vitest.config.ts"
   ],
-  "exclude": ["tests/web/**", "tests/boundary/worker-canary.ts"]
+  "exclude": ["tests/web/**"]
 }

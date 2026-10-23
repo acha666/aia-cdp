@@ -2,24 +2,20 @@
 # Generate PKI test fixtures for aia-cdp: CA certificates, one CRL per
 # publish outcome, and malformed inputs.
 #
-#   bash tests/fixtures/generate-test-data.sh [--force | --check] OUT_DIR
+#   bash tests/fixtures/generate-test-data.sh        (pnpm run fixtures)
 #
-# OUT_DIR receives public material only:
+# Regenerates tests/fixtures/pki/ (next to this script) in full, with public
+# material only:
 #   certs/<name>.der|.pem       CA and leaf certificates
 #   crls/<issuer>/<case>.der    one CRL per test case (plus a few .pem variants)
 #   invalid/                    inputs that must be rejected as invalid_crl
 #   manifest.json               declared properties and expected outcomes
-#   SHA256SUMS                  digest of every file above
-#   .stamp                      SHA-256 of this script, written last
 #
-# Idempotent: if OUT_DIR/.stamp equals the SHA-256 of this file and
-# SHA256SUMS still verifies, nothing is written. --force regenerates;
-# --check exits 0 (up to date) or 1 (stale) and never writes. OUT_DIR is
-# staged next to itself and swapped in by rename, so an interrupted run
-# never leaves a half-written tree behind a valid stamp.
+# The tree is staged next to itself and swapped in by rename, so an
+# interrupted run leaves the previous tree in place.
 #
 # Private keys, CSRs and CA databases live in a mktemp work directory
-# outside OUT_DIR that is deleted on exit; every generation uses fresh keys.
+# outside the tree that is deleted on exit; every generation uses fresh keys.
 # Dates, serial numbers and CRL numbers are fixed below, so only
 # key-dependent values change between runs (SKI/AKI, signatures, file
 # digests, fingerprints, ECDSA signature lengths). Tests take those from the
@@ -32,19 +28,9 @@ export LC_ALL=C
 OPENSSL=${OPENSSL:-openssl}
 
 die() { printf 'generate-test-data: %s\n' "$*" >&2; exit 1; }
-usage() { die "usage: generate-test-data.sh [--force | --check] OUT_DIR"; }
+[[ $# -eq 0 ]] || die "usage: generate-test-data.sh (no arguments; writes tests/fixtures/pki)"
 
-mode=generate
-case ${1-} in
-  --force) mode=force; shift ;;
-  --check) mode=check; shift ;;
-  -*) usage ;;
-esac
-[[ $# -eq 1 && -n $1 ]] || usage
-
-SCRIPT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")
-case $1 in /*) OUT=$1 ;; *) OUT=$PWD/$1 ;; esac
-OUT=${OUT%/}
+OUT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pki
 
 version=$("$OPENSSL" version 2>/dev/null) || die "cannot run '$OPENSSL'; set OPENSSL=/path/to/openssl (OpenSSL >= 3.0)"
 if ! [[ $version =~ ^OpenSSL\ ([0-9]+)\. && ${BASH_REMATCH[1]} -ge 3 ]]; then
@@ -52,42 +38,6 @@ if ! [[ $version =~ ^OpenSSL\ ([0-9]+)\. && ${BASH_REMATCH[1]} -ge 3 ]]; then
 fi
 
 sha256() { "$OPENSSL" dgst -sha256 -r "$1" | cut -d' ' -f1; }
-STAMP=$(sha256 "$SCRIPT")
-
-up_to_date() {
-  [[ -f $OUT/.stamp && -f $OUT/SHA256SUMS ]] || return 1
-  [[ $(cat "$OUT/.stamp") == "$STAMP" ]] || return 1
-  if command -v sha256sum >/dev/null 2>&1; then
-    (cd "$OUT" && sha256sum --check --status SHA256SUMS) 2>/dev/null || return 1
-  else
-    local sum file
-    while read -r sum file; do
-      [[ -f $OUT/$file && $(sha256 "$OUT/$file") == "$sum" ]] || return 1
-    done <"$OUT/SHA256SUMS"
-  fi
-}
-
-if [[ $mode == check ]]; then
-  if up_to_date; then echo "up to date: $OUT"; exit 0; fi
-  echo "stale: $OUT" >&2
-  exit 1
-fi
-
-# Serialize concurrent runs (several vitest processes) on this script file.
-if command -v flock >/dev/null 2>&1; then
-  exec 9<"$SCRIPT"
-  flock 9
-fi
-if [[ $mode == generate ]] && up_to_date; then
-  echo "up to date: $OUT"
-  exit 0
-fi
-
-if [[ -e $OUT ]]; then
-  [[ -d $OUT ]] || die "$OUT exists and is not a directory"
-  [[ -f $OUT/.stamp || -z $(ls -A "$OUT") ]] ||
-    die "refusing to replace $OUT: it has no .stamp, so this script did not create it"
-fi
 
 WORK='' STAGE=''
 cleanup() {
@@ -100,7 +50,6 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-mkdir -p "$(dirname "$OUT")"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/aia-cdp-fixtures.XXXXXX")
 STAGE=$(mktemp -d "$OUT.tmp.XXXXXX")
 CNF=$WORK/openssl.cnf
@@ -683,9 +632,9 @@ invalid_entry trailing-byte.der "valid CRL followed by one zero byte"
 cp "$STAGE/certs/$I1.der" "$V/certificate.der"
 invalid_entry certificate.der "a certificate, not a CRL"
 
-# --- manifest, digests, stamp, swap -----------------------------------------
+# --- manifest, swap ---------------------------------------------------------
 {
-  printf '{\n  "version": 1,\n  "generatorSha256": "%s",\n  "openssl": "%s",\n' "$STAMP" "$version"
+  printf '{\n  "version": 1,\n  "openssl": "%s",\n' "$version"
   printf '  "now": "2026-01-04T00:00:00Z",\n'
   emit certificates "${CERTS[@]}"
   printf ',\n'
@@ -717,12 +666,8 @@ invalid_entry certificate.der "a certificate, not a CRL"
 EOF
 } >"$STAGE/manifest.json"
 
-(cd "$STAGE" && find . -type f ! -name SHA256SUMS ! -name .stamp | sed 's|^\./||' | sort) |
-  while read -r f; do printf '%s  %s\n' "$(sha256 "$STAGE/$f")" "$f"; done >"$STAGE/SHA256SUMS"
-
 if grep -rlq 'PRIVATE KEY' "$STAGE"; then die "private key material in the output"; fi
 
-printf '%s\n' "$STAMP" >"$STAGE/.stamp"
 chmod 755 "$STAGE"
 old=''
 if [[ -e $OUT ]]; then
@@ -731,4 +676,4 @@ if [[ -e $OUT ]]; then
 fi
 mv "$STAGE" "$OUT"
 if [[ -n $old ]]; then rm -rf "$old"; fi
-echo "generated $(wc -l <"$OUT/SHA256SUMS" | tr -d ' ') files in $OUT"
+echo "generated $(find "$OUT" -type f | wc -l | tr -d ' ') files in $OUT"

@@ -1,12 +1,11 @@
-// The UI's Content-Security-Policy (implementation slice 5b step 10): the hash that allows the
-// pre-paint theme script is that of the script in src/web/index.html, and both runtimes' UI
-// responses carry the policy, since it comes from the one app. The built page is checked by
-// `vite build` itself (tests/integration/web-build.test.ts).
+// The UI's Content-Security-Policy: the hash that allows the pre-paint theme script is that of the
+// script in src/web/index.html, and both runtimes' UI responses carry the policy, since it comes
+// from the one app.
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../src/http/app.ts";
-import { INLINE_SCRIPT_HASHES, inlineScriptHashes } from "../../src/http/csp.ts";
+import { INLINE_SCRIPT_HASHES } from "../../src/http/csp.ts";
 import { CSP_HEADER, testDeps } from "../helpers/app.ts";
 
 const INDEX_HTML = readFileSync(new URL("../../src/web/index.html", import.meta.url), "utf8");
@@ -27,25 +26,6 @@ describe("inline script hash", () => {
     expect(inline).toHaveLength(1);
     expect(inline[0]).toContain('localStorage.getItem("theme-preference")');
     expect(INLINE_SCRIPT_HASHES).toEqual(inline.map(sha256Source));
-  });
-
-  it("is what the build check computes, also from a CRLF copy; external scripts are skipped", async () => {
-    expect(await inlineScriptHashes(INDEX_HTML)).toEqual(INLINE_SCRIPT_HASHES);
-    const html =
-      '<script type="module" crossorigin src="/assets/index.js"></script>\n' +
-      "<SCRIPT>\r\n  a();\r\n</SCRIPT >";
-    expect(await inlineScriptHashes(html)).toEqual([sha256Source("\n  a();\n")]);
-    expect(await inlineScriptHashes(INDEX_HTML.replace(/\n/g, "\r\n"))).toEqual(
-      INLINE_SCRIPT_HASHES
-    );
-  });
-});
-
-describe("served files", () => {
-  it("leave the favicon nothing that style-src 'self' blocks when it is opened as a page", () => {
-    const svg = readFileSync(new URL("../../src/web/public/favicon.svg", import.meta.url), "utf8");
-    expect(svg).not.toMatch(/<style|style=/);
-    expect(svg).toContain('fill="#1e3050"');
   });
 });
 

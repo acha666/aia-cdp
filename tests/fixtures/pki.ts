@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-// The generated tree (tests/fixtures/generate-test-data.sh, run by vitest globalSetup before any
-// test file is loaded). Digests, key ids, sizes and signatures change with every generation: read
-// them from the files or from `manifest`, never write them as literals (implementation §2.5).
+// The committed tree that tests/fixtures/generate-test-data.sh writes (pnpm run fixtures). Digests,
+// key ids, sizes and signatures change with every generation: read them from the files or from
+// `manifest`, never write them as literals (implementation §2.5).
 
 /** Absolute path of tests/fixtures/pki/, with a trailing slash. */
 export const FIXTURES_DIR = fileURLToPath(new URL("./pki/", import.meta.url));
@@ -82,8 +82,6 @@ export interface ManifestScenario {
 
 export interface Manifest {
   version: 1;
-  /** SHA-256 of the generator script that produced the tree (equals .stamp). */
-  generatorSha256: string;
   /** `openssl version` of the generating host. */
   openssl: string;
   /** The clock to inject in tests: 2026-01-04T00:00:00Z. */
