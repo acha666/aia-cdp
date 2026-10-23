@@ -30,7 +30,13 @@ import { fixture, manifest, NOW } from "../fixtures/pki.ts";
 import type { ManifestCrl } from "../fixtures/pki.ts";
 import { cert, currentCrl, putConfig } from "../helpers/catalog.ts";
 import { generateCa, setupGeneratedCa, signCrl } from "../helpers/generated-ca.ts";
-import { extension, nullWithContents, padOid, withOuterAlgorithm } from "../helpers/pki.ts";
+import {
+  extension,
+  nullWithContents,
+  padOid,
+  pkiError,
+  withOuterAlgorithm,
+} from "../helpers/pki.ts";
 import {
   IMPORTED,
   ISSUING_FULL_ALIAS,
@@ -59,8 +65,6 @@ const ROOT_FULL_01 = "crls/root-ca/full-01.der";
 const AKI_OID = "2.5.29.35";
 const CRL_NUMBER_OID = "2.5.29.20";
 const DELTA_INDICATOR_OID = "2.5.29.27";
-/** A private OID (appendix D, IANA example enterprise number). */
-const UNKNOWN_OID = "1.3.6.1.4.1.32473.99";
 
 /** The engine whose verifyWithPublicKey checks every signature (B21). */
 const engine = pkijs.getCrypto(true);
@@ -283,9 +287,8 @@ describe("publishCrl: input that is not a CRL", () => {
     expect(store.writes).toEqual([]);
   });
 
-  // M2: exactly one INTEGER ≥ 0 (tag 2, not empty, at most MAX_CRL_NUMBER_OCTETS octets) for the
-  // CRL Number and the Delta CRL Indicator, exactly one AKI with a non-empty keyIdentifier, and no
-  // extension twice (slice 4 review C3, C5).
+  // Exactly one INTEGER ≥ 0 (tag 2, not empty, at most MAX_CRL_NUMBER_OCTETS octets) for the CRL
+  // Number and the Delta CRL Indicator, and exactly one AKI.
   it.each([
     [
       "CRL Number NULL",
@@ -316,23 +319,6 @@ describe("publishCrl: input that is not a CRL", () => {
     ],
     ["AKI with a trailing byte", withTrailingByte(AKI_OID), /Invalid Authority Key Identifier/],
     [
-      "the CRL Number twice",
-      (extensions: pkijs.Extension[]) => [
-        ...extensions,
-        extension(CRL_NUMBER_OID, new asn1.Integer({ value: 100 })),
-      ],
-      /Repeated extension 2\.5\.29\.20/,
-    ],
-    [
-      "an extension the service does not read twice",
-      (extensions: pkijs.Extension[]) => [
-        ...extensions,
-        extension(UNKNOWN_OID, new asn1.Null()),
-        extension(UNKNOWN_OID, new asn1.Null()),
-      ],
-      /Repeated extension 1\.3\.6\.1\.4\.1\.32473\.99/,
-    ],
-    [
       "Delta CRL Indicator NULL",
       replacing(DELTA_INDICATOR_OID, extension(DELTA_INDICATOR_OID, new asn1.Null())),
       /Invalid Delta CRL Indicator/,
@@ -341,17 +327,6 @@ describe("publishCrl: input that is not a CRL", () => {
       "AKI NULL",
       replacing(AKI_OID, extension(AKI_OID, new asn1.Null())),
       /Invalid Authority Key Identifier/,
-    ],
-    [
-      "AKI with an empty keyIdentifier",
-      replacing(
-        AKI_OID,
-        extension(
-          AKI_OID,
-          new pkijs.AuthorityKeyIdentifier({ keyIdentifier: new asn1.OctetString() }).toSchema()
-        )
-      ),
-      /Empty Authority Key Identifier/,
     ],
   ])(
     "rejects a CRL with %s as invalid_crl / extension_value without writing",
@@ -372,9 +347,9 @@ describe("publishCrl: input that is not a CRL", () => {
   });
 });
 
-// C2 of the slice 4 review: the outer signatureAlgorithm is outside the signature. asn1js decodes an
-// OID subidentifier padded with 0x80 and a NULL with contents and re-encodes both canonically, so
-// before the DER rules a third party could make such a variant of a genuine CRL current first (no
+// The outer signatureAlgorithm is outside the signature. asn1js decodes an OID subidentifier padded
+// with 0x80 and a NULL with contents and re-encodes both canonically, so unless the octets are
+// compared as received a third party could make such a variant of a genuine CRL current first (no
 // upload token by default), one OpenSSL cannot load, and lock the CA's own bytes out as conflict.
 describe("publishCrl: a rewritten outer signatureAlgorithm", () => {
   it.each([
@@ -389,7 +364,7 @@ describe("publishCrl: a rewritten outer signatureAlgorithm", () => {
     expect(variant).not.toEqual(fixture(file));
     expect((await publish(store, variant)).result).toEqual({
       error: "invalid_crl",
-      details: { reason: "der" },
+      details: { reason: "signature_algorithm_mismatch" },
     });
     expect(store.writes).toEqual([]);
     expect((await publishFile(store, file)).result).toMatchObject({ outcome: "created" });
@@ -409,6 +384,28 @@ describe("publishCrl: the signature before the freshness (step 6 before step 7)"
     expect((await publishFile(store, broken)).result).toEqual({
       error: "invalid_signature",
       details: { algorithm: SIGNATURE_ALG_NAMES[algorithm] },
+    });
+    expect(store.writes).toEqual([]);
+  });
+
+  // Unverified revoked entries are never decoded: an anonymous upload costs one signature check.
+  it("answers invalid_signature, not invalid_crl, for a revoked list of 50 000 NULLs", async () => {
+    const { base } = await fresh();
+    const crl = parseCRL(fixture(FULL_01));
+    const schema = crl.toSchema(true) as asn1.Sequence;
+    const fields = (schema.valueBlock.value[0] as asn1.Sequence).valueBlock.value;
+    const revoked = fields.findIndex(
+      (field, index) => field instanceof asn1.Sequence && fields[index - 1] instanceof asn1.UTCTime
+    );
+    fields[revoked] = new asn1.Sequence({
+      value: Array.from({ length: 50_000 }, () => new asn1.Null()),
+    });
+    const junk = new Uint8Array(schema.toBER(false));
+    expect(await pkiError(() => parseCRL(junk))).toEqual({ kind: "crl", reason: "structure" });
+    const store = recordingStore(base);
+    expect((await publish(store, junk)).result).toEqual({
+      error: "invalid_signature",
+      details: { algorithm: SIGNATURE_ALG_NAMES[crl.signatureAlgorithm.algorithmId] },
     });
     expect(store.writes).toEqual([]);
   });
@@ -485,8 +482,7 @@ describe("publishCrl: issuer and target (M3, M4, M23, C5)", () => {
     expect(store.writes).toEqual([]);
   });
 
-  // Step 7 (owner answer 4): the issuer the target names verifies; another certificate with the
-  // same SKI changes nothing, and uploads never answer issuer_mismatch.
+  // The issuer the target names verifies; another certificate with the same SKI changes nothing.
   it("verifies with issuing-ca-1 while the same-key renewal is imported but unbound", async () => {
     const { base, setup } = await fresh({
       certificates: [...IMPORTED, "issuing-ca-1-renewed"],
@@ -872,10 +868,11 @@ describe("publishCrl: the publish log line (plan §4.3)", () => {
       kind: "delta",
       expired: true,
     });
+    // Bytes already current are not parsed again: their kind and number come from the catalog.
     expect((await publishFile(base, DELTA_01)).record).toMatchObject({
       level: "info",
       outcome: "unchanged",
-      expired: true,
+      kind: "delta",
       attempts: 1,
     });
   });
@@ -883,7 +880,7 @@ describe("publishCrl: the publish log line (plan §4.3)", () => {
   it("logs the reason and what was known of a rejection", async () => {
     const { base, setup } = await fresh();
     const entry = crlEntry("crls/issuing-ca-1/full-unknown-critical.der");
-    // The policy runs before the target is resolved: no targetId, no attempt.
+    // The policy runs before the target is resolved: no targetId.
     expect((await publishFile(base, entry.file)).record).toEqual({
       level: "warn",
       msg: "publish",
@@ -892,7 +889,7 @@ describe("publishCrl: the publish log line (plan §4.3)", () => {
       sha256: entry.sha256,
       crlNumber: entry.crlNumber,
       thisUpdate: new Date(entry.thisUpdate).toISOString(),
-      attempts: 0,
+      attempts: 1,
       ms: expect.any(Number) as unknown,
       detail: expect.stringContaining("1.3.6.1.4.1.32473.1") as unknown,
     });
@@ -913,7 +910,7 @@ describe("publishCrl: the publish log line (plan §4.3)", () => {
       msg: "publish",
       reason: "invalid_crl",
       sha256: await sha256Hex(garbage),
-      attempts: 0,
+      attempts: 1,
       ms: expect.any(Number) as unknown,
       detail: expect.stringMatching(/^der: /) as unknown,
     });

@@ -2,12 +2,12 @@
 // M12). Rewrite of worker-aia-cdp@5b570aa:src/worker/pki/crls.ts:5-15 (verifyCRLWithIssuer), which
 // used the verify method of PKIjs's CertificateRevocationList: that compares the CRL's issuer name
 // with the certificate's subject (C1) and silently fails a critical extension outside PKIjs's own
-// list (C2). Here the key is whichever certificate the target names, the extension policy
+// list (C2). Here the key is whichever certificate the target names, the CRL extension policy
 // (crl-policy.ts) has already run, and PKIjs only does the cryptography, on the engine it installs
 // from globalThis.crypto by itself (B21: the engine is never replaced).
-import { Any, Integer, Null, ObjectIdentifier, Sequence } from "asn1js";
+import { Any, fromBER, Integer, Null, ObjectIdentifier, Sequence } from "asn1js";
 import * as pkijs from "pkijs";
-import { assertWellFormed, decodeBer } from "./asn1.ts";
+import { assertWellFormed } from "./asn1.ts";
 import { CURVE_NAMES, HASH_ALG_NAMES, KEY_ALG_NAMES, SIGNATURE_ALG_NAMES } from "./constants.ts";
 import { toDigestInput } from "./conversion.ts";
 
@@ -42,7 +42,7 @@ const ALLOWED_SIGNATURES: ReadonlyMap<string, Scheme> = new Map<string, Scheme>(
   ["1.2.840.10045.4.3.4", "ecdsa"], // ecdsa-with-SHA512
 ]);
 
-/** Hashes RSASSA-PSS may name (and MGF1 with it), the same four. */
+/** Hashes RSASSA-PSS may name, the same four. */
 const PSS_HASHES: ReadonlySet<string> = new Set([
   "1.3.14.3.2.26",
   "2.16.840.1.101.3.4.2.1",
@@ -50,7 +50,6 @@ const PSS_HASHES: ReadonlySet<string> = new Set([
   "2.16.840.1.101.3.4.2.3",
 ]);
 
-const MGF1 = "1.2.840.113549.1.1.8";
 const RSA_ENCRYPTION = "1.2.840.113549.1.1.1";
 const RSASSA_PSS = "1.2.840.113549.1.1.10";
 const EC_PUBLIC_KEY = "1.2.840.10045.2.1";
@@ -76,34 +75,17 @@ function absentOrNull(params: unknown): boolean {
 }
 
 /**
- * RSASSA-PSS-params (RFC 4055 §3.1) that WebCrypto verifies as stated: an allowed hash, MGF1 with
- * that same hash (WebCrypto has no other mask; PKIjs ignores the MGF parameter and would verify a
- * mislabelled signature), the only trailer field, a salt length that is an integer. Absent fields
- * take the RFC defaults (SHA-1, MGF1 with SHA-1, 20, 1). Throws when the parameters do not decode.
+ * RSASSA-PSS-params (RFC 4055 §3.1) whose hash is allowed (absent: the RFC default, SHA-1). The
+ * other fields are signed with the TBS, so only the CA can get them wrong. Throws when the
+ * parameters do not decode.
  */
 function pssProblem(params: unknown): string | undefined {
   if (!(params instanceof Sequence)) {
     return "RSASSA-PSS without RSASSA-PSS-params";
   }
-  const pss = new pkijs.RSASSAPSSParams({ schema: params });
-  const hash = pss.hashAlgorithm;
+  const hash = new pkijs.RSASSAPSSParams({ schema: params }).hashAlgorithm;
   if (!PSS_HASHES.has(hash.algorithmId) || !absentOrNull(hash.algorithmParams)) {
     return `RSASSA-PSS with the hash ${name(HASH_ALG_NAMES, hash.algorithmId)}`;
-  }
-  const mask = pss.maskGenAlgorithm;
-  const maskParams: unknown = mask.algorithmParams;
-  if (mask.algorithmId !== MGF1 || !(maskParams instanceof Sequence)) {
-    return `RSASSA-PSS with the mask ${mask.algorithmId}`;
-  }
-  const maskHash = new pkijs.AlgorithmIdentifier({ schema: maskParams });
-  if (maskHash.algorithmId !== hash.algorithmId || !absentOrNull(maskHash.algorithmParams)) {
-    return `RSASSA-PSS with MGF1 over ${name(HASH_ALG_NAMES, maskHash.algorithmId)}, not its hash`;
-  }
-  if (pss.trailerField !== 1) {
-    return `RSASSA-PSS with the trailer field ${pss.trailerField}`;
-  }
-  if (!Number.isSafeInteger(pss.saltLength) || pss.saltLength < 0) {
-    return "RSASSA-PSS with an unusable salt length";
   }
   return undefined;
 }
@@ -115,7 +97,7 @@ function pssProblem(params: unknown): string | undefined {
  * would verify under several encodings, which OpenSSL refuses as well.
  */
 function ecdsaSignatureProblem(signature: Uint8Array, orderLength: number): string | undefined {
-  const parsed = decodeBer(signature);
+  const parsed = fromBER(signature);
   if (parsed.offset !== signature.byteLength) {
     return "The ECDSA signature is not one DER value";
   }
@@ -200,9 +182,9 @@ function admit(
  * Whether `crl` was signed with the key `issuerSpki` (the target's configured issuer; owner answer
  * 4). The algorithm is admitted by OID first (unsupported_algorithm), then
  * `pkijs.getCrypto(true).verifyWithPublicKey` checks the signature over `crl.tbsView`: the
- * TBSCertList octets as received (asn1js's valueBeforeDecodeView, a view of its copy of the input),
- * never a re-encoding (M12). False, or a throw from the cryptography, is invalid_signature with the
- * exception text in `detail` only. Issuer names are not compared (C1). The only throw left is a
+ * TBSCertList octets as received (parseCRL and parseCrlHeader both keep them), never a
+ * re-encoding. False, or a throw from the cryptography, is invalid_signature with the exception
+ * text in `detail` only. Issuer names are not compared (C1). The only throw left is a
  * missing crypto engine, a server fault rather than a bad signature.
  */
 export async function verifyCrlSignature(
@@ -215,7 +197,7 @@ export async function verifyCrlSignature(
   try {
     refusal = admit(crl, issuerSpki);
   } catch (error) {
-    // Parameters PKIjs could not decode (RSASSA-PSS-params, the MGF1 hash).
+    // RSASSA-PSS-params PKIjs could not decode.
     refusal = {
       reason: "unsupported_algorithm",
       detail: `Undecodable parameters: ${error instanceof Error ? error.message : String(error)}`,

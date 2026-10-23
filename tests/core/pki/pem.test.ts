@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { parseCRL } from "../../../src/core/pki/parsers.ts";
 import {
   derToPem,
-  extractPEMBlock,
   PEM_BLOCK_MARKERS,
   pemLength,
   splitPemBlocks,
@@ -30,7 +29,7 @@ it("PEM encoding handles large CRLs and sliced buffers without truncation", () =
   const { begin, end } = PEM_BLOCK_MARKERS.crl;
   const pem = derToPem(bytes, begin, end);
   // Buffer.compare instead of toEqual: a deep equality walk over 1 MiB takes seconds on CI runners.
-  expect(Buffer.compare(extractPEMBlock(pem, begin, end), bytes)).toBe(0);
+  expect(Buffer.compare(toDer(encode(pem), "crl"), bytes)).toBe(0);
   const lines = pem.trim().split("\n");
   expect(lines[0]).toBe(begin);
   expect(lines.at(-1)).toBe(end);

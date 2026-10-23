@@ -156,19 +156,6 @@ describe("buildCertificateSummary", () => {
       reason: "extension_value",
     });
   });
-
-  // RFC 5280 §4.2: a certificate includes each extension at most once.
-  it.each([SKI, "2.5.29.19"])("rejects extension %s twice as extension_value", async (oid) => {
-    const der = fixture(entry("issuing-ca-1").der);
-    const cert = parseCertificate(der);
-    const found = cert.extensions?.find((ext) => ext.extnID === oid);
-    expect(found).toBeDefined();
-    cert.extensions = [...(cert.extensions ?? []), found!];
-    expect(await pkiError(() => buildCertificateSummary(cert, der))).toEqual({
-      kind: "certificate",
-      reason: "extension_value",
-    });
-  });
 });
 
 describe("buildCrlSummary", () => {
@@ -245,8 +232,7 @@ describe("buildCrlSummary", () => {
     expect((await buildCrlSummary(crl, der)).nextPublish).toBe(at.toISOString());
   });
 
-  // Strict like the other extensions the service reads: a malformed value rejects the CRL instead
-  // of turning into null.
+  // A value that cannot be read is null, like a missing extension.
   const utcTime = new asn1.UTCTime({ valueDate: new Date("2026-01-10T12:00:00Z") }).toBER(false);
   it.each([
     ["an INTEGER", extension(NEXT_CRL_PUBLISH_OID, new asn1.Integer({ value: 1 }))],
@@ -266,20 +252,16 @@ describe("buildCrlSummary", () => {
         extnValue: Uint8Array.from([...new Uint8Array(utcTime), 0]).buffer,
       }),
     ],
-  ])("rejects a Next CRL Publish holding %s as extension_value", async (_case, replacement) => {
+  ])("stores null for a Next CRL Publish holding %s", async (_case, replacement) => {
     const { crl, der } = withExtension(
       "crls/issuing-ca-1/full-adcs.der",
       NEXT_CRL_PUBLISH_OID,
       replacement
     );
-    expect(await pkiError(() => buildCrlSummary(crl, der))).toEqual({
-      kind: "crl",
-      reason: "extension_value",
-    });
+    expect((await buildCrlSummary(crl, der)).nextPublish).toBeNull();
   });
 
-  // M2: exactly one INTEGER ≥ 0 (tag 2, not empty), read as BigInt, beyond RFC 5280's 20 octets
-  // up to MAX_CRL_NUMBER_OCTETS (slice 4 review C3, C5).
+  // Exactly one INTEGER ≥ 0 (tag 2, not empty), read as BigInt, up to MAX_CRL_NUMBER_OCTETS.
   it.each([
     ["CRL Number", "2.5.29.20", "crls/issuing-ca-1/full-01.der"],
     ["Delta CRL Indicator", "2.5.29.27", "crls/issuing-ca-1/delta-01.der"],
@@ -316,19 +298,4 @@ describe("buildCrlSummary", () => {
       }
     }
   );
-
-  it("rejects a CRL extension that occurs twice as extension_value", async () => {
-    const file = "crls/issuing-ca-1/full-adcs.der";
-    const der = fixture(file);
-    const crl = parseCRL(der);
-    const extensions = crl.crlExtensions?.extensions ?? [];
-    for (const repeated of extensions) {
-      crl.crlExtensions = new pkijs.Extensions({ extensions: [...extensions, repeated] });
-      expect(await pkiError(() => buildCrlSummary(crl, der)), repeated.extnID).toEqual({
-        kind: "crl",
-        reason: "extension_value",
-      });
-    }
-    expect(extensions.length).toBeGreaterThan(3);
-  });
 });

@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { parseCertificate } from "../../../src/core/pki/parsers.ts";
-import { extractPEMBlock } from "../../../src/core/pki/pem.ts";
+import { toDer } from "../../../src/core/pki/pem.ts";
 import { buildTBSCertificate } from "../../../src/core/summary/certificate.ts";
 import { fixture } from "../../fixtures/pki.ts";
 
@@ -11,9 +11,7 @@ it("certificate metadata exposes structured extension entries", async () => {
   const leafCertificate = parseCertificate(fixture("certs/leaf-full.der"));
   const leafMetadata = await buildTBSCertificate(leafCertificate);
 
-  const caPem = new TextDecoder().decode(fixture("certs/root-ca.pem"));
-  const caDer = extractPEMBlock(caPem, "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----");
-  const caCertificate = parseCertificate(caDer);
+  const caCertificate = parseCertificate(toDer(fixture("certs/root-ca.pem"), "certificate"));
   const caMetadata = await buildTBSCertificate(caCertificate);
 
   const allEntries = [

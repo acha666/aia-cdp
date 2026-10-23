@@ -2,12 +2,12 @@
 // identifiers, times, names, public keys and fingerprints (implementation slice 5a step 3). From
 // worker-aia-cdp@5b570aa:src/worker/api/v2/builders/primitives.ts with these changes: buildTime
 // takes the pkijs.Time it formats (reading .value and .type), buildFingerprints takes the DER
-// bytes as a Uint8Array, formatGeneralizedTime is the one in ../pki/asn1.ts, the ECDSA / DSA
-// signature is decoded through decodeBer like every other fromBER, and the RSASSA-PSS integers are
-// read from their contents octets (slice 5a review: PKIjs's numbers are asn1js's valueDec).
+// bytes as a Uint8Array, formatGeneralizedTime is the one in ../pki/asn1.ts, and the RSASSA-PSS
+// integers are read from their contents octets (PKIjs's numbers are asn1js's valueDec).
 import {
   BaseBlock,
   Constructed,
+  fromBER,
   Integer,
   Null,
   ObjectIdentifier,
@@ -16,7 +16,7 @@ import {
 } from "asn1js";
 import type { BitString as Asn1BitString } from "asn1js";
 import * as pkijs from "pkijs";
-import { decodeBer, formatGeneralizedTime, integerNumber } from "../pki/asn1.ts";
+import { formatGeneralizedTime, integerNumber } from "../pki/asn1.ts";
 import {
   OID_DICTIONARY,
   KEY_ALG_NAMES,
@@ -121,7 +121,7 @@ export function buildSignatureValue(bitString: Asn1BitString, algorithmId: strin
   if (!family) {
     return base;
   }
-  const decoded = decodeBer(bitString.valueBlock.valueHexView);
+  const decoded = fromBER(bitString.valueBlock.valueHexView);
   if (decoded.offset === -1 || !(decoded.result instanceof Sequence)) {
     return base;
   }

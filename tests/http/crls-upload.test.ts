@@ -636,7 +636,8 @@ describe("POST /api/v1/crls: logs", () => {
         sha256: entry.sha256,
         crlNumber: entry.crlNumber,
         thisUpdate: new Date(entry.thisUpdate).toISOString(),
-        expired: false,
+        // Bytes already current are answered unchanged without being parsed.
+        ...(outcome === "created" ? { expired: false } : {}),
         attempts: 1,
         ms: expect.any(Number) as unknown,
       }))

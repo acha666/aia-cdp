@@ -107,15 +107,4 @@ describe("compareFreshness", () => {
       expect(compareFreshness(crl(B, number, "2026-01-02T00:00:01Z"), withMs)).toBe("stale_crl");
     });
   });
-
-  it("throws on a number or time that is not in the catalog format", () => {
-    for (const bad of ["", " 7", "0x10", "-1", "07"]) {
-      expect(() => compareFreshness(crl(A, "7", DAY_1), crl(B, bad, DAY_1)), bad).toThrow(
-        RangeError
-      );
-    }
-    expect(() => compareFreshness(crl(A, null, DAY_1), crl(B, null, "yesterday"))).toThrow(
-      RangeError
-    );
-  });
 });

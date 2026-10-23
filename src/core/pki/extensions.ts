@@ -1,6 +1,5 @@
-import { BaseBlock, GeneralizedTime, Integer, UTCTime } from "asn1js";
+import { BaseBlock, fromBER, GeneralizedTime, Integer, UTCTime } from "asn1js";
 import type { Extension } from "pkijs";
-import { decodeBer } from "./asn1.ts";
 
 /** PKIjs decodes and caches extension values; validate its result before using it. */
 export function readExtensionValue<T>(
@@ -25,7 +24,7 @@ export function readExtensionValue<T>(
  */
 export function readExtensionSchema(extension: Extension): BaseBlock {
   const view = extension.extnValue.valueBlock.valueHexView;
-  const parsed = decodeBer(view);
+  const parsed = fromBER(view);
   if (parsed.offset !== view.byteLength || parsed.result.error !== "") {
     throw new Error(`Invalid extension ${extension.extnID}`);
   }
@@ -41,14 +40,10 @@ export function readExtensionTime(extension: Extension): UTCTime | GeneralizedTi
 }
 
 /**
- * The longest CRL Number (or Delta CRL Indicator) the service takes, in contents octets. RFC 5280
- * §5.2.3 allows conforming CAs 20; the service keeps no such limit (M2) but needs one: the number is
- * written in decimal into the blob and history marker names (plan §5.1), a file system allows a
- * name 255 octets, and the fs adapter writes through `.<name>.<uuid>.tmp`, 42 octets longer.
- * 48 octets is at most 2^383 − 1, 116 digits, so the longest name is 15 (thisUpdate) + 1 + 116 +
- * 1 + 64 (sha256) + 5 (`.json`) = 202 octets, and its temporary file 244.
+ * The longest CRL Number (or Delta CRL Indicator) the service takes, in contents octets: RFC 5280
+ * §5.2.3 forbids CRL issuers longer values.
  */
-export const MAX_CRL_NUMBER_OCTETS = 48;
+export const MAX_CRL_NUMBER_OCTETS = 20;
 
 /**
  * A CRL Number or Delta CRL Indicator: exactly one INTEGER (tag 2, not ENUMERATED), not negative, at
@@ -73,22 +68,4 @@ export function readCRLInteger(extension: Extension): bigint {
     throw new Error(`Negative CRL number in ${extension.extnID}`);
   }
   return value;
-}
-
-/**
- * The first extension OID that occurs more than once in `extensions`, or undefined. X.509 allows
- * each extension once per Extensions (RFC 5280 §4.2 for certificates, likewise for CRLs), and every
- * reader here takes the first instance (`find`), so a repeated one would be silently ignored.
- */
-export function repeatedExtension(
-  extensions: readonly Extension[] | undefined
-): string | undefined {
-  const seen = new Set<string>();
-  for (const { extnID } of extensions ?? []) {
-    if (seen.has(extnID)) {
-      return extnID;
-    }
-    seen.add(extnID);
-  }
-  return undefined;
 }

@@ -8,7 +8,6 @@ import {
   getCRLNumber,
   getDeltaBaseCRLNumber,
   getSKIHex,
-  isDeltaCRL,
   parseCertificate,
   parseCRL,
 } from "../../../src/core/pki/parsers.ts";
@@ -261,12 +260,11 @@ describe("CRL Number and Delta CRL Indicator", () => {
   });
 
   it.each(PARSABLE_CRLS.map((crl) => [crl.file, crl] as const))(
-    "%s: number, base and kind match the manifest",
+    "%s: number and base match the manifest",
     (file, entry) => {
       const crl = parseCRL(fixture(file));
       expect(getCRLNumber(crl)?.toString() ?? null).toBe(entry.crlNumber);
       expect(getDeltaBaseCRLNumber(crl)?.toString() ?? null).toBe(entry.baseCrlNumber);
-      expect(isDeltaCRL(crl)).toBe(entry.kind === "delta");
     }
   );
 });

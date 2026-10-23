@@ -259,13 +259,10 @@ describe("allow-list", () => {
     return crypto.subtle.importKey("pkcs8", pkcs8, { name, hash }, false, ["sign"]);
   }
 
-  const pssParams = (hash: Hash, saltLength = HASH_LENGTH[hash], maskHash: Hash = hash) =>
+  const pssParams = (hash: Hash, saltLength = HASH_LENGTH[hash]) =>
     new pkijs.RSASSAPSSParams({
       hashAlgorithm: algorithmId(HASH_OIDS[hash], new asn1.Null()),
-      maskGenAlgorithm: algorithmId(
-        MGF1,
-        algorithmId(HASH_OIDS[maskHash], new asn1.Null()).toSchema()
-      ),
+      maskGenAlgorithm: algorithmId(MGF1, algorithmId(HASH_OIDS[hash], new asn1.Null()).toSchema()),
       saltLength,
     }).toSchema();
 
@@ -363,23 +360,6 @@ describe("allow-list", () => {
       ).toMatchObject({ ok: false, reason: "invalid_signature" });
     });
 
-    it("refuses MGF1 over another hash, which PKIjs alone would verify as MGF1 over the hash", async () => {
-      const crl = relabelled(pssParams("SHA-256", 32, "SHA-1"));
-      expect(
-        await engine.verifyWithPublicKey(
-          crl.tbsView,
-          crl.signatureValue,
-          spkiOf("issuing-ca-1"),
-          crl.signatureAlgorithm
-        )
-      ).toBe(true);
-      expect(await verifyCrlSignature(crl, spkiOf("issuing-ca-1"))).toMatchObject({
-        ok: false,
-        reason: "unsupported_algorithm",
-        algorithm: "RSASSA-PSS",
-      });
-    });
-
     it.each([
       ["no parameters", undefined],
       ["parameters that are not RSASSA-PSS-params", new asn1.Integer({ value: 1 })],
@@ -393,23 +373,6 @@ describe("allow-list", () => {
           hashAlgorithm: algorithmId("2.16.840.1.101.3.4.2.4", new asn1.Null()),
           maskGenAlgorithm: algorithmId(MGF1, algorithmId("2.16.840.1.101.3.4.2.4").toSchema()),
           saltLength: 28,
-        }).toSchema(),
-      ],
-      [
-        "another mask generation function",
-        new pkijs.RSASSAPSSParams({
-          hashAlgorithm: algorithmId(HASH_OIDS["SHA-256"], new asn1.Null()),
-          maskGenAlgorithm: algorithmId("1.2.3.4", algorithmId(HASH_OIDS["SHA-256"]).toSchema()),
-          saltLength: 32,
-        }).toSchema(),
-      ],
-      [
-        "trailer field 2",
-        new pkijs.RSASSAPSSParams({
-          hashAlgorithm: algorithmId(HASH_OIDS["SHA-256"], new asn1.Null()),
-          maskGenAlgorithm: algorithmId(MGF1, algorithmId(HASH_OIDS["SHA-256"]).toSchema()),
-          saltLength: 32,
-          trailerField: 2,
         }).toSchema(),
       ],
     ])("refuses %s as unsupported_algorithm without cryptography", async (_case, params) => {

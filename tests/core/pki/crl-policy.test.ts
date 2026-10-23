@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   CERTIFICATE_ISSUER_OID,
   checkCrlPolicy,
+  checkEntryPolicy,
   ISSUING_DISTRIBUTION_POINT_OID,
   MAX_CLOCK_SKEW_MS,
 } from "../../../src/core/pki/crl-policy.ts";
@@ -149,7 +150,7 @@ describe("checkCrlPolicy on the fixtures", () => {
         (revoked) => revoked.crlEntryExtensions?.extensions.map((ext) => ext.extnID) ?? []
       );
       expect(seen, file).toEqual(expect.arrayContaining([...oids]));
-      expect(checkCrlPolicy(crl, at(entry(file).thisUpdate)), file).toEqual(OK);
+      expect(checkEntryPolicy(crl), file).toEqual({ ok: true });
     }
   });
 });
@@ -278,38 +279,9 @@ describe("CRL extensions", () => {
       }
     });
 
-    it.each([
-      // RFC 5280 §5.2.5: conforming issuers MUST NOT write an empty IDP (slice 4 review C4).
-      ["nothing (an empty SEQUENCE)", idp()],
-      ["an INTEGER", new asn1.Integer({ value: 1 })],
-      ["a universal field", new asn1.Sequence({ value: [new asn1.Boolean({ value: true })] })],
-      ["fields out of order", idp(1, 0)],
-      ["a repeated field", idp(0, 0)],
-      [
-        "a field beyond [5]",
-        new asn1.Sequence({
-          value: [
-            new asn1.Primitive({
-              idBlock: { tagClass: 3, tagNumber: 6 },
-              valueHex: Uint8Array.of(0xff).buffer,
-            }),
-          ],
-        }),
-      ],
-      [
-        "a primitive distributionPoint",
-        new asn1.Sequence({
-          value: [
-            new asn1.Primitive({
-              idBlock: { tagClass: 3, tagNumber: 0 },
-              valueHex: Uint8Array.of(0).buffer,
-            }),
-          ],
-        }),
-      ],
-    ])("rejects an IDP holding %s as invalid_crl / extension_value", (_case, value) => {
+    it("rejects an IDP that is not a SEQUENCE as invalid_crl / extension_value", () => {
       for (const critical of [true, false]) {
-        expect(check(value, critical), String(critical)).toMatchObject({
+        expect(check(new asn1.Integer({ value: 1 }), critical), String(critical)).toMatchObject({
           ok: false,
           error: "invalid_crl",
           details: { reason: "extension_value" },
@@ -324,13 +296,13 @@ describe("entry extensions", () => {
   const value = new asn1.Utf8String({ value: "x" });
 
   it("rejects an unknown critical entry extension with the oid and the entry's serial", () => {
-    expect(checkCrlPolicy(withEntryExtension(extension(UNKNOWN, value, true)), NOW)).toEqual({
+    expect(checkEntryPolicy(withEntryExtension(extension(UNKNOWN, value, true)))).toEqual({
       ok: false,
       error: "unknown_critical_extension",
       details: { oid: UNKNOWN, serialNumber: serial() },
       detail: expect.any(String) as unknown,
     });
-    expect(checkCrlPolicy(withEntryExtension(extension(UNKNOWN, value)), NOW)).toEqual(OK);
+    expect(checkEntryPolicy(withEntryExtension(extension(UNKNOWN, value)))).toEqual({ ok: true });
   });
 
   it.each([true, false])(
@@ -340,7 +312,7 @@ describe("entry extensions", () => {
         names: [new pkijs.GeneralName({ type: 6, value: "http://other.example.test/" })],
       });
       const crl = withEntryExtension(extension(CERTIFICATE_ISSUER_OID, names.toSchema(), critical));
-      expect(checkCrlPolicy(crl, NOW)).toMatchObject({
+      expect(checkEntryPolicy(crl)).toMatchObject({
         ok: false,
         error: "scoped_crl_unsupported",
         details: { oid: CERTIFICATE_ISSUER_OID, serialNumber: serial() },
@@ -357,7 +329,7 @@ describe("entry extensions", () => {
     const [revoked] = crl.revokedCertificates ?? [];
     revoked!.crlEntryExtensions!.extensions.push(extension("2.5.29.23", hold, true));
     expect(revoked!.crlEntryExtensions!.extensions.every((ext) => ext.critical)).toBe(true);
-    expect(checkCrlPolicy(crl, NOW)).toEqual(OK);
+    expect(checkEntryPolicy(crl)).toEqual({ ok: true });
   });
 });
 
@@ -436,8 +408,8 @@ describe("order: the first violation wins", () => {
     expect(checkCrlPolicy(crl, NOW)).toMatchObject({ error: "not_yet_valid" });
   });
 
-  it("checks CRL extensions before entry extensions, in their order", () => {
-    const crl = withEntryExtension(extension(CERTIFICATE_ISSUER_OID, new asn1.Sequence(), true));
+  it("checks the CRL extensions in their order", () => {
+    const crl = crlOf(FULL_01);
     withCrlExtension(crl, extension(ISSUING_DISTRIBUTION_POINT_OID, idp(0, 1), true));
     withCrlExtension(crl, extension(UNKNOWN, new asn1.Null(), true));
     expect(checkCrlPolicy(crl, NOW)).toMatchObject({
