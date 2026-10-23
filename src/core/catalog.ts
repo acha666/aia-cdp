@@ -18,9 +18,13 @@ export const JSON_CONTENT_TYPE = "application/json";
 /** Certificate id (SHA-256 of the DER) and CRL content digest: lowercase hex, 64 digits. */
 export const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/, "Expected lowercase hex SHA-256");
 
+/** SHA-1 of the DER in a summary: lowercase hex, 40 digits. */
 const Sha1Hex = z.string().regex(/^[0-9a-f]{40}$/, "Expected lowercase hex SHA-1");
 
-/** Subject / Authority Key Identifier: lowercase hex, whole bytes; null when absent. */
+/**
+ * Subject / Authority Key Identifier: lowercase hex, whole bytes; null when the extension (or the
+ * AKI's keyIdentifier) is absent.
+ */
 const KeyId = z
   .string()
   .regex(/^(?:[0-9a-f]{2})+$/, "Expected lowercase hex bytes")
@@ -76,6 +80,7 @@ export type ConfigPath = z.infer<typeof ConfigPath>;
 /** Built by buildCertificateSummary (src/core/summary/catalog-summary.ts). */
 export const CertificateSummarySchema = z
   .strictObject({
+    /** First CN in RDN order. */
     subjectCN: z.string().nullable(),
     issuerCN: z.string().nullable(),
     serialNumber: SerialNumber,
@@ -102,7 +107,10 @@ export const CrlSummarySchema = z
     baseCrlNumber: Decimal.nullable(),
     thisUpdate: Timestamp,
     nextUpdate: Timestamp.nullable(),
-    /** Always known once published: "unknown" is only a target without a current CRL. */
+    /**
+     * Entries of revokedCertificates, 0 when the list is absent. Always known once published:
+     * "unknown" is only a target without a current CRL.
+     */
     revokedCount: z.number().int().nonnegative(),
     sha1: Sha1Hex,
     /** AD CS Next CRL Publish (1.3.6.1.4.1.311.21.4), null without the extension. */

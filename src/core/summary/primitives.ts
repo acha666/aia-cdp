@@ -43,7 +43,7 @@ import type {
   EdPublicKey,
   UnknownPublicKey,
   Fingerprints,
-} from "./types.ts";
+} from "./schemas.ts";
 
 /**
  * `value instanceof BaseBlock` narrows `unknown` to BaseBlock<any, any>, which typescript-eslint

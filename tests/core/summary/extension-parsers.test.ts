@@ -8,7 +8,7 @@ import { buildTBSCertificate } from "../../../src/core/summary/certificate.ts";
 import { buildTBSCertList } from "../../../src/core/summary/crl.ts";
 import { buildExtension } from "../../../src/core/summary/extensions.ts";
 import { buildSignatureValue } from "../../../src/core/summary/primitives.ts";
-import type { Extension, ParsedExtensionValue } from "../../../src/core/summary/types.ts";
+import type { Extension, ParsedExtensionValue } from "../../../src/core/summary/schemas.ts";
 import { fixture } from "../../fixtures/pki.ts";
 import { cert, crlEntry } from "../../helpers/catalog.ts";
 import { extension } from "../../helpers/pki.ts";

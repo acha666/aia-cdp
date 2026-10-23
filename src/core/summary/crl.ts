@@ -3,7 +3,7 @@
 // comes from config.json, not from the presence of a Delta CRL Indicator.
 import type * as pkijs from "pkijs";
 import { SIGNATURE_ALG_NAMES } from "../pki/constants.ts";
-import type { TBSCertList, RevokedCertificate } from "./types.ts";
+import type { TBSCertList, RevokedCertificate } from "./schemas.ts";
 import {
   buildVersion,
   buildSerialNumber,

@@ -1,6 +1,8 @@
 // Catalog summaries (plan §5.3). A summary is always built whole and replaces the previous one (no
 // merge, no summary version), so there is one implementation of each summary.
 import type { Certificate, CertificateRevocationList } from "pkijs";
+import type { z } from "zod";
+import type { CertificateSummarySchema, CrlSummarySchema } from "../catalog.ts";
 import { sha1Hex, toHex } from "../digest.ts";
 import { PkiParseError } from "../pki/errors.ts";
 import type { PkiKind } from "../pki/errors.ts";
@@ -12,37 +14,9 @@ import {
   getSKIHex,
 } from "../pki/parsers.ts";
 
-export interface CertificateSummary {
-  /** First CN of the subject in RDN order, or null. */
-  subjectCN: string | null;
-  issuerCN: string | null;
-  /** Uppercase hex of the INTEGER content bytes, leading 00 kept. */
-  serialNumber: string;
-  /** Date.toISOString(), e.g. 2025-01-01T00:00:00.000Z. */
-  notBefore: string;
-  notAfter: string;
-  /** Lowercase hex, or null when the extension (or the AKI's keyIdentifier) is absent. */
-  subjectKeyId: string | null;
-  authorityKeyId: string | null;
-  /** Lowercase hex SHA-1 of the DER. */
-  sha1: string;
-}
-
-export interface CrlSummary {
-  /** CRL Number in decimal (compared as BigInt), or null without the extension. */
-  crlNumber: string | null;
-  /** Delta CRL Indicator in decimal; null for a full CRL. */
-  baseCrlNumber: string | null;
-  /** Date.toISOString(). */
-  thisUpdate: string;
-  nextUpdate: string | null;
-  /** Number of revokedCertificates entries; 0 when the list is absent. */
-  revokedCount: number;
-  /** Lowercase hex SHA-1 of the DER. */
-  sha1: string;
-  /** AD CS Next CRL Publish (1.3.6.1.4.1.311.21.4), Date.toISOString(); null when absent. */
-  nextPublish: string | null;
-}
+// The two summaries in their catalog format.
+export type CertificateSummary = z.infer<typeof CertificateSummarySchema>;
+export type CrlSummary = z.infer<typeof CrlSummarySchema>;
 
 /** `read()`, with whatever it throws reported as a malformed extension of `kind`. */
 function readExtension<T>(kind: PkiKind, name: string, read: () => T): T {
@@ -117,12 +91,9 @@ export async function buildCrlSummary(
   crl: CertificateRevocationList,
   der: Uint8Array
 ): Promise<CrlSummary> {
-  const { crlNumber, baseCrlNumber, thisUpdate, nextUpdate, nextPublish } = readCrlFields(crl);
+  const { nextPublish, ...fields } = readCrlFields(crl);
   return {
-    crlNumber,
-    baseCrlNumber,
-    thisUpdate,
-    nextUpdate,
+    ...fields,
     revokedCount: crl.revokedCertificates?.length ?? 0,
     sha1: await sha1Hex(der),
     nextPublish,

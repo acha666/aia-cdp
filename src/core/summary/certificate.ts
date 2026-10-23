@@ -2,7 +2,7 @@
 // extensions are always included, there is no switch to leave parts out.
 import type * as pkijs from "pkijs";
 import { SIGNATURE_ALG_NAMES } from "../pki/constants.ts";
-import type { TBSCertificate } from "./types.ts";
+import type { TBSCertificate } from "./schemas.ts";
 import {
   buildVersion,
   buildSerialNumber,

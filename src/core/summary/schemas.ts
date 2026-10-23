@@ -1,6 +1,7 @@
-// X.509 projection schemas: what the detail builders (primitives.ts, extensions.ts,
-// certificate.ts, crl.ts) return, and what the certificate and CRL detail routes document. The CRL
-// kind is not here: it comes from config (CrlKind in ../catalog.ts).
+// X.509 projection schemas and their z.infer types (Name for NameSchema, …): what the detail
+// builders (primitives.ts, extensions.ts, certificate.ts, crl.ts) return, and what the certificate
+// and CRL detail routes document. The CRL kind is not here: it comes from config (CrlKind in
+// ../catalog.ts).
 //
 // There is no "unknown" extension variant (no parser produces one); fields the builders always
 // produce are required (SubjectPublicKeyInfo.parsed, ECPublicKey.point.x / y, TBSCertList.version);
@@ -21,22 +22,26 @@ export const X509VersionSchema = z.object({
   raw: z.number(),
   display: z.enum(["v1", "v2", "v3"]),
 });
+export type X509Version = z.infer<typeof X509VersionSchema>;
 
 export const SerialNumberSchema = z.object({
   hex: z.string(),
   decimal: z.string().optional(),
 });
+export type SerialNumber = z.infer<typeof SerialNumberSchema>;
 
 export const BitStringSchema = z.object({
   hex: z.string(),
   bitLength: z.number(),
   unusedBits: z.number(),
 });
+export type BitString = z.infer<typeof BitStringSchema>;
 
 export const ObjectIdentifierSchema = z.object({
   oid: z.string(),
   name: z.string().nullable(),
 });
+export type ObjectIdentifier = z.infer<typeof ObjectIdentifierSchema>;
 
 export const SignatureValueSchema = BitStringSchema.extend({
   parsed: z
@@ -46,6 +51,7 @@ export const SignatureValueSchema = BitStringSchema.extend({
     ])
     .optional(),
 }).meta({ id: "SignatureValue" });
+export type SignatureValue = z.infer<typeof SignatureValueSchema>;
 
 export const AlgorithmParametersParsedSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("null") }),
@@ -59,11 +65,13 @@ export const AlgorithmParametersParsedSchema = z.discriminatedUnion("type", [
     trailerField: z.number(),
   }),
 ]);
+export type AlgorithmParametersParsed = z.infer<typeof AlgorithmParametersParsedSchema>;
 
 export const AlgorithmParametersSchema = z.object({
   rawHex: z.string().describe("DER encoding of the parameters value"),
   parsed: AlgorithmParametersParsedSchema.optional(),
 });
+export type AlgorithmParameters = z.infer<typeof AlgorithmParametersSchema>;
 
 export const AlgorithmIdentifierSchema = z
   .object({
@@ -71,6 +79,7 @@ export const AlgorithmIdentifierSchema = z
     parameters: AlgorithmParametersSchema.optional(),
   })
   .meta({ id: "AlgorithmIdentifier" });
+export type AlgorithmIdentifier = z.infer<typeof AlgorithmIdentifierSchema>;
 
 export const TimeSchema = z
   .object({
@@ -83,6 +92,7 @@ export const TimeSchema = z
       ),
   })
   .meta({ id: "Time" });
+export type Time = z.infer<typeof TimeSchema>;
 
 // The lines of dumpAsn1 (Asn1Line in ../pki/asn1.ts). buildExtension assigns them to
 // Extension.asn1, so the compiler checks that they fit this schema.
@@ -92,6 +102,7 @@ export const Asn1LineSchema = z.object({
   length: z.number(),
   value: z.string().optional(),
 });
+export type Asn1Line = z.infer<typeof Asn1LineSchema>;
 
 // =============================================================================
 // Distinguished Name Schemas
@@ -113,15 +124,18 @@ export const AttributeValueSchema = z.object({
   ]),
   rawHex: z.string().optional().describe("DER encoding of the value when it is not a string"),
 });
+export type AttributeValue = z.infer<typeof AttributeValueSchema>;
 
 export const AttributeTypeAndValueSchema = z.object({
   type: ObjectIdentifierSchema,
   value: AttributeValueSchema,
 });
+export type AttributeTypeAndValue = z.infer<typeof AttributeTypeAndValueSchema>;
 
 export const RelativeDistinguishedNameSchema = z.object({
   attributes: z.array(AttributeTypeAndValueSchema),
 });
+export type RelativeDistinguishedName = z.infer<typeof RelativeDistinguishedNameSchema>;
 
 export const NameSchema = z
   .object({
@@ -137,6 +151,7 @@ export const NameSchema = z
       .describe("RFC 4514 string form (most significant RDN last), with OpenSSL attribute names"),
   })
   .meta({ id: "Name" });
+export type Name = z.infer<typeof NameSchema>;
 
 // =============================================================================
 // Public Key Schemas
@@ -147,6 +162,7 @@ export const RSAPublicKeySchema = z.object({
   modulus: z.object({ hex: z.string(), bitLength: z.number() }),
   publicExponent: z.number(),
 });
+export type RSAPublicKey = z.infer<typeof RSAPublicKeySchema>;
 
 export const ECPublicKeySchema = z.object({
   type: z.literal("ec"),
@@ -158,15 +174,18 @@ export const ECPublicKeySchema = z.object({
   }),
   keySize: z.number(),
 });
+export type ECPublicKey = z.infer<typeof ECPublicKeySchema>;
 
 export const EdPublicKeySchema = z.object({
   type: z.enum(["ed25519", "ed448"]),
   publicKey: z.object({ hex: z.string() }),
 });
+export type EdPublicKey = z.infer<typeof EdPublicKeySchema>;
 
 export const UnknownPublicKeySchema = z.object({
   type: z.literal("unknown"),
 });
+export type UnknownPublicKey = z.infer<typeof UnknownPublicKeySchema>;
 
 export const PublicKeyParsedSchema = z.discriminatedUnion("type", [
   RSAPublicKeySchema,
@@ -179,6 +198,7 @@ export const FingerprintsSchema = z.object({
   sha1: z.string(),
   sha256: z.string(),
 });
+export type Fingerprints = z.infer<typeof FingerprintsSchema>;
 
 export const SubjectPublicKeyInfoSchema = z
   .object({
@@ -188,6 +208,7 @@ export const SubjectPublicKeyInfoSchema = z
     fingerprints: FingerprintsSchema,
   })
   .meta({ id: "SubjectPublicKeyInfo" });
+export type SubjectPublicKeyInfo = z.infer<typeof SubjectPublicKeyInfoSchema>;
 
 // =============================================================================
 // General Name Schema
@@ -212,6 +233,7 @@ export const GeneralNameSchema = z
     rawHex: z.string().optional(),
   })
   .meta({ id: "GeneralName" });
+export type GeneralName = z.infer<typeof GeneralNameSchema>;
 
 // =============================================================================
 // Extension Schemas
@@ -223,6 +245,7 @@ export const DistributionPointNameSchema = z
     nameRelativeToCRLIssuer: RelativeDistinguishedNameSchema.optional(),
   })
   .meta({ id: "DistributionPointName" });
+
 export const DistributionPointSchema = z
   .object({
     distributionPoint: DistributionPointNameSchema.optional(),
@@ -230,40 +253,57 @@ export const DistributionPointSchema = z
     cRLIssuer: z.array(GeneralNameSchema).optional(),
   })
   .meta({ id: "DistributionPoint" });
+export type DistributionPoint = z.infer<typeof DistributionPointSchema>;
+
 export const UserNoticeSchema = z.object({
   organization: z.string().optional(),
   noticeNumbers: z.array(z.string()).optional(),
   explicitText: z.string().optional(),
 });
+export type UserNotice = z.infer<typeof UserNoticeSchema>;
+
 export const PolicyQualifierSchema = z.object({
   qualifierId: ObjectIdentifierSchema,
   cpsUri: z.string().optional(),
   userNotice: UserNoticeSchema.optional(),
   rawHex: z.string(),
 });
+export type PolicyQualifier = z.infer<typeof PolicyQualifierSchema>;
+
 export const PolicyInformationSchema = z.object({
   policyIdentifier: ObjectIdentifierSchema,
   policyQualifiers: z.array(PolicyQualifierSchema).optional(),
 });
+export type PolicyInformation = z.infer<typeof PolicyInformationSchema>;
+
 export const AccessDescriptionSchema = z.object({
   accessMethod: ObjectIdentifierSchema,
   accessLocation: GeneralNameSchema,
 });
+export type AccessDescription = z.infer<typeof AccessDescriptionSchema>;
+
 export const GeneralSubtreeSchema = z.object({
   base: GeneralNameSchema,
   minimum: z.number().optional(),
   maximum: z.number().optional(),
 });
-export const BasicConstraintsValueSchema = z
-  .object({
-    extensionType: z.literal("basicConstraints"),
-    cA: z.boolean(),
-    pathLenConstraint: z.number().optional(),
-  })
-  .meta({ id: "BasicConstraintsValue" });
-export const KeyUsageValueSchema = z
-  .object({
-    extensionType: z.literal("keyUsage"),
+export type GeneralSubtree = z.infer<typeof GeneralSubtreeSchema>;
+
+/**
+ * A member of ParsedExtensionValueSchema: the `extensionType` literal, then `shape`. Its id is the
+ * capitalized extensionType + "Value" (BasicConstraintsValue, CRLNumberValue, …).
+ */
+function extensionValue<const T extends string, S extends z.ZodRawShape>(
+  extensionType: T,
+  shape: S
+) {
+  const id = `${extensionType.charAt(0).toUpperCase()}${extensionType.slice(1)}Value`;
+  return z.object({ extensionType: z.literal(extensionType), ...shape }).meta({ id });
+}
+
+export const ParsedExtensionValueSchema = z.discriminatedUnion("extensionType", [
+  extensionValue("basicConstraints", { cA: z.boolean(), pathLenConstraint: z.number().optional() }),
+  extensionValue("keyUsage", {
     digitalSignature: z.boolean(),
     nonRepudiation: z.boolean(),
     keyEncipherment: z.boolean(),
@@ -274,165 +314,58 @@ export const KeyUsageValueSchema = z
     encipherOnly: z.boolean(),
     decipherOnly: z.boolean(),
     usages: z.array(z.string()),
-  })
-  .meta({ id: "KeyUsageValue" });
-export const ExtendedKeyUsageValueSchema = z
-  .object({
-    extensionType: z.literal("extendedKeyUsage"),
-    purposes: z.array(ObjectIdentifierSchema),
-  })
-  .meta({ id: "ExtendedKeyUsageValue" });
-export const SubjectAltNameValueSchema = z
-  .object({
-    extensionType: z.literal("subjectAltName"),
-    names: z.array(GeneralNameSchema),
-  })
-  .meta({ id: "SubjectAltNameValue" });
-export const AuthorityKeyIdentifierValueSchema = z
-  .object({
-    extensionType: z.literal("authorityKeyIdentifier"),
+  }),
+  extensionValue("extendedKeyUsage", { purposes: z.array(ObjectIdentifierSchema) }),
+  extensionValue("subjectAltName", { names: z.array(GeneralNameSchema) }),
+  extensionValue("authorityKeyIdentifier", {
     keyIdentifier: z.string().optional(),
     authorityCertIssuer: z.array(GeneralNameSchema).optional(),
     authorityCertSerialNumber: z.string().optional(),
-  })
-  .meta({ id: "AuthorityKeyIdentifierValue" });
-export const SubjectKeyIdentifierValueSchema = z
-  .object({
-    extensionType: z.literal("subjectKeyIdentifier"),
-    keyIdentifier: z.string(),
-  })
-  .meta({ id: "SubjectKeyIdentifierValue" });
-export const CRLDistributionPointsValueSchema = z
-  .object({
-    extensionType: z.literal("cRLDistributionPoints"),
-    distributionPoints: z.array(DistributionPointSchema),
-  })
-  .meta({ id: "CRLDistributionPointsValue" });
-export const AuthorityInfoAccessValueSchema = z
-  .object({
-    extensionType: z.literal("authorityInfoAccess"),
-    accessDescriptions: z.array(AccessDescriptionSchema),
-  })
-  .meta({ id: "AuthorityInfoAccessValue" });
-export const CertificatePoliciesValueSchema = z
-  .object({
-    extensionType: z.literal("certificatePolicies"),
-    policies: z.array(PolicyInformationSchema),
-  })
-  .meta({ id: "CertificatePoliciesValue" });
-export const NameConstraintsValueSchema = z
-  .object({
-    extensionType: z.literal("nameConstraints"),
+  }),
+  extensionValue("subjectKeyIdentifier", { keyIdentifier: z.string() }),
+  extensionValue("cRLDistributionPoints", { distributionPoints: z.array(DistributionPointSchema) }),
+  extensionValue("authorityInfoAccess", { accessDescriptions: z.array(AccessDescriptionSchema) }),
+  extensionValue("certificatePolicies", { policies: z.array(PolicyInformationSchema) }),
+  extensionValue("nameConstraints", {
     permittedSubtrees: z.array(GeneralSubtreeSchema).optional(),
     excludedSubtrees: z.array(GeneralSubtreeSchema).optional(),
-  })
-  .meta({ id: "NameConstraintsValue" });
-export const CRLNumberValueSchema = z
-  .object({
-    extensionType: z.literal("cRLNumber"),
-    number: z.string(),
-  })
-  .meta({ id: "CRLNumberValue" });
-export const DeltaCRLIndicatorValueSchema = z
-  .object({
-    extensionType: z.literal("deltaCRLIndicator"),
-    baseCRLNumber: z.string(),
-  })
-  .meta({ id: "DeltaCRLIndicatorValue" });
-export const IssuingDistributionPointValueSchema = z
-  .object({
-    extensionType: z.literal("issuingDistributionPoint"),
+  }),
+  extensionValue("cRLNumber", { number: z.string() }),
+  extensionValue("deltaCRLIndicator", { baseCRLNumber: z.string() }),
+  extensionValue("issuingDistributionPoint", {
     distributionPoint: DistributionPointNameSchema.optional(),
     onlyContainsUserCerts: z.boolean().optional(),
     onlyContainsCACerts: z.boolean().optional(),
     onlySomeReasons: z.array(z.string()).optional(),
     indirectCRL: z.boolean().optional(),
     onlyContainsAttributeCerts: z.boolean().optional(),
-  })
-  .meta({ id: "IssuingDistributionPointValue" });
-export const CRLReasonValueSchema = z
-  .object({
-    extensionType: z.literal("cRLReason"),
-    code: z.number(),
-    name: z.string(),
-  })
-  .meta({ id: "CRLReasonValue" });
-export const InvalidityDateValueSchema = z
-  .object({
-    extensionType: z.literal("invalidityDate"),
-    date: TimeSchema,
-  })
-  .meta({ id: "InvalidityDateValue" });
-export const FreshestCRLValueSchema = z
-  .object({
-    extensionType: z.literal("freshestCRL"),
-    distributionPoints: z.array(DistributionPointSchema),
-  })
-  .meta({ id: "FreshestCRLValue" });
-export const IssuerAltNameValueSchema = z
-  .object({
-    extensionType: z.literal("issuerAltName"),
-    names: z.array(GeneralNameSchema),
-  })
-  .meta({ id: "IssuerAltNameValue" });
-export const SubjectInfoAccessValueSchema = z
-  .object({
-    extensionType: z.literal("subjectInfoAccess"),
-    accessDescriptions: z.array(AccessDescriptionSchema),
-  })
-  .meta({ id: "SubjectInfoAccessValue" });
-export const PolicyConstraintsValueSchema = z
-  .object({
-    extensionType: z.literal("policyConstraints"),
+  }),
+  extensionValue("cRLReason", { code: z.number(), name: z.string() }),
+  extensionValue("invalidityDate", { date: TimeSchema }),
+  extensionValue("freshestCRL", { distributionPoints: z.array(DistributionPointSchema) }),
+  extensionValue("issuerAltName", { names: z.array(GeneralNameSchema) }),
+  extensionValue("subjectInfoAccess", { accessDescriptions: z.array(AccessDescriptionSchema) }),
+  extensionValue("policyConstraints", {
     requireExplicitPolicy: z.number().optional(),
     inhibitPolicyMapping: z.number().optional(),
-  })
-  .meta({ id: "PolicyConstraintsValue" });
-export const PolicyMappingsValueSchema = z
-  .object({
-    extensionType: z.literal("policyMappings"),
+  }),
+  extensionValue("policyMappings", {
     mappings: z.array(
       z.object({
         issuerDomainPolicy: ObjectIdentifierSchema,
         subjectDomainPolicy: ObjectIdentifierSchema,
       })
     ),
-  })
-  .meta({ id: "PolicyMappingsValue" });
-export const InhibitAnyPolicyValueSchema = z
-  .object({
-    extensionType: z.literal("inhibitAnyPolicy"),
-    skipCerts: z.number(),
-  })
-  .meta({ id: "InhibitAnyPolicyValue" });
-export const PrivateKeyUsagePeriodValueSchema = z
-  .object({
-    extensionType: z.literal("privateKeyUsagePeriod"),
+  }),
+  extensionValue("inhibitAnyPolicy", { skipCerts: z.number() }),
+  extensionValue("privateKeyUsagePeriod", {
     notBefore: TimeSchema.optional(),
     notAfter: TimeSchema.optional(),
-  })
-  .meta({ id: "PrivateKeyUsagePeriodValue" });
-export const CertificateIssuerValueSchema = z
-  .object({
-    extensionType: z.literal("certificateIssuer"),
-    names: z.array(GeneralNameSchema),
-  })
-  .meta({ id: "CertificateIssuerValue" });
-export const HoldInstructionCodeValueSchema = z
-  .object({
-    extensionType: z.literal("holdInstructionCode"),
-    instruction: ObjectIdentifierSchema,
-  })
-  .meta({ id: "HoldInstructionCodeValue" });
-export const ExpiredCertsOnCRLValueSchema = z
-  .object({
-    extensionType: z.literal("expiredCertsOnCRL"),
-    date: TimeSchema,
-  })
-  .meta({ id: "ExpiredCertsOnCRLValue" });
-export const SignedCertificateTimestampListValueSchema = z
-  .object({
-    extensionType: z.literal("signedCertificateTimestampList"),
+  }),
+  extensionValue("certificateIssuer", { names: z.array(GeneralNameSchema) }),
+  extensionValue("holdInstructionCode", { instruction: ObjectIdentifierSchema }),
+  extensionValue("expiredCertsOnCRL", { date: TimeSchema }),
+  extensionValue("signedCertificateTimestampList", {
     timestamps: z.array(
       z.object({
         version: z.number(),
@@ -443,141 +376,37 @@ export const SignedCertificateTimestampListValueSchema = z
         signature: z.string(),
       })
     ),
-  })
-  .meta({ id: "SignedCertificateTimestampListValue" });
-export const TlsFeatureValueSchema = z
-  .object({
-    extensionType: z.literal("tlsFeature"),
+  }),
+  extensionValue("tlsFeature", {
     features: z.array(z.object({ code: z.number(), name: z.string().nullable() })),
-  })
-  .meta({ id: "TlsFeatureValue" });
-export const OcspNoCheckValueSchema = z
-  .object({ extensionType: z.literal("ocspNoCheck") })
-  .meta({ id: "OcspNoCheckValue" });
-export const NetscapeCertTypeValueSchema = z
-  .object({
-    extensionType: z.literal("netscapeCertType"),
-    flags: z.array(z.string()),
-  })
-  .meta({ id: "NetscapeCertTypeValue" });
-export const NetscapeCommentValueSchema = z
-  .object({
-    extensionType: z.literal("netscapeComment"),
-    comment: z.string(),
-  })
-  .meta({ id: "NetscapeCommentValue" });
-export const QcStatementsValueSchema = z
-  .object({
-    extensionType: z.literal("qcStatements"),
+  }),
+  extensionValue("ocspNoCheck", {}),
+  extensionValue("netscapeCertType", { flags: z.array(z.string()) }),
+  extensionValue("netscapeComment", { comment: z.string() }),
+  extensionValue("qcStatements", {
     statements: z.array(z.object({ statementId: ObjectIdentifierSchema, rawHex: z.string() })),
-  })
-  .meta({ id: "QcStatementsValue" });
-export const SubjectDirectoryAttributesValueSchema = z
-  .object({
-    extensionType: z.literal("subjectDirectoryAttributes"),
+  }),
+  extensionValue("subjectDirectoryAttributes", {
     attributes: z.array(z.object({ type: ObjectIdentifierSchema, values: z.array(z.string()) })),
-  })
-  .meta({ id: "SubjectDirectoryAttributesValue" });
-export const MsCaVersionValueSchema = z
-  .object({
-    extensionType: z.literal("msCaVersion"),
-    certificateIndex: z.number(),
-    keyIndex: z.number(),
-  })
-  .meta({ id: "MsCaVersionValue" });
-export const MsCertificateTemplateNameValueSchema = z
-  .object({
-    extensionType: z.literal("msCertificateTemplateName"),
-    name: z.string(),
-  })
-  .meta({ id: "MsCertificateTemplateNameValue" });
-export const MsCertificateTemplateValueSchema = z
-  .object({
-    extensionType: z.literal("msCertificateTemplate"),
+  }),
+  extensionValue("msCaVersion", { certificateIndex: z.number(), keyIndex: z.number() }),
+  extensionValue("msCertificateTemplateName", { name: z.string() }),
+  extensionValue("msCertificateTemplate", {
     templateId: ObjectIdentifierSchema,
     majorVersion: z.number().optional(),
     minorVersion: z.number().optional(),
-  })
-  .meta({ id: "MsCertificateTemplateValue" });
-export const MsPreviousCaCertificateHashValueSchema = z
-  .object({
-    extensionType: z.literal("msPreviousCaCertificateHash"),
-    hash: z.string(),
-  })
-  .meta({ id: "MsPreviousCaCertificateHashValue" });
-export const MsCrlNextPublishValueSchema = z
-  .object({
-    extensionType: z.literal("msCrlNextPublish"),
-    date: TimeSchema,
-  })
-  .meta({ id: "MsCrlNextPublishValue" });
-export const MsCrlSelfCdpValueSchema = z
-  .object({
-    extensionType: z.literal("msCrlSelfCdp"),
-    distributionPoints: z.array(DistributionPointSchema),
-  })
-  .meta({ id: "MsCrlSelfCdpValue" });
-export const MsCrlVirtualBaseValueSchema = z
-  .object({
-    extensionType: z.literal("msCrlVirtualBase"),
-    number: z.string(),
-  })
-  .meta({ id: "MsCrlVirtualBaseValue" });
-export const MsApplicationPoliciesValueSchema = z
-  .object({
-    extensionType: z.literal("msApplicationPolicies"),
-    policies: z.array(PolicyInformationSchema),
-  })
-  .meta({ id: "MsApplicationPoliciesValue" });
-export const MsNtdsCaSecurityValueSchema = z
-  .object({
-    extensionType: z.literal("msNtdsCaSecurity"),
-    sid: z.string(),
-  })
-  .meta({ id: "MsNtdsCaSecurityValue" });
-export const ParsedExtensionValueSchema = z.discriminatedUnion("extensionType", [
-  BasicConstraintsValueSchema,
-  KeyUsageValueSchema,
-  ExtendedKeyUsageValueSchema,
-  SubjectAltNameValueSchema,
-  AuthorityKeyIdentifierValueSchema,
-  SubjectKeyIdentifierValueSchema,
-  CRLDistributionPointsValueSchema,
-  AuthorityInfoAccessValueSchema,
-  CertificatePoliciesValueSchema,
-  NameConstraintsValueSchema,
-  CRLNumberValueSchema,
-  DeltaCRLIndicatorValueSchema,
-  IssuingDistributionPointValueSchema,
-  CRLReasonValueSchema,
-  InvalidityDateValueSchema,
-  FreshestCRLValueSchema,
-  IssuerAltNameValueSchema,
-  SubjectInfoAccessValueSchema,
-  PolicyConstraintsValueSchema,
-  PolicyMappingsValueSchema,
-  InhibitAnyPolicyValueSchema,
-  PrivateKeyUsagePeriodValueSchema,
-  CertificateIssuerValueSchema,
-  HoldInstructionCodeValueSchema,
-  ExpiredCertsOnCRLValueSchema,
-  SignedCertificateTimestampListValueSchema,
-  TlsFeatureValueSchema,
-  OcspNoCheckValueSchema,
-  NetscapeCertTypeValueSchema,
-  NetscapeCommentValueSchema,
-  QcStatementsValueSchema,
-  SubjectDirectoryAttributesValueSchema,
-  MsCaVersionValueSchema,
-  MsCertificateTemplateNameValueSchema,
-  MsCertificateTemplateValueSchema,
-  MsPreviousCaCertificateHashValueSchema,
-  MsCrlNextPublishValueSchema,
-  MsCrlSelfCdpValueSchema,
-  MsCrlVirtualBaseValueSchema,
-  MsApplicationPoliciesValueSchema,
-  MsNtdsCaSecurityValueSchema,
+  }),
+  extensionValue("msPreviousCaCertificateHash", { hash: z.string() }),
+  extensionValue("msCrlNextPublish", { date: TimeSchema }),
+  extensionValue("msCrlSelfCdp", { distributionPoints: z.array(DistributionPointSchema) }),
+  extensionValue("msCrlVirtualBase", { number: z.string() }),
+  extensionValue("msApplicationPolicies", { policies: z.array(PolicyInformationSchema) }),
+  extensionValue("msNtdsCaSecurity", { sid: z.string() }),
 ]);
+export type ParsedExtensionValue = z.infer<typeof ParsedExtensionValueSchema>;
+
+/** The 41 `extensionType` discriminants (src/core/summary/extensions.ts produces each). */
+export type ExtensionType = ParsedExtensionValue["extensionType"];
 
 export const ExtensionSchema = z
   .object({
@@ -593,6 +422,7 @@ export const ExtensionSchema = z
       .describe("Generic ASN.1 structure dump, present when the value is unsupported or malformed"),
   })
   .meta({ id: "Extension" });
+export type Extension = z.infer<typeof ExtensionSchema>;
 
 export const ExtensionsSchema = z
   .object({
@@ -601,6 +431,7 @@ export const ExtensionsSchema = z
     items: z.array(ExtensionSchema),
   })
   .meta({ id: "Extensions" });
+export type Extensions = z.infer<typeof ExtensionsSchema>;
 
 // =============================================================================
 // Certificate Schemas
@@ -623,6 +454,7 @@ export const TBSCertificateSchema = z
     extensions: ExtensionsSchema.optional(),
   })
   .meta({ id: "TBSCertificate" });
+export type TBSCertificate = z.infer<typeof TBSCertificateSchema>;
 
 // =============================================================================
 // CRL Schemas
@@ -640,12 +472,14 @@ export const RevokedCertificateSchema = z
       .optional(),
   })
   .meta({ id: "RevokedCertificate" });
+export type RevokedCertificate = z.infer<typeof RevokedCertificateSchema>;
 
 /** Every entry of the CRL; an empty or absent list is { count: 0, items: [] }. */
 export const RevokedCertificatesSchema = z.object({
   count: z.number(),
   items: z.array(RevokedCertificateSchema),
 });
+export type RevokedCertificates = z.infer<typeof RevokedCertificatesSchema>;
 
 export const TBSCertListSchema = z
   .object({
@@ -658,3 +492,4 @@ export const TBSCertListSchema = z
     crlExtensions: ExtensionsSchema.optional(),
   })
   .meta({ id: "TBSCertList" });
+export type TBSCertList = z.infer<typeof TBSCertListSchema>;

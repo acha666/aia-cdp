@@ -44,59 +44,19 @@ import {
 import { blockHex, displayText, dumpAsn1, integerNumber, readStrictTime } from "../pki/asn1.ts";
 import { toHex } from "../digest.ts";
 import type {
-  Extensions,
-  Extension,
-  ParsedExtensionValue,
-  BasicConstraintsValue,
-  KeyUsageValue,
-  ExtendedKeyUsageValue,
-  SubjectAltNameValue,
-  IssuerAltNameValue,
-  AuthorityKeyIdentifierValue,
-  SubjectKeyIdentifierValue,
-  CRLDistributionPointsValue,
-  FreshestCRLValue,
-  AuthorityInfoAccessValue,
-  SubjectInfoAccessValue,
-  CertificatePoliciesValue,
-  NameConstraintsValue,
-  PolicyConstraintsValue,
-  PolicyMappingsValue,
-  InhibitAnyPolicyValue,
-  PrivateKeyUsagePeriodValue,
-  IssuingDistributionPointValue,
-  CertificateIssuerValue,
-  HoldInstructionCodeValue,
-  ExpiredCertsOnCRLValue,
-  SignedCertificateTimestampListValue,
-  TlsFeatureValue,
-  OcspNoCheckValue,
-  NetscapeCertTypeValue,
-  NetscapeCommentValue,
-  QcStatementsValue,
-  SubjectDirectoryAttributesValue,
-  MsCaVersionValue,
-  MsCertificateTemplateNameValue,
-  MsCertificateTemplateValue,
-  MsPreviousCaCertificateHashValue,
-  MsCrlNextPublishValue,
-  MsCrlSelfCdpValue,
-  MsCrlVirtualBaseValue,
-  MsApplicationPoliciesValue,
-  MsNtdsCaSecurityValue,
-  GeneralName,
+  AccessDescription,
   DistributionPoint,
+  Extension,
+  Extensions,
+  ExtensionType,
+  GeneralName,
+  GeneralSubtree,
+  ParsedExtensionValue,
   PolicyInformation,
   PolicyQualifier,
-  UserNotice,
-  AccessDescription,
-  GeneralSubtree,
-  CRLNumberValue,
-  DeltaCRLIndicatorValue,
-  CRLReasonValue,
-  InvalidityDateValue,
   Time,
-} from "./types.ts";
+  UserNotice,
+} from "./schemas.ts";
 import { buildObjectIdentifier, buildTime, buildName, isBlock } from "./primitives.ts";
 
 export function buildExtensions(extensions: pkijs.Extension[] | undefined): Extensions | undefined {
@@ -502,6 +462,9 @@ function buildPolicies(policies: pkijs.CertificatePolicies): PolicyInformation[]
 
 type ExtensionParser = (ext: pkijs.Extension) => ParsedExtensionValue | undefined;
 
+/** The member of ParsedExtensionValue for one extensionType: the return type of its parser. */
+type Parsed<K extends ExtensionType> = Extract<ParsedExtensionValue, { extensionType: K }>;
+
 function requireSequence(ext: pkijs.Extension): Sequence {
   const schema = readExtensionSchema(ext);
   if (!(schema instanceof Sequence)) {
@@ -533,7 +496,7 @@ function findFirst<T extends BaseBlock>(
 
 const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   // Subject Directory Attributes (2.5.29.9)
-  "2.5.29.9": (ext): SubjectDirectoryAttributesValue => ({
+  "2.5.29.9": (ext): Parsed<"subjectDirectoryAttributes"> => ({
     extensionType: "subjectDirectoryAttributes",
     attributes: readExtensionValue(ext, pkijs.SubjectDirectoryAttributes).attributes.map(
       (attribute) => ({
@@ -546,14 +509,14 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   }),
 
   // Subject Key Identifier (2.5.29.14)
-  "2.5.29.14": (ext): SubjectKeyIdentifierValue => {
+  "2.5.29.14": (ext): Parsed<"subjectKeyIdentifier"> => {
     const octetString = readExtensionValue(ext, OctetString);
     const keyIdentifier = toHex(octetString.valueBlock.valueHex).toUpperCase();
     return { extensionType: "subjectKeyIdentifier", keyIdentifier };
   },
 
   // Key Usage (2.5.29.15)
-  "2.5.29.15": (ext): KeyUsageValue | undefined => {
+  "2.5.29.15": (ext): Parsed<"keyUsage"> | undefined => {
     const bitString = readExtensionValue(ext, Asn1BitString);
     const bytes = bitString.valueBlock.valueHexView;
     if (bytes.length === 0) {
@@ -577,7 +540,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   },
 
   // Private Key Usage Period (2.5.29.16)
-  "2.5.29.16": (ext): PrivateKeyUsagePeriodValue => {
+  "2.5.29.16": (ext): Parsed<"privateKeyUsagePeriod"> => {
     const period = readExtensionValue(ext, pkijs.PrivateKeyUsagePeriod);
     return {
       extensionType: "privateKeyUsagePeriod",
@@ -587,19 +550,19 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   },
 
   // Subject Alternative Name (2.5.29.17)
-  "2.5.29.17": (ext): SubjectAltNameValue => ({
+  "2.5.29.17": (ext): Parsed<"subjectAltName"> => ({
     extensionType: "subjectAltName",
     names: parseGeneralNames(readExtensionValue(ext, pkijs.AltName).altNames),
   }),
 
   // Issuer Alternative Name (2.5.29.18)
-  "2.5.29.18": (ext): IssuerAltNameValue => ({
+  "2.5.29.18": (ext): Parsed<"issuerAltName"> => ({
     extensionType: "issuerAltName",
     names: parseGeneralNames(readExtensionValue(ext, pkijs.AltName).altNames),
   }),
 
   // Basic Constraints (2.5.29.19)
-  "2.5.29.19": (ext): BasicConstraintsValue => {
+  "2.5.29.19": (ext): Parsed<"basicConstraints"> => {
     const bc = readExtensionValue(ext, pkijs.BasicConstraints);
     const rawPath: unknown = bc.pathLenConstraint;
     const pathLenConstraint =
@@ -618,13 +581,13 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   },
 
   // CRL Number (2.5.29.20)
-  "2.5.29.20": (ext): CRLNumberValue => ({
+  "2.5.29.20": (ext): Parsed<"cRLNumber"> => ({
     extensionType: "cRLNumber",
     number: readCRLInteger(ext).toString(),
   }),
 
   // CRL Reason (2.5.29.21) - CRL entry extension
-  "2.5.29.21": (ext): CRLReasonValue => {
+  "2.5.29.21": (ext): Parsed<"cRLReason"> => {
     const code = integerNumber(readExtensionValue(ext, Enumerated));
     return {
       extensionType: "cRLReason",
@@ -634,7 +597,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   },
 
   // Hold Instruction Code (2.5.29.23) - CRL entry extension
-  "2.5.29.23": (ext): HoldInstructionCodeValue => ({
+  "2.5.29.23": (ext): Parsed<"holdInstructionCode"> => ({
     extensionType: "holdInstructionCode",
     instruction: buildObjectIdentifier(
       readExtensionValue(ext, ObjectIdentifier).valueBlock.toString(),
@@ -643,19 +606,19 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   }),
 
   // Invalidity Date (2.5.29.24) - CRL entry extension
-  "2.5.29.24": (ext): InvalidityDateValue => ({
+  "2.5.29.24": (ext): Parsed<"invalidityDate"> => ({
     extensionType: "invalidityDate",
     date: timeFromBlock(readExtensionValue(ext, GeneralizedTime)),
   }),
 
   // Delta CRL Indicator (2.5.29.27)
-  "2.5.29.27": (ext): DeltaCRLIndicatorValue => ({
+  "2.5.29.27": (ext): Parsed<"deltaCRLIndicator"> => ({
     extensionType: "deltaCRLIndicator",
     baseCRLNumber: readCRLInteger(ext).toString(),
   }),
 
   // Issuing Distribution Point (2.5.29.28)
-  "2.5.29.28": (ext): IssuingDistributionPointValue => {
+  "2.5.29.28": (ext): Parsed<"issuingDistributionPoint"> => {
     const idp = readExtensionValue(ext, pkijs.IssuingDistributionPoint);
     // PKIjs folds onlySomeReasons into a lossy integer; read the bits from the DER instead.
     const reasons = requireSequence(ext).valueBlock.value.find(
@@ -677,13 +640,13 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   },
 
   // Certificate Issuer (2.5.29.29) - CRL entry extension
-  "2.5.29.29": (ext): CertificateIssuerValue => ({
+  "2.5.29.29": (ext): Parsed<"certificateIssuer"> => ({
     extensionType: "certificateIssuer",
     names: parseGeneralNames(readExtensionValue(ext, pkijs.GeneralNames).names),
   }),
 
   // Name Constraints (2.5.29.30)
-  "2.5.29.30": (ext): NameConstraintsValue => {
+  "2.5.29.30": (ext): Parsed<"nameConstraints"> => {
     const constraints = readExtensionValue(ext, pkijs.NameConstraints);
     return {
       extensionType: "nameConstraints",
@@ -693,7 +656,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   },
 
   // CRL Distribution Points (2.5.29.31)
-  "2.5.29.31": (ext): CRLDistributionPointsValue => ({
+  "2.5.29.31": (ext): Parsed<"cRLDistributionPoints"> => ({
     extensionType: "cRLDistributionPoints",
     distributionPoints: buildDistributionPoints(
       readExtensionValue(ext, pkijs.CRLDistributionPoints)
@@ -701,13 +664,13 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   }),
 
   // Certificate Policies (2.5.29.32)
-  "2.5.29.32": (ext): CertificatePoliciesValue => ({
+  "2.5.29.32": (ext): Parsed<"certificatePolicies"> => ({
     extensionType: "certificatePolicies",
     policies: buildPolicies(readExtensionValue(ext, pkijs.CertificatePolicies)),
   }),
 
   // Policy Mappings (2.5.29.33)
-  "2.5.29.33": (ext): PolicyMappingsValue => ({
+  "2.5.29.33": (ext): Parsed<"policyMappings"> => ({
     extensionType: "policyMappings",
     mappings: readExtensionValue(ext, pkijs.PolicyMappings).mappings.map((mapping) => ({
       issuerDomainPolicy: buildObjectIdentifier(
@@ -722,7 +685,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   }),
 
   // Authority Key Identifier (2.5.29.35)
-  "2.5.29.35": (ext): AuthorityKeyIdentifierValue => {
+  "2.5.29.35": (ext): Parsed<"authorityKeyIdentifier"> => {
     const aki = readExtensionValue(ext, pkijs.AuthorityKeyIdentifier);
     return {
       extensionType: "authorityKeyIdentifier",
@@ -737,7 +700,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   },
 
   // Policy Constraints (2.5.29.36)
-  "2.5.29.36": (ext): PolicyConstraintsValue => {
+  "2.5.29.36": (ext): Parsed<"policyConstraints"> => {
     // PKIjs checks the shape; its numbers are valueDec, so they are read from the fields' contents.
     readExtensionValue(ext, pkijs.PolicyConstraints);
     const fields = requireSequence(ext).valueBlock.value;
@@ -755,7 +718,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   },
 
   // Extended Key Usage (2.5.29.37)
-  "2.5.29.37": (ext): ExtendedKeyUsageValue => ({
+  "2.5.29.37": (ext): Parsed<"extendedKeyUsage"> => ({
     extensionType: "extendedKeyUsage",
     purposes: readExtensionValue(ext, pkijs.ExtKeyUsage).keyPurposes.map((oid) =>
       buildObjectIdentifier(oid, EKU_NAMES)
@@ -763,7 +726,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   }),
 
   // Freshest CRL (2.5.29.46)
-  "2.5.29.46": (ext): FreshestCRLValue => ({
+  "2.5.29.46": (ext): Parsed<"freshestCRL"> => ({
     extensionType: "freshestCRL",
     distributionPoints: buildDistributionPoints(
       readExtensionValue(ext, pkijs.CRLDistributionPoints)
@@ -771,25 +734,25 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   }),
 
   // Inhibit anyPolicy (2.5.29.54)
-  "2.5.29.54": (ext): InhibitAnyPolicyValue => ({
+  "2.5.29.54": (ext): Parsed<"inhibitAnyPolicy"> => ({
     extensionType: "inhibitAnyPolicy",
     skipCerts: integerNumber(readExtensionValue(ext, Integer)),
   }),
 
   // Expired Certificates on CRL (2.5.29.60)
-  "2.5.29.60": (ext): ExpiredCertsOnCRLValue => ({
+  "2.5.29.60": (ext): Parsed<"expiredCertsOnCRL"> => ({
     extensionType: "expiredCertsOnCRL",
     date: timeFromBlock(readExtensionValue(ext, GeneralizedTime)),
   }),
 
   // Authority Information Access (1.3.6.1.5.5.7.1.1)
-  "1.3.6.1.5.5.7.1.1": (ext): AuthorityInfoAccessValue => ({
+  "1.3.6.1.5.5.7.1.1": (ext): Parsed<"authorityInfoAccess"> => ({
     extensionType: "authorityInfoAccess",
     accessDescriptions: buildAccessDescriptions(readExtensionValue(ext, pkijs.InfoAccess)),
   }),
 
   // Qualified Certificate Statements (1.3.6.1.5.5.7.1.3)
-  "1.3.6.1.5.5.7.1.3": (ext): QcStatementsValue => ({
+  "1.3.6.1.5.5.7.1.3": (ext): Parsed<"qcStatements"> => ({
     extensionType: "qcStatements",
     statements: readExtensionValue(ext, pkijs.QCStatements).values.map((statement) => {
       const type: unknown = statement.type;
@@ -801,13 +764,13 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   }),
 
   // Subject Information Access (1.3.6.1.5.5.7.1.11)
-  "1.3.6.1.5.5.7.1.11": (ext): SubjectInfoAccessValue => ({
+  "1.3.6.1.5.5.7.1.11": (ext): Parsed<"subjectInfoAccess"> => ({
     extensionType: "subjectInfoAccess",
     accessDescriptions: buildAccessDescriptions(readExtensionValue(ext, pkijs.InfoAccess)),
   }),
 
   // TLS Feature (1.3.6.1.5.5.7.1.24)
-  "1.3.6.1.5.5.7.1.24": (ext): TlsFeatureValue => ({
+  "1.3.6.1.5.5.7.1.24": (ext): Parsed<"tlsFeature"> => ({
     extensionType: "tlsFeature",
     features: requireSequence(ext).valueBlock.value.map((item) => {
       if (!(item instanceof Integer)) {
@@ -819,7 +782,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   }),
 
   // OCSP No Check (1.3.6.1.5.5.7.48.1.5)
-  "1.3.6.1.5.5.7.48.1.5": (ext): OcspNoCheckValue => {
+  "1.3.6.1.5.5.7.48.1.5": (ext): Parsed<"ocspNoCheck"> => {
     readExtensionValue(ext, Null);
     return { extensionType: "ocspNoCheck" };
   },
@@ -828,7 +791,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   // TLS data or on an SCT version it does not know: it leaves the defaults (no version, an empty
   // logID, timestamp 0, no signature). Every SCT must have been read whole (RFC 6962 §3.2: v1 is
   // 0, a 32-octet LogID, a signature), or the list is an error instead of invented SCTs.
-  "1.3.6.1.4.1.11129.2.4.2": (ext): SignedCertificateTimestampListValue => ({
+  "1.3.6.1.4.1.11129.2.4.2": (ext): Parsed<"signedCertificateTimestampList"> => ({
     extensionType: "signedCertificateTimestampList",
     timestamps: readExtensionValue(ext, pkijs.SignedCertificateTimestampList).timestamps.map(
       (sct) => {
@@ -856,7 +819,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   }),
 
   // Netscape Certificate Type (2.16.840.1.113730.1.1)
-  "2.16.840.1.113730.1.1": (ext): NetscapeCertTypeValue => {
+  "2.16.840.1.113730.1.1": (ext): Parsed<"netscapeCertType"> => {
     const bits = readExtensionValue(ext, Asn1BitString);
     return {
       extensionType: "netscapeCertType",
@@ -869,13 +832,13 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   },
 
   // Netscape Comment (2.16.840.1.113730.1.13)
-  "2.16.840.1.113730.1.13": (ext): NetscapeCommentValue => ({
+  "2.16.840.1.113730.1.13": (ext): Parsed<"netscapeComment"> => ({
     extensionType: "netscapeComment",
     comment: readExtensionValue(ext, IA5String).valueBlock.value,
   }),
 
   // Microsoft Certificate Template Name v1 (1.3.6.1.4.1.311.20.2)
-  "1.3.6.1.4.1.311.20.2": (ext): MsCertificateTemplateNameValue => {
+  "1.3.6.1.4.1.311.20.2": (ext): Parsed<"msCertificateTemplateName"> => {
     const name = stringOf(readExtensionSchema(ext));
     if (name === undefined) {
       throw new Error(`Invalid template name in ${ext.extnID}`);
@@ -884,7 +847,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   },
 
   // Microsoft CA Version (1.3.6.1.4.1.311.21.1)
-  "1.3.6.1.4.1.311.21.1": (ext): MsCaVersionValue => {
+  "1.3.6.1.4.1.311.21.1": (ext): Parsed<"msCaVersion"> => {
     const version = readExtensionValue(ext, pkijs.CAVersion);
     return {
       extensionType: "msCaVersion",
@@ -894,25 +857,25 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   },
 
   // Microsoft Previous CA Certificate Hash (1.3.6.1.4.1.311.21.2)
-  "1.3.6.1.4.1.311.21.2": (ext): MsPreviousCaCertificateHashValue => ({
+  "1.3.6.1.4.1.311.21.2": (ext): Parsed<"msPreviousCaCertificateHash"> => ({
     extensionType: "msPreviousCaCertificateHash",
     hash: toHex(readExtensionValue(ext, OctetString).valueBlock.valueHexView).toUpperCase(),
   }),
 
   // Microsoft CRL Virtual Base (1.3.6.1.4.1.311.21.3)
-  "1.3.6.1.4.1.311.21.3": (ext): MsCrlVirtualBaseValue => ({
+  "1.3.6.1.4.1.311.21.3": (ext): Parsed<"msCrlVirtualBase"> => ({
     extensionType: "msCrlVirtualBase",
     number: readCRLInteger(ext).toString(),
   }),
 
   // Microsoft Next CRL Publish (1.3.6.1.4.1.311.21.4)
-  "1.3.6.1.4.1.311.21.4": (ext): MsCrlNextPublishValue => ({
+  "1.3.6.1.4.1.311.21.4": (ext): Parsed<"msCrlNextPublish"> => ({
     extensionType: "msCrlNextPublish",
     date: timeFromBlock(readExtensionTime(ext)),
   }),
 
   // Microsoft Certificate Template Information v2 (1.3.6.1.4.1.311.21.7)
-  "1.3.6.1.4.1.311.21.7": (ext): MsCertificateTemplateValue => {
+  "1.3.6.1.4.1.311.21.7": (ext): Parsed<"msCertificateTemplate"> => {
     const template = readExtensionValue(ext, pkijs.CertificateTemplate);
     // PKIjs's versions are valueDec: read them from the INTEGERs after the templateID.
     const [, major, minor] = requireSequence(ext).valueBlock.value;
@@ -925,7 +888,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   },
 
   // Microsoft Application Policies (1.3.6.1.4.1.311.21.10)
-  "1.3.6.1.4.1.311.21.10": (ext): MsApplicationPoliciesValue => ({
+  "1.3.6.1.4.1.311.21.10": (ext): Parsed<"msApplicationPolicies"> => ({
     extensionType: "msApplicationPolicies",
     policies: buildPolicies(readExtensionValue(ext, pkijs.CertificatePolicies)).map((policy) => ({
       ...policy,
@@ -934,7 +897,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   }),
 
   // Microsoft CRL Self CDP (1.3.6.1.4.1.311.21.14): same syntax as CRL Distribution Points
-  "1.3.6.1.4.1.311.21.14": (ext): MsCrlSelfCdpValue => ({
+  "1.3.6.1.4.1.311.21.14": (ext): Parsed<"msCrlSelfCdp"> => ({
     extensionType: "msCrlSelfCdp",
     distributionPoints: buildDistributionPoints(
       new pkijs.CRLDistributionPoints({ schema: requireSequence(ext) })
@@ -942,7 +905,7 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   }),
 
   // Microsoft NTDS CA Security Extension (1.3.6.1.4.1.311.25.2): OtherName carrying the SID
-  "1.3.6.1.4.1.311.25.2": (ext): MsNtdsCaSecurityValue => {
+  "1.3.6.1.4.1.311.25.2": (ext): Parsed<"msNtdsCaSecurity"> => {
     const octets = findFirst(
       requireSequence(ext),
       (block): block is OctetString => block instanceof OctetString
