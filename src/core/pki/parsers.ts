@@ -19,7 +19,13 @@ function decodeDer(
   limits?: { maxNodes: number; maxContentLength: number }
 ) {
   const label = LABELS[kind];
-  const asn1 = fromBER(der, limits);
+  let asn1: ReturnType<typeof fromBER>;
+  try {
+    asn1 = fromBER(der, limits);
+  } catch (error) {
+    // asn1js throws instead of reporting some malformed values (a GeneralizedTime string).
+    throw new PkiParseError(kind, "der", `Bad ${label} DER: ${String(error)}`, { cause: error });
+  }
   if (asn1.offset === -1) {
     throw new PkiParseError(kind, "der", `Bad ${label} DER: ${asn1.result.error}`);
   }
