@@ -62,7 +62,7 @@
 | Node 服务器   | `@hono/node-server`                             | 2.1.5                             | `serve()` + `serve-static`；替代手写 `node:http` 桥                                            |
 | 校验与 OpenAPI | `@hono/zod-openapi` + `zod`                    | 1.6.3 / 4.6.7                     | 路由声明即 schema，处理器返回值按状态码类型检查；OpenAPI 文档运行时从路由表生成，另写出提交的 `docs/openapi.json` 作漂移基线（§7.3） |
 | 类型化客户端  | `hono/client` 的 `hc<AppType>`                  | 随 hono                           | 前端类型从服务端路由推导；`init: { cache: "no-store" }`                                        |
-| PKI           | `pkijs` + `asn1js`                              | 3.4.1 / 3.1.0                     | 解析、扩展、验签、摘要构建器                                                                   |
+| PKI           | `pkijs` + `asn1js`                              | 4.0.0 / 4.0.0                     | 解析、扩展、验签、摘要构建器                                                                   |
 | 前端          | `vue`、`vue-router`、`@tanstack/vue-query`、`vue-i18n` | 3.5.44 / 5.4.0 / 5.104.5 / 11.4.16 | 不用 Pinia（决策 5）                                                                   |
 | 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.5 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8（Rolldown、默认 oxc 压缩）；`vue-tsc` 检查 `tsconfig.web.json` |
 | UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.61.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`；`@tanstack/vue-table` 不随 shadcn Table 安装，也没用上（吊销列表分页只是 `slice()`） |
@@ -425,7 +425,7 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
   非严格 DER 的 ECDSA 签名）。最后对收到的 TBS 字节调
   `pkijs.getCrypto(true).verifyWithPublicKey(tbsView, signatureValue, issuerSpki, signatureAlgorithm)`。不用 PKIjs
   `crl.verify()`：它比较签发者名称，并对其自有名单外的关键扩展静默返回 false；
-  不调 `pkijs.setEngine`（pkijs 3 从 `globalThis.crypto` 自动初始化）。细则见 `src/core/pki/verify.ts`。
+  不调 `pkijs.setEngine`（pkijs 从 `globalThis.crypto` 自动初始化）。细则见 `src/core/pki/verify.ts`。
 - 新鲜度：先比字节（与某个已配置目标的 current 相等 → `unchanged`，§5.5 第 2 步），再比 CRL 号，再比 `thisUpdate`；号相等且
   `thisUpdate` 相等但字节不同 → `conflict`；CRL 号只在一侧存在 → `non_orderable`；更旧 → `stale_crl`。号按 BigInt、时间按 epoch ms
   比较（不比字符串）；同号而 `thisUpdate` 更晚 → `updated`，两侧都无号只比 `thisUpdate`；`nextUpdate` 不参与；full 与 delta 目标各比各的

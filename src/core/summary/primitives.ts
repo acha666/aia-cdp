@@ -422,7 +422,7 @@ function parseRSAPublicKey(spki: pkijs.PublicKeyInfo): RSAPublicKey | undefined 
     return undefined;
   }
   const modulus = BigInt(`0x${toHex(key.modulus.valueBlock.valueHexView) || "0"}`);
-  const exponent = key.publicExponent.toBigInt();
+  const exponent = BigInt(`0x${toHex(key.publicExponent.valueBlock.valueHexView) || "0"}`);
   if (modulus <= 0n || exponent <= 0n || exponent > BigInt(Number.MAX_SAFE_INTEGER)) {
     return undefined;
   }

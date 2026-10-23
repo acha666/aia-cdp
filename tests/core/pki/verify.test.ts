@@ -60,16 +60,6 @@ describe("allow-list", () => {
     return new Uint8Array((crl.toSchema() as asn1.Sequence).toBER(false));
   }
 
-  /** WebCrypto's r || s as an ECDSA-Sig-Value. Not pkijs.createCMSECDSASignature: it drops only
-   * one leading zero octet, so about one P-521 signature in 700 would not be DER. */
-  function ecdsaSigValue(signature: ArrayBuffer): ArrayBuffer {
-    const half = signature.byteLength / 2;
-    const integer = (part: ArrayBuffer) =>
-      asn1.Integer.fromBigInt(BigInt(`0x${Buffer.from(part).toString("hex")}`));
-    const value = [integer(signature.slice(0, half)), integer(signature.slice(half))];
-    return new asn1.Sequence({ value }).toBER(false);
-  }
-
   async function spkiFrom(key: webcrypto.CryptoKey): Promise<pkijs.PublicKeyInfo> {
     const der = await crypto.subtle.exportKey("spki", key);
     return new pkijs.PublicKeyInfo({ schema: asn1.fromBER(der).result });
@@ -103,7 +93,9 @@ describe("allow-list", () => {
         ]);
         spki = await spkiFrom(keys.publicKey);
         der = await resigned(algorithmId(oid), async (tbs) =>
-          ecdsaSigValue(await crypto.subtle.sign({ name: "ECDSA", hash }, keys.privateKey, tbs))
+          pkijs.createCMSECDSASignature(
+            await crypto.subtle.sign({ name: "ECDSA", hash }, keys.privateKey, tbs)
+          )
         );
       } else {
         const pss = scheme === "pss";

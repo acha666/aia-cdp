@@ -158,8 +158,8 @@ D8：批次 1 = 本目录（当时为单文件 `docs/implementation.md`）+ plan
   `pnpm install --frozen-lockfile`。
 - pnpm 只经 corepack 按 `packageManager: pnpm@10.34.7` 解析；`typescript` 锁 `6.0.3`、`wrangler` 锁 `4.152.0`；dependabot 忽略
   `typescript` ≥ 6.1 与 `@types/node` 的 major 升级。`compatibility_date` 随 wrangler 一起升。
-- 版本见 `package.json`。`pkijs@3.4.1`、`asn1js@3.1.0` 是 dependencies；切片 8 加 `@aws-sdk/client-s3`（dependencies，开工时
-  `npm view` 复核版本）。
+- 版本见 `package.json`。`pkijs@4.0.0`、`asn1js@4.0.0` 是 dependencies（asn1js 是 pkijs 4 的 peer，两者一起升）；切片 8 加
+  `@aws-sdk/client-s3`（dependencies，开工时 `npm view` 复核版本）。
 - `dependencies` 只放 Node 运行时要的包（Docker 运行阶段只装 `--prod`）；浏览器包、构建、测试、lint 工具都是 devDependencies；
   shadcn-vue CLI 写进 `dependencies` 的包用 `pnpm add -D <包>@<版本>` 挪走。
 
