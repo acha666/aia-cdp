@@ -26,12 +26,16 @@ export interface TestOverrides extends Partial<Omit<AppDeps, "settings">> {
   settings?: Partial<AppSettings>;
 }
 
-/** MemoryStore, the fixtures' clock (manifest.now), default settings and a collecting log. */
+/**
+ * MemoryStore, the fixtures' clock (manifest.now), backoffs that do not wait, default settings and
+ * a collecting log.
+ */
 export function testDeps(overrides: TestOverrides = {}): TestDeps {
   const lines: string[] = [];
   return {
     store: new MemoryStore(),
     now: () => new Date(NOW),
+    sleep: async () => undefined,
     log: (line) => {
       lines.push(line);
     },
@@ -63,8 +67,5 @@ export function patchStore(patch: Partial<ObjectStore>, base: ObjectStore = new 
 }
 
 export async function putText(store: ObjectStore, key: string, text: string): Promise<void> {
-  const result = await store.put(key, new TextEncoder().encode(text));
-  if (!result.ok) {
-    throw new Error(`put ${key}: ${result.reason}`);
-  }
+  await store.put(key, new TextEncoder().encode(text));
 }

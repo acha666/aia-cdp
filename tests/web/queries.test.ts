@@ -2,38 +2,25 @@
 // list request sent before an upload must not overwrite the refresh that follows it), and the
 // retry rule.
 import { VueQueryPlugin } from "@tanstack/vue-query";
-import type { QueryClient } from "@tanstack/vue-query";
 import { flushPromises, mount } from "@vue/test-utils";
-import type { VueWrapper } from "@vue/test-utils";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { defineComponent, h } from "vue";
-import { deferred, publishedCrl, stubApi, targetItems, testQueryClient } from "./helpers";
+import { publishedCrl, stubApi, targetItems, testQueryClient } from "./helpers";
 import { ApiError } from "@/client/errors";
 import { shouldRetry, useCrlTargets, useUploadCrl } from "@/client/queries";
 import type { CrlTargetList } from "@/client/types";
 
-let wrapper: VueWrapper | undefined;
-let client: QueryClient | undefined;
-
-afterEach(() => {
-  wrapper?.unmount();
-  wrapper = undefined;
-  client?.clear();
-  vi.unstubAllGlobals();
-});
-
 /** Mounts `use` in a component with the app's QueryClient (retries without delay). */
 function harness<T>(use: () => T): T {
-  client = testQueryClient();
   let result!: T;
-  wrapper = mount(
+  mount(
     defineComponent({
       setup() {
         result = use();
         return () => h("div");
       },
     }),
-    { global: { plugins: [[VueQueryPlugin, { queryClient: client }]] } }
+    { global: { plugins: [[VueQueryPlugin, { queryClient: testQueryClient() }]] } }
   );
   return result;
 }
@@ -47,7 +34,7 @@ describe("useUploadCrl", () => {
     ["the first load", false],
     ["a refetch", true],
   ])("refreshes after the upload even while %s sent before it is in flight", async (_, loaded) => {
-    const stale = deferred<Response>();
+    const stale = Promise.withResolvers<Response>();
     const lists: (RequestInit | undefined)[] = [];
     const api = stubApi({
       "GET /api/v1/crls": (init) => {

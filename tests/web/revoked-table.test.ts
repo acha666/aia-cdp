@@ -2,28 +2,19 @@
 // itself at 200 rows and says which rows of how many a page shows.
 import { mount } from "@vue/test-utils";
 import type { VueWrapper } from "@vue/test-utils";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { revokedEntries, time } from "./helpers";
 import type { RevokedCertificate, RevokedCertificates } from "@/client/types";
 import RevokedTable from "@/components/crl/RevokedTable.vue";
 import { createAppI18n } from "@/i18n";
 import type { AppLocale } from "@/i18n";
 
-let wrapper: VueWrapper | undefined;
-
-afterEach(() => {
-  wrapper?.unmount();
-  wrapper = undefined;
-  vi.unstubAllEnvs();
-});
-
 function render(revoked: RevokedCertificates, locale: AppLocale = "en") {
-  wrapper = mount(RevokedTable, {
+  return mount(RevokedTable, {
     props: { revoked },
     attachTo: document.body,
     global: { plugins: [createAppI18n(locale)] },
   });
-  return wrapper;
 }
 
 function list(items: RevokedCertificate[]): RevokedCertificates {

@@ -8,9 +8,8 @@ import { importCertificate } from "../../src/core/import.ts";
 import { publishCrl } from "../../src/core/publish.ts";
 import type { PublishLogRecord, PublishResult } from "../../src/core/publish.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
-import { fixture, manifest, NOW } from "../fixtures/pki.ts";
+import { cert, fixture, manifest, NOW } from "../fixtures/pki.ts";
 import { patchStore } from "./app.ts";
-import { cert } from "./catalog.ts";
 
 export interface TargetSpec {
   /** Certificate name (manifest.certificates[].name) of the target's issuer. */
@@ -43,6 +42,13 @@ export const ISSUING_FULL_ALIAS = "/crl/issuing-ca-1-alias.crl";
 /** The path of a target: `/crl/<issuer>.crl` (full) or `/dcrl/<issuer>.crl` (delta). */
 export function targetPath({ issuer, kind }: TargetSpec): string {
   return `/${kind === "full" ? "crl" : "dcrl"}/${issuer}.crl`;
+}
+
+/** The download paths of a target of the shared setup (ISSUING_FULL_ALIAS sorts first). */
+export function downloadsOf(issuer: string, kind: CrlKind): string[] {
+  const path = targetPath({ issuer, kind });
+  const paths = issuer === "issuing-ca-1" && kind === "full" ? [ISSUING_FULL_ALIAS, path] : [path];
+  return paths.flatMap((each) => [each, `${each}.pem`]);
 }
 
 export interface PublishSetup {

@@ -1,40 +1,25 @@
-import { QueryClient, VueQueryPlugin } from "@tanstack/vue-query";
+import { VueQueryPlugin } from "@tanstack/vue-query";
 import { flushPromises, mount } from "@vue/test-utils";
-import type { VueWrapper } from "@vue/test-utils";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { stubApi, testQueryClient } from "./helpers";
 import HealthBadge from "@/components/HealthBadge.vue";
 import { createAppI18n } from "@/i18n";
 import type { AppLocale } from "@/i18n";
 
-let wrapper: VueWrapper | undefined;
-let queryClient: QueryClient | undefined;
-
-afterEach(() => {
-  wrapper?.unmount();
-  queryClient?.clear();
-  vi.unstubAllGlobals();
-});
-
-function stubFetch(result: () => Promise<Response>) {
-  const fetchMock =
-    vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(result);
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
-
 function mountBadge(locale: AppLocale) {
-  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  wrapper = mount(HealthBadge, {
-    global: { plugins: [createAppI18n(locale), [VueQueryPlugin, { queryClient }]] },
+  return mount(HealthBadge, {
+    global: {
+      plugins: [createAppI18n(locale), [VueQueryPlugin, { queryClient: testQueryClient() }]],
+    },
   });
-  return wrapper;
 }
 
 describe("HealthBadge", () => {
   it("calls GET /api/v1/health and shows degraded in zh-CN", async () => {
-    const fetchMock = stubFetch(async () =>
-      Response.json({ status: "degraded", checks: { store: "ok", configuration: "missing" } })
-    );
+    const { fetchMock } = stubApi({
+      "GET /api/v1/health": () =>
+        Response.json({ status: "degraded", checks: { store: "ok", configuration: "missing" } }),
+    });
     const badge = mountBadge("zh-CN");
 
     expect(badge.get('[data-slot="badge"]').attributes("data-state")).toBe("loading");
@@ -83,7 +68,7 @@ describe("HealthBadge", () => {
       "Unknown",
     ],
   ])("shows %s", async (_, answer, state, label) => {
-    stubFetch(async () => answer());
+    stubApi({ "GET /api/v1/health": answer });
     const badge = mountBadge("en");
     await flushPromises();
 

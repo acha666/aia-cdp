@@ -4,9 +4,13 @@ import { configDefaults, defineConfig } from "vitest/config";
 
 const webRoot = fileURLToPath(new URL("./src/web", import.meta.url));
 
-// Standalone: vite.config.ts (root: src/web) is not merged when this file exists.
+// Standalone: vite.config.ts (root: src/web) is not merged when this file exists. Before every test,
+// spies are restored and stubbed globals and env variables undone (both projects).
 export default defineConfig({
   test: {
+    restoreMocks: true,
+    unstubGlobals: true,
+    unstubEnvs: true,
     projects: [
       {
         test: {
@@ -24,6 +28,7 @@ export default defineConfig({
           include: ["tests/web/**/*.test.ts"],
           environment: "happy-dom",
           env: { VITE_SITE_NAME: "Test PKI" },
+          setupFiles: ["tests/web/setup.ts"],
         },
       },
     ],

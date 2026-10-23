@@ -1,6 +1,5 @@
 // Shared display and X.509 components, mounted in happy-dom.
 import { flushPromises, mount } from "@vue/test-utils";
-import type { VueWrapper } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { h } from "vue";
 import type { Component } from "vue";
@@ -19,20 +18,11 @@ import NameDetails from "@/components/x509/NameDetails.vue";
 import { createAppI18n } from "@/i18n";
 import type { AppLocale } from "@/i18n";
 
-let wrapper: VueWrapper | undefined;
-
-afterEach(() => {
-  wrapper?.unmount();
-  wrapper = undefined;
-  // happy-dom has no execCommand; the copy tests install one for the textarea fallback.
-  Reflect.deleteProperty(document, "execCommand");
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
+// happy-dom has no execCommand; the copy tests install one for the textarea fallback.
+afterEach(() => Reflect.deleteProperty(document, "execCommand"));
 
 function render(component: Component, props: Record<string, unknown>, locale: AppLocale = "en") {
-  wrapper = mount(component, { props, global: { plugins: [createAppI18n(locale)] } });
-  return wrapper;
+  return mount(component, { props, global: { plugins: [createAppI18n(locale)] } });
 }
 
 describe("DownloadLinks", () => {
@@ -129,12 +119,12 @@ describe("HexValue", () => {
       return true;
     });
 
-    wrapper = mount(HexValue, {
+    const hex = mount(HexValue, {
       props: { value: "0a1b" },
       attachTo: document.body,
       global: { plugins: [createAppI18n("en")] },
     });
-    const button = wrapper.get("button");
+    const button = hex.get("button");
     (button.element as HTMLButtonElement).focus();
     await button.trigger("click");
     await flushPromises();
@@ -163,17 +153,18 @@ describe("HexValue", () => {
 
 describe("LocaleSelect", () => {
   it("switches the global locale between the two UI languages", async () => {
-    const select = render(LocaleSelect, {}).get("select");
+    const locale = render(LocaleSelect, {});
+    const select = locale.get("select");
     expect(
-      wrapper!.findAll("option").map((option) => [option.attributes("value"), option.text()])
+      locale.findAll("option").map((option) => [option.attributes("value"), option.text()])
     ).toEqual([
       ["en", "English"],
       ["zh-CN", "简体中文"],
     ]);
-    expect(wrapper!.text()).toContain("Language");
+    expect(locale.text()).toContain("Language");
     await select.setValue("zh-CN");
     // The global scope: the label (and the rest of the app) switches language.
-    expect(wrapper!.text()).toContain("语言");
+    expect(locale.text()).toContain("语言");
     expect((select.element as HTMLSelectElement).value).toBe("zh-CN");
   });
 });
@@ -290,12 +281,11 @@ describe("GeneralNameList", () => {
 describe("ExtensionView", () => {
   /** An ExtensionView inside an Accordion, opened. */
   function renderOpen(value: Extension, locale: AppLocale = "en") {
-    wrapper = mount(Accordion, {
+    return mount(Accordion, {
       props: { type: "multiple", defaultValue: [value.extnID.oid] },
       slots: { default: () => h(ExtensionView, { extension: value, value: value.extnID.oid }) },
       global: { plugins: [createAppI18n(locale)] },
     });
-    return wrapper;
   }
 
   it("shows the parse error, the ASN.1 dump and the raw hex of an undecoded extension", async () => {

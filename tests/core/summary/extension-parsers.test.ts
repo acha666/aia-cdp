@@ -9,8 +9,7 @@ import { buildTBSCertList } from "../../../src/core/summary/crl.ts";
 import { buildExtension } from "../../../src/core/summary/extensions.ts";
 import { buildSignatureValue } from "../../../src/core/summary/primitives.ts";
 import type { Extension, ParsedExtensionValue } from "../../../src/core/summary/schemas.ts";
-import { fixture } from "../../fixtures/pki.ts";
-import { cert, crlEntry } from "../../helpers/catalog.ts";
+import { cert, crlEntry, fixture } from "../../fixtures/pki.ts";
 import { extension } from "../../helpers/pki.ts";
 
 // The extension decoders of the X.509 detail: the AD CS style fixtures, then one value built in

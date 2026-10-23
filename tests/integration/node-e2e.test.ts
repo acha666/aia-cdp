@@ -12,11 +12,10 @@ import process from "node:process";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Config } from "../../src/core/catalog.ts";
 import { sha256Hex } from "../../src/core/digest.ts";
-import { fixturePath } from "../fixtures/pki.ts";
+import { cert, crlEntry, fixturePath } from "../fixtures/pki.ts";
 import type { LogLine } from "../helpers/app.ts";
-import { cert, crlEntry } from "../helpers/catalog.ts";
+import { configFor } from "../helpers/catalog.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SERVER = fileURLToPath(new URL("../../src/runtime/node.ts", import.meta.url));
@@ -151,17 +150,8 @@ describe("node src/runtime/node.ts driven by the aia CLI", { timeout: TIMEOUT },
     expect(imported.code).toBe(0);
     expect(imported.stdout).toMatch(/\n2 created, 0 unchanged, 0 failed\n$/);
 
-    const config: Config = { version: 1, certificates: {}, targets: {}, paths: {} };
-    for (const name of ["root-ca", "issuing-ca-1"]) {
-      const id = cert(name).sha256;
-      const target = crypto.randomUUID();
-      config.certificates[id] = { label: name };
-      config.targets[target] = { issuer: id, kind: "full", label: name };
-      config.paths[`/ca/${name}.crt`] = { certificate: id };
-      config.paths[`/crl/${name}.crl`] = { target };
-    }
     const file = join(scratch, "config.json");
-    await writeFile(file, JSON.stringify(config));
+    await writeFile(file, JSON.stringify(configFor(["root-ca", "issuing-ca-1"])));
     const applied = await aia("config", "apply", "--json", file);
     expect(applied.code).toBe(0);
     const stored = await readFile(join(dataDir, "config.json"));

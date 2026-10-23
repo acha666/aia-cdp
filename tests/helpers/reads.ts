@@ -1,12 +1,12 @@
 // Shared by the HTTP route tests: a service set up as an operator would (importCertificate,
-// applyConfig, publishCrl on a MemoryStore) for the read routes, and the envelope checks.
+// applyConfig, publishCrl on a MemoryStore) for the read and upload routes, and the envelope
+// checks.
 import { expect } from "vitest";
-import { readState } from "../../src/core/catalog.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { createApp } from "../../src/http/app.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { testDeps } from "./app.ts";
-import type { TestDeps } from "./app.ts";
+import type { TestDeps, TestOverrides } from "./app.ts";
 import { publishFile, setupPublish } from "./publish.ts";
 import type { PublishSetup, SetupOptions } from "./publish.ts";
 
@@ -17,6 +17,8 @@ export interface ReadServiceOptions {
   publish?: readonly string[];
   /** Wraps the store the setup wrote, for the app only. */
   wrap?: (base: ObjectStore) => ObjectStore;
+  /** Passed to testDeps; the store is the setup's all the same. */
+  overrides?: TestOverrides;
 }
 
 export interface ReadService {
@@ -37,13 +39,8 @@ export async function readService(options: ReadServiceOptions = {}): Promise<Rea
     }
   }
   const store = options.wrap?.(base) ?? base;
-  const deps = testDeps({ store });
+  const deps = testDeps({ ...options.overrides, store });
   return { app: createApp(deps), deps, base, setup };
-}
-
-/** config.json and catalog.json as the routes read them. */
-export function stateOf(service: Pick<ReadService, "base">) {
-  return readState(service.base);
 }
 
 /** The JSON body of a 200 read: application/json and no-store. */

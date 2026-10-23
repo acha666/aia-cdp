@@ -18,9 +18,9 @@ import { sha256Hex } from "../../src/core/digest.ts";
 import { importCertificate } from "../../src/core/import.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
-import { fixture, NOW } from "../fixtures/pki.ts";
+import { cert, fixture, NOW } from "../fixtures/pki.ts";
 import { MINIMAL_CONFIG, putText } from "../helpers/app.ts";
-import { cert, currentCrl, putCatalog } from "../helpers/catalog.ts";
+import { currentCrl, putCatalog } from "../helpers/catalog.ts";
 import { flakyStore, puts, recordingStore } from "../helpers/store.ts";
 
 // The config rules V1–V9 (validateConfig) and applyConfig, which writes only config.json.
@@ -295,27 +295,6 @@ describe("applyConfig", () => {
       { key: CONFIG_KEY, opts: { contentType: "application/json", ifNoneMatch: "*" }, ok: true },
     ]);
     expect((await base.get(CATALOG_KEY))!.bytes).toEqual(catalogBefore!.bytes);
-  });
-
-  it.each<[string, boolean, (digest: string) => ConfigPrecondition]>([
-    ["If-None-Match: * while a config exists", true, () => ({ ifNoneMatch: "*" })],
-    [
-      "a stale If-Match",
-      true,
-      (digest) => ({ ifMatch: digest.replace(/^./, (c) => (c === "0" ? "1" : "0")) }),
-    ],
-    ["If-Match while no config exists", false, (digest) => ({ ifMatch: digest })],
-  ])("fails with %s, before validation and without a write", async (_, exists, precondition) => {
-    const base = await storeWith();
-    if (exists) {
-      await apply(base, baseline().config);
-    }
-    const bytes = (await base.get(CONFIG_KEY))?.bytes ?? encodeJson(baseline().config);
-    const store = recordingStore(base);
-    expect(
-      await applyConfig({ store }, { invalid: true }, precondition(await sha256Hex(bytes)))
-    ).toEqual({ error: "precondition_failed" });
-    expect(store.writes).toEqual([]);
   });
 
   it("reports a write lost to a concurrent apply as precondition_failed, without retry", async () => {

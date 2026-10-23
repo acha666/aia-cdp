@@ -10,7 +10,7 @@ import { ConfigSchema } from "../../src/core/catalog.ts";
 import { importCertificate } from "../../src/core/import.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { NOW } from "../fixtures/pki.ts";
-import { extension } from "./pki.ts";
+import { attribute, extension, nameOf } from "./pki.ts";
 
 const HOUR = 3_600_000;
 
@@ -23,15 +23,8 @@ export interface GeneratedCa {
   privateKey: webcrypto.CryptoKey;
 }
 
-const nameOf = (commonName: string) =>
-  new pkijs.RelativeDistinguishedNames({
-    typesAndValues: [
-      new pkijs.AttributeTypeAndValue({
-        type: "2.5.4.3",
-        value: new asn1.Utf8String({ value: commonName }),
-      }),
-    ],
-  });
+const commonNameOf = (commonName: string) =>
+  nameOf([attribute("2.5.4.3", new asn1.Utf8String({ value: commonName }))]);
 
 const utcTime = (offsetMs: number) =>
   new pkijs.Time({ type: 0, value: new Date(NOW.getTime() + offsetMs) });
@@ -45,8 +38,8 @@ export async function generateCa(commonName = "Generated Test CA"): Promise<Gene
   const certificate = new pkijs.Certificate();
   certificate.version = 2;
   certificate.serialNumber = new asn1.Integer({ value: 1 });
-  certificate.issuer = nameOf(commonName);
-  certificate.subject = nameOf(commonName);
+  certificate.issuer = commonNameOf(commonName);
+  certificate.subject = commonNameOf(commonName);
   certificate.notBefore = utcTime(-24 * HOUR);
   certificate.notAfter = utcTime(365 * 24 * HOUR);
   await certificate.subjectPublicKeyInfo.importKey(publicKey);
@@ -85,7 +78,7 @@ export async function signCrl(
 ): Promise<Uint8Array> {
   const crl = new pkijs.CertificateRevocationList();
   crl.version = 1;
-  crl.issuer = nameOf(ca.commonName);
+  crl.issuer = commonNameOf(ca.commonName);
   crl.thisUpdate = utcTime(thisUpdateMs);
   crl.nextUpdate = utcTime(7 * 24 * HOUR);
   if (revoked > 0) {

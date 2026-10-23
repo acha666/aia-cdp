@@ -1,20 +1,14 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { derToPem, pemLength, splitPemBlocks, toDer } from "../../../src/core/pki/pem.ts";
-import { fixture, fixturePath } from "../../fixtures/pki.ts";
-import { pkiError } from "../../helpers/pki.ts";
+import { fixture, fixtureText } from "../../fixtures/pki.ts";
 
 // Upload input (toDer, splitPemBlocks) and the download format (derToPem, pemLength) against
 // OpenSSL's output.
 
-function text(path: string): string {
-  return readFileSync(fixturePath(path), "utf8");
-}
-
 const encode = (value: string) => new TextEncoder().encode(value);
 
 const ROOT_DER = fixture("certs/root-ca.der");
-const ROOT_PEM = text("certs/root-ca.pem");
+const ROOT_PEM = fixtureText("certs/root-ca.pem");
 const CRL_DER = fixture("crls/issuing-ca-1/full-01.der");
 
 describe("toDer", () => {
@@ -35,32 +29,28 @@ describe("toDer", () => {
     );
   });
 
-  it("rejects a block labelled for the other kind", async () => {
-    expect(await pkiError(() => toDer(encode(ROOT_PEM), "crl"))).toEqual({
-      kind: "crl",
-      reason: "pem_label",
-    });
+  it("rejects a block labelled for the other kind", () => {
+    expect(() => toDer(encode(ROOT_PEM), "crl")).toThrow(
+      expect.objectContaining({ name: "PkiParseError", kind: "crl", reason: "pem_label" })
+    );
   });
 
-  it("rejects two blocks instead of using the first, and a block without its END line", async () => {
-    const bundle = encode(`${ROOT_PEM}${text("certs/issuing-ca-1.pem")}`);
-    expect(await pkiError(() => toDer(bundle, "certificate"))).toEqual({
-      kind: "certificate",
-      reason: "pem_blocks",
-    });
-    expect(await pkiError(() => toDer(fixture("invalid/truncated.pem"), "crl"))).toEqual({
-      kind: "crl",
-      reason: "pem_blocks",
-    });
+  it("rejects two blocks instead of using the first, and a block without its END line", () => {
+    const bundle = encode(`${ROOT_PEM}${fixtureText("certs/issuing-ca-1.pem")}`);
+    expect(() => toDer(bundle, "certificate")).toThrow(
+      expect.objectContaining({ name: "PkiParseError", kind: "certificate", reason: "pem_blocks" })
+    );
+    expect(() => toDer(fixture("invalid/truncated.pem"), "crl")).toThrow(
+      expect.objectContaining({ name: "PkiParseError", kind: "crl", reason: "pem_blocks" })
+    );
   });
 
-  it("rejects a body that is not base64", async () => {
+  it("rejects a body that is not base64", () => {
     const lines = ROOT_PEM.split("\n");
     const pem = [lines[0], (lines[1] ?? "").replace(/^./, "*"), ...lines.slice(2)].join("\n");
-    expect(await pkiError(() => toDer(encode(pem), "certificate"))).toEqual({
-      kind: "certificate",
-      reason: "pem_base64",
-    });
+    expect(() => toDer(encode(pem), "certificate")).toThrow(
+      expect.objectContaining({ name: "PkiParseError", kind: "certificate", reason: "pem_base64" })
+    );
   });
 
   // A regexp with a repeated group overflowed V8's regexp stack from about 5 MiB of base64, which
@@ -78,11 +68,11 @@ describe("splitPemBlocks", () => {
   it("returns every complete block of the kind, in order, and skips other labels", () => {
     const bundle = [
       "chain exported for the AIA service\r\n",
-      text("certs/root-ca.pem"),
-      text("crls/root-ca/full-01.pem"),
+      fixtureText("certs/root-ca.pem"),
+      fixtureText("crls/root-ca/full-01.pem"),
       "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n",
-      text("certs/issuing-ca-1.pem").replaceAll("\n", "\r\n"),
-      text("certs/issuing-ca-2.pem"),
+      fixtureText("certs/issuing-ca-1.pem").replaceAll("\n", "\r\n"),
+      fixtureText("certs/issuing-ca-2.pem"),
     ].join("");
     const blocks = splitPemBlocks(bundle, "certificate");
     expect(blocks.map((block) => toDer(encode(block), "certificate"))).toEqual(
@@ -93,12 +83,11 @@ describe("splitPemBlocks", () => {
     ]);
   });
 
-  it("rejects a truncated bundle instead of importing part of it", async () => {
-    const truncated = `${ROOT_PEM}${text("certs/issuing-ca-1.pem").replace("-----END", "")}`;
-    expect(await pkiError(() => splitPemBlocks(truncated, "certificate"))).toEqual({
-      kind: "certificate",
-      reason: "pem_blocks",
-    });
+  it("rejects a truncated bundle instead of importing part of it", () => {
+    const truncated = `${ROOT_PEM}${fixtureText("certs/issuing-ca-1.pem").replace("-----END", "")}`;
+    expect(() => splitPemBlocks(truncated, "certificate")).toThrow(
+      expect.objectContaining({ name: "PkiParseError", kind: "certificate", reason: "pem_blocks" })
+    );
   });
 });
 

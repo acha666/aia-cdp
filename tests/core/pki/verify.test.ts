@@ -1,12 +1,11 @@
 import type { webcrypto } from "node:crypto";
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SIGNATURE_ALG_NAMES } from "../../../src/core/pki/constants.ts";
 import { parseCertificate, parseCRL } from "../../../src/core/pki/parsers.ts";
 import { verifyCrlSignature } from "../../../src/core/pki/verify.ts";
-import { fixture } from "../../fixtures/pki.ts";
-import { cert } from "../../helpers/catalog.ts";
+import { cert, fixture } from "../../fixtures/pki.ts";
 
 // verifyCrlSignature. The allow-list cases sign with keys made here: the fixtures cannot cover
 // every algorithm (no P-521 CA, no ECDSA with SHA-1 or SHA-512).
@@ -20,10 +19,6 @@ const engine = pkijs.getCrypto(true);
 
 /** Records whether the cryptography ran (it must not for a refused algorithm, key or encoding). */
 const cryptoSpy = () => vi.spyOn(engine, "verifyWithPublicKey");
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
 
 const algorithmId = (id: string, params?: asn1.BaseBlock) =>
   new pkijs.AlgorithmIdentifier({

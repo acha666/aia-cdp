@@ -1,5 +1,5 @@
-// Catalog values built from the fixtures: digests, key ids and sizes come from the files or
-// manifest.json, never from literals.
+// Catalog and config values built from the fixtures: digests, key ids and sizes come from the files
+// or manifest.json, never from literals.
 import type { Catalog, CatalogCertificate, Config, CurrentCrl } from "../../src/core/catalog.ts";
 import { CATALOG_KEY, certificateBlobKey, CONFIG_KEY, encodeJson } from "../../src/core/catalog.ts";
 import { parseCertificate, parseCRL } from "../../src/core/pki/parsers.ts";
@@ -9,25 +9,23 @@ import {
   buildCertificateSummary,
   buildCrlSummary,
 } from "../../src/core/summary/catalog-summary.ts";
-import { fixture, manifest, NOW } from "../fixtures/pki.ts";
-import type { ManifestCertificate, ManifestCrl } from "../fixtures/pki.ts";
+import { cert, crlEntry, fixture, NOW } from "../fixtures/pki.ts";
 
-/** The manifest entry of a certificate fixture (certs/<name>.der). */
-export function cert(name: string): ManifestCertificate {
-  const found = manifest.certificates.find((c) => c.name === name);
-  if (!found) {
-    throw new Error(`no manifest certificate ${name}`);
+/**
+ * A config.json that serves each certificate fixture at /ca/<name>.crt, with a full CRL target at
+ * /crl/<name>.crl.
+ */
+export function configFor(names: readonly string[]): Config {
+  const config: Config = { version: 1, certificates: {}, targets: {}, paths: {} };
+  for (const name of names) {
+    const id = cert(name).sha256;
+    const target = crypto.randomUUID();
+    config.certificates[id] = { label: name };
+    config.targets[target] = { issuer: id, kind: "full", label: name };
+    config.paths[`/ca/${name}.crt`] = { certificate: id };
+    config.paths[`/crl/${name}.crl`] = { target };
   }
-  return found;
-}
-
-/** The manifest entry of a CRL fixture (crls/<issuer>/<case>.der). */
-export function crlEntry(file: string): ManifestCrl {
-  const found = manifest.crls.find((c) => c.file === file);
-  if (!found) {
-    throw new Error(`no manifest CRL ${file}`);
-  }
-  return found;
+  return config;
 }
 
 /** The catalog entry importCertificate writes for certs/<name>.der at `importedAt`. */
@@ -68,16 +66,10 @@ export async function currentCrl(file: string, targetId: string): Promise<Curren
 
 /** Writes catalog.json in the canonical format, unconditionally. */
 export async function putCatalog(store: ObjectStore, catalog: Catalog): Promise<void> {
-  const result = await store.put(CATALOG_KEY, encodeJson(catalog));
-  if (!result.ok) {
-    throw new Error(`put ${CATALOG_KEY}: ${result.reason}`);
-  }
+  await store.put(CATALOG_KEY, encodeJson(catalog));
 }
 
 /** Writes config.json in the canonical format, unconditionally (no V1–V9, unlike applyConfig). */
 export async function putConfig(store: ObjectStore, config: Config): Promise<void> {
-  const result = await store.put(CONFIG_KEY, encodeJson(config));
-  if (!result.ok) {
-    throw new Error(`put ${CONFIG_KEY}: ${result.reason}`);
-  }
+  await store.put(CONFIG_KEY, encodeJson(config));
 }

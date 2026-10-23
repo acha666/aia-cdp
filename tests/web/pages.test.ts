@@ -1,13 +1,11 @@
 // The three pages on a stubbed fetch: what the overview, a certificate and a CRL target show, and
 // their loading / error / not-found / unpublished states. Bodies come from ./helpers (fixture facts
 // from tests/fixtures/pki); the clock is manifest.now unless a case moves it.
-import type { QueryClient } from "@tanstack/vue-query";
 import { flushPromises } from "@vue/test-utils";
 import type { DOMWrapper, VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   certificateItem,
-  deferred,
   envelope,
   issuingDeltaDetail,
   issuingFullDetail,
@@ -22,29 +20,16 @@ import {
 import type { Handler } from "./helpers";
 import type { CertificateList } from "@/client/types";
 
-let wrapper: VueWrapper | undefined;
-let queryClient: QueryClient | undefined;
-
 beforeEach(() => {
   // Only Date: the query timers and Vue's scheduler keep running.
   vi.useFakeTimers({ toFake: ["Date"], now: new Date(NOW) });
 });
 
-afterEach(() => {
-  wrapper?.unmount();
-  wrapper = undefined;
-  queryClient?.clear();
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  vi.unstubAllEnvs();
-});
+afterEach(() => vi.useRealTimers());
 
 async function open(path: string, routes: Record<string, Handler>, locale?: "en" | "zh-CN") {
   const api = stubApi(routes);
-  const mounted = await mountApp(path, locale);
-  ({ wrapper, queryClient } = mounted);
-  return { ...mounted, api };
+  return { ...(await mountApp(path, locale)), api };
 }
 
 const ROOT = rootDetail({
@@ -169,8 +154,8 @@ describe("OverviewPage", () => {
   });
 
   it("shows skeletons only before the first answer, then keeps the list while refetching", async () => {
-    const first = deferred<Response>();
-    const again = deferred<Response>();
+    const first = Promise.withResolvers<Response>();
+    const again = Promise.withResolvers<Response>();
     let requests = 0;
     const { wrapper, queryClient } = await open("/", {
       ...OVERVIEW,

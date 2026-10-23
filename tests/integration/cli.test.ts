@@ -10,13 +10,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { main, USAGE } from "../../src/cli/aia.ts";
 import type { CliIo } from "../../src/cli/aia.ts";
 import { CONFIG_KEY, TargetId } from "../../src/core/catalog.ts";
-import type { Config } from "../../src/core/catalog.ts";
 import { sha256Hex } from "../../src/core/digest.ts";
 import { createApp } from "../../src/http/app.ts";
-import { fixturePath } from "../fixtures/pki.ts";
+import { cert, crlEntry, fixturePath, fixtureText } from "../fixtures/pki.ts";
 import { MINIMAL_CONFIG, putText, testDeps } from "../helpers/app.ts";
 import type { TestOverrides } from "../helpers/app.ts";
-import { cert, crlEntry } from "../helpers/catalog.ts";
+import { configFor } from "../helpers/catalog.ts";
 import { setupPublish } from "../helpers/publish.ts";
 
 const TOKEN = "cli-s3cret-token";
@@ -56,7 +55,6 @@ interface Sent {
 /** createApp with the admin token set, and a fetch that records every request it forwards. */
 function service(overrides: TestOverrides = {}) {
   const deps = testDeps({
-    sleep: async () => undefined,
     ...overrides,
     settings: { adminToken: TOKEN, ...overrides.settings },
   });
@@ -112,20 +110,6 @@ async function aia(argv: string[], io: Partial<Pick<CliIo, "fetch" | "env">> = {
 /** aia against `svc` with AIA_URL and AIA_ADMIN_TOKEN set. */
 function against(svc: Service, argv: string[], env: Record<string, string> = ENV) {
   return aia(argv, { fetch: svc.fetch, env });
-}
-
-/** A configuration serving the given certificate fixtures with a full CRL target each. */
-function configFor(names: string[]): Config {
-  const config: Config = { version: 1, certificates: {}, targets: {}, paths: {} };
-  for (const name of names) {
-    const id = cert(name).sha256;
-    const target = crypto.randomUUID();
-    config.certificates[id] = { label: name };
-    config.targets[target] = { issuer: id, kind: "full", label: name };
-    config.paths[`/ca/${name}.crt`] = { certificate: id };
-    config.paths[`/crl/${name}.crl`] = { target };
-  }
-  return config;
 }
 
 async function configFile(name: string, config: unknown): Promise<string> {
@@ -293,7 +277,7 @@ describe("import", () => {
     // Other labels (a key) are skipped and never sent; text around the blocks is ignored.
     const key =
       "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIA==\n-----END PRIVATE KEY-----\n";
-    const issuing = readFileSync(fixturePath(cert("issuing-ca-1").pem), "utf8");
+    const issuing = fixtureText(cert("issuing-ca-1").pem);
     const mixed = await scratchFile("mixed.pem", `Chain\n${badBlock}${key}${issuing}`);
     const missing = join(scratch, "missing.der");
     const crlPem = fixturePath("crls/root-ca/full-01.pem");

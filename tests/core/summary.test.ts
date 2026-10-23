@@ -8,9 +8,8 @@ import {
   buildCrlSummary,
 } from "../../src/core/summary/catalog-summary.ts";
 import type { CertificateSummary } from "../../src/core/summary/catalog-summary.ts";
-import { fixture, manifest } from "../fixtures/pki.ts";
-import { cert } from "../helpers/catalog.ts";
-import { extension, pkiError } from "../helpers/pki.ts";
+import { cert, fixture, manifest } from "../fixtures/pki.ts";
+import { extension } from "../helpers/pki.ts";
 
 // The catalog summaries: buildCertificateSummary on every fixture certificate, buildCrlSummary on
 // every parsable fixture CRL.
@@ -74,10 +73,13 @@ describe("buildCertificateSummary", () => {
       ...(certificate.extensions ?? []).filter((ext) => ext.extnID !== oid),
       extension(oid, new asn1.Null()),
     ];
-    expect(await pkiError(() => buildCertificateSummary(certificate, der))).toEqual({
-      kind: "certificate",
-      reason: "extension_value",
-    });
+    await expect(buildCertificateSummary(certificate, der)).rejects.toThrow(
+      expect.objectContaining({
+        name: "PkiParseError",
+        kind: "certificate",
+        reason: "extension_value",
+      })
+    );
   });
 });
 

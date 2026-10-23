@@ -2,16 +2,15 @@
 // HTTP schemas, the id parameter (any case; anything but 64 hex digits is a 400), 404 and the 500
 // of a blob the store lost.
 import { describe, expect, it } from "vitest";
-import { certificateBlobKey } from "../../src/core/catalog.ts";
+import { certificateBlobKey, readState } from "../../src/core/catalog.ts";
 import { parseCertificate } from "../../src/core/pki/parsers.ts";
 import { buildTBSCertificate } from "../../src/core/summary/certificate.ts";
 import { CertificateDetail, CertificateListItem } from "../../src/http/schemas.ts";
-import { fixture, manifest, NOW } from "../fixtures/pki.ts";
+import { cert, fixture, manifest, NOW } from "../fixtures/pki.ts";
 import { logRecords } from "../helpers/app.ts";
-import { cert } from "../helpers/catalog.ts";
 import { IMPORTED } from "../helpers/publish.ts";
 import type { SetupOptions } from "../helpers/publish.ts";
-import { errorOf, expectInternal, okJson, readService, stateOf } from "../helpers/reads.ts";
+import { errorOf, expectInternal, okJson, readService } from "../helpers/reads.ts";
 
 const LIST = "/api/v1/certificates";
 const ROOT = "root-ca";
@@ -35,7 +34,7 @@ function detailPath(name: string): string {
 describe("GET /api/v1/certificates", () => {
   it("lists every imported certificate in id order with label, summary, downloads and targets", async () => {
     const service = await readService({ setup: SERVED });
-    const { catalog } = await stateOf(service);
+    const { catalog } = await readState(service.base);
     const body = await okJson(await service.app.request(LIST));
     // parse() drops keys the schema does not know: equal means no other field leaked.
     const items = CertificateListItem.array().parse(body);

@@ -2,15 +2,14 @@
 // applyConfig / publishCrl: published and unpublished targets (`current: null`), their issuer,
 // every revoked entry, the target id parameter, 404 and the 500 of a blob the store lost.
 import { describe, expect, it } from "vitest";
-import type { CrlKind } from "../../src/core/catalog.ts";
+import { readState } from "../../src/core/catalog.ts";
 import { parseCRL } from "../../src/core/pki/parsers.ts";
 import { buildTBSCertList } from "../../src/core/summary/crl.ts";
 import { CrlTargetDetail, CrlTargetListItem } from "../../src/http/schemas.ts";
-import { fixture, NOW } from "../fixtures/pki.ts";
+import { cert, crlEntry, fixture, NOW } from "../fixtures/pki.ts";
 import { logRecords } from "../helpers/app.ts";
-import { cert, crlEntry } from "../helpers/catalog.ts";
-import { DEFAULT_TARGETS, ISSUING_FULL_ALIAS, targetPath } from "../helpers/publish.ts";
-import { errorOf, expectInternal, okJson, readService, stateOf } from "../helpers/reads.ts";
+import { DEFAULT_TARGETS, downloadsOf } from "../helpers/publish.ts";
+import { errorOf, expectInternal, okJson, readService } from "../helpers/reads.ts";
 import type { ReadService } from "../helpers/reads.ts";
 
 const LIST = "/api/v1/crls";
@@ -44,13 +43,6 @@ async function detail(service: ReadService, targetId: string) {
   return CrlTargetDetail.parse(body);
 }
 
-/** The download paths of a target of the shared setup (ISSUING_FULL_ALIAS sorts first). */
-function downloadsOf(issuer: string, kind: CrlKind): string[] {
-  const path = targetPath({ issuer, kind });
-  const paths = issuer === ISSUING && kind === "full" ? [ISSUING_FULL_ALIAS, path] : [path];
-  return paths.flatMap((each) => [each, `${each}.pem`]);
-}
-
 describe("GET /api/v1/crls", () => {
   it("lists every configured target in targetId order, unpublished ones with current: null", async () => {
     const service = await published();
@@ -65,7 +57,7 @@ describe("GET /api/v1/crls", () => {
 
   it("carries kind, label, issuer, downloads and the current summary without key or verifier", async () => {
     const service = await published();
-    const { catalog } = await stateOf(service);
+    const { catalog } = await readState(service.base);
     const targetId = targetOf(service, FULL_ADCS);
     const issuer = cert(ISSUING).sha256;
     const item = (await list(service)).find((each) => each.targetId === targetId);
@@ -155,7 +147,7 @@ describe("GET /api/v1/crls/{targetId}", () => {
   it("answers 500 for a published target whose blob is gone, without leaking the key", async () => {
     const service = await published();
     const targetId = targetOf(service, FULL_ADCS);
-    const key = (await stateOf(service)).catalog.targets[targetId]?.current?.key ?? "";
+    const key = (await readState(service.base)).catalog.targets[targetId]?.current?.key ?? "";
     await service.base.delete(key);
     await expectInternal(await service.app.request(`${LIST}/${targetId}`), key);
     expect(logRecords(service.deps).at(-2)).toMatchObject({

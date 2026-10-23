@@ -16,7 +16,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
-import { fixture, manifest } from "../tests/fixtures/pki.ts";
+import { cert, crlEntry, fixture } from "../tests/fixtures/pki.ts";
 
 // Before wrangler is loaded: no telemetry, no banner or update check (implementation §2.4).
 process.env.WRANGLER_SEND_METRICS = "false";
@@ -34,24 +34,6 @@ let failed = false;
 function check(ok: boolean, description: string): void {
   console.log(`${ok ? "ok  " : "FAIL"}  ${description}`);
   failed ||= !ok;
-}
-
-/** A certificate fixture's DER and id (the SHA-256 of the DER, which the manifest records). */
-function certificate(name: string): { der: Uint8Array<ArrayBuffer>; id: string } {
-  const entry = manifest.certificates.find((each) => each.name === name);
-  if (entry === undefined) {
-    throw new Error(`tests/fixtures/pki/manifest.json has no certificate ${name}`);
-  }
-  return { der: fixture(entry.der), id: entry.sha256 };
-}
-
-/** The manifest entry of a CRL fixture. */
-function crlFixture(file: string) {
-  const entry = manifest.crls.find((crl) => crl.file === file);
-  if (entry === undefined) {
-    throw new Error(`tests/fixtures/pki/manifest.json has no CRL ${file}`);
-  }
-  return entry;
 }
 
 /** The status and the JSON body ({} when it is not JSON) of a response. */
@@ -77,13 +59,14 @@ async function configure(base: URL): Promise<string> {
       await admin(base, "/api/v1/admin/certificates", {
         method: "POST",
         headers: { "Content-Type": "application/pkix-cert" },
-        body: certificate(name).der,
+        body: fixture(cert(name).der),
       })
     );
     check(res.status === 201, `import certs/${name}.der: ${res.status}`);
   }
-  const rootCa = certificate("root-ca").id;
-  const issuingCa = certificate("issuing-ca-1").id;
+  // A certificate id is the SHA-256 of the DER, which the manifest records.
+  const rootCa = cert("root-ca").sha256;
+  const issuingCa = cert("issuing-ca-1").sha256;
   const [rootTarget, issuingTarget] = [crypto.randomUUID(), crypto.randomUUID()];
   const config = {
     version: 1,
@@ -153,13 +136,13 @@ async function publish(base: URL, target: string): Promise<void> {
         ? error?.code === result
         : res.body.outcome === result &&
           res.body.target === target &&
-          res.body.sha256 === crlFixture(file).sha256);
+          res.body.sha256 === crlEntry(file).sha256);
     const got = ok ? result : JSON.stringify(res.body).slice(0, 300);
     check(ok, `POST /api/v1/crls ${file}: ${res.status} ${got}`);
   }
 
   // The target's detail after the uploads: crls/issuing-ca-1/full-sha1, with its entries.
-  const crl = crlFixture("crls/issuing-ca-1/full-sha1.der");
+  const crl = crlEntry("crls/issuing-ca-1/full-sha1.der");
   const res = await json(await fetch(new URL(`/api/v1/crls/${target}`, base)));
   const current = res.body.current as {
     sha256?: unknown;

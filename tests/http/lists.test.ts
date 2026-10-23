@@ -1,12 +1,12 @@
 // What the two lists hold: one item per resource, never per stored object (no blobs, history
 // markers or superseded versions), and a failing store is a 500 on every read, never `200 []`.
 import { describe, expect, it } from "vitest";
-import { CONFIG_KEY } from "../../src/core/catalog.ts";
+import { CONFIG_KEY, readState } from "../../src/core/catalog.ts";
 import { CertificateListItem, CrlTargetListItem } from "../../src/http/schemas.ts";
+import { cert } from "../fixtures/pki.ts";
 import { logRecords, patchStore, putText } from "../helpers/app.ts";
-import { cert } from "../helpers/catalog.ts";
 import { IMPORTED } from "../helpers/publish.ts";
-import { expectInternal, okJson, readService, stateOf } from "../helpers/reads.ts";
+import { expectInternal, okJson, readService } from "../helpers/reads.ts";
 import type { ReadService } from "../helpers/reads.ts";
 
 const CERTIFICATES = "/api/v1/certificates";
@@ -33,7 +33,7 @@ async function lists(app: ReadService["app"]) {
 describe("the lists", () => {
   it("have exactly one item per catalog certificate and per configured target", async () => {
     const svc = await readService({ publish: PUBLISHED });
-    const { config, catalog } = await stateOf(svc);
+    const { config, catalog } = await readState(svc.base);
     // The store holds more than resources: history markers and superseded blobs.
     const keys = (await svc.base.list("")).map((object) => object.key);
     expect(keys.filter((key) => key.startsWith("history/")).length).toBeGreaterThan(0);

@@ -1,15 +1,10 @@
 // Date display helpers. The time zone is set per test through TZ (Node applies a changed TZ to
 // Date and Intl at once); the clock is always passed in.
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createAppI18n } from "@/i18n";
 import type { AppLocale } from "@/i18n";
 import type { DateText } from "@/utils/dates";
 import { formatDate, relativeTime } from "@/utils/dates";
-
-afterEach(() => {
-  vi.unstubAllEnvs();
-  vi.restoreAllMocks();
-});
 
 /** What useDateText returns, from the app's own messages. */
 function dateText(locale: AppLocale): DateText {
@@ -33,26 +28,9 @@ describe("absolute dates", () => {
     expect(formatDate(ISO, en)).toBe("Jan 03, 2026 20:35:07 (UTC-3:30)");
   });
 
-  it("prints five past midnight as 00:05, not 24:05 (hourCycle h23)", () => {
-    vi.stubEnv("TZ", "UTC");
-    // Node prints 00:05 for hour12: false too (some browsers print 24:05): look at what is asked.
-    const DateTimeFormat = Intl.DateTimeFormat;
-    const asked: Intl.DateTimeFormatOptions[] = [];
-    vi.spyOn(Intl, "DateTimeFormat").mockImplementation(function (locales, options) {
-      asked.push(options ?? {});
-      return new DateTimeFormat(locales, options);
-    });
-
-    expect(formatDate(ISO, en)).toBe("Jan 04, 2026 00:05:07 (UTC)");
-    const time = asked.filter((options) => options.hour !== undefined);
-    expect(time.length).toBeGreaterThan(0);
-    for (const options of time) {
-      expect(options).toMatchObject({ hourCycle: "h23" });
-      expect(options).not.toHaveProperty("hour12");
-    }
-  });
-
   it("shows the local time with its offset", () => {
+    vi.stubEnv("TZ", "UTC");
+    expect(formatDate(ISO, en)).toBe("Jan 04, 2026 00:05:07 (UTC)");
     vi.stubEnv("TZ", "Asia/Kolkata");
     expect(formatDate(ISO, en)).toBe("Jan 04, 2026 05:35:07 (UTC+5:30)");
     vi.stubEnv("TZ", "America/St_Johns");

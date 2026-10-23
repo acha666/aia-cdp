@@ -16,7 +16,7 @@ import type { Catalog, CatalogMutation, State } from "../../src/core/catalog.ts"
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { MINIMAL_CONFIG, patchStore, putText } from "../helpers/app.ts";
 import { certificateEntry, currentCrl, putCatalog } from "../helpers/catalog.ts";
-import { flakyStore, puts, recordingStore, writtenKeys } from "../helpers/store.ts";
+import { flakyStore, puts, recordingStore } from "../helpers/store.ts";
 
 // Schemas, canonical format, readState, and the conditional catalog write, which keeps a
 // concurrent writer's change.
@@ -220,7 +220,7 @@ describe("updateState", () => {
     expect(await updateState(store, addRoot, sleep)).toEqual({ error: "concurrent_update" });
     expect(sleep.mock.calls).toEqual([[250], [500], [1000]]);
     expect(store.writes).toHaveLength(4);
-    expect(writtenKeys(store)).toEqual([]);
+    expect(puts(store).filter((put) => put.ok)).toEqual([]);
     expect((await base.get(CATALOG_KEY))!.bytes).toEqual(before!.bytes);
   });
 

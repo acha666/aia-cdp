@@ -1,26 +1,6 @@
 // Shared by the PKI, import, publish and CRL detail tests.
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
-import { PkiParseError } from "../../src/core/pki/errors.ts";
-import type { PkiKind, PkiParseReason } from "../../src/core/pki/errors.ts";
-
-/**
- * `{ kind, reason }` of the PkiParseError that `run` throws or rejects with, so a test compares
- * both at once. Anything else (another error, no error) fails the test.
- */
-export async function pkiError(
-  run: () => unknown
-): Promise<{ kind: PkiKind; reason: PkiParseReason }> {
-  try {
-    await run();
-  } catch (error) {
-    if (error instanceof PkiParseError) {
-      return { kind: error.kind, reason: error.reason };
-    }
-    throw error;
-  }
-  throw new Error("Expected a PkiParseError, but nothing was thrown");
-}
 
 /**
  * BER encodings of one DER TLV (a certificate or CRL fixture) that DER forbids, each with the same
@@ -44,6 +24,23 @@ export function berVariants(der: Uint8Array): [variant: string, bytes: Uint8Arra
       Uint8Array.from([(tag & 0xe0) | 0x1f, tag & 0x1f, ...der.subarray(1)]),
     ],
   ];
+}
+
+/** An AttributeTypeAndValue of `type` as an asn1js block; `value` need not be a string type. */
+export function attribute(type: string, value: asn1.BaseBlock): asn1.Sequence {
+  return new pkijs.AttributeTypeAndValue({
+    type,
+    // PKIjs typing only covers string values.
+    value: value as unknown as pkijs.AttributeTypeAndValue["value"],
+  }).toSchema();
+}
+
+/** A Name with one RDN per argument (a SET of its attributes, in order), decoded by PKIjs. */
+export function nameOf(...rdns: asn1.Sequence[][]): pkijs.RelativeDistinguishedNames {
+  const sequence = new asn1.Sequence({ value: rdns.map((value) => new asn1.Set({ value })) });
+  return new pkijs.RelativeDistinguishedNames({
+    schema: asn1.fromBER(sequence.toBER(false)).result,
+  });
 }
 
 /** An X.509 extension whose extnValue is the DER of `value` (an asn1js block or PKIjs schema). */

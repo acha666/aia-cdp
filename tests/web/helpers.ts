@@ -1,11 +1,11 @@
 // Shared by the web tests (not a test file itself): API bodies shaped by @/client/types with the
 // facts of tests/fixtures/pki (ids, serials, validity, CRL numbers and times from manifest.json;
-// subject names from the fixture generator), a fetch stub that answers hc's requests by method and
-// path, and a deferred promise for ordering tests.
+// subject names from the fixture generator; repeated bytes stand in for digests the manifest does
+// not list), and a fetch stub that answers hc's requests by method and path.
 import { VueQueryPlugin } from "@tanstack/vue-query";
 import type { QueryClient } from "@tanstack/vue-query";
 import { flushPromises, mount } from "@vue/test-utils";
-import { vi } from "vitest";
+import { onTestFinished, vi } from "vitest";
 import { createMemoryHistory } from "vue-router";
 import manifest from "../fixtures/pki/manifest.json";
 import App from "@/App.vue";
@@ -87,11 +87,6 @@ function exampleName(commonName: string): Name {
   };
 }
 
-/** Lowercase hex of `length` bytes, all `byte`: a stand-in for digests the manifest does not list. */
-function hexBytes(byte: string, length: number): string {
-  return byte.repeat(length);
-}
-
 const ECDSA_SHA384: AlgorithmIdentifier = {
   algorithm: { oid: "1.2.840.10045.4.3.3", name: "ecdsa-with-SHA384" },
 };
@@ -168,9 +163,9 @@ export function certificateItem(
       serialNumber: fixture.serial,
       notBefore: iso(fixture.notBefore),
       notAfter: iso(fixture.notAfter),
-      subjectKeyId: hexBytes("1a", 20),
-      authorityKeyId: hexBytes("2b", 20),
-      sha1: hexBytes("3c", 20),
+      subjectKeyId: "1a".repeat(20),
+      authorityKeyId: "2b".repeat(20),
+      sha1: "3c".repeat(20),
     },
     downloads: [`/ca/${name}.crt`, `/ca/${name}.crt.pem`],
     targets: [],
@@ -200,23 +195,23 @@ export function rootDetail(overrides: Partial<CertificateDetail> = {}): Certific
             parsed: { type: "objectIdentifier", oid: { oid: "1.3.132.0.34", name: "P-384" } },
           },
         },
-        subjectPublicKey: { hex: `04${hexBytes("ab", 96)}`, bitLength: 776, unusedBits: 0 },
+        subjectPublicKey: { hex: `04${"ab".repeat(96)}`, bitLength: 776, unusedBits: 0 },
         parsed: {
           type: "ec",
           curve: { oid: "1.3.132.0.34", name: "P-384" },
-          point: { hex: `04${hexBytes("ab", 96)}`, x: hexBytes("ab", 48), y: hexBytes("ab", 48) },
+          point: { hex: `04${"ab".repeat(96)}`, x: "ab".repeat(48), y: "ab".repeat(48) },
           keySize: 384,
         },
-        fingerprints: { sha1: hexBytes("4d", 20), sha256: hexBytes("5e", 32) },
+        fingerprints: { sha1: "4d".repeat(20), sha256: "5e".repeat(32) },
       },
       extensions: { count: 1, critical: 1, items: [BASIC_CONSTRAINTS_CA] },
     },
     signatureAlgorithm: ECDSA_SHA384,
     signatureValue: {
-      hex: hexBytes("30", 104),
+      hex: "30".repeat(104),
       bitLength: 832,
       unusedBits: 0,
-      parsed: { type: "ecdsa", r: hexBytes("7a", 48), s: hexBytes("7b", 48) },
+      parsed: { type: "ecdsa", r: "7a".repeat(48), s: "7b".repeat(48) },
     },
     ...overrides,
   } satisfies CertificateDetail;
@@ -235,7 +230,7 @@ function currentOf(file: string) {
       thisUpdate: iso(crl.thisUpdate),
       nextUpdate: crl.nextUpdate === null ? null : iso(crl.nextUpdate),
       revokedCount: crl.revoked,
-      sha1: hexBytes("6f", 20),
+      sha1: "6f".repeat(20),
       nextPublish: crl.nextPublish === null ? null : iso(crl.nextPublish),
     },
   };
@@ -320,7 +315,7 @@ function publishedDetail(
         },
       },
       signatureAlgorithm: signature,
-      signatureValue: { hex: hexBytes("5a", 256), bitLength: 2048, unusedBits: 0 },
+      signatureValue: { hex: "5a".repeat(256), bitLength: 2048, unusedBits: 0 },
     },
   } satisfies CrlTargetDetail;
 }
@@ -389,19 +384,20 @@ export function publishedCrl(outcome: PublishedCrl["outcome"]): PublishedCrl {
 /**
  * The app's QueryClient (createQueryClient, so its retry rule applies) with retries that do not
  * wait: a retry still needs a timer turn, so a case that expects one waits for it (vi.waitFor).
+ * Cleared when the test finishes.
  */
 export function testQueryClient(): QueryClient {
   const client = createQueryClient();
   client.setDefaultOptions({
     queries: { ...client.getDefaultOptions().queries, retryDelay: 0 },
   });
+  onTestFinished(() => client.clear());
   return client;
 }
 
 /**
  * The whole app at `path` (memory history) with testQueryClient(); resolves once the lazy route
- * component is loaded and the first answers are rendered. The caller unmounts `wrapper` and clears
- * `queryClient`.
+ * component is loaded and the first answers are rendered.
  */
 export async function mountApp(path: string, locale: AppLocale = "en") {
   const router = createAppRouter(createMemoryHistory());
@@ -432,9 +428,12 @@ export type Handler = (init: RequestInit | undefined) => Response | Promise<Resp
  * unexpected request in `calls` rather than a hang.
  */
 export function stubApi(routes: Record<string, Handler | undefined>) {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  const keyOf = (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : input.toString(), "http://test");
-    const key = `${init?.method ?? "GET"} ${url.pathname}`;
+    return `${init?.method ?? "GET"} ${url.pathname}`;
+  };
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const key = keyOf(input, init);
     const handler = routes[key];
     if (handler !== undefined) {
       return handler(init);
@@ -450,20 +449,7 @@ export function stubApi(routes: Record<string, Handler | undefined>) {
     /** "METHOD /path" of every request except the health check, in order. */
     calls: () =>
       fetchMock.mock.calls
-        .map(([input, init]) => {
-          const url = new URL(input instanceof Request ? input.url : input.toString(), "http://t");
-          return `${init?.method ?? "GET"} ${url.pathname}`;
-        })
+        .map(([input, init]) => keyOf(input, init))
         .filter((call) => call !== "GET /api/v1/health"),
   };
-}
-
-export function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((done, fail) => {
-    resolve = done;
-    reject = fail;
-  });
-  return { promise, resolve, reject };
 }

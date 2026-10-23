@@ -3,7 +3,7 @@
 // ExportedHandler come from `wrangler types`), so it is loaded through a variable specifier that the
 // Node program's type check does not follow; at run time it needs none of those globals.
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 interface WorkerEntry {
   fetch(request: Request, env: object, ctx: object): Response | Promise<Response>;
@@ -21,10 +21,6 @@ beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation((line: unknown) => {
     lines.push(String(line));
   });
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
 });
 
 /** GET /api/v1/health with a new env object (the entry caches one app per env). */

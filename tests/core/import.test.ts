@@ -1,12 +1,11 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CATALOG_KEY, certificateBlobKey, readCatalog } from "../../src/core/catalog.ts";
 import { importCertificate } from "../../src/core/import.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
-import { fixture, fixturePath, NOW } from "../fixtures/pki.ts";
+import { cert, fixture, NOW } from "../fixtures/pki.ts";
 import { patchStore } from "../helpers/app.ts";
-import { cert, certificateEntry } from "../helpers/catalog.ts";
+import { certificateEntry } from "../helpers/catalog.ts";
 import { withOuterAlgorithm } from "../helpers/pki.ts";
 import { puts, recordingStore } from "../helpers/store.ts";
 
@@ -45,7 +44,7 @@ describe("importCertificate", () => {
 
     store.writes.length = 0;
     const later = new Date(NOW.getTime() + 86_400_000);
-    const pem = readFileSync(fixturePath(cert("issuing-ca-1").pem));
+    const pem = fixture(cert("issuing-ca-1").pem);
     expect(await importInto(store, pem, later)).toEqual({ outcome: "unchanged", id, entry });
     expect(store.writes).toEqual([]);
   });

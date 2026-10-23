@@ -10,8 +10,8 @@ import {
   buildSubjectPublicKeyInfo,
   escapeRdnValue,
 } from "../../../src/core/summary/primitives.ts";
-import { fixture } from "../../fixtures/pki.ts";
-import { cert } from "../../helpers/catalog.ts";
+import { cert, fixture } from "../../fixtures/pki.ts";
+import { attribute, nameOf } from "../../helpers/pki.ts";
 
 // The values of the X.509 detail other than extensions: algorithms, names, keys, versions.
 
@@ -66,19 +66,6 @@ it("decodes NULL, named curve and RSASSA-PSS algorithm parameters", () => {
 });
 
 describe("distinguished names", () => {
-  const attribute = (type: string, value: asn1.BaseBlock) =>
-    new pkijs.AttributeTypeAndValue({
-      type,
-      // Not always a string type; PKIjs typing only covers string values.
-      value: value as unknown as pkijs.AttributeTypeAndValue["value"],
-    }).toSchema();
-  const nameOf = (...rdns: asn1.Sequence[][]) =>
-    new pkijs.RelativeDistinguishedNames({
-      schema: asn1.fromBER(
-        new asn1.Sequence({ value: rdns.map((value) => new asn1.Set({ value })) }).toBER(false)
-      ).result,
-    });
-
   it("report encodings, keep multi-attribute RDNs, escape RFC 4514 specials and keep raw non-strings", () => {
     const built = buildName(
       nameOf(

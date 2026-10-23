@@ -1,8 +1,8 @@
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CATALOG_KEY, CatalogSchema, decodeJson } from "../../src/core/catalog.ts";
-import type { Catalog, CrlKind, CurrentCrl } from "../../src/core/catalog.ts";
+import type { Catalog, CurrentCrl } from "../../src/core/catalog.ts";
 import { SIGNATURE_ALG_NAMES } from "../../src/core/pki/constants.ts";
 import { MAX_CRL_NUMBER_OCTETS } from "../../src/core/pki/extensions.ts";
 import { getSKIHex, parseCertificate, parseCRL } from "../../src/core/pki/parsers.ts";
@@ -11,17 +11,16 @@ import type { CurrentVersion, PublishErrorCode } from "../../src/core/publish.ts
 import type { ObjectStore } from "../../src/core/store.ts";
 import { buildCrlSummary } from "../../src/core/summary/catalog-summary.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
-import { fixture, manifest, NOW } from "../fixtures/pki.ts";
-import { cert, crlEntry, currentCrl } from "../helpers/catalog.ts";
+import { cert, crlEntry, fixture, manifest, NOW } from "../fixtures/pki.ts";
+import { currentCrl } from "../helpers/catalog.ts";
 import { generateCa, setupGeneratedCa, signCrl } from "../helpers/generated-ca.ts";
-import { nullWithContents, padOid, pkiError, withOuterAlgorithm } from "../helpers/pki.ts";
+import { nullWithContents, padOid, withOuterAlgorithm } from "../helpers/pki.ts";
 import {
-  ISSUING_FULL_ALIAS,
+  downloadsOf,
   publish,
   publishFile,
   racingStore,
   setupPublish,
-  targetPath,
 } from "../helpers/publish.ts";
 import type { SetupOptions } from "../helpers/publish.ts";
 import { flakyStore, puts, recordingStore } from "../helpers/store.ts";
@@ -38,10 +37,6 @@ const ROOT_FULL_01 = "crls/root-ca/full-01.der";
 
 /** The engine whose verifyWithPublicKey checks every signature. */
 const engine = pkijs.getCrypto(true);
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
 
 /** The manifest entry of a CRL fixture; a `.pem` file stands for its `.der`. */
 const entryOf = (file: string) => crlEntry(file.replace(/(?:\.crlf)?\.pem$/, ".der"));
@@ -75,13 +70,6 @@ async function currentOf(store: ObjectStore, targetId: string): Promise<CurrentC
 
 async function keys(store: ObjectStore, prefix: string): Promise<string[]> {
   return (await store.list(prefix)).map((object) => object.key);
-}
-
-/** The downloads of a target of the shared setup. */
-function downloadsOf(issuer: string, kind: CrlKind): string[] {
-  const path = targetPath({ issuer, kind });
-  const paths = issuer === "issuing-ca-1" && kind === "full" ? [ISSUING_FULL_ALIAS, path] : [path];
-  return paths.flatMap((each) => [each, `${each}.pem`]);
 }
 
 describe("publishCrl: the freshness rules on the manifest scenarios", () => {
@@ -196,7 +184,9 @@ describe("publishCrl: rejections", () => {
       value: Array.from({ length: 50_000 }, () => new asn1.Null()),
     });
     const junk = new Uint8Array(schema.toBER(false));
-    expect(await pkiError(() => parseCRL(junk))).toEqual({ kind: "crl", reason: "structure" });
+    expect(() => parseCRL(junk)).toThrow(
+      expect.objectContaining({ name: "PkiParseError", kind: "crl", reason: "structure" })
+    );
     const store = recordingStore(base);
     expect((await publish(store, junk)).result).toEqual({
       error: "invalid_signature",

@@ -1,8 +1,6 @@
 // Routes of the web app: the page each path renders, the props of the lazy detail pages, and that
 // a malformed id never becomes a request.
-import type { QueryClient } from "@tanstack/vue-query";
-import type { VueWrapper } from "@vue/test-utils";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { mountApp, stubApi } from "./helpers";
 import CertificatePage from "@/pages/CertificatePage.vue";
 import CrlTargetPage from "@/pages/CrlTargetPage.vue";
@@ -12,8 +10,6 @@ import OverviewPage from "@/pages/OverviewPage.vue";
 const TARGET_ID = "0b7c5f2e-6d1a-4c3b-9e8f-1a2b3c4d5e6f";
 const CERTIFICATE_ID = "3f1c".repeat(16);
 
-let wrapper: VueWrapper | undefined;
-let queryClient: QueryClient | undefined;
 let api: ReturnType<typeof stubApi>;
 
 beforeEach(() => {
@@ -21,22 +17,9 @@ beforeEach(() => {
   api = stubApi({});
 });
 
-afterEach(() => {
-  wrapper?.unmount();
-  queryClient?.clear();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
-
-async function mountAt(path: string) {
-  const mounted = await mountApp(path);
-  ({ wrapper, queryClient } = mounted);
-  return mounted;
-}
-
 describe("createAppRouter", () => {
   it("renders the overview at / with the site name in the header", async () => {
-    const { router, wrapper } = await mountAt("/");
+    const { router, wrapper } = await mountApp("/");
 
     expect(router.currentRoute.value.name).toBe("overview");
     expect(wrapper.findComponent(OverviewPage).exists()).toBe(true);
@@ -46,7 +29,7 @@ describe("createAppRouter", () => {
   });
 
   it("lazy-loads CrlTargetPage for /crls/:targetId and passes the param as a prop", async () => {
-    const { router, wrapper } = await mountAt(`/crls/${TARGET_ID}`);
+    const { router, wrapper } = await mountApp(`/crls/${TARGET_ID}`);
 
     expect(router.currentRoute.value.name).toBe("crl");
     const page = wrapper.findComponent(CrlTargetPage);
@@ -56,7 +39,7 @@ describe("createAppRouter", () => {
   });
 
   it("lazy-loads CertificatePage for /certificates/:id", async () => {
-    const { router, wrapper } = await mountAt(`/certificates/${CERTIFICATE_ID}`);
+    const { router, wrapper } = await mountApp(`/certificates/${CERTIFICATE_ID}`);
 
     expect(router.currentRoute.value.name).toBe("certificate");
     const page = wrapper.findComponent(CertificatePage);
@@ -74,7 +57,7 @@ describe("createAppRouter", () => {
     ["an uppercase target id", `/crls/${TARGET_ID.toUpperCase()}`],
     ["a nested target path", `/crls/${TARGET_ID}/extra`],
   ])("renders NotFoundPage for %s without a request", async (_, path) => {
-    const { router, wrapper } = await mountAt(path);
+    const { router, wrapper } = await mountApp(path);
 
     expect(router.currentRoute.value.name).toBe("not-found");
     expect(wrapper.findComponent(NotFoundPage).exists()).toBe(true);
@@ -82,7 +65,7 @@ describe("createAppRouter", () => {
   });
 
   it("renders NotFoundPage for an unknown path", async () => {
-    const { router, wrapper } = await mountAt("/nope");
+    const { router, wrapper } = await mountApp("/nope");
 
     expect(router.currentRoute.value.name).toBe("not-found");
     expect(wrapper.findComponent(NotFoundPage).exists()).toBe(true);

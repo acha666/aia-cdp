@@ -10,8 +10,7 @@ import {
 } from "../../../src/core/pki/crl-policy.ts";
 import { parseCRL } from "../../../src/core/pki/parsers.ts";
 import type { ReceivedCrl } from "../../../src/core/pki/parsers.ts";
-import { fixture, NOW } from "../../fixtures/pki.ts";
-import { cert, crlEntry } from "../../helpers/catalog.ts";
+import { cert, crlEntry, fixture, NOW } from "../../fixtures/pki.ts";
 import { extension, padOid } from "../../helpers/pki.ts";
 
 // checkCrlPolicy and checkEntryPolicy. Fixtures cover what `openssl ca` can produce; the other

@@ -41,11 +41,6 @@ export function puts(store: RecordingStore): { key: string; opts: PutOptions; ok
   );
 }
 
-/** The keys of the puts that succeeded, in order. */
-export function writtenKeys(store: RecordingStore): string[] {
-  return puts(store).flatMap((put) => (put.ok ? [put.key] : []));
-}
-
 export interface FlakyOptions {
   /** The first n puts carrying `ifMatch` answer precondition-failed and write nothing. */
   failIfMatch?: number;

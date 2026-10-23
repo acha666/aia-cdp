@@ -6,9 +6,8 @@ import { certificateBlobKey } from "../../src/core/catalog.ts";
 import { derToPem } from "../../src/core/pki/pem.ts";
 import { createApp } from "../../src/http/app.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
-import { fixture } from "../fixtures/pki.ts";
+import { cert, crlEntry, fixture } from "../fixtures/pki.ts";
 import { logRecords, patchStore, testDeps } from "../helpers/app.ts";
-import { cert, crlEntry } from "../helpers/catalog.ts";
 import { expectInternal } from "../helpers/reads.ts";
 import { DOWNLOAD_PATHS, SEED_CRLS, seedDownloads } from "../helpers/seed-downloads.ts";
 import type { DownloadSeedOptions } from "../helpers/seed-downloads.ts";
@@ -94,6 +93,9 @@ describe("bytes", () => {
   it.each([
     [P.root, fixture(ROOT.der)],
     [`${P.root}.pem`, fixture(ROOT.pem)],
+    // Every path of a certificate names the same blob.
+    [P.rootAlias, fixture(ROOT.der)],
+    [P.nested, fixture(ROOT.der)],
     [P.full, fixture(SEED_CRLS.full)],
     // OpenSSL's PEM of the fixture: the same text as the one derived on read.
     [`${P.full}.pem`, fixture(SEED_CRLS.full.replace(/\.der$/, ".pem"))],
@@ -103,6 +105,11 @@ describe("bytes", () => {
     const res = await request(path);
     expect(res.status).toBe(200);
     expect(await bytesOf(res)).toEqual(body);
+    expect(res.headers.get("Content-Length")).toBe(String(body.byteLength));
+    // The file name is the last segment of the path.
+    expect(res.headers.get("Content-Disposition")).toBe(
+      `attachment; filename="${path.split("/").at(-1) ?? ""}"`
+    );
   });
 });
 
@@ -180,6 +187,7 @@ describe("If-None-Match", () => {
     ["a weak ETag", P.root, `W/${der}`],
     ["a list with a weak member", P.root, ` "other" , W/${der} `],
     ["*", P.root, "*"],
+    ["* with spaces", P.root, "  * "],
     ["the PEM ETag on the PEM path", `${P.root}.pem`, pem],
     ["the CRL's ETag", P.full, `"${FULL.sha256}"`],
   ])("%s → 304 with ETag and Cache-Control only, the blob not read", async (_, path, header) => {
@@ -196,6 +204,9 @@ describe("If-None-Match", () => {
     ["another ETag", P.root, `"${ISSUING.sha256}"`],
     ["the PEM ETag on the DER path", P.root, pem],
     ["the DER ETag on the PEM path", `${P.root}.pem`, der],
+    // W/ is case-sensitive; * only stands alone.
+    ["a lowercase w/", P.root, `w/${der}`],
+    ["* in a list", P.root, '"x", *'],
     ["an empty header", P.root, ""],
   ])("%s → 200 with the body", async (_, path, header) => {
     const { request } = await setup();
@@ -210,6 +221,10 @@ describe("text/plain 404 and 405", () => {
     ["an unknown path", "/ca/unknown.crt"],
     ["a second .pem", `${P.root}.pem.pem`],
     ["another case", "/ca/Root-CA.crt"],
+    ["an uppercase .PEM", `${P.root}.PEM`],
+    [".pem in place of the extension", "/ca/root-ca.pem"],
+    // A property of Object.prototype is no path.
+    ["__proto__", "/ca/__proto__"],
     // P.nested is served: decoding %2F would find it.
     ["an encoded slash in a served nested path", "/ca/sub%2Froot-ca.crt"],
     ["an encoded parent segment", "/ca/..%2Fconfig.json"],

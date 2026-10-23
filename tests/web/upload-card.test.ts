@@ -1,14 +1,13 @@
 // The CRL upload card against a stubbed fetch: what it sends, the three outcomes, the error texts,
 // the optional token, and the input rules.
 import { VueQueryPlugin } from "@tanstack/vue-query";
-import type { QueryClient } from "@tanstack/vue-query";
 import { flushPromises, mount } from "@vue/test-utils";
 import type { VueWrapper } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "vue-sonner";
-import { deferred, envelope, publishedCrl, stubApi, targetItems } from "./helpers";
+import { envelope, publishedCrl, stubApi, targetItems, testQueryClient } from "./helpers";
 import type { Handler } from "./helpers";
-import { createQueryClient, queryKeys } from "@/client/queries";
+import { queryKeys } from "@/client/queries";
 import type { PublishedCrl } from "@/client/types";
 import CrlUploadCard from "@/components/overview/CrlUploadCard.vue";
 import { useUploadToken } from "@/composables/useUploadToken";
@@ -17,29 +16,21 @@ import { createAppI18n } from "@/i18n";
 const PEM =
   "-----BEGIN X509 CRL-----\nMIIBszCBnAIBATANBgkqhkiG9w0BAQsFADAA\n-----END X509 CRL-----\n";
 
-let wrapper: VueWrapper | undefined;
-let client: QueryClient | undefined;
-
 afterEach(() => {
-  wrapper?.unmount();
-  wrapper = undefined;
-  client?.clear();
   useUploadToken().value = "";
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
 });
 
 function render(post: Handler) {
   const api = stubApi({ "POST /api/v1/crls": post });
-  client = createQueryClient();
+  const client = testQueryClient();
   client.setQueryData(queryKeys.crls, targetItems());
-  wrapper = mount(CrlUploadCard, {
+  const card = mount(CrlUploadCard, {
     attachTo: document.body,
     global: { plugins: [createAppI18n("en"), [VueQueryPlugin, { queryClient: client }]] },
   });
   const posts = () =>
     api.fetchMock.mock.calls.filter(([, init]) => init?.method === "POST").map(([, init]) => init!);
-  return { card: wrapper, posts };
+  return { card, posts };
 }
 
 const ok = (outcome: PublishedCrl["outcome"]) => () =>
@@ -207,7 +198,7 @@ describe("CrlUploadCard", () => {
   });
 
   it("does not submit again while an upload runs, keeping the button focusable", async () => {
-    const pending = deferred<Response>();
+    const pending = Promise.withResolvers<Response>();
     const { card, posts } = render(() => pending.promise);
     await paste(card, PEM);
     const button = card.get('[data-testid="upload-submit"]');

@@ -15,7 +15,7 @@ import { encodeJson } from "../src/core/catalog.ts";
 import type { Config } from "../src/core/catalog.ts";
 import type { HealthReport } from "../src/core/health.ts";
 import { main, processIo } from "../src/cli/aia.ts";
-import { fixturePath, manifest } from "../tests/fixtures/pki.ts";
+import { cert, fixturePath } from "../tests/fixtures/pki.ts";
 
 interface Ca {
   name: string;
@@ -41,19 +41,11 @@ const CAS: Ca[] = [
   { name: "issuing-ca-2", label: "Example Issuing CA 02", delta: true },
 ];
 
-/** The certificate id is the SHA-256 of the DER, which the manifest records. */
-function certificateId(name: string): string {
-  const found = manifest.certificates.find((entry) => entry.name === name);
-  if (found === undefined) {
-    throw new Error(`tests/fixtures/pki/manifest.json has no certificate ${name}`);
-  }
-  return found.sha256;
-}
-
 function seedConfig(): Config {
   const config: Config = { version: 1, certificates: {}, targets: {}, paths: {} };
   for (const ca of CAS) {
-    const id = certificateId(ca.name);
+    // The certificate id is the SHA-256 of the DER, which the manifest records.
+    const id = cert(ca.name).sha256;
     config.certificates[id] = { label: ca.label };
     config.paths[`/ca/${ca.name}.crt`] = { certificate: id };
     const full = crypto.randomUUID();

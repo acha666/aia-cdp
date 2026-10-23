@@ -1,13 +1,13 @@
-// A served state for tests/http/downloads.test.ts: the DER blobs, catalog.json and config.json
-// written straight into an ObjectStore.
+// A served state for the download tests: the DER blobs, catalog.json and config.json written
+// straight into an ObjectStore.
 // Certificates go through the summary builder (certificateEntry), the CRL `current` records
 // through buildCrlSummary and crlBlobKey (currentCrl), both documents through the schemas. Every
 // digest, size and time comes from the fixtures.
 import { CatalogSchema, ConfigSchema } from "../../src/core/catalog.ts";
-import type { Catalog, Config, CrlKind } from "../../src/core/catalog.ts";
+import type { Catalog, Config } from "../../src/core/catalog.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
-import { fixture, manifest, NOW } from "../fixtures/pki.ts";
-import { cert, certificateEntry, currentCrl, putCatalog, putConfig } from "./catalog.ts";
+import { cert, fixture, NOW } from "../fixtures/pki.ts";
+import { certificateEntry, currentCrl, putCatalog, putConfig } from "./catalog.ts";
 
 /** The path table of the seed. */
 export const DOWNLOAD_PATHS = {
@@ -60,18 +60,9 @@ export interface SeedBlob {
   contentType: "application/pkix-cert" | "application/pkix-crl";
 }
 
-function issuingCrl(file: string, kind: CrlKind): string {
-  const entry = manifest.crls.find((crl) => crl.file === file);
-  if (entry?.issuer !== "issuing-ca-1" || entry.kind !== kind) {
-    throw new Error(`${file} is not a ${kind} CRL of issuing-ca-1`);
-  }
-  return file;
-}
-
 /** The seed's documents and blobs, without writing them. */
-async function buildDownloadSeed(options: DownloadSeedOptions = {}): Promise<DownloadSeed> {
-  const full = issuingCrl(options.full ?? SEED_CRLS.full, "full");
-  const delta = issuingCrl(options.delta ?? SEED_CRLS.delta, "delta");
+export async function buildDownloadSeed(options: DownloadSeedOptions = {}): Promise<DownloadSeed> {
+  const { full = SEED_CRLS.full, delta = SEED_CRLS.delta } = options;
   // With milliseconds, which the summaries drop.
   const importedAt = new Date(NOW.getTime() - 50 * HOUR - 250);
   const publishedAt = new Date(NOW.getTime() - 2 * HOUR - 750);
@@ -144,10 +135,7 @@ export async function seedDownloads(
 ): Promise<DownloadSeed> {
   const seed = await buildDownloadSeed(options);
   for (const [key, { bytes, contentType }] of seed.blobs) {
-    const result = await store.put(key, bytes, { contentType });
-    if (!result.ok) {
-      throw new Error(`put ${key}: ${result.reason}`);
-    }
+    await store.put(key, bytes, { contentType });
   }
   await putCatalog(store, seed.catalog);
   await putConfig(store, seed.config);

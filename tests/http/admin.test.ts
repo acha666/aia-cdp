@@ -1,6 +1,5 @@
 // Admin routes: the token gate, POST /api/v1/admin/certificates, GET and PUT /api/v1/admin/config
 // (If-None-Match: * for the first configuration, If-Match with the SHA-256 ETag afterwards).
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { ConfigIssue } from "../../src/core/admin.ts";
 import { CONFIG_KEY, encodeJson } from "../../src/core/catalog.ts";
@@ -8,10 +7,10 @@ import type { Config } from "../../src/core/catalog.ts";
 import { sha256Hex } from "../../src/core/digest.ts";
 import { createApp } from "../../src/http/app.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
-import { fixture, fixturePath, NOW } from "../fixtures/pki.ts";
+import { cert, fixture, fixtureText, NOW } from "../fixtures/pki.ts";
 import { MINIMAL_CONFIG, putText, testDeps } from "../helpers/app.ts";
 import type { TestOverrides } from "../helpers/app.ts";
-import { cert, certificateEntry } from "../helpers/catalog.ts";
+import { certificateEntry } from "../helpers/catalog.ts";
 import { errorOf } from "../helpers/reads.ts";
 import { flakyStore, opaqueEtagStore } from "../helpers/store.ts";
 
@@ -26,7 +25,6 @@ type Body = RequestInit["body"];
 /** createApp with the admin token set (unless `overrides.settings` says otherwise). */
 function setup(overrides: TestOverrides = {}) {
   const deps = testDeps({
-    sleep: async () => undefined,
     ...overrides,
     settings: { adminToken: TOKEN, ...overrides.settings },
   });
@@ -34,10 +32,6 @@ function setup(overrides: TestOverrides = {}) {
 }
 
 type App = ReturnType<typeof setup>["app"];
-
-function text(path: string): string {
-  return readFileSync(fixturePath(path), "utf8");
-}
 
 function der(name: string): Uint8Array<ArrayBuffer> {
   return fixture(cert(name).der);
@@ -125,7 +119,11 @@ describe("POST /api/v1/admin/certificates", () => {
     expect(created.headers.get("Content-Type")).toMatch(/^application\/json/);
     expect(await created.json()).toEqual({ outcome: "created", ...expected });
 
-    const unchanged = await post(app, text(cert("issuing-ca-1").pem), "application/x-pem-file");
+    const unchanged = await post(
+      app,
+      fixtureText(cert("issuing-ca-1").pem),
+      "application/x-pem-file"
+    );
     expect(unchanged.status).toBe(200);
     expect(await unchanged.json()).toEqual({ outcome: "unchanged", ...expected });
   });
@@ -159,7 +157,7 @@ describe("POST /api/v1/admin/certificates", () => {
     ["garbage", () => fixture("invalid/garbage.txt"), "der"],
     [
       "a two-certificate bundle",
-      () => text(cert("issuing-ca-1").pem) + text(cert("root-ca").pem),
+      () => fixtureText(cert("issuing-ca-1").pem) + fixtureText(cert("root-ca").pem),
       "pem_blocks",
     ],
   ])("answers %s with 422 invalid_certificate and its reason", async (_, body, reason) => {
@@ -252,12 +250,14 @@ describe("PUT /api/v1/admin/config", () => {
 
   it("answers If-Match while nothing is configured, and If-None-Match: * afterwards, with 412", async () => {
     const { app, deps } = setup();
-    const early = await put(app, MINIMAL_CONFIG, { "If-Match": await etagOf(MINIMAL_CONFIG) });
+    // root-ca is not imported: the precondition fails before the rules (V4) are checked.
+    const invalid = JSON.stringify(rootConfig());
+    const early = await put(app, invalid, { "If-Match": await etagOf(MINIMAL_CONFIG) });
     await errorOf(early, 412, "precondition_failed");
     expect(await deps.store.get(CONFIG_KEY)).toBeNull();
 
     expect((await put(app, MINIMAL_CONFIG, { "If-None-Match": "*" })).status).toBe(200);
-    const again = await put(app, MINIMAL_CONFIG, { "If-None-Match": "*" });
+    const again = await put(app, invalid, { "If-None-Match": "*" });
     await errorOf(again, 412, "precondition_failed");
   });
 

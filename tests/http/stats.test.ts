@@ -3,8 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { CONFIG_KEY } from "../../src/core/catalog.ts";
 import { Stats } from "../../src/http/schemas.ts";
-import { fixture } from "../fixtures/pki.ts";
-import { cert, crlEntry } from "../helpers/catalog.ts";
+import { cert, crlEntry, fixture } from "../fixtures/pki.ts";
 import { DEFAULT_TARGETS, IMPORTED } from "../helpers/publish.ts";
 import { okJson, readService } from "../helpers/reads.ts";
 
