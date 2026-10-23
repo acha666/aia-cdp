@@ -1,7 +1,6 @@
 {
   "app": {
     "skipToContent": "跳到正文",
-    "footer": "AIA 与 CDP 分发点",
     "apiDocument": "API（OpenAPI）",
     "sections": {
       "certificates": "证书（AIA）",
@@ -145,14 +144,6 @@
       "invalid": "存储正常，但已存的配置无效。",
       "unhealthy": "存储后端出错。",
       "unknown": "无法访问健康检查接口。"
-    }
-  },
-  "theme": {
-    "toggle": "主题：{current}。切换为{next}",
-    "mode": {
-      "auto": "跟随系统",
-      "light": "浅色",
-      "dark": "深色"
     }
   },
   "pages": {
@@ -358,7 +349,7 @@
       "toggle": "上传令牌",
       "set": "已填写",
       "label": "上传令牌（AIA_UPLOAD_TOKEN）",
-      "hint": "仅当服务器设置了 AIA_UPLOAD_TOKEN 时需要。只保存在本页面的内存中，随上传请求发送。",
+      "hint": "仅当服务器设置了 AIA_UPLOAD_TOKEN 时需要。",
       "invalid": "上传令牌只能由字母、数字和 - . _ ~ + / 组成，末尾可以带 = 号。"
     }
   }

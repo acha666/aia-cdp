@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { DownloadIcon } from "@lucide/vue";
 import { computed } from "vue";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -35,7 +36,7 @@ const links = computed(() => {
       :class="CLASS"
     >
       <!-- Flex items: the button's gap separates them, without whitespace in the name. -->
-      {{ link.format
+      <DownloadIcon data-icon="inline-start" />{{ link.format
       }}<span
         v-if="link.fileName"
         class="font-mono font-normal text-muted-foreground"

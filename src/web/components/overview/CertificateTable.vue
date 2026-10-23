@@ -128,7 +128,9 @@ const rows = computed(() => {
               </div>
             </TableCell>
             <TableCell><StatusBadge :state="row.state" /></TableCell>
-            <TableCell :class="SECONDARY"><DownloadLinks :downloads="row.downloads" /></TableCell>
+            <TableCell :class="[SECONDARY, { 'text-center': row.downloads.length === 0 }]">
+              <DownloadLinks :downloads="row.downloads" />
+            </TableCell>
           </TableRow>
         </TableBody>
       </Table>

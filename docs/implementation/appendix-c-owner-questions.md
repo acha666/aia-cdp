@@ -45,7 +45,7 @@
 
 | # | 问题 | 推荐默认 |
 | --- | --- | --- |
-| 1 | CSP | 已确认（2026-10-20）：采纳 `src/http/csp.ts` 的策略，经 `secureHeaders` 的 `contentSecurityPolicy` 以响应头下发（两条运行时同一份），预绘制主题脚本用 hash 放行；冒烟出现违规只放宽 `style-src` |
+| 1 | CSP | 已确认（2026-10-20）：采纳 `src/http/csp.ts` 的策略，经 `secureHeaders` 的 `contentSecurityPolicy` 以响应头下发（两条运行时同一份），预绘制主题脚本用 hash 放行（2026-10-23 撤回：亮 / 暗只跟随系统，没有内联脚本）；冒烟出现违规只放宽 `style-src` |
 | 2 | 状态阈值 vs AD CS 节奏（只按 80% 或"7 天内"判断都会误报） | 已确认（2026-10-20）：有 `nextPublish` 时 `now` 超过它 1 h 仍未更新才算 stale；没有时沿用 80%（剩余不足 20%）；"即将过期"改为客户端计算的"需关注"（stale + expired + unknown），stats 不加时间字段；证书 `expiring` 阈值为剩余不足有效期 10% |
 
 第 2 项取"时间相关数只在客户端算"：plan §7.1 的 stats 本来就没有时间字段，ESLint 规则禁止 web 在运行时导入 `src/core`（plan §3）（因此不做

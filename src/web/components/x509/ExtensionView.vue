@@ -20,10 +20,10 @@ import type { ExtensionContext } from "@/utils/extension-blocks";
 import { formatGeneralName } from "@/utils/x509";
 
 // One extension as an accordion item (inside ExtensionList's Accordion). The header names it
-// (OID beside a known name), marks it critical and, unless decoded, gives its parse status. The
-// body shows the render blocks of utils/extension-blocks.ts; an extension the server could not
-// decode (or of a type this build does not know) shows the parse error, the server's ASN.1 dump
-// and the raw value.
+// (OID beside a known name, on its baseline; hover underlines the name only), marks it critical
+// and, unless decoded, gives its parse status. The body shows the render blocks of
+// utils/extension-blocks.ts; an extension the server could not decode (or of a type this build
+// does not know) shows the parse error, the server's ASN.1 dump and the raw value.
 const props = defineProps<{ extension: Extension; value: string }>();
 
 const { t } = useI18n();
@@ -48,9 +48,11 @@ const status = computed(() =>
 
 <template>
   <AccordionItem :value="value" :data-oid="extension.extnID.oid">
-    <AccordionTrigger>
-      <span class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-        <span>{{ extension.extnID.name ?? extension.extnID.oid }}</span>
+    <AccordionTrigger class="hover:no-underline">
+      <span class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span class="underline-offset-4 group-hover/accordion-trigger:underline">
+          {{ extension.extnID.name ?? extension.extnID.oid }}
+        </span>
         <span
           v-if="extension.extnID.name"
           class="font-mono text-xs font-normal text-muted-foreground"

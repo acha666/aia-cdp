@@ -6,23 +6,6 @@
     <title>%VITE_SITE_NAME%</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-    <!--
-      The dark class before the first paint, by the rule ThemeToggle.vue's useColorMode applies
-      after mount (same key and values): no flash of the light theme. The CSP allows this script
-      by its sha256: change INLINE_SCRIPT_HASHES in src/http/csp.ts with it.
-    -->
-    <script>
-      try {
-        const theme = localStorage.getItem("theme-preference");
-        if (
-          theme === "dark" ||
-          ((theme === null || theme === "auto") &&
-            matchMedia("(prefers-color-scheme: dark)").matches)
-        ) {
-          document.documentElement.classList.add("dark");
-        }
-      } catch {}
-    </script>
   </head>
   <body>
     <div id="app"></div>

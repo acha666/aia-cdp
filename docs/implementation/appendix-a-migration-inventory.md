@@ -71,7 +71,7 @@
 | `tests/worker/api-stats.test.ts` | rewrite | tests/http/stats.test.ts | 5a |
 | `tests/worker/json-response.test.ts` | drop | — | 1 |
 | `docs/api-design-v2.md` | reference-only | docs/api.md (slice 6) | 6 |
-| `src/web/index.html` | migrate-adapt | src/web/index.html（切片 5b 加预绘制主题脚本，CSP 按 hash 放行） | 1,5b |
+| `src/web/index.html` | migrate-adapt | src/web/index.html（切片 5b 加预绘制主题脚本，CSP 按 hash 放行；2026-10-23 删除：亮 / 暗只跟随系统） | 1,5b |
 | `src/web/public/favicon.svg` | migrate-as-is | src/web/public/favicon.svg | 1 |
 | `src/web/public/favicon.ico` | migrate-as-is | src/web/public/favicon.ico | 1 |
 | `src/web/env.d.ts` | migrate-adapt | src/web/env.d.ts | 1 |
@@ -109,7 +109,7 @@
 | `src/web/components/CertificateDetails.vue` | rewrite | src/web/pages/CertificatePage.vue (+ src/web/components/certificate/CertificateOverview.vue) | 5b |
 | `src/web/components/CrlDetails.vue` | rewrite | src/web/pages/CrlTargetPage.vue (+ src/web/components/crl/RevokedTable.vue, src/web/utils/crl-entries.ts) | 5b |
 | `src/web/components/CrlUpload.vue` | rewrite | src/web/components/overview/CrlUploadCard.vue | 5b |
-| `src/web/components/ThemeToggle.vue` | rewrite | src/web/components/ThemeToggle.vue | 5b |
+| `src/web/components/ThemeToggle.vue` | rewrite | src/web/components/ThemeToggle.vue（2026-10-23 删除：亮 / 暗只跟随系统） | 5b |
 | `src/web/components/CertificateCard.vue` | reference-only | src/web/components/overview/CertificateTable.vue | 5b |
 | `src/web/components/CrlCard.vue` | reference-only | src/web/components/overview/CrlTargetTable.vue | 5b |
 | `src/web/components/ResourceCard.vue` | reference-only | src/web/components/DownloadLinks.vue | 5b |

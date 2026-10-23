@@ -14,7 +14,7 @@ X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloud
 - 公开只读 API：`GET /api/v1/certificates`、`/certificates/{id}`、`/crls`、`/crls/{targetId}`、`/stats`、`/health`；
   OpenAPI 文档在 [docs/openapi.json](docs/openapi.json)（`pnpm run openapi` 重新生成）。
 - Web UI：总览（统计与"需关注"、证书表、CRL 目标表、CRL 上传）、证书与 CRL 目标详情（X.509 扩展、吊销列表、PEM），
-  `en` / `zh-CN`，亮 / 暗主题。
+  `en` / `zh-CN`，亮 / 暗主题跟随系统。
 
 - [docs/plan.md](docs/plan.md)：设计文档（决策、存储模型、领域规则、API、切片划分）。
 - [docs/implementation/](docs/implementation/README.md)：实施总则（决策、完成定义、通用约定）与未完成的切片 6–8；与 plan.md

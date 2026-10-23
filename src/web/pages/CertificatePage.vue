@@ -23,8 +23,9 @@ import { computeCertificateStatus } from "@/utils/status";
 // One certificate (plan §8): header with name, status and downloads; tabs for the overview, the
 // extensions and, when the configuration serves a .pem path, the PEM text. `id` matched the
 // router's pattern, so it is safe to put into the request URL. The tabs may not widen the page
-// (min-w-0: the PEM text and ASN.1 dumps scroll in their own boxes, the tab list scrolls on a
-// phone); the panels are tab stops (Reka), so they show a focus ring.
+// (min-w-0: the PEM text and ASN.1 dumps scroll in their own boxes, the tab list scrolls sideways
+// on a phone, never down: the triggers' hidden line-variant ::after reaches below it); the panels
+// are tab stops (Reka), so they show a focus ring.
 const props = defineProps<{ id: string }>();
 
 const { t } = useI18n();
@@ -87,7 +88,7 @@ watch(
       </header>
 
       <Tabs v-model="tab" class="min-w-0">
-        <TabsList class="max-w-full justify-start overflow-x-auto">
+        <TabsList class="max-w-full justify-start overflow-x-auto overflow-y-hidden">
           <TabsTrigger value="overview">{{ t("details.tabs.overview") }}</TabsTrigger>
           <TabsTrigger value="extensions">
             {{ t("details.certificate.extensions") }} ({{ extensions.length }})

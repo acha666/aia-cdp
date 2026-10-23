@@ -66,7 +66,7 @@
 | 前端          | `vue`、`vue-router`、`@tanstack/vue-query`、`vue-i18n` | 3.5.44 / 5.4.0 / 5.104.5 / 11.4.16 | 不用 Pinia（决策 5）                                                                   |
 | 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.5 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8（Rolldown、默认 oxc 压缩）；`vue-tsc` 检查 `tsconfig.web.json` |
 | UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.61.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`；`@tanstack/vue-table` 不随 shadcn Table 安装，也没用上（吊销列表分页只是 `slice()`） |
-| 前端工具      | `@vueuse/core`                                   | 15.0.0                            | reka-ui 2.11.0 仍依赖 `^14.1.0`，web 包里暂有两份（多约 0.4 kB gzip），reka-ui 跟上后自然合一；`useColorMode`、`useNow`（统一时钟快照，15 起间隔经 `scheduler` 传 `useIntervalFn`）、`useStorage`；复制不用 `useClipboard`（其 `execCommand` 退路失败也报成功） |
+| 前端工具      | `@vueuse/core`                                   | 15.0.0                            | reka-ui 2.11.0 仍依赖 `^14.1.0`，web 包里暂有两份（多约 0.4 kB gzip），reka-ui 跟上后自然合一；`useNow`（统一时钟快照，15 起间隔经 `scheduler` 传 `useIntervalFn`）、`useStorage`；复制不用 `useClipboard`（其 `execCommand` 退路失败也报成功） |
 | 测试          | `vitest`、`@vue/test-utils`、`happy-dom`        | 5.0.5 / 2.5.1 / 21.0.4            | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`；夹具由脚本生成后入库（§10） |
 | Cloudflare    | `wrangler`                                      | 4.152.0（精确锁定）               | `wrangler types` 生成绑定类型 `worker-configuration.d.ts`（不入库）；不装 `@cloudflare/workers-types`；`compatibility_date` 随 wrangler 一起升 |
 | CLI           | `node:util` `parseArgs` + `fetch`               | 内置                              | 零依赖                                                                                         |
@@ -567,8 +567,8 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 
 - 基座：`vue-router`（history 模式）；`@tanstack/vue-query`（列表 / 详情 `useQuery`，`staleTime: 0`，4xx 不重试、5xx 与网络失败重试一次；
   上传 `useMutation` 成功后先 `cancelQueries` 再全量 `invalidateQueries`）；shadcn-vue 生成的组件（Reka UI 原语，`--style nova`、
-  base color `neutral`，源码在 `src/web/components/ui/`，生成代码用 `cn`）；`@vueuse/core`（`useColorMode`、`useNow`、
-  `useStorage`；复制走 `src/web/utils/clipboard.ts`：Clipboard API，退回 `execCommand("copy")` 并检查其结果，都不行给 toast）；
+  base color `neutral`，源码在 `src/web/components/ui/`，生成代码用 `cn`）；`@vueuse/core`（`useNow`、`useStorage`；
+  复制走 `src/web/utils/clipboard.ts`：Clipboard API，退回 `execCommand("copy")` 并检查其结果，都不行给 toast）；
   `vue-sonner`（上传结果与复制失败的 toast，顶部居中，`src/web/main.ts` 需 `import "vue-sonner/style.css"`）；
   `@lucide/vue`（取代已弃用的 `lucide-vue-next`）；`tw-animate-css`。不用 Pinia：服务端数据归 vue-query，UI 偏好归 `useStorage`。
   浏览器包全部是 devDependencies（§2）。
@@ -605,14 +605,13 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   web 对服务端模块只许 `import type`（`AppType`、core 的 X.509 类型），运行时只导入 `hono/client`（ESLint 规则，§3）。
 - 下载链接来自 API 的 `downloads`（`.pem` 结尾标 PEM，其余 DER；多条 DER 路径时另显示文件名）；未发布目标的路径在发布前是 404，
   不给链接（"—"）。
-- `SITE_NAME` 只来自 `import.meta.env.VITE_SITE_NAME`（页头与页面标题）；页脚是站名与 OpenAPI 文档链接。
+- `SITE_NAME` 只来自 `import.meta.env.VITE_SITE_NAME`（页头与页面标题）；页脚是 OpenAPI 文档链接与语言选择。
 - i18n：`en` 与 `zh-CN`（完整翻译）；语言取存储的选择（`locale-preference`）→ 浏览器语言中第一个受支持的 → `en`，可切换并记住，
-  `<html lang>` 跟随。主题 auto / light / dark（`theme-preference`）；`index.html` 的预绘制内联脚本在首帧前按同一规则设深色类，没有亮色闪烁。
+  `<html lang>` 跟随。亮 / 暗只跟随系统（`prefers-color-scheme`，纯 CSS，没有切换按钮与内联脚本）。
 - CSP：`secureHeaders` 的 `contentSecurityPolicy`，同一个 app 下发，两条运行时一致：
-  `default-src 'self'; script-src 'self' 'sha256-<预绘制脚本>'; style-src 'self'; img-src 'self' data:; connect-src 'self';
+  `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self';
   object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'`，没有 `'unsafe-inline'` 与 `'unsafe-eval'`（组件经 CSSOM
-  设样式，vue-i18n 11 不用 eval）。hash 是 `src/http/csp.ts` 的 `INLINE_SCRIPT_HASHES`，`tests/http/csp.test.ts` 对照 `src/web/index.html`
-  重算；改预绘制脚本时同时改 hash（构建不查）。
+  设样式，vue-i18n 11 不用 eval）。
 - 不设 UI 体积预算。
 - 构建到 `dist/web`（Vite `root: src/web`、`build.outDir` = `<repo>/dist/web`、`envDir` = 仓库根），两条运行时都从这里提供。
   dev 代理键用锚定正则 `^/(?:api|ca|crl|dcrl)/`（字符串键 `/crl` 会吞掉 SPA 路由 `/crls/`）。
@@ -660,7 +659,7 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 - Worker：`wrangler deploy --dry-run --outdir dist/worker`（先 `build:web`）；`smoke:worker`（`scripts/worker-smoke.ts`）用 `createTestHarness`
   运行 dry-run 产物，经管理接口导入并应用配置，跑与运行时无关的 `scripts/smoke.sh`（health、一次证书下载与 304、一次原始体 CRL 上传及其下载、
   读路由、UI），再在 workerd 上发布并验签（RSA PKCS#1 v1.5、RSASSA-PSS、SHA-1、坏签名）。`wrangler dev` 冒烟是切片出口里的人工步骤。
-- Web：组件与逻辑在 vitest `web` 项目；`tests/http/csp.test.ts` 对照 `index.html` 查 CSP hash。
+- Web：组件与逻辑在 vitest `web` 项目；`tests/http/csp.test.ts` 查 UI、JSON 与下载响应都带同一 CSP。
 - Docker（`scripts/docker-smoke.sh`）：构建镜像、启动、健康检查 `healthy` 而 API 报 `degraded`、uid 1000、经镜像内 CLI `aia import` 与
   `config apply` 后 health `healthy`，再跑 `scripts/smoke.sh`，`docker stop` < 5 s。
 - CI：`.github/workflows/ci.yml` 四个任务，每个只用 `pnpm/setup` 装 Node（`.nvmrc`）、pnpm（`devEngines`）与依赖，再调用 `pnpm run ci:<job>`：`ci:check` = typecheck + ESLint + `prettier --check`；

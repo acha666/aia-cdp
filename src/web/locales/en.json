@@ -1,7 +1,6 @@
 {
   "app": {
     "skipToContent": "Skip to content",
-    "footer": "AIA and CDP distribution point",
     "apiDocument": "API (OpenAPI)",
     "sections": {
       "certificates": "Certificates (AIA)",
@@ -147,14 +146,6 @@
       "unknown": "The health endpoint could not be reached."
     }
   },
-  "theme": {
-    "toggle": "Theme: {current}. Switch to {next}",
-    "mode": {
-      "auto": "system",
-      "light": "light",
-      "dark": "dark"
-    }
-  },
   "pages": {
     "overview": {
       "title": "Overview"
@@ -200,8 +191,8 @@
     "downloads": "Downloads",
     "label": "Label",
     "kind": "Kind",
-    "crlNumber": "CRL number",
-    "updates": "This update – next update",
+    "crlNumber": "CRL Number",
+    "updates": "This Update – Next Update",
     "revoked": "Revoked"
   },
   "details": {
@@ -358,7 +349,7 @@
       "toggle": "Upload token",
       "set": "set",
       "label": "Upload token (AIA_UPLOAD_TOKEN)",
-      "hint": "Only needed when the server sets AIA_UPLOAD_TOKEN. Kept in this page's memory only and sent with uploads.",
+      "hint": "Only needed when the server sets AIA_UPLOAD_TOKEN.",
       "invalid": "The upload token may only contain letters, digits and - . _ ~ + /, optionally followed by = signs."
     }
   }

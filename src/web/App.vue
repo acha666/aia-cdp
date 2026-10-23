@@ -3,13 +3,13 @@ import { useI18n } from "vue-i18n";
 import { RouterLink, RouterView } from "vue-router";
 import HealthBadge from "@/components/HealthBadge.vue";
 import LocaleSelect from "@/components/LocaleSelect.vue";
-import ThemeToggle from "@/components/ThemeToggle.vue";
 import { Toaster } from "@/components/ui/sonner";
 import { siteName } from "@/site";
 
-// The shell: header (site name, health, language, theme), the routed page, a footer and the toast
-// outlet (upload results, copy failures), at the top: at the bottom right a toast would cover the
-// upload card's submit button (and stay while hovered). One container width for all three bands.
+// The shell: header (site name, health), the routed page, a footer (API document, language) and
+// the toast outlet (upload results, copy failures), at the top: at the bottom right a toast would
+// cover the upload card's submit button (and stay while hovered). One container width for all
+// three bands. Light and dark follow the system (main.css).
 const CONTAINER = "mx-auto w-full max-w-6xl px-4";
 
 const { t } = useI18n();
@@ -33,8 +33,6 @@ const { t } = useI18n();
           {{ siteName }}
         </RouterLink>
         <HealthBadge />
-        <LocaleSelect />
-        <ThemeToggle />
       </div>
     </header>
     <main id="main" tabindex="-1" :class="CONTAINER" class="flex-1 py-6 outline-none">
@@ -43,15 +41,12 @@ const { t } = useI18n();
     <footer class="border-t">
       <div
         :class="CONTAINER"
-        class="flex flex-wrap items-center gap-x-2 gap-y-1 py-4 text-xs text-muted-foreground"
+        class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-4 text-xs text-muted-foreground"
       >
-        <span>{{ siteName }}</span>
-        <span aria-hidden="true">·</span>
-        <span>{{ t("app.footer") }}</span>
-        <span aria-hidden="true">·</span>
         <a href="/api/v1/openapi.json" class="underline-offset-4 hover:underline">
           {{ t("app.apiDocument") }}
         </a>
+        <LocaleSelect />
       </div>
     </footer>
     <Toaster position="top-center" />

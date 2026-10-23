@@ -166,7 +166,7 @@ watch(
       </div>
 
       <Tabs v-else v-model="tab" class="min-w-0">
-        <TabsList class="max-w-full justify-start overflow-x-auto">
+        <TabsList class="max-w-full justify-start overflow-x-auto overflow-y-hidden">
           <TabsTrigger value="overview">{{ t("details.tabs.overview") }}</TabsTrigger>
           <TabsTrigger value="revoked">
             {{ t("details.crl.revokedCertificates") }}
