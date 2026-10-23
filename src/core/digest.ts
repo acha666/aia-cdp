@@ -1,7 +1,7 @@
 /**
  * Lowercase hex SHA-256 via WebCrypto (Workers, Node 24 and browsers).
  *
- * `bytes` may be any Uint8Array. TS 5.9's DOM lib (the web program reaches core through
+ * `bytes` may be any Uint8Array. TypeScript's DOM lib (the web program reaches core through
  * hc<AppType>) types WebCrypto's input as ArrayBufferView<ArrayBuffer>, so a
  * Uint8Array<ArrayBufferLike> is rejected there. Narrow without copying when the view is already
  * backed by an ArrayBuffer.
