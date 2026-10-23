@@ -8,7 +8,7 @@ import { NOW } from "../fixtures/pki.ts";
 /** The smallest configuration that is `ok` under the full schema. */
 export const MINIMAL_CONFIG = '{"version":1,"certificates":{},"targets":{},"paths":{}}';
 
-/** parseSettings({}): the same defaults as scripts/generate-openapi.ts. */
+/** parseSettings({}): the defaults. */
 function defaultSettings(): AppSettings {
   const parsed = parseSettings({});
   if (!parsed.ok) {

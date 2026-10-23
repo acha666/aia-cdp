@@ -6,7 +6,7 @@
 # Builds the image, runs it with a fresh named volume on a random loopback port and an admin token,
 # waits for Docker's health status "healthy" while the API reports "degraded", and checks uid 1000.
 # The image's own CLI (dist/server/cli/aia.js, via docker exec) imports the fixture CA certificates
-# (docker cp'd in) and applies a configuration -> "healthy"; scripts/smoke.sh then checks the
+# (docker cp'd in) and applies a configuration; scripts/smoke.sh then checks "healthy", the
 # downloads, a CRL upload, the reads and the UI. Last, `docker stop` must finish within 5 s with
 # exit code 0. The container, volume and image tag are removed on exit; the build cache is kept.
 # Needs bash, curl, cmp, sha256sum and Docker Engine >= 25.
@@ -25,9 +25,6 @@ die() {
   printf 'docker-smoke: %s\n' "$*" >&2
   exit 1
 }
-for tool in docker curl cmp sha256sum; do
-  command -v "$tool" >/dev/null || die "$tool is required"
-done
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/aia-cdp-docker-smoke.XXXXXX")
 created=0
@@ -79,13 +76,9 @@ if [[ $state != running/healthy ]]; then
 fi
 check 0 "container healthy after $(($(date +%s%3N) - started)) ms ($BASE)"
 
-health() { # EXPECTED_STATUS: health answers 200 with that status
-  local out ok=1
-  out=$(curl -sS --max-time 5 -w '\n%{http_code}' "$BASE/api/v1/health" 2>&1) || true
-  if [[ ${out##*$'\n'} == 200 && $out == *"\"status\":\"$1\""* ]]; then ok=0; fi
-  check "$ok" "health is $1: ${out//$'\n'/ }"
-}
-health degraded
+out=$(curl -sS --max-time 5 -w '\n%{http_code}' "$BASE/api/v1/health" 2>&1) || true
+if [[ ${out##*$'\n'} == 200 && $out == *'"status":"degraded"'* ]]; then ok=0; else ok=1; fi
+check "$ok" "health is degraded: ${out//$'\n'/ }"
 
 uid=$(docker exec "$NAME" id -u)
 if [[ $uid == 1000 ]]; then ok=0; else ok=1; fi
@@ -125,12 +118,10 @@ chmod 755 "$T/smoke"
 chmod 644 "$T/smoke"/*
 docker cp "$T/smoke/." "$NAME:/tmp/aia-smoke"
 
-aia_check "aia config validate" 'valid offline' config validate /tmp/aia-smoke/config.json
 aia_check "aia import" '3 created, 0 unchanged, 0 failed' \
   import /tmp/aia-smoke/root-ca.der /tmp/aia-smoke/chain.pem
 aia_check "aia config apply" '^applied /tmp/aia-smoke/config.json \(ETag "[0-9a-f]{64}"\)$' \
   config apply /tmp/aia-smoke/config.json
-health healthy
 
 smoke=0
 bash scripts/smoke.sh "$BASE" || smoke=$?

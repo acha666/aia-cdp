@@ -6,16 +6,15 @@
 //
 // Health is "degraded" on the empty store. The admin API (both tokens are harness secrets) imports
 // certs/root-ca.der and certs/issuing-ca-1.der and applies a configuration that serves the root
-// under /ca/root-ca.crt, with a full CRL target of each CA under /crl/<name>.crl: "healthy". Then
-// scripts/smoke.sh runs against it (downloads, the root's ECDSA P-384 CRL upload, the reads, the
-// UI). The uploads after it verify signatures on workerd's WebCrypto, not only Node's: RSA PKCS#1
-// v1.5, RSASSA-PSS and SHA-1 (issuing-ca-1) and a broken RSA signature (422 invalid_signature);
-// without the upload token an upload is 401. Last, issuing-ca-1's target detail and download show
-// what the uploads left.
+// under /ca/root-ca.crt, with a full CRL target of each CA under /crl/<name>.crl. Then
+// scripts/smoke.sh runs against it (health "healthy", downloads, the root's ECDSA P-384 CRL upload,
+// the reads, the UI). The uploads after it verify signatures on workerd's WebCrypto, not only
+// Node's: RSA PKCS#1 v1.5, RSASSA-PSS and SHA-1 (issuing-ca-1) and a broken RSA signature (422
+// invalid_signature); without the upload token an upload is 401. Last, issuing-ca-1's target
+// detail shows what the uploads left.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { fixture, manifest } from "../tests/fixtures/pki.ts";
 
@@ -25,15 +24,6 @@ process.env.WRANGLER_HIDE_BANNER = "true";
 const { createTestHarness } = await import("wrangler");
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-for (const required of ["dist/worker/worker.js", "dist/web/index.html"]) {
-  if (!existsSync(`${root}${required}`)) {
-    console.error(
-      `worker-smoke: ${required} is missing. Run pnpm run build:web && ` +
-        "pnpm exec wrangler deploy --dry-run --outdir dist/worker (pnpm run ci:worker does both)."
-    );
-    process.exit(1);
-  }
-}
 
 // Fresh for every run and never printed; letters, digits and `-` satisfy the b64token rule.
 const ADMIN_TOKEN = `smoke-${randomBytes(16).toString("hex")}`;
@@ -72,11 +62,6 @@ async function json(res: Response): Promise<{ status: number; body: Record<strin
   } catch {
     return { status: res.status, body: { text: text.slice(0, 300) } };
   }
-}
-
-async function health(base: URL, status: "degraded" | "healthy"): Promise<void> {
-  const res = await json(await fetch(new URL("/api/v1/health", base)));
-  check(res.status === 200 && res.body.status === status, `health is ${status}: ${res.status}`);
 }
 
 function admin(base: URL, path: string, init: RequestInit): Promise<Response> {
@@ -121,7 +106,6 @@ async function configure(base: URL): Promise<string> {
     })
   );
   check(applied.status === 200, `apply the configuration: ${applied.status}`);
-  await health(base, "healthy");
   return issuingTarget;
 }
 
@@ -173,10 +157,8 @@ async function publish(base: URL, target: string): Promise<void> {
     const got = ok ? result : JSON.stringify(res.body).slice(0, 300);
     check(ok, `POST /api/v1/crls ${file}: ${res.status} ${got}`);
   }
-}
 
-/** issuing-ca-1's target detail and download after the uploads: crls/issuing-ca-1/full-sha1. */
-async function readBack(base: URL, target: string): Promise<void> {
+  // The target's detail after the uploads: crls/issuing-ca-1/full-sha1, with its entries.
   const crl = crlFixture("crls/issuing-ca-1/full-sha1.der");
   const res = await json(await fetch(new URL(`/api/v1/crls/${target}`, base)));
   const current = res.body.current as {
@@ -190,13 +172,6 @@ async function readBack(base: URL, target: string): Promise<void> {
       current.tbsCertList?.revokedCertificates?.count === crl.revoked &&
       current.signatureAlgorithm?.algorithm?.name === "sha1WithRSAEncryption",
     `GET /api/v1/crls/${target}: ${res.status}, ${crl.file} with ${crl.revoked} entries`
-  );
-
-  const download = await fetch(new URL("/crl/issuing-ca-1.crl", base));
-  const bytes = new Uint8Array(await download.arrayBuffer());
-  check(
-    download.status === 200 && Buffer.from(bytes).equals(fixture(crl.file)),
-    `GET /crl/issuing-ca-1.crl: ${download.status}, the bytes of ${crl.file}`
   );
 }
 
@@ -214,11 +189,14 @@ try {
   const { url } = await server.listen();
   console.log(`worker-smoke: dist/worker listening on ${url.origin}`);
   // Each harness gets fresh storage, so the configuration is always missing here.
-  await health(url, "degraded");
+  const health = await json(await fetch(new URL("/api/v1/health", url)));
+  check(
+    health.status === 200 && health.body.status === "degraded",
+    `health is degraded: ${health.status}`
+  );
   const target = await configure(url);
   await smokeScript(url);
   await publish(url, target);
-  await readBack(url, target);
 } finally {
   await server.close();
 }

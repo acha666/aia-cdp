@@ -271,7 +271,7 @@ describe("health", () => {
 });
 
 describe("import", () => {
-  it("sends a DER file as application/pkix-cert, then its PEM is unchanged", async () => {
+  it("imports a DER file, then its PEM is unchanged", async () => {
     const svc = service();
     const root = cert("root-ca");
     expect(await against(svc, ["import", ROOT_DER])).toEqual({
@@ -284,10 +284,6 @@ describe("import", () => {
     const unchanged = await against(svc, ["import", fixturePath(root.pem)]);
     expect(unchanged.code).toBe(0);
     expect(unchanged.stdout).toMatch(new RegExp(`^unchanged  ${root.sha256}  `));
-    expect(svc.sent.map((request) => request.headers.get("Content-Type"))).toEqual([
-      "application/pkix-cert",
-      "application/x-pem-file",
-    ]);
     expect(svc.authorization()).toEqual([`Bearer ${TOKEN}`, `Bearer ${TOKEN}`]);
   });
 
@@ -320,8 +316,8 @@ describe("import", () => {
     ]);
     // Only the certificate blocks went out, one per request.
     const pems = svc.sent
-      .filter((request) => request.headers.get("Content-Type") === "application/x-pem-file")
-      .map((request) => new TextDecoder().decode(request.bytes));
+      .map((request) => new TextDecoder().decode(request.bytes))
+      .filter((text) => text.startsWith("-----BEGIN "));
     expect(pems).toEqual([badBlock, issuing]);
   });
 });
@@ -482,7 +478,7 @@ describe("publish", () => {
     return { svc, setup };
   }
 
-  it("sends DER as application/pkix-crl and PEM as application/x-pem-file, no token unless set", async () => {
+  it("sends each file as is, with no token unless set", async () => {
     const { svc, setup } = await publishing();
     const run = await against(svc, ["publish", ROOT_CRL, FULL_01_PEM], {
       ...UPLOAD_ENV,
@@ -502,10 +498,6 @@ describe("publish", () => {
     expect(svc.sent.map((request) => [request.method, request.url])).toEqual([
       ["POST", `${BASE}/api/v1/crls`],
       ["POST", `${BASE}/api/v1/crls`],
-    ]);
-    expect(svc.sent.map((request) => request.headers.get("Content-Type"))).toEqual([
-      "application/pkix-crl",
-      "application/x-pem-file",
     ]);
     // Each file as is, byte for byte.
     expect(svc.sent.map((request) => request.bytes)).toEqual(

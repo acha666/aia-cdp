@@ -1,7 +1,8 @@
 // aia: the command-line client of the admin API and the CRL upload route (plan §7.4). A thin HTTP
 // client on node:util parseArgs and fetch, with no dependencies of its own. From the core it shares
 // isDerSequence / splitPemBlocks (the API takes one certificate per request, so a PEM bundle goes
-// block by block) and the static config rules (`config validate` runs offline).
+// block by block) and the static config rules (`config validate` runs offline). Success bodies are
+// typed by the service's schemas (type-only imports) and not checked again here.
 //
 //   node src/cli/aia.ts <command> …          (pnpm aia …; Node runs the source)
 //   node dist/server/cli/aia.js <command> …  (the Docker image)
@@ -12,10 +13,13 @@
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { parseArgs } from "node:util";
+import type { z } from "zod";
 import { checkConfigStatic } from "../core/admin.ts";
 import type { ConfigIssue } from "../core/admin.ts";
 import { decodeJson } from "../core/catalog.ts";
+import type { HealthReport } from "../core/health.ts";
 import { isDerSequence, splitPemBlocks } from "../core/pki/pem.ts";
+import type { ImportedCertificate, PublishedCrl } from "../http/schemas.ts";
 
 export interface CliIo {
   fetch: (url: string, init: RequestInit) => Promise<Response>;
@@ -175,6 +179,19 @@ function expectArgs(args: string[], count: number, form: string): void {
   }
 }
 
+/** io.readFile; a file that cannot be read throws `fail(reason)`. */
+async function readBytes(
+  io: CliIo,
+  file: string,
+  fail: (reason: string) => Error
+): Promise<Uint8Array> {
+  try {
+    return await io.readFile(file);
+  } catch (error) {
+    throw fail(reasonOf(error));
+  }
+}
+
 // Output -----------------------------------------------------------------------------------------
 
 function printJson(io: CliIo, value: unknown): void {
@@ -226,10 +243,8 @@ function parsedServiceUrl(ctx: Context): URL {
   if (ctx.url === undefined || ctx.url === "") {
     throw new UsageError("no service URL: pass --url or set AIA_URL");
   }
-  let url: URL;
-  try {
-    url = new URL(ctx.url);
-  } catch {
+  const url = URL.parse(ctx.url);
+  if (url === null) {
     throw new UsageError("--url / AIA_URL is not a URL");
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -295,11 +310,8 @@ async function bearerToken(ctx: Context, variable: TokenVariable): Promise<strin
       throw new UsageError(`set either ${variable} or ${fileVariable}, not both`);
     }
     source = `the token file ${file}`;
-    try {
-      token = new TextDecoder().decode(await ctx.io.readFile(file)).trim();
-    } catch (error) {
-      throw new UsageError(`cannot read ${source}: ${reasonOf(error)}`);
-    }
+    const fail = (reason: string) => new UsageError(`cannot read ${source}: ${reason}`);
+    token = new TextDecoder().decode(await readBytes(ctx.io, file, fail)).trim();
   } else {
     source = variable;
     token = env[variable]?.trim();
@@ -319,7 +331,7 @@ async function bearerToken(ctx: Context, variable: TokenVariable): Promise<strin
   return token;
 }
 
-/** `Authorization` (and `Accept`) for the admin routes: the admin token is required. */
+/** `Authorization` for the admin routes: the admin token is required. */
 async function adminHeaders(ctx: Context): Promise<Record<string, string>> {
   const token = await bearerToken(ctx, "AIA_ADMIN_TOKEN");
   if (token === undefined) {
@@ -327,7 +339,7 @@ async function adminHeaders(ctx: Context): Promise<Record<string, string>> {
       "no admin token: pass --token-file, or set AIA_ADMIN_TOKEN_FILE or AIA_ADMIN_TOKEN"
     );
   }
-  return { Authorization: `Bearer ${token}`, Accept: "application/json" };
+  return { Authorization: `Bearer ${token}` };
 }
 
 /** fetch with a timeout; a request that gets no response at all is a Failure. */
@@ -394,40 +406,113 @@ async function jsonOf(res: Response, url: string): Promise<unknown> {
   }
 }
 
-function isConfigIssues(value: unknown): value is ConfigIssue[] {
-  return (
-    Array.isArray(value) &&
-    value.every(
-      (issue: Partial<Record<keyof ConfigIssue, unknown>>) =>
-        Array.isArray(issue.path) &&
-        typeof issue.rule === "string" &&
-        typeof issue.message === "string"
-    )
+// import, publish --------------------------------------------------------------------------------
+
+/** Where a result comes from: the file, and the 1-based block number within a PEM bundle. */
+interface Where {
+  file: string;
+  block?: number;
+}
+
+type ItemFailure = Where & { ok: false; error: { message: string } & Partial<HttpError> };
+
+/** One line of the import or publish report (`--json`: the array `results`). */
+type ItemResult<T> = (Where & { ok: true } & T) | ItemFailure;
+
+/** An import or publish file that cannot be read; its report line names the file. */
+function unreadable(reason: string): Failure {
+  return new Failure(`cannot read the file: ${reason}`);
+}
+
+/** A Failure as the result of the item it stopped; any other error propagates. */
+function failedItem(where: Where, error: unknown): ItemFailure {
+  if (!(error instanceof Failure)) {
+    throw error;
+  }
+  return { ...where, ok: false, error: { message: error.message } };
+}
+
+/**
+ * POSTs one upload. The service recognizes the format from the bytes, so every body goes as
+ * application/octet-stream. An error response, or a Failure on the way, is the item's failure;
+ * `describe` writes the message of an error response.
+ */
+async function postItem<T>(
+  ctx: Context,
+  url: string,
+  headers: Record<string, string>,
+  where: Where,
+  body: Uint8Array | string,
+  describe: (error: HttpError) => string = describeHttp
+): Promise<ItemResult<T>> {
+  try {
+    const res = await send(ctx, url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/octet-stream" },
+      body,
+    });
+    if (res.status !== 200 && res.status !== 201) {
+      const error = await httpError(res, url);
+      return { ...where, ok: false, error: { ...error, message: describe(error) } };
+    }
+    return { ...where, ok: true, ...((await jsonOf(res, url)) as T) };
+  } catch (error) {
+    return failedItem(where, error);
+  }
+}
+
+/** The report line of one item as it completes; `okText` writes what a success names. */
+function printItem<T extends { outcome: string }>(
+  ctx: Context,
+  result: ItemResult<T>,
+  source: string,
+  okText: (body: T) => string
+): void {
+  if (ctx.json) {
+    return;
+  }
+  if (result.ok) {
+    ctx.io.stdout(`${result.outcome.padEnd(10)} ${okText(result)}  ${source}\n`);
+  } else {
+    ctx.io.stderr(`${"failed".padEnd(10)} ${source}: ${result.error.message}\n`);
+  }
+}
+
+/**
+ * Prints the summary, the count of each of `outcomes` and then of the failures (`--json`: after
+ * `results`), and returns the exit code: 1 when anything failed.
+ */
+function finish(
+  ctx: Context,
+  results: readonly ItemResult<{ outcome: string }>[],
+  outcomes: readonly string[]
+): number {
+  const summary = Object.fromEntries(
+    [...outcomes, "failed"].map((outcome) => [
+      outcome,
+      results.filter((result) => (result.ok ? result.outcome : "failed") === outcome).length,
+    ])
   );
+  if (ctx.json) {
+    printJson(ctx.io, { results, ...summary });
+  } else {
+    const counts = Object.entries(summary).map(([outcome, count]) => `${count} ${outcome}`);
+    ctx.io.stdout(`${counts.join(", ")}\n`);
+  }
+  return summary.failed === 0 ? 0 : 1;
 }
 
 // import -----------------------------------------------------------------------------------------
+
+type Imported = z.infer<typeof ImportedCertificate>;
 
 /** What one POST sends: a whole DER file, or one block of a PEM file. */
 interface Upload {
   file: string;
   /** 1-based block number within a PEM file, and the file's block count. */
   block?: { index: number; count: number };
-  contentType: string;
   body: Uint8Array | string;
 }
-
-interface Imported {
-  outcome: "created" | "unchanged";
-  id: string;
-  summary: { subjectCN: string | null };
-}
-
-/** One line of the import report (`--json`: the array `results`). */
-type ImportResult = { file: string; block?: number } & (
-  | ({ ok: true } & Imported & Record<string, unknown>)
-  | { ok: false; error: { message: string } & Partial<HttpError> }
-);
 
 function sourceOf(upload: Pick<Upload, "file" | "block">): string {
   const { block } = upload;
@@ -443,18 +528,10 @@ function sourceOf(upload: Pick<Upload, "file" | "block">): string {
  * to report.
  */
 async function uploadsOf(io: CliIo, file: string): Promise<Upload[]> {
-  let bytes: Uint8Array;
-  try {
-    bytes = await io.readFile(file);
-  } catch (error) {
-    throw new Failure(`cannot read the file: ${reasonOf(error)}`);
-  }
-  if (isDerSequence(bytes)) {
-    return [{ file, contentType: "application/pkix-cert", body: bytes }];
-  }
+  const bytes = await readBytes(io, file, unreadable);
   const text = new TextDecoder().decode(bytes);
-  if (!text.includes("-----BEGIN ")) {
-    return [{ file, contentType: "application/pkix-cert", body: bytes }];
+  if (isDerSequence(bytes) || !text.includes("-----BEGIN ")) {
+    return [{ file, body: bytes }];
   }
   let blocks: string[];
   try {
@@ -468,56 +545,17 @@ async function uploadsOf(io: CliIo, file: string): Promise<Upload[]> {
   return blocks.map((body, index) => ({
     file,
     block: { index: index + 1, count: blocks.length },
-    contentType: "application/x-pem-file",
     body,
   }));
-}
-
-async function importOne(
-  ctx: Context,
-  url: string,
-  headers: Record<string, string>,
-  upload: Upload
-): Promise<ImportResult> {
-  const where = {
-    file: upload.file,
-    ...(upload.block === undefined ? {} : { block: upload.block.index }),
-  };
-  try {
-    const res = await send(ctx, url, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": upload.contentType },
-      body: upload.body,
-    });
-    if (res.status !== 200 && res.status !== 201) {
-      const error = await httpError(res, url);
-      return { ...where, ok: false, error: { ...error, message: describeHttp(error) } };
-    }
-    const body = (await jsonOf(res, url)) as Imported & Record<string, unknown>;
-    return { ...where, ok: true, ...body };
-  } catch (error) {
-    if (error instanceof Failure) {
-      return { ...where, ok: false, error: { message: error.message } };
-    }
-    throw error;
-  }
 }
 
 async function importFiles(ctx: Context, files: string[]): Promise<number> {
   const url = `${serviceUrl(ctx)}/api/v1/admin/certificates`;
   const headers = await adminHeaders(ctx);
-  const results: ImportResult[] = [];
-  const report = (result: ImportResult, source: string) => {
+  const results: ItemResult<Imported>[] = [];
+  const report = (result: ItemResult<Imported>, source: string) => {
     results.push(result);
-    if (ctx.json) {
-      return;
-    }
-    if (result.ok) {
-      const cn = result.summary.subjectCN ?? "(no CN)";
-      ctx.io.stdout(`${result.outcome.padEnd(10)} ${result.id}  ${cn}  ${source}\n`);
-    } else {
-      ctx.io.stderr(`${"failed".padEnd(10)} ${source}: ${result.error.message}\n`);
-    }
+    printItem(ctx, result, source, (cert) => `${cert.id}  ${cert.summary.subjectCN ?? "(no CN)"}`);
   };
 
   // One file or block failing does not stop the others.
@@ -526,75 +564,20 @@ async function importFiles(ctx: Context, files: string[]): Promise<number> {
     try {
       uploads = await uploadsOf(ctx.io, file);
     } catch (error) {
-      if (!(error instanceof Failure)) {
-        throw error;
-      }
-      report({ file, ok: false, error: { message: error.message } }, file);
+      report(failedItem({ file }, error), file);
       continue;
     }
     for (const upload of uploads) {
-      report(await importOne(ctx, url, headers, upload), sourceOf(upload));
+      const where = { file, ...(upload.block === undefined ? {} : { block: upload.block.index }) };
+      report(await postItem(ctx, url, headers, where, upload.body), sourceOf(upload));
     }
   }
-
-  const count = (outcome: string) =>
-    results.filter((result) => (result.ok ? result.outcome : "failed") === outcome).length;
-  const summary = {
-    created: count("created"),
-    unchanged: count("unchanged"),
-    failed: count("failed"),
-  };
-  if (ctx.json) {
-    printJson(ctx.io, { results, ...summary });
-  } else {
-    ctx.io.stdout(
-      `${summary.created} created, ${summary.unchanged} unchanged, ${summary.failed} failed\n`
-    );
-  }
-  return summary.failed === 0 ? 0 : 1;
+  return finish(ctx, results, ["created", "unchanged"]);
 }
 
 // publish ----------------------------------------------------------------------------------------
 
-/** The 200 / 201 body of POST /api/v1/crls (src/http/schemas.ts PublishedCrl). */
-interface Published {
-  outcome: "created" | "updated" | "unchanged";
-  target: string;
-  kind: string;
-  crlNumber: string | null;
-}
-
-const OUTCOMES: ReadonlySet<unknown> = new Set(["created", "updated", "unchanged"]);
-
-function isPublished(value: unknown): value is Published & Record<string, unknown> {
-  const body = value as Partial<Record<keyof Published, unknown>> | null;
-  return (
-    typeof body === "object" &&
-    body !== null &&
-    OUTCOMES.has(body.outcome) &&
-    typeof body.target === "string" &&
-    typeof body.kind === "string"
-  );
-}
-
-/** One line of the publish report (`--json`: the array `results`). */
-type PublishResult = { file: string } & (
-  | ({ ok: true } & Published & Record<string, unknown>)
-  | { ok: false; error: { message: string } & Partial<HttpError> }
-);
-
-/**
- * The media type of a CRL file, from the bytes as the service recognizes them (toDer): one DER
- * SEQUENCE, else text with a PEM boundary. Anything else goes as application/pkix-crl for the
- * service to report (invalid_crl). The body is sent as is: a PEM bundle is the service's
- * pem_blocks, never split here.
- */
-function crlMediaType(bytes: Uint8Array): string {
-  if (!isDerSequence(bytes) && new TextDecoder().decode(bytes).includes("-----BEGIN ")) {
-    return "application/x-pem-file";
-  }
-  return "application/pkix-crl";
-}
+type Published = z.infer<typeof PublishedCrl>;
 
 /** A failure's details beyond `reason` (which describeHttp prints), for the text report. */
 function detailsText(details: unknown): string {
@@ -616,84 +599,32 @@ function detailsText(details: unknown): string {
   return parts.length === 0 ? "" : ` (${parts.join("; ")})`;
 }
 
-async function publishOne(
-  ctx: Context,
-  url: string,
-  headers: Record<string, string>,
-  file: string
-): Promise<PublishResult> {
-  try {
-    let bytes: Uint8Array;
-    try {
-      bytes = await ctx.io.readFile(file);
-    } catch (error) {
-      throw new Failure(`cannot read the file: ${reasonOf(error)}`);
-    }
-    const res = await send(ctx, url, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": crlMediaType(bytes) },
-      body: bytes,
-    });
-    if (res.status !== 200 && res.status !== 201) {
-      const error = await httpError(res, url);
-      const message = `${describeHttp(error)}${detailsText(error.details)}`;
-      return { file, ok: false, error: { ...error, message } };
-    }
-    const body = await jsonOf(res, url);
-    if (!isPublished(body)) {
-      throw new Failure(`HTTP ${res.status}, but the body is not an upload result`);
-    }
-    return { file, ok: true, ...body };
-  } catch (error) {
-    if (error instanceof Failure) {
-      return { file, ok: false, error: { message: error.message } };
-    }
-    throw error;
-  }
-}
-
-/** Each file is one upload; one failing does not stop the others. */
+/**
+ * Each file is one upload, sent as is (a PEM bundle is the service's pem_blocks, never split
+ * here); one failing does not stop the others.
+ */
 async function publishFiles(ctx: Context, files: string[]): Promise<number> {
   const url = `${serviceUrl(ctx)}/api/v1/crls`;
   const token = await bearerToken(ctx, "AIA_UPLOAD_TOKEN");
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    ...(token === undefined ? {} : { Authorization: `Bearer ${token}` }),
-  };
-  const results: PublishResult[] = [];
+  const headers: Record<string, string> =
+    token === undefined ? {} : { Authorization: `Bearer ${token}` };
+  const describe = (error: HttpError) => `${describeHttp(error)}${detailsText(error.details)}`;
+  const results: ItemResult<Published>[] = [];
   for (const file of files) {
-    const result = await publishOne(ctx, url, headers, file);
+    let result: ItemResult<Published>;
+    try {
+      const bytes = await readBytes(ctx.io, file, unreadable);
+      result = await postItem(ctx, url, headers, { file }, bytes, describe);
+    } catch (error) {
+      result = failedItem({ file }, error);
+    }
     results.push(result);
-    if (ctx.json) {
-      continue;
-    }
-    if (result.ok) {
-      const number = result.crlNumber === null ? "(no CRL Number)" : `#${result.crlNumber}`;
-      ctx.io.stdout(
-        `${result.outcome.padEnd(10)} ${result.target}  ${result.kind} ${number}  ${file}\n`
-      );
-    } else {
-      ctx.io.stderr(`${"failed".padEnd(10)} ${file}: ${result.error.message}\n`);
-    }
+    printItem(ctx, result, file, (crl) => {
+      const number = crl.crlNumber === null ? "(no CRL Number)" : `#${crl.crlNumber}`;
+      return `${crl.target}  ${crl.kind} ${number}`;
+    });
   }
-
-  const count = (outcome: string) =>
-    results.filter((result) => (result.ok ? result.outcome : "failed") === outcome).length;
-  const summary = {
-    created: count("created"),
-    updated: count("updated"),
-    unchanged: count("unchanged"),
-    failed: count("failed"),
-  };
-  if (ctx.json) {
-    printJson(ctx.io, { results, ...summary });
-  } else {
-    ctx.io.stdout(
-      `${summary.created} created, ${summary.updated} updated, ${summary.unchanged} unchanged, ` +
-        `${summary.failed} failed\n`
-    );
-  }
-  return summary.failed === 0 ? 0 : 1;
+  return finish(ctx, results, ["created", "updated", "unchanged"]);
 }
 
 // config -----------------------------------------------------------------------------------------
@@ -707,12 +638,7 @@ async function configShow(ctx: Context): Promise<number> {
   const res = await send(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
   if (res.status === 404) {
     await readText(res, url);
-    // A result, not only an error: scripts (seed-dev) tell "nothing yet" from a failure by it.
-    if (ctx.json) {
-      printJson(ctx.io, { etag: null, config: null });
-    }
-    ctx.io.stderr("aia: nothing has been configured yet (HTTP 404)\n");
-    return 1;
+    throw new Failure("nothing has been configured yet (HTTP 404)");
   }
   if (!res.ok) {
     throw new Failure(describeHttp(await httpError(res, url)));
@@ -735,12 +661,8 @@ async function configShow(ctx: Context): Promise<number> {
 }
 
 async function loadConfigFile(io: CliIo, file: string): Promise<unknown> {
-  let bytes: Uint8Array;
-  try {
-    bytes = await io.readFile(file);
-  } catch (error) {
-    throw new Failure(`cannot read ${file}: ${reasonOf(error)}`);
-  }
+  const fail = (reason: string) => new Failure(`cannot read ${file}: ${reason}`);
+  const bytes = await readBytes(io, file, fail);
   try {
     return decodeJson(bytes);
   } catch (error) {
@@ -814,8 +736,8 @@ async function configApply(ctx: Context, file: string): Promise<number> {
         'review it with "aia config show" and apply again'
     );
   }
-  const issues = (error.details as { issues?: unknown } | undefined)?.issues;
-  if (res.status === 422 && isConfigIssues(issues)) {
+  if (res.status === 422 && error.code === "config_invalid") {
+    const { issues } = error.details as { issues: ConfigIssue[] };
     ctx.io.stderr(issuesText(`the service rejected ${file}: ${describeHttp(error)}`, issues));
     return 1;
   }
@@ -835,25 +757,14 @@ function newTargetId(ctx: Context): number {
   return 0;
 }
 
-interface Health {
-  status: string;
-  checks: { store: string; configuration: string };
-}
-
 async function health(ctx: Context): Promise<number> {
   const url = `${serviceUrl(ctx)}/api/v1/health`;
-  const res = await send(ctx, url, { method: "GET", headers: { Accept: "application/json" } });
-  const text = await readText(res, url);
-  let body: Partial<Health> | undefined;
-  try {
-    body = JSON.parse(text) as Partial<Health>;
-  } catch {
-    body = undefined;
+  const res = await send(ctx, url, { method: "GET" });
+  // 200 (healthy, degraded) and 503 (unhealthy) carry the report.
+  if (res.status !== 200 && res.status !== 503) {
+    throw new Failure(describeHttp(await httpError(res, url)));
   }
-  if (typeof body?.status !== "string" || typeof body.checks?.store !== "string") {
-    throw new Failure(`${url} did not answer with a health report (HTTP ${res.status})`);
-  }
-  const report = body as Health;
+  const report = (await jsonOf(res, url)) as HealthReport;
   if (ctx.json) {
     printJson(ctx.io, report);
   } else {

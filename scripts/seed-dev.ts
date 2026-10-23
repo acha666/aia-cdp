@@ -13,6 +13,7 @@
 import process from "node:process";
 import { encodeJson } from "../src/core/catalog.ts";
 import type { Config } from "../src/core/catalog.ts";
+import type { HealthReport } from "../src/core/health.ts";
 import { main, processIo } from "../src/cli/aia.ts";
 import { fixturePath, manifest } from "../tests/fixtures/pki.ts";
 
@@ -79,33 +80,10 @@ async function seed(): Promise<number> {
     return imported;
   }
 
-  // `config show --json` prints {"etag": null, "config": null} when nothing is configured yet
-  // (and exits 1); any other failure prints nothing on stdout.
-  let shown = "";
-  let complaint = "";
-  const show = await main(["config", "show", "--json"], {
-    ...io,
-    stdout: (text) => {
-      shown += text;
-    },
-    stderr: (text) => {
-      complaint += text;
-    },
-  });
-  if (show === 0) {
-    process.stdout.write("seed-dev: config.json exists, not applied (pnpm run reset:dev)\n");
-  } else {
-    let missing: boolean;
-    try {
-      missing = (JSON.parse(shown) as { config?: unknown }).config === null;
-    } catch {
-      missing = false;
-    }
-    if (!missing) {
-      process.stderr.write(complaint);
-      return show;
-    }
-
+  // The public health report tells a missing configuration from an existing or broken one.
+  const res = await fetch(new URL("/api/v1/health", process.env.AIA_URL));
+  const { checks } = (await res.json()) as HealthReport;
+  if (checks.configuration === "missing") {
     // Applied through the CLI as a file would be; the generated document never touches the disk.
     const generated = "<seed-dev config>";
     const bytes = encodeJson(seedConfig());
@@ -117,6 +95,13 @@ async function seed(): Promise<number> {
     if (applied !== 0) {
       return applied;
     }
+  } else if (checks.configuration === "ok") {
+    process.stdout.write("seed-dev: config.json exists, not applied (pnpm run reset:dev)\n");
+  } else {
+    process.stderr.write(
+      `seed-dev: health reports store ${checks.store}, configuration ${checks.configuration}\n`
+    );
+    return 1;
   }
 
   process.stdout.write("seed-dev: publishing CRLs\n");

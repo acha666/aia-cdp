@@ -553,7 +553,7 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
 能连上服务并把令牌明文发出。不带令牌的命令（`health`、服务端未设令牌时的 `publish`）不检查。子命令：
 `import <file...>`、`config show | validate <file> | apply <file>`、`new-target-id`（打印
 `crypto.randomUUID()`：目标 UUID 由工具分配，没有建目标接口）、`publish <file...>`
-（走公开上传路由，按字节选 `application/pkix-crl` / `application/x-pem-file` 发原始体，逐个文件处理，created / updated / unchanged
+（走公开上传路由，逐个文件发原始体，`Content-Type: application/octet-stream`，服务端按字节识别；created / updated / unchanged
 之外都算该文件失败）、`history <targetId>`、`retire <targetId>`、
 `delete-certificate <id>`、`health`。`config validate` 离线只跑静态规则（V1–V3、V4 / V6 的静态部分，
 与服务端共用 `checkConfigStatic`），不连服务、不要令牌；状态与迁移规则（V4–V9 其余部分）由服务端在
