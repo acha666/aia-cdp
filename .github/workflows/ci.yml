@@ -1,5 +1,5 @@
 # Each job only installs dependencies and runs `pnpm run ci:<job>`: the package.json scripts are the
-# definition of CI and run the same way locally. Dormant until the repository has a GitHub remote.
+# definition of CI and run the same way locally.
 name: CI
 
 on:

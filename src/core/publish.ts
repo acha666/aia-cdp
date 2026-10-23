@@ -560,7 +560,7 @@ const MAX_DETAIL_CHARS = 500;
  * Publishes one CRL (DER or a single X509 CRL PEM block; the format is recognized from the bytes)
  * to the target that the configuration binds to its issuer and kind (plan §5.5). Bytes that are
  * not verified are never decoded whole: the most an upload costs before its signature is checked
- * is its body, one digest, the decoding of its header and the signature check.
+ * is its body, one digest, the decoding of its header (at most 16 KiB) and the signature check.
  *
  * 1. toDer and the SHA-256 of the DER.
  * 2. readState. Bytes that are the current CRL of a configured target → unchanged, unparsed.

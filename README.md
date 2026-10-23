@@ -2,26 +2,28 @@
 
 X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloudflare Workers + R2 或 Node 24 + 本地磁盘（Docker）。
 
-当前状态：切片 5b（UI）——在切片 1 的骨架（两条运行时、ObjectStore 与 memory / fs / r2 适配器、health、OpenAPI、UI 占位、
-测试夹具、Docker 镜像与本地 CI 脚本）、切片 2 的 catalog/config 与导入（PKI 解析、`config.json` / `catalog.json` 的 schema 与规则 V1–V9、
-管理接口与 CLI `aia`）、切片 3 的下载（按路径表提供 `/ca/`、`/crl/`、`/dcrl/`，`.pem` 读取时派生，摘要 `ETag` 与 304，纯文本 404 / 405）、
-切片 4 的 CRL 发布（`POST /api/v1/crls`、可选上传令牌、验签与新鲜度、history 标记、`aia publish`、Windows AD CS 助手
-`scripts/adcs-crl-uploader.ps1`）与切片 5a 的公开只读 API（`GET /api/v1/certificates`、`/certificates/{id}`、`/crls`、`/crls/{targetId}`、
-`/stats`，完整列表、详情全量构建、`no-store`；网页客户端 `src/web/client/`）之上，建成了正式 UI：总览（统计与"需关注"、证书表、
-CRL 目标表、CRL 上传卡片）、证书详情与 CRL 目标详情（概览、扩展渲染、吊销列表、PEM）、`en` / `zh-CN`、亮 / 暗主题（无亮色闪烁），
-以及两条运行时同一份的 UI CSP（`src/http/csp.ts`）、产物体积预算（`pnpm run size:web`，gzip 250 000 字节）与浏览器冒烟
-（`scripts/ui-smoke.ts`）。AD CS 助手的安装与计划任务、大 CRL 的容量见 [docs/operations.md](docs/operations.md)；完整的使用与运维文档在切片 6。
+功能：
 
-- [docs/plan.md](docs/plan.md)：设计文档（决策、存储模型、领域规则、API、切片划分）。
-- [docs/implementation/](docs/implementation/README.md)：分步实施计划。`README.md` 是总则（决策、完成定义、通用约定），每个切片一份文件
-  （步骤、测试、出口条件、待 owner 确认项）；与 plan.md 冲突时以它为准。
+- 下载：按配置的路径表提供 `/ca/`（CA 证书）、`/crl/`（完整 CRL）与 `/dcrl/`（delta CRL）。只存 DER，`.pem` 在读取时派生；
+  摘要 `ETag` 与 304，纯文本 404 / 405。
+- CRL 发布：`POST /api/v1/crls`，请求体是 CRL 本身（DER 或单个 PEM，按字节识别），默认匿名可写，请求体上限
+  `AIA_MAX_UPLOAD_BYTES`（默认 1 MiB）；设了 `AIA_UPLOAD_TOKEN` 就要令牌。与目标当前 CRL 相同的字节直接回答 unchanged，
+  其余先只解码不含吊销条目的部分并验签，通过后才完整解码。CLI 是 `aia publish`；Windows AD CS 助手是
+  `scripts/adcs-crl-uploader.ps1`，安装与计划任务见 [docs/operations.md](docs/operations.md)。
+- 管理：导入 CA 证书、写入与校验配置（`/api/v1/admin/*`，需要 `AIA_ADMIN_TOKEN`），CLI 是 `aia import` / `aia config`。
+- 公开只读 API：`GET /api/v1/certificates`、`/certificates/{id}`、`/crls`、`/crls/{targetId}`、`/stats`、`/health`；
+  OpenAPI 文档在 [docs/openapi.json](docs/openapi.json)（`pnpm run openapi` 重新生成）。
+- Web UI：总览（统计与"需关注"、证书表、CRL 目标表、CRL 上传）、证书与 CRL 目标详情（X.509 扩展、吊销列表、PEM），
+  `en` / `zh-CN`，亮 / 暗主题。
+
+设计见 [docs/plan.md](docs/plan.md)。
 
 ## 开发环境
 
 - Node 24（`.nvmrc` = `24`，`engines.node` = `^24.11.0`，`engine-strict`）。本机工具链不在默认 PATH 上，每个 shell 先执行
   `export PATH=$HOME/.local/opt/node-24/bin:$PATH COREPACK_ENABLE_DOWNLOAD_PROMPT=0`（后者让 corepack 下载 pnpm 时不停下来询问）。
 - pnpm 经 corepack 按 `package.json` 的 `packageManager`（`pnpm@10.34.7`）解析，不要用全局安装的 pnpm（npm `latest` 已是 12.x）。
-- OpenSSL ≥ 3.0（不是 LibreSSL）与 bash：生成与校验测试夹具用，只在开发与 CI 需要，运行时不需要。
+- bash：冒烟脚本用（`smoke:worker`、`ci:docker`）。OpenSSL ≥ 3.0（不是 LibreSSL）只在重新生成测试夹具时需要。
 - Docker Engine ≥ 25：`ci:docker` 与镜像构建用。
 - 远端 `github.com/acha666/aia-cdp`：每个切片在 `slice/<n>-<name>` 分支开发，本地合入 `main` 后推送；GitHub Actions 在推送 `main` 与 PR 时
   运行，每个任务只调用对应的 `pnpm run ci:<job>`，本机也能原样执行。
@@ -48,17 +50,14 @@ pnpm run ci:docker
 - `AIA_URL=http://127.0.0.1:8787 AIA_ADMIN_TOKEN=dev-admin-token pnpm run seed:dev`：经 CLI 导入夹具里的根 CA 与两个签发 CA，
   在尚无配置时应用一份示例配置，再给除 issuing-ca-2 的 delta 外的每个目标发布一个 CRL；可重复执行（再跑全部 unchanged，已有配置不动）。
   `pnpm run reset:dev` 删除本地数据（`.wrangler/state`、`.data`）。
-- `node scripts/ui-smoke.ts http://127.0.0.1:8787 [截图目录]`：浏览器冒烟（headless Chromium：`AIA_CHROMIUM`，或
-  `pnpm exec playwright-core install --only-shell chromium`），对刚 `seed:dev` 的服务跑 en / zh-CN × 亮 / 暗；不在 CI 里。
-- `pnpm run size:web`：`dist/web` 逐文件的 gzip 体积，总计超过 250 000 字节即失败（`ci:worker` 也跑）。
 
 CLI：`pnpm aia <命令>`（镜像内为 `node dist/server/cli/aia.js <命令>`），读 `AIA_URL` 与当前命令的令牌：import / config 用
 `AIA_ADMIN_TOKEN_FILE` / `AIA_ADMIN_TOKEN`，`publish <file...>` 用 `AIA_UPLOAD_TOKEN_FILE` / `AIA_UPLOAD_TOKEN`（服务端未设上传令牌时可不给）；
 `--token-file` 优先于两个变量。令牌只经 `https://` 发送，经 `http://` 只发往 `localhost`、`127.0.0.0/8` 与 `[::1]`；其他主机要加
 `--allow-insecure-http`，否则是用法错误、不发请求。退出码 0 成功、1 失败、2 用法错误；`pnpm aia --help` 列出子命令。`pnpm aia config validate docs/config.example.json` 离线校验示例配置（不需要服务与令牌）。
 
-测试夹具 `tests/fixtures/pki/` 入库，由 `tests/fixtures/generate-test-data.sh` 生成；vitest 的 globalSetup 只校验它与脚本一致
-（`--check`），不会改写。改了脚本就 `pnpm run fixtures` 重新生成并提交（每次生成都用新密钥，签名、摘要、key id 全变）。
+测试夹具 `tests/fixtures/pki/` 入库，由 `tests/fixtures/generate-test-data.sh` 生成，测试只读不写。改了脚本就 `pnpm run fixtures`
+重新生成并提交（每次生成都用新密钥，签名、摘要、key id 全变）。
 
 ## Docker
 

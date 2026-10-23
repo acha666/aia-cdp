@@ -171,6 +171,10 @@ const SEQUENCE_TAG = 0x30;
 const UTC_TIME_TAG = 0x17;
 const GENERALIZED_TIME_TAG = 0x18;
 
+// A CRL without its entries is the issuer name, the times, a few extensions and the signature: well
+// under 4 KiB for any real CA. The cap keeps the decoding before the signature check small.
+const MAX_HEADER_BYTES = 16 * 1024;
+
 /**
  * The TLV at `start`, ending by `limit`, read from its identifier and length octets alone: one
  * identifier octet (no field of a CertificateList or its TBSCertList has a tag number above 30)
@@ -246,10 +250,10 @@ function sequenceOf(parts: Uint8Array[]): Uint8Array {
  * signature is verified: those entries are only split off by their TLV header, never decoded.
  * The outer SEQUENCE must be DER and span `der` exactly, filled by exactly its three fields; the
  * revokedCertificates of the TBSCertList is the SEQUENCE after thisUpdate or nextUpdate. A
- * CertificateList re-assembled from every other field, octet for octet, then goes through the
- * strict decoding of parseCRL with asn1js's default limits. `tbsView` is the TBSCertList as
- * received, entries included, which the signature covers; `revokedCertificates` is undefined.
- * Throws PkiParseError like parseCRL.
+ * CertificateList re-assembled from every other field, octet for octet, must fit in 16 KiB and then
+ * goes through the strict decoding of parseCRL with asn1js's default limits. `tbsView` is the
+ * TBSCertList as received, entries included, which the signature covers; `revokedCertificates` is
+ * undefined. Throws PkiParseError like parseCRL.
  */
 export function parseCrlHeader(der: Uint8Array): ReceivedCrl {
   const outer = readTlv(der, 0, der.length);
@@ -278,6 +282,13 @@ export function parseCrlHeader(der: Uint8Array): ReceivedCrl {
     sequenceOf(fields.filter((_, index) => index !== revoked).map(octets)),
     ...unsigned.map(octets),
   ]);
+  if (header.byteLength > MAX_HEADER_BYTES) {
+    throw new PkiParseError(
+      "crl",
+      "structure",
+      "Bad CRL structure: more than 16 KiB besides the entries"
+    );
+  }
   const crl = crlOf(decodeDer(header, "crl"));
   crl.tbsView = octets(tbs);
   return crl;

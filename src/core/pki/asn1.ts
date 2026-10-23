@@ -145,7 +145,7 @@ export function integerNumber(block: Integer): number {
   const value = block.toBigInt();
   const limit = BigInt(Number.MAX_SAFE_INTEGER);
   if (value > limit || value < -limit) {
-    throw new RangeError(`INTEGER ${value} is beyond Number.MAX_SAFE_INTEGER`);
+    throw new RangeError("INTEGER is beyond Number.MAX_SAFE_INTEGER");
   }
   return Number(value);
 }

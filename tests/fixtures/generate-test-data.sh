@@ -30,7 +30,9 @@ OPENSSL=${OPENSSL:-openssl}
 die() { printf 'generate-test-data: %s\n' "$*" >&2; exit 1; }
 [[ $# -eq 0 ]] || die "usage: generate-test-data.sh (no arguments; writes tests/fixtures/pki)"
 
-OUT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pki
+[[ -n ${BASH_SOURCE[0]-} ]] || die "run the script as a file, not from stdin"
+script=$(readlink -f -- "${BASH_SOURCE[0]}") || die "cannot resolve the script path"
+OUT=${script%/*}/pki
 
 version=$("$OPENSSL" version 2>/dev/null) || die "cannot run '$OPENSSL'; set OPENSSL=/path/to/openssl (OpenSSL >= 3.0)"
 if ! [[ $version =~ ^OpenSSL\ ([0-9]+)\. && ${BASH_REMATCH[1]} -ge 3 ]]; then
@@ -408,27 +410,31 @@ obj() { # KEY VALUE ...; a VALUE starting with "=" is emitted raw (number, null,
   done
   printf '{%s}' "$out"
 }
+# A substitution inside the arguments of obj would hide a failing openssl from set -e, so each
+# value is assigned first.
 cert_entry() { # NAME ISSUER KEY NOT_BEFORE NOT_AFTER IMPORT ROLE
-  local serial
+  local serial digest
   serial=$("$OPENSSL" x509 -in "$WORK/certs/$1.pem" -noout -serial | cut -d= -f2)
+  digest=$(sha256 "$STAGE/certs/$1.der")
   CERTS+=("$(obj name "$1" der "certs/$1.der" pem "certs/$1.pem" issuer "$2" key "$3" \
     serial "$serial" notBefore "$(iso "$4")" notAfter "$(iso "$5")" import "=$6" \
-    sha256 "$(sha256 "$STAGE/certs/$1.der")" role "$7")")
+    sha256 "$digest" role "$7")")
 }
 # crl_entry FILE ISSUER KIND NUMBER BASE THIS NEXT EXPECT NOTE [SIGNER]
 #   NUMBER/BASE/NEXT may be "-" for absent. PUBLISH (environment, the
 #   GeneralizedTime form of THIS) is the Next CRL Publish value the CRL
 #   carries; unset for CRLs without that extension.
 crl_entry() {
-  local number=$4 base=$5 next=$7 signer=${10:-$2} publish='=null' revoked
+  local number=$4 base=$5 next=$7 signer=${10:-$2} publish='=null' revoked digest
   [[ $number =~ ^[0-9]+$ ]] || number='=null'
   [[ $base == - ]] && base='=null'
   if [[ $next == - ]]; then next='=null'; else next=$(iso "$next"); fi
   [[ -n ${PUBLISH-} ]] && publish=$(iso "$PUBLISH")
   revoked=$(grep -c '^R' "$WORK/ca/$signer/index.txt" || true)
+  digest=$(sha256 "$STAGE/crls/$1")
   CRLS+=("$(obj file "crls/$1" issuer "$2" signer "$signer" kind "$3" crlNumber "$number" \
     baseCrlNumber "$base" thisUpdate "$(iso "$6")" nextUpdate "$next" nextPublish "$publish" \
-    revoked "=$revoked" expect "$8" sha256 "$(sha256 "$STAGE/crls/$1")" note "$9")")
+    revoked "=$revoked" expect "$8" sha256 "$digest" note "$9")")
 }
 invalid_entry() { INVALID+=("$(obj file "invalid/$1" expect invalid_crl note "$2")"); }
 emit() { # NAME ENTRY...

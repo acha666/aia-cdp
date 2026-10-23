@@ -204,6 +204,21 @@ describe("publishCrl: rejections", () => {
     });
     expect(store.writes).toEqual([]);
   });
+
+  // The rest is decoded before the signature check, so only up to 16 KiB: asn1js makes an object
+  // for every arc of an OID, and the outer signatureAlgorithm is outside the signature.
+  it("answers invalid_crl for an outer signatureAlgorithm OID of 20 000 arcs", async () => {
+    const { base } = await fresh();
+    const oid = new asn1.ObjectIdentifier({ value: `1.2.${Array(20_000).fill(1).join(".")}` });
+    const algorithm = new Uint8Array(new asn1.Sequence({ value: [oid] }).toBER(false));
+    const store = recordingStore(base);
+    const junk = withOuterAlgorithm(fixture(FULL_01), () => algorithm);
+    expect((await publish(store, junk)).result).toEqual({
+      error: "invalid_crl",
+      details: { reason: "structure" },
+    });
+    expect(store.writes).toEqual([]);
+  });
 });
 
 describe("publishCrl: issuer and target", () => {
