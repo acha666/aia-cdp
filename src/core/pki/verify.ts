@@ -8,7 +8,7 @@ import { Any, fromBER, Integer, Null, ObjectIdentifier, Sequence } from "asn1js"
 import * as pkijs from "pkijs";
 import { assertWellFormed } from "./asn1.ts";
 import { CURVE_NAMES, HASH_ALG_NAMES, KEY_ALG_NAMES, SIGNATURE_ALG_NAMES } from "./constants.ts";
-import { toDigestInput } from "./conversion.ts";
+import { toDigestInput } from "../digest.ts";
 
 export type SignatureCheck =
   | { ok: true }

@@ -84,8 +84,8 @@ export const TimeSchema = z
   })
   .meta({ id: "Time" });
 
-// The lines of dumpAsn1 (Asn1Line in ../pki/asn1.ts); tests/core/summary/schemas.test.ts checks
-// that the two types stay equal.
+// The lines of dumpAsn1 (Asn1Line in ../pki/asn1.ts). buildExtension assigns them to
+// Extension.asn1, so the compiler checks that they fit this schema.
 export const Asn1LineSchema = z.object({
   depth: z.number(),
   tag: z.string(),

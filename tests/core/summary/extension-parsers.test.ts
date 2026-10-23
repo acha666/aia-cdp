@@ -2,7 +2,7 @@ import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
 import { describe, expect, it } from "vitest";
 import { formatGeneralizedTime, readStrictTime } from "../../../src/core/pki/asn1.ts";
-import { toHex } from "../../../src/core/pki/conversion.ts";
+import { toHex } from "../../../src/core/digest.ts";
 import { parseCertificate, parseCRL } from "../../../src/core/pki/parsers.ts";
 import { buildTBSCertificate } from "../../../src/core/summary/certificate.ts";
 import { buildTBSCertList } from "../../../src/core/summary/crl.ts";

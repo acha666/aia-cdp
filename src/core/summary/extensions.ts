@@ -41,8 +41,8 @@ import {
   readExtensionTime,
   readCRLInteger,
 } from "../pki/extensions.ts";
-import { displayText, dumpAsn1, integerNumber, readStrictTime } from "../pki/asn1.ts";
-import { toHex } from "../pki/conversion.ts";
+import { blockHex, displayText, dumpAsn1, integerNumber, readStrictTime } from "../pki/asn1.ts";
+import { toHex } from "../digest.ts";
 import type {
   Extensions,
   Extension,
@@ -190,10 +190,6 @@ function timeFromBlock(block: UTCTime | GeneralizedTime): Time {
 
 function generalizedTimeFromDate(date: Date): Time {
   return buildTime(new pkijs.Time({ type: 1, value: date }));
-}
-
-function blockHex(block: BaseBlock): string {
-  return toHex(block.toBER(false)).toUpperCase();
 }
 
 function stringOf(block: unknown): string | undefined {
@@ -372,7 +368,7 @@ function formatIpGeneralName(bytes: Uint8Array): { value: string; rawHex?: strin
   return { value: hex, rawHex: hex };
 }
 
-export function parseGeneralName(gn: pkijs.GeneralName): GeneralName {
+function parseGeneralName(gn: pkijs.GeneralName): GeneralName {
   const type = GENERAL_NAME_TYPES[gn.type] ?? "otherName";
   const value: unknown = gn.value;
 

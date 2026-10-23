@@ -5,7 +5,9 @@ import { Asn1TimeError, assertWellFormed, integerNumber, readStrictTime } from "
 import { PkiParseError } from "./errors.ts";
 import type { PkiKind } from "./errors.ts";
 import { readCRLInteger, readExtensionSchema } from "./extensions.ts";
-import { toHex } from "./conversion.ts";
+import { readTlv } from "./pem.ts";
+import type { Tlv } from "./pem.ts";
+import { toHex } from "../digest.ts";
 
 const LABELS: Record<PkiKind, string> = { certificate: "certificate", crl: "CRL" };
 
@@ -165,14 +167,6 @@ export function parseCRL(der: ArrayBuffer | Uint8Array): ReceivedCrl {
   return crlOf(decodeDer(der, "crl", limits));
 }
 
-/** One TLV of a DER input: its identifier octet, where its contents start and where it ends. */
-interface Tlv {
-  tag: number;
-  start: number;
-  contents: number;
-  end: number;
-}
-
 const SEQUENCE_TAG = 0x30;
 const UTC_TIME_TAG = 0x17;
 const GENERALIZED_TIME_TAG = 0x18;
@@ -180,39 +174,6 @@ const GENERALIZED_TIME_TAG = 0x18;
 // A CRL without its entries is the issuer name, the times, a few extensions and the signature: well
 // under 4 KiB for any real CA. The cap keeps the decoding before the signature check small.
 const MAX_HEADER_BYTES = 16 * 1024;
-
-/**
- * The TLV at `start`, ending by `limit`, read from its identifier and length octets alone: one
- * identifier octet (no field of a CertificateList or its TBSCertList has a tag number above 30)
- * and a definite length in its shortest form. Undefined otherwise.
- */
-function readTlv(der: Uint8Array, start: number, limit: number): Tlv | undefined {
-  const tag = der[start];
-  const first = der[start + 1];
-  // 0x80 is the indefinite form.
-  if (tag === undefined || first === undefined || (tag & 0x1f) === 0x1f || first === 0x80) {
-    return undefined;
-  }
-  let contents = start + 2;
-  let length = first;
-  if (first > 0x80) {
-    // More than four length octets describe more than any input; a leading 00 is one too many.
-    const count = first & 0x7f;
-    if (count > 4 || contents + count > limit || der[contents] === 0) {
-      return undefined;
-    }
-    length = 0;
-    for (const octet of der.subarray(contents, contents + count)) {
-      length = length * 256 + octet;
-    }
-    if (length < 0x80) {
-      return undefined;
-    }
-    contents += count;
-  }
-  const end = contents + length;
-  return end <= limit ? { tag, start, contents, end } : undefined;
-}
 
 /** The TLVs that fill the contents of `parent` exactly; more than `max` is a structure error. */
 function fieldsOf(der: Uint8Array, parent: Tlv, max: number): Tlv[] {
@@ -307,10 +268,6 @@ export function getCommonName(name: pkijs.RelativeDistinguishedNames): string | 
   return typeof value === "string" ? value : undefined;
 }
 
-export function getCN(cert: pkijs.Certificate): string | undefined {
-  return getCommonName(cert.subject);
-}
-
 /**
  * The Subject Key Identifier, lowercase hex; undefined without the extension. Throws when its value
  * is not exactly one primitive OCTET STRING.
@@ -344,15 +301,11 @@ export function getAuthorityKeyIdHex(
   return key ? toHex(key.valueBlock.valueHexView) : undefined;
 }
 
-export function getCRLNumber(crl: pkijs.CertificateRevocationList): bigint | undefined {
-  return getCRLInteger(crl, "2.5.29.20");
-}
-
-export function getDeltaBaseCRLNumber(crl: pkijs.CertificateRevocationList): bigint | undefined {
-  return getCRLInteger(crl, "2.5.29.27");
-}
-
-function getCRLInteger(crl: pkijs.CertificateRevocationList, oid: string): bigint | undefined {
+/** The INTEGER of the CRL extension `oid` (CRL Number, Delta CRL Indicator); undefined without it. */
+export function getCRLInteger(
+  crl: pkijs.CertificateRevocationList,
+  oid: string
+): bigint | undefined {
   const extension = crl.crlExtensions?.extensions.find((ext) => ext.extnID === oid);
   return extension ? readCRLInteger(extension) : undefined;
 }

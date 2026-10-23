@@ -4,8 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   getAuthorityKeyIdHex,
   getCommonName,
-  getCRLNumber,
-  getDeltaBaseCRLNumber,
+  getCRLInteger,
   parseCertificate,
   parseCRL,
 } from "../../../src/core/pki/parsers.ts";
@@ -122,15 +121,12 @@ it("reads the CRL Number and Delta CRL Indicator exactly and rejects negative or
     new pkijs.CertificateRevocationList({
       crlExtensions: new pkijs.Extensions({ extensions: [ext] }),
     });
-  for (const [oid, read] of [
-    ["2.5.29.20", getCRLNumber],
-    ["2.5.29.27", getDeltaBaseCRLNumber],
-  ] as const) {
+  for (const oid of ["2.5.29.20", "2.5.29.27"]) {
     const large = 2n ** 100n + 123n;
-    expect(read(crlWith(extension(oid, asn1.Integer.fromBigInt(large))))).toBe(large);
+    expect(getCRLInteger(crlWith(extension(oid, asn1.Integer.fromBigInt(large))), oid)).toBe(large);
     for (const value of [new asn1.Integer({ value: -1 }), new asn1.Enumerated({ value: 1 })]) {
       expect(
-        () => read(crlWith(extension(oid, value))),
+        () => getCRLInteger(crlWith(extension(oid, value)), oid),
         `${oid} ${value.constructor.name}`
       ).toThrow();
     }

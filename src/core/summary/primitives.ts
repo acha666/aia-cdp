@@ -14,7 +14,7 @@ import {
 } from "asn1js";
 import type { BitString as Asn1BitString } from "asn1js";
 import * as pkijs from "pkijs";
-import { formatGeneralizedTime, integerNumber } from "../pki/asn1.ts";
+import { blockHex, formatGeneralizedTime, integerNumber } from "../pki/asn1.ts";
 import {
   OID_DICTIONARY,
   KEY_ALG_NAMES,
@@ -22,7 +22,7 @@ import {
   HASH_ALG_NAMES,
   MASK_GEN_ALG_NAMES,
 } from "../pki/constants.ts";
-import { toHex, sha256Hex, sha1Hex, decimalFromHex, toDigestInput } from "../pki/conversion.ts";
+import { sha1Hex, sha256Hex, toHex } from "../digest.ts";
 import type {
   X509Version,
   SerialNumber,
@@ -61,11 +61,10 @@ export function buildVersion(version: number | undefined): X509Version {
 
 export function buildSerialNumber(integer: Integer): SerialNumber {
   const hex = toHex(integer.valueBlock.valueHexView).toUpperCase();
-  const decimal = decimalFromHex(hex) ?? undefined;
-  return { hex, decimal };
+  return { hex, decimal: BigInt(`0x${hex}`).toString() };
 }
 
-export function buildBitString(bitString: Asn1BitString): BitString {
+function buildBitString(bitString: Asn1BitString): BitString {
   const bytes = new Uint8Array(bitString.valueBlock.valueHex);
   const hex = toHex(bytes).toUpperCase();
   const unusedBits =
@@ -184,11 +183,8 @@ function parseRsassaPssParams(params: Sequence): AlgorithmParametersParsed | und
   }
 }
 
-export function buildAlgorithmParameters(
-  algorithmId: string,
-  params: BaseBlock
-): AlgorithmParameters {
-  const rawHex = toHex(params.toBER(false)).toUpperCase();
+function buildAlgorithmParameters(algorithmId: string, params: BaseBlock): AlgorithmParameters {
+  const rawHex = blockHex(params);
   let parsed: AlgorithmParametersParsed | undefined;
   if (params instanceof Null) {
     parsed = { type: "null" };
@@ -271,7 +267,7 @@ function attributeLabel(oid: string): string {
   return entry?.short ?? entry?.name ?? oid;
 }
 
-export function formatRfc4514(rdnSequence: RelativeDistinguishedName[]): string {
+function formatRfc4514(rdnSequence: RelativeDistinguishedName[]): string {
   return [...rdnSequence]
     .reverse()
     .map((rdn) =>
@@ -322,8 +318,8 @@ export function buildName(name: pkijs.RelativeDistinguishedNames): Name {
       const stringValue = typeof rawValue === "string" ? rawValue : null;
 
       const value: AttributeValue = { string: stringValue, encoding };
-      if (stringValue === null && valueBlock instanceof BaseBlock) {
-        value.rawHex = toHex(valueBlock.toBER(false)).toUpperCase();
+      if (stringValue === null && isBlock(valueBlock)) {
+        value.rawHex = blockHex(valueBlock);
       }
 
       attributes.push({
@@ -457,7 +453,6 @@ function parseECPublicKey(spki: pkijs.PublicKeyInfo): ECPublicKey | undefined {
 }
 
 export async function buildFingerprints(der: Uint8Array): Promise<Fingerprints> {
-  const bytes = toDigestInput(der);
-  const [sha1, sha256] = await Promise.all([sha1Hex(bytes), sha256Hex(bytes)]);
+  const [sha1, sha256] = await Promise.all([sha1Hex(der), sha256Hex(der)]);
   return { sha1, sha256 };
 }

@@ -10,7 +10,7 @@
 | `src/worker/pki/parsers.ts` | migrate-adapt | src/core/pki/parsers.ts | 2 |
 | `src/worker/pki/pem.ts` | migrate-adapt | src/core/pki/pem.ts | 2 |
 | `src/worker/pki/pkijs.ts` | drop | — | none |
-| `src/worker/pki/utils/conversion.ts` | migrate-adapt | src/core/pki/conversion.ts | 2 |
+| `src/worker/pki/utils/conversion.ts` | migrate-adapt | src/core/digest.ts | 2 |
 | `src/worker/pki/crls.ts` | reference-only | src/core/pki/verify.ts (rewrite) + freshness in src/core/publish.ts | 4 |
 | `src/worker/api/v2/builders/primitives.ts` | migrate-adapt | src/core/summary/primitives.ts（`formatGeneralizedTime` 移入 src/core/pki/asn1.ts，切片 4） | 4,5a |
 | `src/worker/api/v2/builders/extensions.ts` | migrate-adapt（导入；`buildTime` 收 `new pkijs.Time`；`noUncheckedIndexedAccess` 小修与 `isBlock` 守卫；评审修复：整数按内容字节读、SCT 列表校验；41 个字面量不变） | src/core/summary/extensions.ts | 5a |

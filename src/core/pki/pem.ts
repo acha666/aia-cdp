@@ -77,42 +77,61 @@ function boundariesOf(text: string): Boundary[] {
   }));
 }
 
-/**
- * Total length (header + content) of the outer TLV when `bytes` starts with a definite-length
- * SEQUENCE header; undefined otherwise (wrong tag, indefinite or oversized length, too short).
- */
-function sequenceLength(bytes: Uint8Array): number | undefined {
-  const first = bytes[1];
-  if (bytes[0] !== 0x30 || first === undefined) {
-    return undefined;
-  }
-  if (first < 0x80) {
-    return 2 + first;
-  }
-  const count = first & 0x7f;
-  if (count === 0 || count > 4 || bytes.length < 2 + count) {
-    return undefined;
-  }
-  let length = 0;
-  for (const byte of bytes.subarray(2, 2 + count)) {
-    length = length * 256 + byte;
-  }
-  return 2 + count + length;
+/** One TLV of a DER input: its identifier octet, where its contents start and where it ends. */
+export interface Tlv {
+  tag: number;
+  start: number;
+  contents: number;
+  end: number;
 }
 
 /**
- * Whether `bytes` is one definite-length SEQUENCE spanning all of them: toDer's test for DER
+ * The TLV at `start`, ending by `limit`, read from its identifier and length octets alone: one
+ * identifier octet (a tag number up to 30, enough for every TLV the callers read) and a definite
+ * length in its shortest form. Undefined otherwise.
+ */
+export function readTlv(der: Uint8Array, start: number, limit: number): Tlv | undefined {
+  const tag = der[start];
+  const first = der[start + 1];
+  // 0x80 is the indefinite form.
+  if (tag === undefined || first === undefined || (tag & 0x1f) === 0x1f || first === 0x80) {
+    return undefined;
+  }
+  let contents = start + 2;
+  let length = first;
+  if (first > 0x80) {
+    // More than four length octets describe more than any input; a leading 00 is one too many.
+    const count = first & 0x7f;
+    if (count > 4 || contents + count > limit || der[contents] === 0) {
+      return undefined;
+    }
+    length = 0;
+    for (const octet of der.subarray(contents, contents + count)) {
+      length = length * 256 + octet;
+    }
+    if (length < 0x80) {
+      return undefined;
+    }
+    contents += count;
+  }
+  const end = contents + length;
+  return end <= limit ? { tag, start, contents, end } : undefined;
+}
+
+/**
+ * Whether `bytes` is one SEQUENCE TLV with a DER header spanning all of them: toDer's test for DER
  * input, shared with the CLI, which sends such a file as is and splits anything else that holds
  * PEM boundaries.
  */
 export function isDerSequence(bytes: Uint8Array): boolean {
-  return sequenceLength(bytes) === bytes.length;
+  const tlv = readTlv(bytes, 0, bytes.length);
+  return tlv?.tag === 0x30 && tlv.end === bytes.length;
 }
 
 /**
  * The DER bytes of an uploaded certificate or CRL.
  *
- * - A SEQUENCE whose outer TLV spans exactly all bytes is DER and returned as is.
+ * - One SEQUENCE TLV with a DER header spanning exactly all bytes is DER and returned as is.
  * - Otherwise the bytes are decoded as UTF-8 (a BOM and text around the block are tolerated); if
  *   that contains `-----BEGIN `, it is PEM: every boundary must carry the kind's label
  *   (`pem_label`), there must be exactly one complete block (`pem_blocks`, also for a missing END

@@ -1,15 +1,13 @@
 // Catalog summaries (plan §5.3). A summary is always built whole and replaces the previous one (no
 // merge, no summary version), so there is one implementation of each summary.
 import type { Certificate, CertificateRevocationList } from "pkijs";
-import { sha1Hex, toHex } from "../pki/conversion.ts";
+import { sha1Hex, toHex } from "../digest.ts";
 import { PkiParseError } from "../pki/errors.ts";
 import type { PkiKind } from "../pki/errors.ts";
 import {
   getAuthorityKeyIdHex,
-  getCN,
   getCommonName,
-  getCRLNumber,
-  getDeltaBaseCRLNumber,
+  getCRLInteger,
   getNextCRLPublish,
   getSKIHex,
 } from "../pki/parsers.ts";
@@ -77,7 +75,7 @@ export async function buildCertificateSummary(
   der: Uint8Array
 ): Promise<CertificateSummary> {
   return {
-    subjectCN: getCN(cert) ?? null,
+    subjectCN: getCommonName(cert.subject) ?? null,
     issuerCN: getCommonName(cert.issuer) ?? null,
     serialNumber: toHex(cert.serialNumber.valueBlock.valueHexView).toUpperCase(),
     notBefore: cert.notBefore.value.toISOString(),
@@ -100,8 +98,8 @@ export type CrlFields = Omit<CrlSummary, "revokedCount" | "sha1">;
  * malformed. A Next CRL Publish that cannot be read is null, like a missing one.
  */
 export function readCrlFields(crl: CertificateRevocationList): CrlFields {
-  const crlNumber = readExtension("crl", "CRL Number", () => getCRLNumber(crl));
-  const base = readExtension("crl", "Delta CRL Indicator", () => getDeltaBaseCRLNumber(crl));
+  const crlNumber = readExtension("crl", "CRL Number", () => getCRLInteger(crl, "2.5.29.20"));
+  const base = readExtension("crl", "Delta CRL Indicator", () => getCRLInteger(crl, "2.5.29.27"));
   return {
     crlNumber: crlNumber?.toString(10) ?? null,
     baseCrlNumber: base?.toString(10) ?? null,

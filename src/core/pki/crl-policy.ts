@@ -4,7 +4,7 @@
 // extensions: these tables are the only extension gate.
 import { Sequence } from "asn1js";
 import type { CertificateRevocationList, Extension } from "pkijs";
-import { toHex } from "./conversion.ts";
+import { toHex } from "../digest.ts";
 import { readExtensionSchema } from "./extensions.ts";
 import { sameSignatureAlgorithms } from "./parsers.ts";
 import type { ReceivedCrl } from "./parsers.ts";

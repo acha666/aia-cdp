@@ -16,7 +16,7 @@ import {
   fromBER,
 } from "asn1js";
 import { KNOWN_OID_NAMES } from "./constants.ts";
-import { toHex } from "./conversion.ts";
+import { toHex } from "../digest.ts";
 
 export type Asn1TimeType = "utcTime" | "generalizedTime";
 
@@ -42,9 +42,6 @@ export class Asn1TimeError extends Error {
   override name = "Asn1TimeError";
 }
 
-const UTC_TIME_PATTERN = /^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z$/;
-const GENERALIZED_TIME_PATTERN = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z$/;
-
 function asciiOf(view: Uint8Array): string {
   let text = "";
   for (const byte of view) {
@@ -61,9 +58,9 @@ function utcDate(
   year: number,
   monthIndex: number,
   day: number,
-  hour = 0,
-  minute = 0,
-  second = 0
+  hour: number,
+  minute: number,
+  second: number
 ): Date {
   const date = new Date(0);
   date.setUTCFullYear(year, monthIndex, day);
@@ -71,51 +68,32 @@ function utcDate(
   return date;
 }
 
-function daysInMonth(year: number, month: number): number {
-  return utcDate(year, month, 0).getUTCDate();
-}
-
 /**
- * Decode a UTCTime/GeneralizedTime block in the only form RFC 5280 permits
- * (Zulu, whole seconds, fixed width). Anything else is rejected instead of
- * being silently normalized by the ASN.1 library.
+ * Decode a UTCTime/GeneralizedTime block from fromBER in the only form RFC 5280 permits
+ * (Zulu, whole seconds, fixed width). Anything else is rejected instead of being silently
+ * normalized by the ASN.1 library.
  */
 export function readStrictTime(block: BaseBlock): StrictTime {
-  // asn1js derives GeneralizedTime from UTCTime, so test the subclass first.
-  const isGeneralized = block instanceof GeneralizedTime;
-  const isUtc = !isGeneralized && block instanceof UTCTime;
-  if (!isUtc && !isGeneralized) {
+  // asn1js derives GeneralizedTime from UTCTime, so this admits both.
+  if (!(block instanceof UTCTime)) {
     throw new Asn1TimeError("ASN.1 value is not a time");
   }
+  const isUtc = !(block instanceof GeneralizedTime);
   const raw = asciiOf(block.valueBlock.valueHexView);
-  const match = isUtc ? UTC_TIME_PATTERN.exec(raw) : GENERALIZED_TIME_PATTERN.exec(raw);
-  if (!match) {
-    throw new Asn1TimeError(`Invalid ASN.1 time: ${JSON.stringify(raw)}`);
-  }
-  // Both patterns have exactly six groups (noUncheckedIndexedAccess).
-  const numbers = match.slice(1).map((part) => Number.parseInt(part, 10)) as [
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-  ];
-  const yearPart = numbers[0];
-  const year = isUtc ? (yearPart >= 50 ? 1900 + yearPart : 2000 + yearPart) : yearPart;
-  const [, month, day, hour, minute, second] = numbers;
-  const valid =
-    month >= 1 &&
-    month <= 12 &&
-    day >= 1 &&
-    day <= daysInMonth(year, month) &&
-    hour <= 23 &&
-    minute <= 59 &&
-    second <= 59;
-  if (!valid) {
-    throw new Asn1TimeError(`Invalid ASN.1 time: ${JSON.stringify(raw)}`);
-  }
+  // asn1js has read the text into its fields (UTCTime years pivoted at 50), looser forms too. Only
+  // the canonical form round-trips: a fraction, an offset or a missing field is not written back,
+  // and a field out of range rolls the date over.
+  const { year, month, day, hour, minute, second } = block;
   const date = utcDate(year, month - 1, day, hour, minute, second);
+  let canonical: string | undefined;
+  try {
+    canonical = formatGeneralizedTime(date).slice(isUtc ? 2 : 0);
+  } catch {
+    // Rolled over to a year outside 0000–9999.
+  }
+  if (block.error !== "" || canonical !== raw) {
+    throw new Asn1TimeError(`Invalid ASN.1 time: ${JSON.stringify(raw)}`);
+  }
   return { type: isUtc ? "utcTime" : "generalizedTime", raw, date };
 }
 
@@ -169,43 +147,23 @@ const SET = 17;
 /** Universal types whose contents have at least one octet (X.690 §8.2.1, 8.3.1, 8.6.2, 8.19). */
 const NON_EMPTY = new Set([BOOLEAN, INTEGER, BIT_STRING, OBJECT_IDENTIFIER, ENUMERATED]);
 
-/** Identifier octets of a tag number: one up to 30, else one plus base-128 digits (X.690 §8.1.2). */
-function identifierOctets(tagNumber: number): number {
-  if (tagNumber < 31) {
-    return 1;
-  }
-  let octets = 1;
-  for (let rest = tagNumber; rest > 0; rest = Math.floor(rest / 128)) {
-    octets++;
-  }
-  return octets;
-}
-
-/** Length octets of the definite form with the fewest octets (X.690 §10.1). */
-function lengthOctets(length: number): number {
-  if (length < 128) {
-    return 1;
-  }
-  let octets = 1;
-  for (let rest = length; rest > 0; rest = Math.floor(rest / 256)) {
-    octets++;
-  }
-  return octets;
-}
-
 // asn1js decodes BER and only warns, if at all, about what DER forbids, and re-encodes what it
 // decoded in DER. Re-encoding the unsigned outer SEQUENCE of a certificate this way keeps the TBS
 // and the signature intact, so without these checks one certificate could be imported under
 // several ids.
 function derProblem(block: BaseBlock): string | undefined {
   const { idBlock, lenBlock } = block;
-  if (idBlock.blockLength !== identifierOctets(idBlock.tagNumber)) {
+  // toBER writes the identifier octets in their shortest form; isHexOnly is a tag number asn1js
+  // could not read (more than 9 identifier octets).
+  if (idBlock.isHexOnly || idBlock.blockLength !== idBlock.toBER(true).byteLength) {
     return "tag not in its shortest form";
   }
   if (lenBlock.isIndefiniteForm) {
     return "indefinite length";
   }
-  if (lenBlock.blockLength !== lengthOctets(lenBlock.length)) {
+  // asn1js warns on a definite length only for a leading 00 and for the long form below 128: the
+  // two forms longer than the shortest one.
+  if (lenBlock.warnings.length > 0) {
     return "length not in its shortest form";
   }
   if (idBlock.tagClass === UNIVERSAL) {
@@ -260,41 +218,14 @@ export function assertWellFormed(root: BaseBlock): void {
   }
 }
 
-const UNIVERSAL_TAG_NAMES: Record<number, string> = {
-  1: "BOOLEAN",
-  2: "INTEGER",
-  3: "BIT STRING",
-  4: "OCTET STRING",
-  5: "NULL",
-  6: "OBJECT IDENTIFIER",
-  7: "ObjectDescriptor",
-  8: "EXTERNAL",
-  9: "REAL",
-  10: "ENUMERATED",
-  12: "UTF8String",
-  13: "RELATIVE-OID",
-  16: "SEQUENCE",
-  17: "SET",
-  18: "NumericString",
-  19: "PrintableString",
-  20: "TeletexString",
-  21: "VideotexString",
-  22: "IA5String",
-  23: "UTCTime",
-  24: "GeneralizedTime",
-  25: "GraphicString",
-  26: "VisibleString",
-  27: "GeneralString",
-  28: "UniversalString",
-  29: "CHARACTER STRING",
-  30: "BMPString",
-};
-
-export function tagLabel(block: BaseBlock): string {
+function tagLabel(block: BaseBlock): string {
   const { tagClass, tagNumber, isConstructed } = block.idBlock;
   switch (tagClass) {
-    case 1:
-      return UNIVERSAL_TAG_NAMES[tagNumber] ?? `UNIVERSAL ${tagNumber}`;
+    case 1: {
+      // fromBER decodes each universal type it knows into its own class, the rest into these two.
+      const name = (block.constructor as typeof BaseBlock).NAME;
+      return name === "PRIMITIVE" || name === "CONSTRUCTED" ? `UNIVERSAL ${tagNumber}` : name;
+    }
     case 2:
       return `APPLICATION ${tagNumber}`;
     case 3:
@@ -316,7 +247,7 @@ function describeOid(oid: string): string {
 }
 
 /** Human-readable scalar for a primitive block; undefined for constructed values. */
-export function primitiveText(block: BaseBlock): string | undefined {
+function primitiveText(block: BaseBlock): string | undefined {
   if (block.idBlock.isConstructed) {
     return undefined;
   }
@@ -388,11 +319,12 @@ export function dumpAsn1(bytes: Uint8Array | ArrayBuffer): Asn1Line[] | undefine
   return lines;
 }
 
+/** Uppercase hex of the whole encoding of `block` (as asn1js re-encodes it). */
+export function blockHex(block: BaseBlock): string {
+  return toHex(block.toBER(false)).toUpperCase();
+}
+
 /** Best-effort text for an arbitrary ASN.1 value (used for attribute values and qualifiers). */
 export function displayText(block: BaseBlock): string {
-  const text = primitiveText(block);
-  if (text !== undefined) {
-    return text;
-  }
-  return toHex(block.toBER(false)).toUpperCase();
+  return primitiveText(block) ?? blockHex(block);
 }
