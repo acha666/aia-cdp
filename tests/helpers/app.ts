@@ -6,12 +6,12 @@ import { parseSettings } from "../../src/runtime/settings.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { NOW } from "../fixtures/pki.ts";
 
-/** The smallest configuration that is `ok` now and under slice 2's full schema. */
+/** The smallest configuration that is `ok` under the full schema. */
 export const MINIMAL_CONFIG = '{"version":1,"certificates":{},"targets":{},"paths":{}}';
 
 /**
- * The Content-Security-Policy header of every response: implementation slice 5b step 10, with the
- * pre-paint script's hash from csp.ts (tests/http/csp.test.ts checks that against index.html).
+ * The Content-Security-Policy header of every response, with the pre-paint script's hash from
+ * csp.ts (tests/http/csp.test.ts checks that against index.html).
  */
 export const CSP_HEADER = [
   "default-src 'self'",
@@ -26,7 +26,7 @@ export const CSP_HEADER = [
 ].join("; ");
 
 /** parseSettings({}): the same defaults as scripts/generate-openapi.ts. */
-export function defaultSettings(): AppSettings {
+function defaultSettings(): AppSettings {
   const parsed = parseSettings({});
   if (!parsed.ok) {
     throw new Error(parsed.error);

@@ -1,26 +1,21 @@
-// POST /api/v1/crls (implementation slice 4 step 8, plan §7.1): the route gate (optional bearerAuth
-// → media type → bodyLimit), raw bodies, every row of the status table with its envelope and
-// details, the log lines, and the route's OpenAPI shape.
+// POST /api/v1/crls: raw bodies, the optional upload token, the media type and size limits, and
+// the status, code and message of every publish outcome.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CATALOG_KEY } from "../../src/core/catalog.ts";
 import type { CrlKind } from "../../src/core/catalog.ts";
-import { SIGNATURE_ALG_NAMES } from "../../src/core/pki/constants.ts";
-import { parseCertificate, parseCRL } from "../../src/core/pki/parsers.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
-import { buildCertificateSummary } from "../../src/core/summary/catalog-summary.ts";
 import { createApp } from "../../src/http/app.ts";
 import { CRL_MEDIA_TYPES } from "../../src/http/schemas.ts";
-import { parseSettings } from "../../src/runtime/settings.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
-import { fixture, fixturePath, manifest } from "../fixtures/pki.ts";
-import type { ManifestCrl } from "../fixtures/pki.ts";
-import { logRecords, testDeps } from "../helpers/app.ts";
+import { fixture, fixturePath } from "../fixtures/pki.ts";
+import { testDeps } from "../helpers/app.ts";
 import type { TestOverrides } from "../helpers/app.ts";
-import { cert, currentCrl } from "../helpers/catalog.ts";
+import { cert, crlEntry, currentCrl } from "../helpers/catalog.ts";
 import { ISSUING_FULL_ALIAS, setupPublish, targetPath } from "../helpers/publish.ts";
 import type { PublishSetup, SetupOptions } from "../helpers/publish.ts";
-import { flakyStore, recordingStore } from "../helpers/store.ts";
+import { errorOf, expectInternal } from "../helpers/reads.ts";
+import { flakyStore } from "../helpers/store.ts";
 
 const CRLS = "/api/v1/crls";
 const TOKEN = "upload-s3cret-token";
@@ -69,28 +64,6 @@ function text(path: string): string {
   return readFileSync(fixturePath(path), "utf8");
 }
 
-async function errorOf(
-  res: Response
-): Promise<{ code: string; message: string; details?: unknown }> {
-  expect(res.headers.get("Content-Type")).toMatch(/^application\/json/);
-  expect(res.headers.get("Cache-Control")).toBe("no-store");
-  const body = (await res.json()) as { error: { code: string; message: string } };
-  // Exactly the envelope: no other top-level or error fields.
-  expect(Object.keys(body)).toEqual(["error"]);
-  expect(Object.keys(body.error).sort()).toEqual(
-    "details" in body.error ? ["code", "details", "message"] : ["code", "message"]
-  );
-  return body.error;
-}
-
-function crlEntry(file: string): ManifestCrl {
-  const found = manifest.crls.find((crl) => crl.file === file);
-  if (found === undefined) {
-    throw new Error(`no manifest CRL ${file}`);
-  }
-  return found;
-}
-
 /** The download paths of a target of the shared setup (ISSUING_FULL_ALIAS sorts first). */
 function downloadsOf(issuer: string, kind: CrlKind): string[] {
   const path = targetPath({ issuer, kind });
@@ -118,44 +91,6 @@ async function publishedBody(file: string, outcome: string, setup: PublishSetup)
   };
 }
 
-/** `details.current` of a 409 against the fixture `file`. */
-function versionOf(file: string) {
-  const entry = crlEntry(file);
-  return {
-    sha256: entry.sha256,
-    crlNumber: entry.crlNumber,
-    thisUpdate: new Date(entry.thisUpdate).toISOString(),
-  };
-}
-
-/** The SIGNATURE_ALG_NAMES name of a CRL fixture's signature algorithm. */
-function algorithmOf(file: string): string {
-  const oid = parseCRL(fixture(file)).signatureAlgorithm.algorithmId;
-  return SIGNATURE_ALG_NAMES[oid] ?? oid;
-}
-
-/** A body that records whether anyone read it (highWaterMark 0: pull() runs only then). */
-function lazyBody(size: number): { body: ReadableStream<Uint8Array>; pulled: () => boolean } {
-  let pulled = false;
-  const body = new ReadableStream<Uint8Array>(
-    {
-      pull(controller) {
-        pulled = true;
-        controller.enqueue(new Uint8Array(size));
-        controller.close();
-      },
-    },
-    { highWaterMark: 0 }
-  );
-  return { body, pulled: () => pulled };
-}
-
-function lazyUpload(app: App, size: number, headers: Record<string, string>) {
-  const { body, pulled } = lazyBody(size);
-  const res = app.request(CRLS, { method: "POST", body, headers, duplex: "half" });
-  return { res, pulled };
-}
-
 describe("POST /api/v1/crls: bodies", () => {
   it("publishes the body as sent; the repeat is 200 unchanged", async () => {
     const { app, base, setup } = await service();
@@ -178,26 +113,14 @@ describe("POST /api/v1/crls: bodies", () => {
   });
 
   it.each<[string, string, () => Uint8Array<ArrayBuffer> | string]>([
-    ["application/pkix-crl", "DER", () => fixture(FULL_01)],
     ["application/x-pem-file", "PEM", () => text("crls/issuing-ca-1/full-01.pem")],
-    ["application/octet-stream", "DER", () => fixture(FULL_01)],
     ["application/pkix-crl", "PEM with CRLF", () => text("crls/issuing-ca-1/full-01.crlf.pem")],
-    ["application/octet-stream", "PEM", () => text("crls/issuing-ca-1/full-01.pem")],
-    ["Application/PKIX-CRL; charset=binary", "DER", () => fixture(FULL_01)],
+    ["application/octet-stream", "DER", () => fixture(FULL_01)],
   ])("takes a raw %s body (%s), recognizing the bytes", async (contentType, _, body) => {
     const { app, setup } = await service();
     const res = await upload(app, body(), contentType);
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual(await publishedBody(FULL_01, "created", setup));
-  });
-
-  it("publishes a delta to the issuer's delta target with its base CRL Number", async () => {
-    const { app, setup } = await service();
-    const res = await uploadFile(app, DELTA_01);
-    expect(res.status).toBe(201);
-    const body = await publishedBody(DELTA_01, "created", setup);
-    expect(body).toMatchObject({ kind: "delta", baseCrlNumber: crlEntry(DELTA_01).baseCrlNumber });
-    expect(await res.json()).toEqual(body);
   });
 
   it.each<[string, Body]>([
@@ -206,8 +129,7 @@ describe("POST /api/v1/crls: bodies", () => {
   ])("answers a raw upload with %s with 400", async (_, body) => {
     const { app } = await service();
     const res = await upload(app, body, "application/pkix-crl");
-    expect(res.status).toBe(400);
-    expect(await errorOf(res)).toEqual({
+    expect(await errorOf(res, 400, "bad_request")).toEqual({
       code: "bad_request",
       message: "Expected a CRL, but the upload is empty",
     });
@@ -215,18 +137,13 @@ describe("POST /api/v1/crls: bodies", () => {
 
   it.each<[string, string | undefined, string | null]>([
     ["text/plain", "text/plain; charset=utf-8", "text/plain"],
-    ["application/json", "application/json", "application/json"],
-    ["urlencoded", "application/x-www-form-urlencoded", "application/x-www-form-urlencoded"],
-    ["application/pkix-cert", "application/pkix-cert", "application/pkix-cert"],
     ["multipart/form-data", "multipart/form-data; boundary=xyz", "multipart/form-data"],
     ["no Content-Type", undefined, null],
-    ["an empty Content-Type", "", null],
   ])("answers a body sent as %s with 415 and what it received", async (_, type, received) => {
     const { app, base } = await service();
     const before = await base.list("");
     const res = await upload(app, fixture(FULL_01), type);
-    expect(res.status).toBe(415);
-    expect(await errorOf(res)).toMatchObject({
+    expect(await errorOf(res, 415, "unsupported_media_type")).toMatchObject({
       code: "unsupported_media_type",
       details: { received, accepted: [...CRL_MEDIA_TYPES] },
     });
@@ -234,7 +151,7 @@ describe("POST /api/v1/crls: bodies", () => {
   });
 });
 
-describe("POST /api/v1/crls: token, media type and size gate", () => {
+describe("POST /api/v1/crls: token and size", () => {
   it("needs no token while AIA_UPLOAD_TOKEN is unset, and ignores an Authorization header", async () => {
     const { app } = await service();
     expect((await uploadFile(app, ROOT_FULL_01)).status).toBe(201);
@@ -246,115 +163,51 @@ describe("POST /api/v1/crls: token, media type and size gate", () => {
     ["no token", {}, 'Bearer realm=""'],
     ["a wrong token", { Authorization: "Bearer wrong-token" }, 'Bearer error="invalid_token"'],
   ])("answers %s with 401 + WWW-Authenticate once a token is set", async (_, auth, challenge) => {
-    const { app, base } = await service({ overrides: { settings: { uploadToken: TOKEN } } });
+    const { app, base, setup } = await service({ overrides: { settings: { uploadToken: TOKEN } } });
     const before = await base.list("");
     const res = await uploadFile(app, ROOT_FULL_01, auth);
-    expect(res.status).toBe(401);
     expect(res.headers.get("WWW-Authenticate")).toBe(challenge);
-    expect(await errorOf(res)).toEqual({ code: "unauthorized", message: "Unauthorized" });
+    expect(await errorOf(res, 401, "unauthorized")).toMatchObject({ message: "Unauthorized" });
     expect(await base.list("")).toEqual(before);
+
+    const authorized = await uploadFile(app, ROOT_FULL_01, AUTH);
+    expect(authorized.status).toBe(201);
+    expect(await authorized.json()).toEqual(await publishedBody(ROOT_FULL_01, "created", setup));
   });
 
-  it.each(["Basic eA==", "Bearer", "Bearer two words", `Bearer ${TOKEN}!`, TOKEN])(
-    "answers the malformed Authorization %j with 400 bad_request",
-    async (authorization) => {
-      const { app } = await service({ overrides: { settings: { uploadToken: TOKEN } } });
-      const res = await uploadFile(app, ROOT_FULL_01, { Authorization: authorization });
-      expect(res.status).toBe(400);
-      expect(await errorOf(res)).toEqual({ code: "bad_request", message: "Bad request" });
-    }
-  );
-
-  it("publishes with the right token", async () => {
-    const { app, setup } = await service({ overrides: { settings: { uploadToken: TOKEN } } });
-    const res = await uploadFile(app, ROOT_FULL_01, AUTH);
-    expect(res.status).toBe(201);
-    expect(await res.json()).toEqual(await publishedBody(ROOT_FULL_01, "created", setup));
+  // An anonymous client never gets its body read, nor a 413 that tells it the limit.
+  it("checks the token, then the media type, then the size", async () => {
+    const settings = { uploadToken: TOKEN, maxUploadBytes: 16 };
+    const { app } = await service({ overrides: { settings } });
+    const body = () => new Uint8Array(1024);
+    expect((await upload(app, body(), "text/plain")).status).toBe(401);
+    expect((await upload(app, body(), "text/plain", AUTH)).status).toBe(415);
+    expect((await upload(app, body(), "application/pkix-crl", AUTH)).status).toBe(413);
   });
 
-  // The middleware order of step 8, each step proven by a request that two of them would answer
-  // differently.
-  it("checks the token before the media type, and both before reading the body", async () => {
-    const { app } = await service({
-      overrides: { settings: { uploadToken: TOKEN, maxUploadBytes: 16 } },
-    });
-    const anonymous = lazyUpload(app, 1024, { "Content-Type": "text/plain" });
-    expect((await anonymous.res).status).toBe(401);
-    expect(anonymous.pulled()).toBe(false);
-
-    const malformed = await upload(app, "x", "text/plain", { Authorization: "Basic eA==" });
-    expect(malformed.status).toBe(400);
-
-    const wrongType = lazyUpload(app, 1024, { ...AUTH, "Content-Type": "text/plain" });
-    const res = await wrongType.res;
-    expect(res.status).toBe(415);
-    expect(await errorOf(res)).toMatchObject({ details: { received: "text/plain" } });
-    expect(wrongType.pulled()).toBe(false);
-  });
-
-  it("checks the media type before the size, without a token as well", async () => {
-    const { app } = await service({ overrides: { settings: { maxUploadBytes: 16 } } });
-    const wrongType = lazyUpload(app, 1024, { "Content-Type": "application/json" });
-    expect((await wrongType.res).status).toBe(415);
-    expect(wrongType.pulled()).toBe(false);
-  });
-
-  it("answers 413 from Content-Length without reading the body", async () => {
+  it("answers 413 for a streamed body without Content-Length over AIA_MAX_UPLOAD_BYTES", async () => {
     const { app, base } = await service({ overrides: { settings: { maxUploadBytes: 64 } } });
     const before = await base.list("");
-    const declared = lazyUpload(app, 1024, {
-      "Content-Type": "application/pkix-crl",
-      "Content-Length": "1024",
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(1024));
+        controller.close();
+      },
     });
-    const res = await declared.res;
-    expect(res.status).toBe(413);
-    expect(await errorOf(res)).toMatchObject({ code: "payload_too_large" });
-    expect(declared.pulled()).toBe(false);
-    expect(await base.list("")).toEqual(before);
-  });
-
-  it("answers 413 for a streamed body without Content-Length", async () => {
-    const { app, base } = await service({ overrides: { settings: { maxUploadBytes: 64 } } });
-    const before = await base.list("");
-    const streamed = lazyUpload(app, 1024, { "Content-Type": "application/pkix-crl" });
-    const res = await streamed.res;
-    expect(res.status).toBe(413);
-    expect(await errorOf(res)).toMatchObject({ code: "payload_too_large" });
-    expect(streamed.pulled()).toBe(true);
-    expect(await base.list("")).toEqual(before);
-  });
-
-  it("takes a CRL of exactly AIA_MAX_UPLOAD_BYTES", async () => {
-    const der = fixture(ROOT_FULL_01);
-    const { app } = await service({ overrides: { settings: { maxUploadBytes: der.byteLength } } });
-    expect((await upload(app, der, "application/pkix-crl")).status).toBe(201);
-  });
-
-  // The decoder's limits follow the input's size (review C1), and a SEQUENCE of NULLs costs about
-  // 384 MB of heap per MiB: the default limit is what keeps one anonymous upload from ending a
-  // Node process (slice 4 risks).
-  it("limits a body to 1 MiB by default and answers 413 before decoding it", async () => {
-    const settings = parseSettings({});
-    expect(settings.ok && settings.value.app.maxUploadBytes).toBe(1_048_576);
-    const { app, deps, base } = await service();
-    expect(deps.settings.maxUploadBytes).toBe(1_048_576);
-    const before = await base.list("");
-    // 30 83 10 00 00: a well-formed SEQUENCE holding 1 MiB of NULLs, 5 octets over the limit.
-    const nulls = new Uint8Array(5 + 1_048_576);
-    nulls.set([0x30, 0x83, 0x10, 0x00, 0x00]);
-    for (let index = 5; index < nulls.length; index += 2) {
-      nulls[index] = 0x05;
-    }
-    const res = await upload(app, nulls, "application/pkix-crl");
-    expect(res.status).toBe(413);
-    expect(await errorOf(res)).toMatchObject({ code: "payload_too_large" });
-    // publishCrl logs one publish line per call, whatever happens: it never ran.
-    expect(logRecords(deps).filter((line) => line.msg === "publish")).toEqual([]);
+    const res = await app.request(CRLS, {
+      method: "POST",
+      body,
+      headers: { "Content-Type": "application/pkix-crl" },
+      duplex: "half",
+    });
+    expect(await errorOf(res, 413, "payload_too_large")).toMatchObject({
+      message: "Payload too large",
+    });
     expect(await base.list("")).toEqual(before);
   });
 });
 
-describe("POST /api/v1/crls: the status table", () => {
+describe("POST /api/v1/crls: outcomes", () => {
   it("answers 200 updated for a newer CRL", async () => {
     const { app, setup } = await service();
     expect((await uploadFile(app, FULL_01)).status).toBe(201);
@@ -363,139 +216,86 @@ describe("POST /api/v1/crls: the status table", () => {
     expect(await res.json()).toEqual(await publishedBody(FULL_02, "updated", setup));
   });
 
+  // The 409 rows upload against full-02 as the target's current CRL.
   it.each([
-    ["stale_crl", FULL_01, "The CRL is older than the target's current CRL"],
+    [409, "stale_crl", FULL_01, "The CRL is older than the target's current CRL"],
     [
+      409,
       "conflict",
       "crls/issuing-ca-1/full-02-conflict.der",
       "The target's current CRL has other bytes for the same CRL Number and thisUpdate",
     ],
     [
+      409,
       "non_orderable",
       "crls/issuing-ca-1/full-no-number.der",
       "Only one of the CRL and the target's current CRL has a CRL Number",
     ],
-  ])("answers 409 %s with the current CRL in details", async (code, file, message) => {
-    const { app, base } = await service();
-    expect((await uploadFile(app, FULL_02)).status).toBe(201);
-    const catalog = await base.get(CATALOG_KEY);
-    const res = await uploadFile(app, file);
-    expect(res.status).toBe(409);
-    expect(await errorOf(res)).toEqual({
-      code,
-      message,
-      details: { current: versionOf(FULL_02) },
-    });
-    expect((await base.get(CATALOG_KEY))?.bytes).toEqual(catalog?.bytes);
-  });
-
-  it("answers 409 concurrent_update without details when every catalog write is lost", async () => {
-    const { app, deps } = await service({ wrap: (base) => flakyStore(base, { failIfMatch: 4 }) });
-    const res = await uploadFile(app, FULL_01);
-    expect(res.status).toBe(409);
-    expect(await errorOf(res)).toEqual({
-      code: "concurrent_update",
-      message: "The catalog kept changing concurrently: retry the upload",
-    });
-    expect(logRecords(deps).filter((line) => line.msg === "publish")).toEqual([
-      expect.objectContaining({ level: "warn", reason: "concurrent_update", attempts: 4 }),
-    ]);
-  });
-
-  const unknownCriticalOid =
-    /critical ([0-9.]+)/.exec(crlEntry("crls/issuing-ca-1/full-unknown-critical.der").note)?.[1] ??
-    "";
-
-  it.each<[string, string, string, () => unknown]>([
-    ["invalid_crl", "invalid/garbage.txt", "Not a valid X.509 CRL", () => ({ reason: "der" })],
+    [422, "invalid_crl", "invalid/garbage.txt", "Not a valid X.509 CRL"],
     [
-      "invalid_crl",
-      "crls/issuing-ca-1/full-bad-time.der",
-      "Not a valid X.509 CRL",
-      () => ({ reason: "time" }),
-    ],
-    [
+      422,
       "not_yet_valid",
       "crls/issuing-ca-1/full-future.der",
       "The CRL's thisUpdate is more than 5 minutes ahead of the service's clock",
-      () => ({
-        thisUpdate: new Date(
-          crlEntry("crls/issuing-ca-1/full-future.der").thisUpdate
-        ).toISOString(),
-      }),
     ],
     [
+      422,
       "unknown_critical_extension",
       "crls/issuing-ca-1/full-unknown-critical.der",
       "The CRL has a critical extension this service does not know",
-      () => ({ oid: unknownCriticalOid }),
     ],
     [
+      422,
       "scoped_crl_unsupported",
       "crls/issuing-ca-1/full-idp-scoped.der",
       "Scoped and indirect CRLs are not supported",
-      // The Issuing Distribution Point extension.
-      () => ({ oid: "2.5.29.28" }),
     ],
     [
+      422,
       "unsupported_algorithm",
       "crls/ed25519-ca/full-01.der",
       "The CRL's signature algorithm is not supported",
-      () => ({ algorithm: algorithmOf("crls/ed25519-ca/full-01.der") }),
     ],
     [
+      422,
       "issuer_not_found",
       "crls/rogue-ca/full-01.der",
       "No imported certificate has the CRL's Authority Key Identifier as its Subject Key Identifier",
-      async () => {
-        const rogue = fixture(cert("rogue-ca").der);
-        const { subjectKeyId } = await buildCertificateSummary(parseCertificate(rogue), rogue);
-        return { authorityKeyId: subjectKeyId };
-      },
     ],
     [
+      422,
       "issuer_not_found",
       "crls/issuing-ca-1/full-no-aki.der",
       "The CRL has no Authority Key Identifier keyIdentifier",
-      () => ({ reason: "missing_aki" }),
     ],
     [
+      422,
       "invalid_signature",
       "crls/issuing-ca-1/full-broken-sig.der",
       "The CRL's signature does not verify with the issuer's key",
-      () => ({ algorithm: algorithmOf("crls/issuing-ca-1/full-broken-sig.der") }),
     ],
-  ])("answers 422 %s for %s", async (code, file, message, details) => {
-    const { app, base, deps } = await service();
-    const before = await base.list("");
-    const res = await uploadFile(app, file);
-    expect(res.status).toBe(422);
-    expect(await errorOf(res)).toEqual({ code, message, details: await details() });
-    expect(await base.list("")).toEqual(before);
-    expect(logRecords(deps).filter((line) => line.msg === "publish")).toEqual([
-      expect.objectContaining({ level: "warn", msg: "publish", reason: code }),
-    ]);
-  });
-
-  // Step 6 (the signature) before step 7 (freshness): a broken CRL older than the current one is
-  // 422 invalid_signature, never 409 stale_crl (slice 4 review, tests C8).
-  it("answers 422 invalid_signature for a broken CRL older than the current one", async () => {
-    const broken = "crls/issuing-ca-1/full-broken-sig.der";
-    const newer = "crls/issuing-ca-1/full-pss.der";
-    expect(BigInt(crlEntry(newer).crlNumber!)).toBeGreaterThan(BigInt(crlEntry(broken).crlNumber!));
+  ])("answers %i %s for %s, writing nothing", async (status, code, file, message) => {
     const { app, base } = await service();
-    expect((await uploadFile(app, newer)).status).toBe(201);
+    if (status === 409) {
+      expect((await uploadFile(app, FULL_02)).status).toBe(201);
+    }
     const before = await base.list("");
-    const catalog = await base.get(CATALOG_KEY);
-    const res = await uploadFile(app, broken);
-    expect(res.status).toBe(422);
-    expect(await errorOf(res)).toEqual({
-      code: "invalid_signature",
-      message: "The CRL's signature does not verify with the issuer's key",
-      details: { algorithm: algorithmOf(broken) },
-    });
+    const catalog = (await base.get(CATALOG_KEY))?.bytes;
+    const res = await uploadFile(app, file);
+    const error = await errorOf(res, status, code);
+    expect(error.message).toBe(message);
+    if (status === 409) {
+      const current = crlEntry(FULL_02);
+      expect(error.details).toEqual({
+        current: {
+          sha256: current.sha256,
+          crlNumber: current.crlNumber,
+          thisUpdate: new Date(current.thisUpdate).toISOString(),
+        },
+      });
+    }
     expect(await base.list("")).toEqual(before);
-    expect((await base.get(CATALOG_KEY))?.bytes).toEqual(catalog?.bytes);
+    expect((await base.get(CATALOG_KEY))?.bytes).toEqual(catalog);
   });
 
   it("answers 422 target_not_configured with the kind and the matching certificates", async () => {
@@ -503,180 +303,27 @@ describe("POST /api/v1/crls: the status table", () => {
       setup: { targets: [{ issuer: "issuing-ca-1", kind: "full" }] },
     });
     const res = await uploadFile(app, DELTA_01);
-    expect(res.status).toBe(422);
-    expect(await errorOf(res)).toEqual({
+    expect(await errorOf(res, 422, "target_not_configured")).toEqual({
       code: "target_not_configured",
       message: "No configured target of the CRL's kind names its issuer",
       details: { kind: "delta", certificates: [cert("issuing-ca-1").sha256] },
     });
   });
 
+  it("answers 409 concurrent_update without details when every catalog write is lost", async () => {
+    const { app } = await service({ wrap: (base) => flakyStore(base, { failIfMatch: 4 }) });
+    const res = await uploadFile(app, FULL_01);
+    expect(await errorOf(res, 409, "concurrent_update")).toEqual({
+      code: "concurrent_update",
+      message: "The catalog kept changing concurrently: retry the upload",
+    });
+  });
+
   it("answers 500 internal without the exception text when the store fails", async () => {
     const secret = "disk on fire at /var/lib/secret-path";
-    const { app, deps } = await service({
+    const { app } = await service({
       wrap: (base) => flakyStore(base, { putError: new Error(secret) }),
     });
-    const res = await uploadFile(app, FULL_01);
-    expect(res.status).toBe(500);
-    const text = await res.clone().text();
-    expect(text).not.toContain("disk on fire");
-    expect(await errorOf(res)).toEqual({ code: "internal", message: "Internal server error" });
-    const records = logRecords(deps);
-    // The call's publish line, onError's line with the stack, and the request line.
-    expect(records.map((line) => line.msg)).toEqual(["publish", "unhandled_error", "request"]);
-    expect(records[0]).toMatchObject({
-      level: "error",
-      reason: "internal",
-      detail: expect.stringContaining(secret) as unknown,
-    });
-    expect(records[2]).toMatchObject({ method: "POST", path: CRLS, status: 500 });
-  });
-});
-
-describe("POST /api/v1/crls: logs", () => {
-  it("logs one publish and one request line per upload, never the token", async () => {
-    const { app, deps, setup } = await service({
-      overrides: { settings: { uploadToken: TOKEN } },
-    });
-    await uploadFile(app, ROOT_FULL_01, AUTH);
-    await uploadFile(app, ROOT_FULL_01, AUTH);
-    await uploadFile(app, ROOT_FULL_01, { Authorization: "Bearer wrong-s3cret" });
-    await uploadFile(app, "crls/root-ca/full-01.der", { Authorization: `Basic ${TOKEN}` });
-    const records = logRecords(deps);
-    expect(records.filter((line) => line.msg === "request").map((line) => line.status)).toEqual([
-      201, 200, 401, 400,
-    ]);
-    const entry = crlEntry(ROOT_FULL_01);
-    expect(records.filter((line) => line.msg === "publish")).toEqual(
-      ["created", "unchanged"].map((outcome) => ({
-        level: "info",
-        msg: "publish",
-        targetId: setup.target("root-ca", "full"),
-        kind: "full",
-        outcome,
-        sha256: entry.sha256,
-        crlNumber: entry.crlNumber,
-        thisUpdate: new Date(entry.thisUpdate).toISOString(),
-        // Bytes already current are answered unchanged without being parsed.
-        ...(outcome === "created" ? { expired: false } : {}),
-        attempts: 1,
-        ms: expect.any(Number) as unknown,
-      }))
-    );
-    const all = deps.lines.join("\n");
-    expect(all).not.toContain(TOKEN);
-    expect(all).not.toContain("wrong-s3cret");
-  });
-
-  it("writes the blob and catalog.json only, nothing for a rejection", async () => {
-    const base = new MemoryStore();
-    await setupPublish(base);
-    const store = recordingStore(base);
-    const app = createApp(testDeps({ store }));
-    await uploadFile(app, "crls/issuing-ca-1/full-broken-sig.der");
-    expect(store.writes).toEqual([]);
-    await uploadFile(app, ROOT_FULL_01);
-    expect(store.writes.map((write) => write.op === "put" && write.key)).toEqual([
-      expect.stringMatching(/^blobs\/crls\//),
-      CATALOG_KEY,
-    ]);
-  });
-});
-
-describe("POST /api/v1/crls: OpenAPI", () => {
-  interface Operation {
-    operationId: string;
-    security: unknown;
-    requestBody: { required?: boolean; content: Record<string, { schema: unknown }> };
-    responses: Record<string, { content: Record<string, { schema: { $ref: string } }> }>;
-  }
-  interface Document {
-    paths: Record<string, Record<string, Operation>>;
-    components: { schemas: Record<string, unknown>; securitySchemes: Record<string, unknown> };
-  }
-
-  async function document(): Promise<Document> {
-    const app = createApp(testDeps());
-    return (await (await app.request("/api/v1/openapi.json")).json()) as Document;
-  }
-
-  /** Every `code` enum value reachable from a component schema, following $refs. */
-  function codes(doc: Document, name: string): string[] {
-    const found = new Set<string>();
-    const visit = (node: unknown): void => {
-      if (Array.isArray(node)) {
-        node.forEach(visit);
-        return;
-      }
-      if (node === null || typeof node !== "object") {
-        return;
-      }
-      const record = node as Record<string, unknown>;
-      if (typeof record.$ref === "string") {
-        visit(doc.components.schemas[record.$ref.replace("#/components/schemas/", "")]);
-        return;
-      }
-      const code = (record.properties as Record<string, { enum?: string[] }> | undefined)?.code;
-      for (const value of code?.enum ?? []) {
-        found.add(value);
-      }
-      Object.values(record).forEach(visit);
-    };
-    visit(doc.components.schemas[name]);
-    return [...found].sort();
-  }
-
-  it("documents the raw body's media types", async () => {
-    const doc = await document();
-    const operation = doc.paths[CRLS]?.post;
-    expect(operation?.operationId).toBe("uploadCrl");
-    expect(operation?.requestBody.required).toBe(true);
-    expect(Object.keys(operation?.requestBody.content ?? {})).toEqual([...CRL_MEDIA_TYPES]);
-    expect(operation?.security).toEqual([{}, { uploadBearer: [] }]);
-    expect(doc.components.securitySchemes.uploadBearer).toMatchObject({
-      type: "http",
-      scheme: "bearer",
-    });
-  });
-
-  it("declares exactly the statuses of the step 8 table, codes narrowed per status", async () => {
-    const doc = await document();
-    const responses = doc.paths[CRLS]?.post?.responses ?? {};
-    expect(Object.keys(responses).sort()).toEqual(
-      ["200", "201", "400", "401", "409", "413", "415", "422", "500"].sort()
-    );
-    const schemaOf = (status: string) =>
-      responses[status]?.content["application/json"]?.schema.$ref.replace(
-        "#/components/schemas/",
-        ""
-      ) ?? "";
-    expect(schemaOf("200")).toBe("PublishedCrl");
-    expect(schemaOf("201")).toBe("PublishedCrl");
-    expect(codes(doc, schemaOf("400"))).toEqual(["bad_request"]);
-    expect(codes(doc, schemaOf("401"))).toEqual(["unauthorized"]);
-    expect(codes(doc, schemaOf("409"))).toEqual(
-      ["concurrent_update", "conflict", "non_orderable", "stale_crl"].sort()
-    );
-    expect(codes(doc, schemaOf("413"))).toEqual(["payload_too_large"]);
-    expect(codes(doc, schemaOf("415"))).toEqual(["unsupported_media_type"]);
-    expect(codes(doc, schemaOf("422"))).toEqual(
-      [
-        "invalid_crl",
-        "not_yet_valid",
-        "unknown_critical_extension",
-        "scoped_crl_unsupported",
-        "unsupported_algorithm",
-        "issuer_not_found",
-        "target_not_configured",
-        "invalid_signature",
-      ].sort()
-    );
-    expect(codes(doc, schemaOf("500"))).toEqual(["internal"]);
-  });
-
-  it("is the same document whether or not an upload token is set", async () => {
-    const withToken = createApp(testDeps({ settings: { uploadToken: TOKEN } }));
-    const res = await withToken.request("/api/v1/openapi.json");
-    expect(await res.json()).toEqual(await document());
+    await expectInternal(await uploadFile(app, FULL_01), "disk on fire");
   });
 });

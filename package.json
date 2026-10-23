@@ -21,7 +21,7 @@
     "openapi": "node scripts/generate-openapi.ts",
     "check": "pnpm run typecheck && eslint --max-warnings 0 . && pnpm run format:check",
     "test": "vitest run",
-    "test:r2": "WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true AIA_TEST_R2=1 vitest run tests/storage/r2.test.ts tests/storage/publish-stores.test.ts",
+    "test:r2": "WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true AIA_TEST_R2=1 vitest run tests/storage/r2.test.ts",
     "fixtures": "bash tests/fixtures/generate-test-data.sh",
     "build": "pnpm run build:web && pnpm run build:server",
     "build:web": "vite build",

@@ -1,5 +1,4 @@
-// worker-aia-cdp@5b570aa:tests/web/upload-input.test.ts, unchanged apart from node:test → vitest
-// (and vitest's `assert` for node:assert: the web program has no Node types).
+// The upload card's input state: pasted text or one file, never both.
 import { assert, test } from "vitest";
 import { useCrlUploadInput } from "@/composables/useCrlUploadInput";
 

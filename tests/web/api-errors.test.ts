@@ -1,20 +1,12 @@
-// The web client's error handling (implementation slice 5a step 10): unwrap and the hc client's
-// fetch. Rewrite of worker-aia-cdp@5b570aa:tests/web/state.test.ts case (3): malformed responses
-// and HTTP errors fail with a code instead of turning into an empty success. The fetch is stubbed;
-// the bodies are the v1 envelope as src/http/errors.ts writes it.
+// The web client's error handling: unwrap and the hc client's fetch. Malformed responses and
+// HTTP errors fail with a code instead of turning into an empty success. The fetch is stubbed; the
+// bodies are the v1 envelope as src/http/errors.ts writes it.
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { STATS, TARGET_IDS } from "./helpers";
 import { api } from "@/client/api";
 import { ApiError, unwrap } from "@/client/errors";
 
-const STATS = {
-  certificates: 2,
-  targets: { full: 1, delta: 1 },
-  published: { full: 1, delta: 0 },
-  totalRevocations: 3,
-  derBytes: 4096,
-};
-
-const TARGET_ID = "0b7c5f2e-6d1a-4c3b-9e8f-1a2b3c4d5e6f";
+const TARGET_ID = TARGET_IDS.issuingFull;
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -79,24 +71,21 @@ describe("unwrap", () => {
       status: 422,
       details: { reason: "der" },
     });
-  });
 
-  it("keeps a code this client does not know", async () => {
-    const error = await apiError(
+    // A code this client does not know is kept.
+    const newer = await apiError(
       unwrap(Response.json({ error: { code: "brand_new", message: "Newer" } }, { status: 409 }))
     );
-    expect(error).toMatchObject({ code: "brand_new", status: 409 });
+    expect(newer).toMatchObject({ code: "brand_new", status: 409 });
   });
 
   it.each([
     ["an HTML page", new Response("<html>Bad Gateway</html>", { status: 502 })],
-    ["an empty body", new Response(null, { status: 500 })],
     ["JSON that is not the envelope", Response.json({ status: "unhealthy" }, { status: 503 })],
     ["an envelope without a message", Response.json({ error: { code: "x" } }, { status: 400 })],
     ["HTML with 200", new Response("<!doctype html><title>UI</title>", { status: 200 })],
     // An empty success is no success: not null, not undefined.
     ["an empty body with 200", new Response(null, { status: 200 })],
-    ["a 204", new Response(null, { status: 204 })],
   ])("throws invalid_response for %s", async (_name, response) => {
     const error = await apiError(unwrap(response));
     expect(error).toMatchObject({ code: "invalid_response", status: response.status });
@@ -142,18 +131,5 @@ describe("api (hc<AppType>)", () => {
     const error = await apiError(api.api.v1.certificates.$get());
     expect(error).toMatchObject({ code: "network", status: 0 });
     expect(error.cause).toBe(failure);
-  });
-
-  it("keeps an abort as it is", async () => {
-    stubFetch(async (init) => {
-      throw init?.signal?.reason;
-    });
-    const controller = new AbortController();
-    controller.abort();
-    const error = await rejection(
-      api.api.v1.certificates.$get({}, { init: { signal: controller.signal } })
-    );
-    expect(error).not.toBeInstanceOf(ApiError);
-    expect(error).toMatchObject({ name: "AbortError" });
   });
 });

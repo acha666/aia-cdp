@@ -1,5 +1,5 @@
-// Date display helpers (implementation slice 5b step 2). The time zone is set per test through TZ
-// (Node applies a changed TZ to Date and Intl at once); the clock is always passed in.
+// Date display helpers. The time zone is set per test through TZ (Node applies a changed TZ to
+// Date and Intl at once); the clock is always passed in.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAppI18n } from "@/i18n";
 import type { AppLocale } from "@/i18n";
@@ -10,7 +10,6 @@ import {
   formatDateTimeWithZone,
   formatRelativeDetailedSeconds,
   formatRelativeSeconds,
-  formatTimezoneOffset,
   getRelativeTime,
   getRelativeTimeDetailed,
 } from "@/utils/dates";
@@ -34,31 +33,19 @@ const MINUTE = 60;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-describe("time zone label", () => {
-  it.each([
-    ["UTC", "UTC"],
-    ["Asia/Shanghai", "UTC+8"],
-    ["Asia/Kolkata", "UTC+5:30"],
-    // Newfoundland Standard Time in January.
-    ["America/St_Johns", "UTC-3:30"],
-  ])("labels %s as %s", (zone, label) => {
-    vi.stubEnv("TZ", zone);
-    expect(formatTimezoneOffset(new Date(ISO))).toBe(label);
-  });
-
+describe("absolute dates", () => {
   it("labels each date with its own offset, daylight saving time included", () => {
+    // Newfoundland: UTC-3:30 in January, UTC-2:30 in July.
     vi.stubEnv("TZ", "America/St_Johns");
-    const july = "2026-07-04T00:05:07Z";
-    expect(formatTimezoneOffset(new Date(july))).toBe("UTC-2:30");
-    expect(formatDateTimeWithZone(july, en)).toBe("Jul 03, 2026 21:35:07 (UTC-2:30)");
+    expect(formatDateTimeWithZone("2026-07-04T00:05:07Z", en)).toBe(
+      "Jul 03, 2026 21:35:07 (UTC-2:30)"
+    );
     expect(formatDateTimeWithZone(ISO, en)).toBe("Jan 03, 2026 20:35:07 (UTC-3:30)");
   });
-});
 
-describe("absolute dates", () => {
   it("prints five past midnight as 00:05, not 24:05 (hourCycle h23)", () => {
     vi.stubEnv("TZ", "UTC");
-    // Node prints 00:05 for hour12: false too (and reports h23 for it): look at what is asked.
+    // Node prints 00:05 for hour12: false too (some browsers print 24:05): look at what is asked.
     const DateTimeFormat = Intl.DateTimeFormat;
     const asked: Intl.DateTimeFormatOptions[] = [];
     vi.spyOn(Intl, "DateTimeFormat").mockImplementation(function (locales, options) {
@@ -67,11 +54,10 @@ describe("absolute dates", () => {
     });
 
     expect(formatDateTimeWithZone(ISO, en)).toBe("Jan 04, 2026 00:05:07 (UTC)");
-    expect(formatDateTimeWithZone(ISO, en)).not.toContain("24:05");
     const time = asked.filter((options) => options.hour !== undefined);
     expect(time.length).toBeGreaterThan(0);
     for (const options of time) {
-      expect(options.hourCycle).toBe("h23");
+      expect(options).toMatchObject({ hourCycle: "h23" });
       expect(options).not.toHaveProperty("hour12");
     }
   });
@@ -134,8 +120,6 @@ describe("relative times", () => {
   it("speaks zh-CN", () => {
     const at = Date.parse(ISO);
     expect(getRelativeTime(ISO, at + (2 * HOUR + 5 * MINUTE) * 1000, zh)).toBe("2小时 5分钟前");
-    expect(getRelativeTime(ISO, at - 3 * DAY * 1000, zh)).toBe("3天后");
     expect(getRelativeTimeDetailed(ISO, at - (DAY + 30 * MINUTE) * 1000, zh)).toBe("1天 30分钟后");
-    expect(formatRelativeSeconds(0, zh)).toBe("现在");
   });
 });

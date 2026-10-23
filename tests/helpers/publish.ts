@@ -1,6 +1,6 @@
-// State and calls for the publish tests (implementation slice 4): certificates imported with
-// importCertificate and targets applied with applyConfig, as an operator would, on any store
-// (MemoryStore in tests/core, fs and R2 in tests/storage); publishCrl at NOW with a recording sleep.
+// State and calls for the publish tests: certificates imported with importCertificate and targets
+// applied with applyConfig, as an operator would, on any store; publishCrl at NOW with a recording
+// sleep.
 import { applyConfig } from "../../src/core/admin.ts";
 import { CATALOG_KEY, ConfigSchema } from "../../src/core/catalog.ts";
 import type { Config, CrlKind } from "../../src/core/catalog.ts";
@@ -18,12 +18,12 @@ export interface TargetSpec {
   kind: CrlKind;
 }
 
-/** Every certificate the manifest marks `import: true` (appendix D.1). */
+/** Every certificate the manifest marks `import: true`. */
 export const IMPORTED: readonly string[] = manifest.certificates
   .filter((certificate) => certificate.import)
   .map((certificate) => certificate.name);
 
-/** issuing-ca-1 and -2 full + delta, root-ca, ed25519-ca and ed448-ca full (slice 4 tests). */
+/** issuing-ca-1 and -2 full + delta, root-ca, ed25519-ca and ed448-ca full. */
 export const DEFAULT_TARGETS: readonly TargetSpec[] = [
   { issuer: "issuing-ca-1", kind: "full" },
   { issuer: "issuing-ca-1", kind: "delta" },
@@ -56,7 +56,7 @@ export interface SetupOptions {
   certificates?: readonly string[];
   /** Default DEFAULT_TARGETS; each gets a fresh UUID and targetPath. */
   targets?: readonly TargetSpec[];
-  /** Edits config.json before it is applied (certificate labels and paths: slice 5a's views). */
+  /** Edits config.json before it is applied (certificate labels, more paths). */
   configure?: (config: Config) => void;
 }
 

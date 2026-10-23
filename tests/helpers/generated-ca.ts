@@ -1,7 +1,7 @@
 // A CA made in the test process (a WebCrypto P-256 key, a self-signed PKIjs certificate) and the
-// CRLs it signs, for shapes the committed fixtures cannot hold: thousands of revoked entries
-// (slice 4 review C1) or a CRL Number at its length limit (C5). Its certificate goes through
-// importCertificate and applyConfig like any fixture CA; every time derives from NOW.
+// CRLs it signs, for shapes the committed fixtures cannot hold: thousands of revoked entries or a
+// CRL Number at its length limit. Its certificate goes through importCertificate and applyConfig
+// like any fixture CA; every time derives from NOW.
 import type { webcrypto } from "node:crypto";
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
@@ -10,6 +10,7 @@ import { ConfigSchema } from "../../src/core/catalog.ts";
 import { importCertificate } from "../../src/core/import.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { NOW } from "../fixtures/pki.ts";
+import { extension } from "./pki.ts";
 
 const HOUR = 3_600_000;
 
@@ -31,12 +32,6 @@ const nameOf = (commonName: string) =>
       }),
     ],
   });
-
-const extension = (
-  extnID: string,
-  value: { toBER(sizeOnly?: boolean): ArrayBuffer },
-  critical = false
-) => new pkijs.Extension({ extnID, critical, extnValue: value.toBER(false) });
 
 const utcTime = (offsetMs: number) =>
   new pkijs.Time({ type: 0, value: new Date(NOW.getTime() + offsetMs) });

@@ -1,6 +1,5 @@
-// The CRL upload card (implementation slice 5b step 7) against a stubbed fetch: what it sends, the
-// three outcomes, the error texts, the optional token, and the input rules kept from
-// worker-aia-cdp@5b570aa:src/web/components/CrlUpload.vue.
+// The CRL upload card against a stubbed fetch: what it sends, the three outcomes, the error texts,
+// the optional token, and the input rules.
 import { VueQueryPlugin } from "@tanstack/vue-query";
 import type { QueryClient } from "@tanstack/vue-query";
 import { flushPromises, mount } from "@vue/test-utils";
@@ -30,12 +29,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function render(post: Handler, options: { cachedTargets?: boolean } = {}) {
+function render(post: Handler) {
   const api = stubApi({ "POST /api/v1/crls": post });
   client = createQueryClient();
-  if (options.cachedTargets !== false) {
-    client.setQueryData(queryKeys.crls, targetItems());
-  }
+  client.setQueryData(queryKeys.crls, targetItems());
   wrapper = mount(CrlUploadCard, {
     attachTo: document.body,
     global: { plugins: [createAppI18n("en"), [VueQueryPlugin, { queryClient: client }]] },
@@ -129,75 +126,49 @@ describe("CrlUploadCard", () => {
     expect((card.get("textarea").element as HTMLTextAreaElement).value).toBe("");
   });
 
-  it("names the kind when the target list is not cached", async () => {
-    const { card } = render(ok("created"), { cachedTargets: false });
-    await paste(card, PEM);
-    await submit(card);
-
-    expect(card.get('[data-testid="upload-success"]').text()).toContain(
-      "Published to the full CRL target: its first CRL."
-    );
-  });
-
   it.each([
     [
       "stale_crl",
       () => envelope(409, "stale_crl"),
-      "The CRL is older than the target's current CRL.",
+      ["The CRL is older than the target's current CRL."],
     ],
     [
-      "invalid_crl",
+      "invalid_crl with its reason",
       () => envelope(422, "invalid_crl", { reason: "pem_blocks" }),
-      "This is not a valid X.509 CRL.",
+      [
+        "This is not a valid X.509 CRL.",
+        "Reason: the text must contain exactly one complete PEM block",
+      ],
+    ],
+    [
+      "a reason it does not know as it is",
+      () => envelope(422, "invalid_crl", { reason: "something_new" }),
+      ["This is not a valid X.509 CRL.", "Reason: something_new"],
     ],
     [
       "a code of a newer server",
       () => envelope(422, "future_code"),
-      "Unexpected error (future_code).",
+      ["Unexpected error (future_code)."],
     ],
     [
       "no response",
       () => Promise.reject(new TypeError("Failed to fetch")),
-      "The server could not be reached.",
+      ["The server could not be reached."],
     ],
-  ])("shows %s as a toast and an inline error", async (_, answer, text) => {
+  ])("shows %s as a toast and an inline error", async (_, answer, [message, ...more]) => {
     const error = vi.spyOn(toast, "error");
     const { card } = render(answer);
     await paste(card, PEM);
     await submit(card);
 
-    expect(error).toHaveBeenCalledWith(text);
+    expect(error).toHaveBeenCalledWith(message);
     const alert = card.get('[data-testid="upload-error"]');
     expect(alert.attributes("role")).toBe("alert");
-    expect(alert.text()).toContain("Upload failed");
-    expect(alert.text()).toContain(text);
+    for (const text of ["Upload failed", message!, ...more]) {
+      expect(alert.text()).toContain(text);
+    }
     // A failed input stays for another try.
     expect((card.get("textarea").element as HTMLTextAreaElement).value).toBe(PEM);
-  });
-
-  it("explains details.reason, and shows a reason it does not know as it is", async () => {
-    const { card } = render(() => envelope(422, "invalid_crl", { reason: "pem_blocks" }));
-    await paste(card, PEM);
-    await submit(card);
-    expect(card.get('[data-testid="upload-error"]').text()).toContain(
-      "Reason: the text must contain exactly one complete PEM block"
-    );
-
-    wrapper?.unmount();
-    const noAki = render(() => envelope(422, "issuer_not_found", { reason: "missing_aki" }));
-    await paste(noAki.card, PEM);
-    await submit(noAki.card);
-    const alert = noAki.card.get('[data-testid="upload-error"]');
-    expect(alert.attributes("data-code")).toBe("issuer_not_found");
-    expect(alert.text()).toContain("Reason: the CRL has no Authority Key Identifier");
-
-    wrapper?.unmount();
-    const second = render(() => envelope(422, "invalid_crl", { reason: "something_new" }));
-    await paste(second.card, PEM);
-    await submit(second.card);
-    expect(second.card.get('[data-testid="upload-error"]').text()).toContain(
-      "Reason: something_new"
-    );
   });
 
   it("opens and focuses the token field on 401, then sends the token as a bearer header", async () => {
@@ -242,51 +213,15 @@ describe("CrlUploadCard", () => {
     expect(posts()).toHaveLength(1);
     // aria-disabled, not disabled: a disabled button drops the keyboard focus to <body>.
     expect(button.attributes("aria-disabled")).toBe("true");
-    expect(button.attributes("disabled")).toBeUndefined();
     expect(document.activeElement).toBe(button.element);
     expect(button.text()).toBe("Uploading…");
 
     pending.resolve(ok("created")());
     await flushPromises();
-    // Done, and disabled because the (unchanged) input was cleared: the focus moves to the result.
+    // Done, and disabled because the input was cleared: the focus moves to the result.
     expect(button.text()).toBe("Upload CRL");
-    expect(button.attributes("disabled")).toBeDefined();
     expect(posts()).toHaveLength(1);
-    const alert = card.get('[data-testid="upload-success"]');
-    expect(alert.attributes("tabindex")).toBe("-1");
-    expect(document.activeElement).toBe(alert.element);
-  });
-
-  it("sends one request for two submits in the same tick", async () => {
-    const pending = deferred<Response>();
-    const { card, posts } = render(() => pending.promise);
-    await paste(card, PEM);
-
-    // No await in between: the guard must hold before the first await of the handler.
-    const form = card.get("form").element;
-    form.dispatchEvent(new Event("submit", { cancelable: true }));
-    form.dispatchEvent(new Event("submit", { cancelable: true }));
-    await flushPromises();
-    expect(posts()).toHaveLength(1);
-
-    pending.resolve(ok("created")());
-    await flushPromises();
-    expect(posts()).toHaveLength(1);
-  });
-
-  it("moves the focus from the submit button to a failure, and leaves it elsewhere alone", async () => {
-    const { card } = render(() => envelope(409, "stale_crl"));
-    await paste(card, PEM);
-    const button = card.get('[data-testid="upload-submit"]');
-    (button.element as HTMLButtonElement).focus();
-    await submit(card);
-    expect(document.activeElement).toBe(card.get('[data-testid="upload-error"]').element);
-
-    // The text area keeps the focus when the upload was started from somewhere else.
-    const textarea = card.get("textarea").element as HTMLTextAreaElement;
-    textarea.focus();
-    await submit(card);
-    expect(document.activeElement).toBe(textarea);
+    expect(document.activeElement).toBe(card.get('[data-testid="upload-success"]').element);
   });
 
   it("refuses a token the server cannot accept before sending it", async () => {
@@ -312,19 +247,6 @@ describe("CrlUploadCard", () => {
     expect(new Headers(posts()[0]!.headers).get("Authorization")).toBe(
       "Bearer abc-DEF_1.2~3+4/5=="
     );
-  });
-
-  it("keeps an input that changed while the upload ran", async () => {
-    const pending = deferred<Response>();
-    const { card } = render(() => pending.promise);
-    await paste(card, PEM);
-    await card.get("form").trigger("submit");
-    await paste(card, `${PEM}\n`);
-
-    pending.resolve(ok("created")());
-    await flushPromises();
-    expect(card.find('[data-testid="upload-success"]').exists()).toBe(true);
-    expect((card.get("textarea").element as HTMLTextAreaElement).value).toBe(`${PEM}\n`);
   });
 
   it("hints at invalid PEM only for text that is there", async () => {

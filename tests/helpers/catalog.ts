@@ -1,5 +1,5 @@
-// Catalog values built from the fixtures (implementation §2.5: digests, key ids and sizes come from
-// the files or manifest.json, never from literals).
+// Catalog values built from the fixtures: digests, key ids and sizes come from the files or
+// manifest.json, never from literals.
 import type { Catalog, CatalogCertificate, Config, CurrentCrl } from "../../src/core/catalog.ts";
 import { CATALOG_KEY, certificateBlobKey, CONFIG_KEY, encodeJson } from "../../src/core/catalog.ts";
 import { parseCertificate, parseCRL } from "../../src/core/pki/parsers.ts";

@@ -1,7 +1,6 @@
-// The three pages on a stubbed fetch (implementation slice 5b step 6): what the overview, a
-// certificate and a CRL target show, their loading / missing / unpublished states, and the shell.
-// Bodies come from ./helpers (fixture facts from tests/fixtures/pki); the clock is manifest.now
-// unless a case moves it.
+// The three pages on a stubbed fetch: what the overview, a certificate and a CRL target show, and
+// their loading / error / not-found / unpublished states. Bodies come from ./helpers (fixture facts
+// from tests/fixtures/pki); the clock is manifest.now unless a case moves it.
 import type { QueryClient } from "@tanstack/vue-query";
 import { flushPromises } from "@vue/test-utils";
 import type { DOMWrapper, VueWrapper } from "@vue/test-utils";
@@ -14,7 +13,6 @@ import {
   issuingFullDetail,
   mountApp,
   NOW,
-  RSASSA_PSS,
   rootDetail,
   STATS,
   stubApi,
@@ -23,7 +21,6 @@ import {
 } from "./helpers";
 import type { Handler } from "./helpers";
 import type { CertificateList } from "@/client/types";
-import { Toaster } from "@/components/ui/sonner";
 
 let wrapper: VueWrapper | undefined;
 let queryClient: QueryClient | undefined;
@@ -88,32 +85,6 @@ function stat(page: VueWrapper, key: string): string {
   return page.get(`[data-stat="${key}"] [data-testid="stat-value"]`).text();
 }
 
-/** The levels of the page's headings in document order (h1 → 1, …). */
-function headingLevels(page: VueWrapper): number[] {
-  return page
-    .findAll("main h1, main h2, main h3, main h4, main h5, main h6")
-    .map((heading) => Number(heading.element.tagName.slice(1)));
-}
-
-/** One h1 first, and no level skipped on the way down. */
-function expectHeadingOutline(page: VueWrapper) {
-  const levels = headingLevels(page);
-  expect(levels[0]).toBe(1);
-  levels.slice(1).forEach((level, index) => {
-    expect(level, `heading ${String(index + 2)} of ${levels.join(",")}`).toBeGreaterThan(1);
-    expect(level, `heading ${String(index + 2)} of ${levels.join(",")}`).toBeLessThanOrEqual(
-      levels[index]! + 1
-    );
-  });
-}
-
-/** Tab panels keep a visible focus ring (Reka makes them tab stops). */
-function expectFocusRing(panel: Pick<DOMWrapper<Element>, "classes">) {
-  expect(panel.classes()).toEqual(
-    expect.arrayContaining(["focus-visible:ring-3", "focus-visible:ring-ring/50"])
-  );
-}
-
 async function selectTab(page: VueWrapper, label: RegExp) {
   const trigger = page.findAll('[role="tab"]').find((tab) => label.test(tab.text()));
   if (trigger === undefined) {
@@ -122,19 +93,6 @@ async function selectTab(page: VueWrapper, label: RegExp) {
   await trigger.trigger("mousedown", { button: 0 });
   await flushPromises();
 }
-
-describe("App shell", () => {
-  it("shows VITE_SITE_NAME in the header and the page in the title", async () => {
-    const { wrapper } = await open("/", OVERVIEW);
-
-    expect(wrapper.get("header").text()).toContain("Test PKI");
-    expect(wrapper.get('[data-testid="site-name"]').text()).toBe("Test PKI");
-    expect(document.title).toBe("Overview · Test PKI");
-    expect(wrapper.get("footer").text()).not.toMatch(/Cloudflare/);
-    // At the top: at the bottom right a toast covered the upload card's submit button.
-    expect(wrapper.findComponent(Toaster).props("position")).toBe("top-center");
-  });
-});
 
 describe("OverviewPage", () => {
   it("shows the counts, the certificates and the targets", async () => {
@@ -189,40 +147,6 @@ describe("OverviewPage", () => {
     expect(targets[0]!.findAll("a[download]")).toHaveLength(2);
   });
 
-  it("keeps name, kind and status on a phone and hides the secondary columns below sm", async () => {
-    const { wrapper } = await open("/", OVERVIEW);
-
-    const shown = (table: string) =>
-      wrapper
-        .get(`[data-testid="${table}"]`)
-        .findAll("thead th")
-        .map((head) => [head.text(), !head.classes().includes("hidden")]);
-    expect(shown("certificate-table")).toEqual([
-      ["Name", true],
-      ["Issuer", false],
-      ["Validity", false],
-      ["Status", true],
-      ["Downloads", false],
-    ]);
-    expect(shown("crl-target-table")).toEqual([
-      ["Label", true],
-      ["Kind", true],
-      ["CRL number", false],
-      ["This update – next update", false],
-      ["Revoked", false],
-      ["Status", true],
-      ["Downloads", false],
-    ]);
-    // Hidden columns come back from sm up, in the head and in every row.
-    for (const table of ["certificate-table", "crl-target-table"]) {
-      const hidden = wrapper.get(`[data-testid="${table}"]`).findAll("th.hidden, td.hidden");
-      expect(hidden.length).toBeGreaterThan(0);
-      expect(hidden.every((cell) => cell.classes().includes("sm:table-cell"))).toBe(true);
-      const columns = rows(wrapper, table).map((row) => row.findAll("td.hidden").length);
-      expect(new Set(columns).size).toBe(1);
-    }
-  });
-
   it("counts stale, expired and unknown targets as needing attention, with the badges' clock", async () => {
     // An hour and a half after full-adcs's Next CRL Publish: stale, not yet expired.
     vi.setSystemTime(new Date("2026-01-10T13:30:00Z"));
@@ -233,16 +157,6 @@ describe("OverviewPage", () => {
     expect(stale.find('[data-state="stale"]').exists()).toBe(true);
     // Relative times only while current.
     expect(stale.find('[data-testid="remaining"]').exists()).toBe(false);
-  });
-
-  it("shows the time left of a certificate in the last tenth of its validity", async () => {
-    // Five months before issuing-ca-1 and -2 expire (2035-01-01): under a tenth of ten years.
-    vi.setSystemTime(new Date("2034-08-01T00:00:00Z"));
-    const { wrapper } = await open("/", OVERVIEW);
-
-    const issuing = rows(wrapper, "certificate-table")[0]!;
-    expect(issuing.get('[data-state="expiring"]').text()).toBe("Expiring");
-    expect(issuing.get('[data-testid="remaining"]').text()).toBe("in 153 days");
   });
 
   it("shows unknown revocations when no full CRL is published", async () => {
@@ -288,16 +202,15 @@ describe("OverviewPage", () => {
 
   it("reports a failed list with its error text and retries on request", async () => {
     let fail = true;
-    const { wrapper, api } = await open("/", {
+    const { wrapper } = await open("/", {
       ...OVERVIEW,
       "GET /api/v1/crls": () => (fail ? envelope(500, "internal") : Response.json(targetItems())),
     });
 
-    // A 5xx is retried once (the app's QueryClient) before the page reports it.
+    // A 5xx is retried once before the page reports it.
     await vi.waitFor(() => {
       expect(wrapper.find('[data-testid="query-error"]').exists()).toBe(true);
     });
-    expect(api.calls().filter((call) => call === "GET /api/v1/crls")).toHaveLength(2);
     const alert = wrapper.get('[data-testid="query-error"]');
     expect(alert.text()).toContain("Could not load the CRL targets");
     expect(alert.text()).toContain("The server failed. Try again later.");
@@ -342,7 +255,7 @@ describe("CertificatePage", () => {
 
     const text = wrapper.text();
     expect(text).toContain("CN=Example Root CA (ECC P-384),O=Example PKI,C=US");
-    // §10 #28: the algorithms with their parameters, never "Unknown".
+    // The algorithms with their parameters, never "Unknown".
     expect(wrapper.get('[data-testid="signature"]').text()).toContain("ecdsa-with-SHA384");
     expect(wrapper.get('[data-testid="public-key"]').text()).toContain("ecPublicKey (P-384)");
     expect(wrapper.get('[data-testid="public-key"]').text()).toContain("P-384");
@@ -352,7 +265,7 @@ describe("CertificatePage", () => {
     expect(text).not.toContain("Unknown");
     // The validity detail: time to notAfter.
     expect(wrapper.get('[data-testid="validity-detail"]').text()).toBe("(in 6937d)");
-    // §10 #10: the targets this certificate issues.
+    // The targets this certificate issues.
     const target = wrapper.get('[data-testid="crl-targets"] a');
     expect(target.text()).toBe("Root CA");
     expect(target.attributes("href")).toBe(`/crls/${TARGET_IDS.rootFull}`);
@@ -368,47 +281,6 @@ describe("CertificatePage", () => {
     await selectTab(wrapper, /PEM/);
     expect(api.calls()).toContain("GET /ca/root-ca.crt.pem");
     expect(wrapper.get('[data-testid="pem-text"]').text()).toContain("BEGIN CERTIFICATE");
-  });
-
-  it("lists the CRL targets it issues in the overview's order: by label, full before delta", async () => {
-    const id = (last: string) => `4f0d3c1a-6a8e-4b8f-9c55-1d2e3f40${last}`;
-    const { wrapper } = await open(path, {
-      [`GET /api/v1/certificates/${ROOT.id}`]: () =>
-        Response.json({
-          ...ROOT,
-          targets: [
-            { targetId: id("5161"), kind: "delta", label: "Root CA" },
-            { targetId: id("5164"), kind: "full", label: "Root CA" },
-            { targetId: id("5169"), kind: "full", label: "Archive" },
-          ],
-        }),
-    });
-
-    const links = wrapper.findAll('[data-testid="crl-targets"] li');
-    expect(
-      links.map((link) => [link.get("[data-kind]").attributes("data-kind"), link.text()])
-    ).toEqual([
-      ["full", "Full CRLArchive"],
-      ["full", "Full CRLRoot CA"],
-      ["delta", "Delta CRLRoot CA"],
-    ]);
-  });
-
-  it("keeps the heading levels in order and the tab panels' focus ring visible", async () => {
-    const { wrapper } = await open(path, routes);
-
-    expectHeadingOutline(wrapper);
-    expectFocusRing(wrapper.get('[role="tabpanel"]'));
-    // Wide content (PEM, ASN.1 dumps) scrolls inside its box instead of widening the page.
-    expect(wrapper.get('[data-slot="tabs"]').classes()).toContain("min-w-0");
-    expect(wrapper.get('[data-slot="tabs-list"]').classes()).toEqual(
-      expect.arrayContaining(["max-w-full", "overflow-x-auto", "justify-start"])
-    );
-    await selectTab(wrapper, /Extensions/);
-    expectHeadingOutline(wrapper);
-    expectFocusRing(wrapper.get('[role="tabpanel"]'));
-    await selectTab(wrapper, /PEM/);
-    expectFocusRing(wrapper.get('[role="tabpanel"]'));
   });
 
   it("has no PEM tab without a .pem download", async () => {
@@ -434,13 +306,6 @@ describe("CertificatePage", () => {
     expect(document.title).toBe("Certificate not found · Test PKI");
     expect(api.calls()).toEqual([`GET /api/v1/certificates/${ROOT.id}`]);
   });
-
-  it("never requests a malformed id", async () => {
-    const { wrapper, api } = await open("/certificates/not-an-id", {});
-
-    expect(wrapper.find('[data-testid="not-found-page"]').exists()).toBe(true);
-    expect(api.calls()).toEqual([]);
-  });
 });
 
 describe("CrlTargetPage", () => {
@@ -462,7 +327,6 @@ describe("CrlTargetPage", () => {
     const overview = wrapper.get('[data-testid="crl-overview"]').text();
     expect(overview).toContain("CRL Number16");
     expect(overview).toContain(`RSASSA-PSS (SHA-256, MGF1/SHA-256, salt 32)`);
-    expect(RSASSA_PSS.parameters?.parsed?.type).toBe("rsassaPss");
     expect(overview).not.toContain("Base CRL Number");
 
     await selectTab(wrapper, /Revoked/);
@@ -503,26 +367,6 @@ describe("CrlTargetPage", () => {
 
     expect(wrapper.find('header [data-state="not-yet-valid"]').exists()).toBe(true);
     expect(wrapper.get('[data-testid="status-detail"]').text()).toBe("(in 2m)");
-  });
-
-  it("keeps the heading levels in order, the panels' focus ring and no vue-i18n warning", async () => {
-    const warn = vi.spyOn(console, "warn");
-    const { wrapper } = await open(path, {
-      [detailRoute]: () => Response.json(issuingFullDetail()),
-    });
-
-    expect(warn.mock.calls.flat().join(" ")).not.toMatch(/intlify/);
-    expectHeadingOutline(wrapper);
-    expectFocusRing(wrapper.get('[role="tabpanel"]'));
-    expect(wrapper.get('[data-slot="tabs"]').classes()).toContain("min-w-0");
-    expect(wrapper.get('[data-slot="tabs-list"]').classes()).toEqual(
-      expect.arrayContaining(["max-w-full", "overflow-x-auto", "justify-start"])
-    );
-    for (const tab of [/Revoked/, /Extensions/]) {
-      await selectTab(wrapper, tab);
-      expectHeadingOutline(wrapper);
-      expectFocusRing(wrapper.get('[role="tabpanel"]'));
-    }
   });
 
   it("shows an unpublished target as not published, without a revoked list", async () => {

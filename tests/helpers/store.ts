@@ -1,6 +1,6 @@
-// Store wrappers for write assertions (implementation §2.5, slice 2 tests): recordingStore logs
-// every write attempt in order, flakyStore makes conditional writes lose or puts throw. Both wrap
-// any ObjectStore and can be stacked: recordingStore(flakyStore(base, …)) records the lost puts.
+// Store wrappers for write assertions: recordingStore logs every write attempt in order,
+// flakyStore makes conditional writes lose or puts throw. Both wrap any ObjectStore and can be
+// stacked: recordingStore(flakyStore(base, …)) records the lost puts.
 import type { ObjectStore, PutOptions, PutResult } from "../../src/core/store.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { patchStore } from "./app.ts";

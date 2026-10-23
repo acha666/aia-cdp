@@ -1,7 +1,7 @@
-// Shared by the slice 5b page, query and upload tests (not a test file itself): API bodies shaped by
-// @/client/types with the facts of tests/fixtures/pki (ids, serials, validity, CRL numbers and
-// times from manifest.json; subject names from generate-test-data.sh), a fetch stub that answers
-// hc's requests by method and path, and a deferred promise for ordering tests.
+// Shared by the web tests (not a test file itself): API bodies shaped by @/client/types with the
+// facts of tests/fixtures/pki (ids, serials, validity, CRL numbers and times from manifest.json;
+// subject names from the fixture generator), a fetch stub that answers hc's requests by method and
+// path, and a deferred promise for ordering tests.
 import { VueQueryPlugin } from "@tanstack/vue-query";
 import type { QueryClient } from "@tanstack/vue-query";
 import { flushPromises, mount } from "@vue/test-utils";
@@ -45,24 +45,13 @@ const SUBJECT_CN: Record<FixtureName, string> = {
   "issuing-ca-2": "Example Issuing CA 02 (RSA)",
 };
 
-function fixtureCertificate(name: FixtureName) {
-  const entry = manifest.certificates.find((certificate) => certificate.name === name);
-  if (entry === undefined) {
-    throw new Error(`No fixture certificate ${name}`);
-  }
-  return entry;
-}
+const fixtureCertificate = (name: FixtureName) =>
+  manifest.certificates.find((certificate) => certificate.name === name)!;
 
-function fixtureCrl(file: string) {
-  const entry = manifest.crls.find((crl) => crl.file === file);
-  if (entry === undefined) {
-    throw new Error(`No fixture CRL ${file}`);
-  }
-  return entry;
-}
+const fixtureCrl = (file: string) => manifest.crls.find((crl) => crl.file === file)!;
 
 /** The catalog's timestamp form (millisecond precision). */
-export function iso(value: string): string {
+function iso(value: string): string {
   return new Date(value).toISOString();
 }
 
@@ -75,8 +64,8 @@ export function time(value: string): Time {
   };
 }
 
-/** "/C=US/O=Example PKI/CN=<cn>", as generate-test-data.sh writes the CA subjects. */
-export function exampleName(commonName: string): Name {
+/** "/C=US/O=Example PKI/CN=<cn>", as the fixture generator writes the CA subjects. */
+function exampleName(commonName: string): Name {
   const attribute = (oid: string, name: string, value: string) => ({
     attributes: [
       { type: { oid, name }, value: { string: value, encoding: "printableString" as const } },
@@ -99,7 +88,7 @@ export function exampleName(commonName: string): Name {
 }
 
 /** Lowercase hex of `length` bytes, all `byte`: a stand-in for digests the manifest does not list. */
-export function hexBytes(byte: string, length: number): string {
+function hexBytes(byte: string, length: number): string {
   return byte.repeat(length);
 }
 
@@ -113,7 +102,7 @@ const SHA256_RSA: AlgorithmIdentifier = {
 };
 
 /** crls/issuing-ca-1/full-pss: "RSASSA-PSS SHA-256, MGF1 SHA-256, salt 32". */
-export const RSASSA_PSS: AlgorithmIdentifier = {
+const RSASSA_PSS: AlgorithmIdentifier = {
   algorithm: { oid: "1.2.840.113549.1.1.10", name: "RSASSA-PSS" },
   parameters: {
     rawHex:
@@ -256,7 +245,7 @@ const ISSUING = certificateItem("issuing-ca-1");
 const ROOT = certificateItem("root-ca");
 
 /**
- * The three targets of the page tests in the API's order (by targetId, slice 5a): issuing-ca-1
+ * The three targets of the page tests in the API's order (by targetId): issuing-ca-1
  * delta (unpublished) and full (full-adcs, current until its Next CRL Publish), root-ca full
  * (full-01).
  */
@@ -297,13 +286,8 @@ export function revokedEntries(count: number): RevokedCertificate[] {
   }));
 }
 
-function targetItem(targetId: string): CrlTargetListItem {
-  const item = targetItems().find((target) => target.targetId === targetId);
-  if (item === undefined) {
-    throw new Error(`No target ${targetId}`);
-  }
-  return item;
-}
+const targetItem = (targetId: string) =>
+  targetItems().find((target) => target.targetId === targetId)!;
 
 /** `item` as its detail route returns it, with the issuing-ca-1 fixture CRL `file` as current. */
 function publishedDetail(
@@ -345,9 +329,7 @@ function publishedDetail(
  * issuing-ca-1's full target with crls/issuing-ca-1/full-pss as its current CRL (RSASSA-PSS with
  * parameters), or unpublished with `current: null`.
  */
-export function issuingFullDetail(
-  options: { published?: boolean; revoked?: RevokedCertificate[] } = {}
-): CrlTargetDetail {
+export function issuingFullDetail(options: { published?: boolean } = {}): CrlTargetDetail {
   const item = targetItem(TARGET_IDS.issuingFull);
   if (options.published === false) {
     return { ...item, current: null } satisfies CrlTargetDetail;
@@ -358,7 +340,7 @@ export function issuingFullDetail(
     crl.file,
     RSASSA_PSS,
     [crlNumberExtension(crl.crlNumber ?? "0")],
-    options.revoked ?? revokedEntries(crl.revoked)
+    revokedEntries(crl.revoked)
   );
 }
 

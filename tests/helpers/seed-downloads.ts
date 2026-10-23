@@ -1,9 +1,8 @@
-// A served state for the download tests (implementation slice 3): the DER blobs, catalog.json and
-// config.json written straight into any ObjectStore (MemoryStore for tests/http, the fs adapter
-// for tests/integration), so the HTTP, Node and Worker tests serve the same data. Certificates go
-// through slice 2's summary builder (certificateEntry), the CRL `current` records through slice 4's
-// buildCrlSummary and crlBlobKey (currentCrl), both documents through the schemas. Every digest,
-// size and time comes from the fixtures (implementation §2.5).
+// A served state for tests/http/downloads.test.ts: the DER blobs, catalog.json and config.json
+// written straight into an ObjectStore.
+// Certificates go through the summary builder (certificateEntry), the CRL `current` records
+// through buildCrlSummary and crlBlobKey (currentCrl), both documents through the schemas. Every
+// digest, size and time comes from the fixtures.
 import { CatalogSchema, ConfigSchema } from "../../src/core/catalog.ts";
 import type { Catalog, Config, CrlKind } from "../../src/core/catalog.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
@@ -15,7 +14,7 @@ export const DOWNLOAD_PATHS = {
   /** root-ca; also served as rootAlias and nested (three paths, one certificate). */
   root: "/ca/root-ca.crt",
   rootAlias: "/ca/root.cer",
-  /** Two segments under /ca/ (V2 allows that): `%2F` must not reach it (M20). */
+  /** Two segments under /ca/ (V2 allows that): `%2F` must not reach it. */
   nested: "/ca/sub/root-ca.crt",
   issuing: "/ca/issuing-ca-1.crt",
   /** issuing-ca-1's full CRL target; current: options.full. */
@@ -45,10 +44,6 @@ export interface DownloadSeedOptions {
   full?: string;
   /** The delta target's current CRL, a delta CRL of issuing-ca-1 (default SEED_CRLS.delta). */
   delta?: string;
-  /** importedAt of every certificate. Default: 50 h before NOW, with milliseconds to drop. */
-  importedAt?: Date;
-  /** publishedAt of both current CRLs. Default: 2 h before NOW, with milliseconds. */
-  publishedAt?: Date;
 }
 
 export interface DownloadSeed {
@@ -74,11 +69,12 @@ function issuingCrl(file: string, kind: CrlKind): string {
 }
 
 /** The seed's documents and blobs, without writing them. */
-export async function buildDownloadSeed(options: DownloadSeedOptions = {}): Promise<DownloadSeed> {
+async function buildDownloadSeed(options: DownloadSeedOptions = {}): Promise<DownloadSeed> {
   const full = issuingCrl(options.full ?? SEED_CRLS.full, "full");
   const delta = issuingCrl(options.delta ?? SEED_CRLS.delta, "delta");
-  const importedAt = options.importedAt ?? new Date(NOW.getTime() - 50 * HOUR - 250);
-  const publishedAt = options.publishedAt ?? new Date(NOW.getTime() - 2 * HOUR - 750);
+  // With milliseconds, which the summaries drop.
+  const importedAt = new Date(NOW.getTime() - 50 * HOUR - 250);
+  const publishedAt = new Date(NOW.getTime() - 2 * HOUR - 750);
   const root = cert("root-ca");
   const issuing = cert("issuing-ca-1");
   const issuing2 = cert("issuing-ca-2");

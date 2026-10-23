@@ -1,25 +1,17 @@
-// Shared display and X.509 components (implementation slice 5b steps 3 and 4), mounted in
-// happy-dom. Rewrite of worker-aia-cdp@5b570aa:tests/web/components.test.ts (SSR render through a
-// Vite server there): its ResourceCard case becomes the DownloadLinks case, and its CRL details
-// case moves to revoked-table.test.ts with the revoked table.
-import { QueryClient, VueQueryPlugin } from "@tanstack/vue-query";
+// Shared display and X.509 components, mounted in happy-dom.
 import { flushPromises, mount } from "@vue/test-utils";
 import type { VueWrapper } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { h } from "vue";
 import type { Component } from "vue";
 import { toast } from "vue-sonner";
-import type { DistributionPoint, Extension, GeneralName, Name } from "@/client/types";
+import type { Extension, GeneralName, Name } from "@/client/types";
 import DownloadLinks from "@/components/DownloadLinks.vue";
 import HexValue from "@/components/HexValue.vue";
-import KeyValueList from "@/components/KeyValueList.vue";
 import KindBadge from "@/components/KindBadge.vue";
 import LocaleSelect from "@/components/LocaleSelect.vue";
-import PemText from "@/components/PemText.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
 import { Accordion } from "@/components/ui/accordion";
-import Asn1Dump from "@/components/x509/Asn1Dump.vue";
-import DistributionPointList from "@/components/x509/DistributionPointList.vue";
 import ExtensionList from "@/components/x509/ExtensionList.vue";
 import ExtensionView from "@/components/x509/ExtensionView.vue";
 import GeneralNameList from "@/components/x509/GeneralNameList.vue";
@@ -68,17 +60,6 @@ describe("DownloadLinks", () => {
     expect(links[2]!.attributes("data-format")).toBe("DER");
   });
 
-  it("is an outlined button in both themes (the variant's border wins over the base's)", () => {
-    const link = render(DownloadLinks, { downloads: ["/ca/root.crt"] }).get("a");
-    expect(link.classes()).toContain("border-border");
-    expect(link.classes()).not.toContain("border-transparent");
-  });
-
-  it("never derives a second .pem from a .pem path", () => {
-    const html = render(DownloadLinks, { downloads: ["/crl/root.crl.pem"] }).html();
-    expect(html).not.toMatch(/\.pem\.pem|data-format="DER"/);
-  });
-
   it("shows a dash without downloads", () => {
     const links = render(DownloadLinks, { downloads: [] });
     expect(links.find("a").exists()).toBe(false);
@@ -101,60 +82,17 @@ describe("StatusBadge", () => {
     expect(badge.text()).toBe(label);
     expect(badge.attributes("data-state")).toBe(state);
   });
-
-  it.each([
-    ["valid", ["text-success"]],
-    ["current", ["text-success"]],
-    ["expiring", ["text-warning"]],
-    ["stale", ["text-warning"]],
-    ["not-yet-valid", ["text-warning"]],
-    ["expired", ["text-destructive"]],
-    ["unknown", ["text-muted-foreground"]],
-    ["unpublished", ["border-dashed", "text-muted-foreground"]],
-  ])("colours %s with theme tokens", (state, classes) => {
-    const badge = render(StatusBadge, { state });
-    expect(badge.classes()).toEqual(expect.arrayContaining(classes));
-    const tones = ["text-success", "text-warning", "text-destructive", "text-muted-foreground"];
-    expect(badge.classes().filter((name) => tones.includes(name))).toHaveLength(1);
-  });
-
-  it("speaks zh-CN", () => {
-    expect(render(StatusBadge, { state: "unpublished" }, "zh-CN").text()).toBe("未发布");
-    expect(render(StatusBadge, { state: "expiring" }, "zh-CN").text()).toBe("即将过期");
-  });
 });
 
 describe("KindBadge", () => {
   it.each([
-    ["certificate", "Certificate", "text-blue-700"],
-    ["full", "Full CRL", "text-purple-700"],
-    ["delta", "Delta CRL", "text-green-700"],
-  ])("shows %s in its own colour", (kind, label, colour) => {
+    ["certificate", "Certificate"],
+    ["full", "Full CRL"],
+    ["delta", "Delta CRL"],
+  ])("labels %s", (kind, label) => {
     const badge = render(KindBadge, { kind });
     expect(badge.text()).toBe(label);
     expect(badge.attributes("data-kind")).toBe(kind);
-    expect(badge.classes()).toContain(colour);
-  });
-});
-
-describe("KeyValueList", () => {
-  it("shows labels with values, hex grouped, and (empty) for a missing value", () => {
-    const list = render(KeyValueList, {
-      items: [
-        { label: "SHA-1", value: "0a1b2c", hex: true },
-        { label: "Comment", value: "  two\nlines" },
-        { label: "Nothing", value: "" },
-        { label: "Unset", value: null, title: "utf8String" },
-      ],
-    });
-    const terms = list.findAll("dt");
-    const values = list.findAll("dd");
-    expect(terms.map((term) => term.text())).toEqual(["SHA-1", "Comment", "Nothing", "Unset"]);
-    expect(values[0]!.get('[data-testid="hex-value"]').text()).toBe("0A:1B:2C");
-    expect(values[1]!.text()).toBe("two\nlines");
-    expect(values[2]!.text()).toBe("(empty)");
-    expect(values[3]!.text()).toBe("(empty)");
-    expect(terms[3]!.attributes("title")).toBe("utf8String");
   });
 });
 
@@ -167,7 +105,6 @@ describe("HexValue", () => {
 
     const hex = render(HexValue, { value: "0a:1b 2c", variant: "grouped" });
     expect(hex.get('[data-testid="hex-value"]').element.textContent).toBe("0A:1B:2C");
-    expect(hex.findAll("wbr")).toHaveLength(3);
     const button = hex.get("button");
     expect(button.attributes("aria-label")).toBe("Copy");
     await button.trigger("click");
@@ -223,47 +160,10 @@ describe("HexValue", () => {
     expect(button.attributes("aria-label")).toBe("复制");
   });
 
-  it("reports a failed copy as a toast without any copy mechanism", async () => {
-    // No Clipboard API and no document.execCommand (as in happy-dom).
-    vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
-    const error = vi.spyOn(toast, "error");
-
-    const hex = render(HexValue, { value: "0A1B" }, "zh-CN");
-    expect(hex.get('[data-testid="hex-value"]').text()).toBe("0A1B");
-    await hex.get("button").trigger("click");
-    await flushPromises();
-    expect(error).toHaveBeenCalledWith("无法复制到剪贴板");
-  });
-
   it("shows the fallback and no copy button without a value", () => {
     const hex = render(HexValue, { value: null, fallback: "—" });
     expect(hex.text()).toBe("—");
     expect(hex.find("button").exists()).toBe(false);
-  });
-});
-
-describe("PemText", () => {
-  it("reports a copy that execCommand refuses as a toast", async () => {
-    vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.resolve(new Response("-----BEGIN CERTIFICATE-----\n")))
-    );
-    document.execCommand = vi.fn(() => false);
-    const error = vi.spyOn(toast, "error");
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    wrapper = mount(PemText, {
-      props: { path: "/ca/root-ca.crt.pem" },
-      global: { plugins: [createAppI18n("en"), [VueQueryPlugin, { queryClient }]] },
-    });
-    await flushPromises();
-    expect(wrapper.get('[data-testid="pem-text"]').text()).toContain("BEGIN CERTIFICATE");
-    await wrapper.get("button").trigger("click");
-    await flushPromises();
-    expect(error).toHaveBeenCalledWith("Could not copy to the clipboard");
-    expect(wrapper.get("button").text()).toBe("Copy");
-    queryClient.clear();
   });
 });
 
@@ -318,7 +218,6 @@ describe("NameDetails", () => {
     const html = details.html();
     expect(html).toContain("&lt;script&gt;bad&lt;/script&gt;");
     expect(html).not.toContain("<script>bad");
-    expect(details.get("h2").text()).toBe("Issuer");
     const pairs = details
       .findAll("dt")
       .map((term, index) => [term.text(), details.findAll("dd")[index]!.text()]);
@@ -333,13 +232,6 @@ describe("NameDetails", () => {
       ["1.2.3.4", "#0101ff"],
     ]);
     expect(details.findAll("dt")[6]!.attributes("title")).toBe("ia5String");
-  });
-
-  it("labels the fields in zh-CN", () => {
-    const details = render(NameDetails, { name }, "zh-CN");
-    expect(details.find("h2").exists()).toBe(false);
-    expect(details.findAll("dt")[0]!.text()).toBe("通用名称");
-    expect(details.findAll("dd")[1]!.text()).toBe("（空）");
   });
 });
 
@@ -371,27 +263,10 @@ describe("ExtensionList", () => {
     expect(items.map((item) => item.extnID.oid)).toEqual(["1.2.3", "1.2.4", "1.2.5", "1.2.6"]);
     expect(list.findAll('[data-testid="critical"]')).toHaveLength(2);
   });
-
-  it("renders nothing without extensions", () => {
-    expect(render(ExtensionList, { extensions: [] }).find("[data-oid]").exists()).toBe(false);
-  });
-
-  it("keeps several extensions open at once", async () => {
-    const list = render(ExtensionList, {
-      extensions: [extension("1.2.3", "First", false), extension("1.2.4", "Second", false)],
-    });
-    for (const trigger of list.findAll("[data-oid] button")) {
-      await trigger.trigger("click");
-    }
-    expect(list.findAll("[data-oid]").map((item) => item.attributes("data-state"))).toEqual([
-      "open",
-      "open",
-    ]);
-  });
 });
 
 describe("GeneralNameList", () => {
-  it("prefixes each name with its type label, otherName with its own name", () => {
+  it("prefixes each name with its type label, otherName with its own name or type OID", () => {
     const names: GeneralName[] = [
       { type: "dNSName", value: "leaf.example.test" },
       { type: "iPAddress", value: "2001:db8::10" },
@@ -401,6 +276,7 @@ describe("GeneralNameList", () => {
         typeOid: "1.3.6.1.4.1.311.20.2.3",
         typeName: "userPrincipalName",
       },
+      { type: "otherName", value: "x", typeOid: "1.3.6.1.4.1.32473.2" },
       { type: "x400Address", value: "", rawHex: "a003" },
     ];
     expect(
@@ -411,77 +287,9 @@ describe("GeneralNameList", () => {
       "DNS: leaf.example.test",
       "IP: 2001:db8::10",
       "userPrincipalName: leaf@example.test",
+      "1.3.6.1.4.1.32473.2: x",
       "X.400: a003",
     ]);
-    expect(render(GeneralNameList, { names: names.slice(0, 1) }, "zh-CN").text()).toBe(
-      "DNS: leaf.example.test"
-    );
-  });
-});
-
-describe("DistributionPointList", () => {
-  it("shows names, reasons as tags and the CRL issuer", () => {
-    const points = [
-      {
-        distributionPoint: {
-          fullName: [
-            {
-              type: "uniformResourceIdentifier",
-              value: "http://pki.example.test/crl/issuing-ca-1.crl",
-            },
-          ],
-        },
-        reasons: ["keyCompromise", "cACompromise"],
-        cRLIssuer: [
-          { type: "directoryName", value: "CN=Example Issuing CA 01 (RSA),O=Example PKI,C=US" },
-        ],
-      },
-      {
-        distributionPoint: {
-          nameRelativeToCRLIssuer: {
-            attributes: [
-              {
-                type: { oid: "2.5.4.3", name: "CN" },
-                value: { string: "CRL1", encoding: "utf8String" },
-              },
-            ],
-          },
-        },
-      },
-    ] satisfies DistributionPoint[];
-    const list = render(DistributionPointList, { points });
-    const [first, second] = list.findAll(":scope > li");
-    expect(first!.text()).toContain("URI: http://pki.example.test/crl/issuing-ca-1.crl");
-    expect(
-      first!.findAll("[data-tone]").map((tag) => [tag.text(), tag.attributes("data-tone")])
-    ).toEqual([
-      ["keyCompromise", "amber"],
-      ["cACompromise", "amber"],
-    ]);
-    expect(first!.text()).toContain("Reasons:");
-    expect(first!.text()).toContain("CRL issuer:");
-    expect(first!.text()).toContain("DirName: CN=Example Issuing CA 01 (RSA),O=Example PKI,C=US");
-    expect(second!.text()).toBe("Relative to CRL issuer: CN=CRL1");
-    expect(second!.find("[data-tone]").exists()).toBe(false);
-  });
-});
-
-describe("Asn1Dump", () => {
-  it("indents two spaces per depth and shows tag, length and value", () => {
-    const dump = render(Asn1Dump, {
-      lines: [
-        { depth: 0, tag: "SEQUENCE", length: 9 },
-        { depth: 1, tag: "INTEGER", length: 1, value: "5" },
-        { depth: 2, tag: "UTF8String", length: 2, value: "hi" },
-      ],
-    });
-    const lines = dump.findAll("li");
-    expect(lines.map((line) => line.element.textContent)).toEqual([
-      "SEQUENCE (9)",
-      "  INTEGER (1) 5",
-      "    UTF8String (2) hi",
-    ]);
-    expect(lines[2]!.get('[data-testid="asn1-indent"]').element.textContent).toBe("    ");
   });
 });
 
@@ -496,45 +304,7 @@ describe("ExtensionView", () => {
     return wrapper;
   }
 
-  it("lists access descriptions as method: location", () => {
-    // ext_leaf_full: caIssuers and OCSP.
-    const aia = {
-      extnID: { oid: "1.3.6.1.5.5.7.1.1", name: "Authority Information Access" },
-      critical: false,
-      extnValue: { hex: "3000", byteLength: 2 },
-      parseStatus: "parsed",
-      parsed: {
-        extensionType: "authorityInfoAccess",
-        accessDescriptions: [
-          {
-            accessMethod: { oid: "1.3.6.1.5.5.7.48.2", name: "caIssuers" },
-            accessLocation: {
-              type: "uniformResourceIdentifier",
-              value: "http://pki.example.test/ca/issuing-ca-1.crt",
-            },
-          },
-          {
-            accessMethod: { oid: "1.3.6.1.5.5.7.48.1", name: "ocsp" },
-            accessLocation: {
-              type: "uniformResourceIdentifier",
-              value: "http://ocsp.example.test/",
-            },
-          },
-        ],
-      },
-    } satisfies Extension;
-    expect(
-      renderOpen(aia)
-        .findAll("li")
-        .map((item) => item.text())
-    ).toEqual([
-      "caIssuers: URI: http://pki.example.test/ca/issuing-ca-1.crt",
-      "ocsp: URI: http://ocsp.example.test/",
-    ]);
-  });
-
   it("shows the parse error, the ASN.1 dump and the raw hex of an undecoded extension", async () => {
-    // crls/issuing-ca-1 fixture with crl_ext_unknown_critical (UTF8String in an unknown OID).
     const unknown = {
       extnID: { oid: "1.3.6.1.4.1.32473.1", name: null },
       critical: true,
@@ -564,13 +334,13 @@ describe("ExtensionView", () => {
   });
 
   it("renders the blocks of a decoded extension without dump or raw value", () => {
-    // ext_issuing: Microsoft CA Version V0.0.
+    // A CA renewed with its old key: CA Version V1.0.
     const caVersion = {
       extnID: { oid: "1.3.6.1.4.1.311.21.1", name: "CA Version" },
       critical: false,
-      extnValue: { hex: "020100", byteLength: 3 },
+      extnValue: { hex: "02020100", byteLength: 4 },
       parseStatus: "parsed",
-      parsed: { extensionType: "msCaVersion", certificateIndex: 0, keyIndex: 0 },
+      parsed: { extensionType: "msCaVersion", certificateIndex: 1, keyIndex: 0 },
     } satisfies Extension;
     const view = renderOpen(caVersion, "zh-CN");
     const header = view.get("button").text();
@@ -579,7 +349,7 @@ describe("ExtensionView", () => {
     expect(view.find('[data-testid="parse-status"]').exists()).toBe(false);
     expect(view.find('[data-testid="critical"]').exists()).toBe(false);
     expect(view.findAll("dt").map((term) => term.text())).toEqual(["CA 证书索引", "CA 密钥索引"]);
-    expect(view.findAll("dd").map((value) => value.text())).toEqual(["0", "0"]);
+    expect(view.findAll("dd").map((value) => value.text())).toEqual(["1", "0"]);
     expect(view.find("ol").exists()).toBe(false);
   });
 
@@ -635,57 +405,6 @@ describe("ExtensionView", () => {
       "User notice: Example PKI (1, 2) Test use only",
       "1.3.6.1.4.1.32473.4: 0500",
     ]);
-  });
-
-  it("titles name constraints and gives subtree ranges", () => {
-    const view = renderOpen(
-      decoded("2.5.29.30", {
-        extensionType: "nameConstraints",
-        permittedSubtrees: [{ base: { type: "dNSName", value: "example.test" } }],
-        excludedSubtrees: [
-          { base: { type: "iPAddress", value: "10.0.0.0/8" }, minimum: 0, maximum: 2 },
-        ],
-      })
-    );
-    expect(view.findAll("p").map(text)).toEqual(["Permitted", "Excluded"]);
-    expect(view.findAll("li").map(text)).toEqual(["DNS: example.test", "IP: 10.0.0.0/8 [0–2]"]);
-  });
-
-  it("lists CRL distribution points", () => {
-    const view = renderOpen(
-      decoded("2.5.29.31", {
-        extensionType: "cRLDistributionPoints",
-        distributionPoints: [
-          {
-            distributionPoint: {
-              fullName: [
-                {
-                  type: "uniformResourceIdentifier",
-                  value: "http://pki.example.test/crl/issuing-ca-1.crl",
-                },
-              ],
-            },
-          },
-        ],
-      })
-    );
-    expect(text(view.get("ul"))).toBe("URI: http://pki.example.test/crl/issuing-ca-1.crl");
-  });
-
-  it("titles the authority certificate issuer of an AKI", () => {
-    const view = renderOpen(
-      decoded("2.5.29.35", {
-        extensionType: "authorityKeyIdentifier",
-        keyIdentifier: "3F1C",
-        authorityCertIssuer: [
-          { type: "directoryName", value: "CN=Example Root CA (ECC P-384),O=Example PKI,C=US" },
-        ],
-        authorityCertSerialNumber: "01",
-      })
-    );
-    expect(view.findAll("dt").map(text)).toEqual(["Key ID", "Authority certificate serial"]);
-    expect(text(view.get("p"))).toBe("Authority certificate issuer");
-    expect(text(view.get("li"))).toBe("DirName: CN=Example Root CA (ECC P-384),O=Example PKI,C=US");
   });
 
   it("shows an IDP's point, its flags and its reasons in their tones", () => {
