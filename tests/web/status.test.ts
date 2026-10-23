@@ -28,45 +28,39 @@ describe.each([
       [start, "invalid"],
       [end, start],
     ]) {
-      expect(status(from, until, now).state).toBe("unknown");
+      expect(status(from, until, now)).toBe("unknown");
     }
   });
 
   it("is not yet valid before the start and expired after the end", () => {
-    expect(status(start, end, Date.parse(start) - 1).state).toBe("not-yet-valid");
-    expect(status(start, end, Date.parse(end) + 1500).state).toBe("expired");
+    expect(status(start, end, Date.parse(start) - 1)).toBe("not-yet-valid");
+    expect(status(start, end, Date.parse(end) + 1500)).toBe("expired");
   });
 });
 
 describe("computeCrlStatus", () => {
   it("is unknown without nextUpdate, even with Next CRL Publish, or with an empty window", () => {
-    expect(computeCrlStatus(start, undefined, now, "2026-01-02T00:00:00Z").state).toBe("unknown");
-    expect(computeCrlStatus(start, start, now).state).toBe("unknown");
+    expect(computeCrlStatus(start, undefined, now, "2026-01-02T00:00:00Z")).toBe("unknown");
+    expect(computeCrlStatus(start, start, now)).toBe("unknown");
   });
 
-  it("is expired only after nextUpdate (inclusive bound) and counts whole seconds", () => {
-    expect(computeCrlStatus(start, end, Date.parse(end))).toEqual({
-      state: "stale",
-      expiresIn: 0,
-    });
-    expect(computeCrlStatus(start, end, Date.parse(end) + 1500)).toEqual({
-      state: "expired",
-      expiredAgo: 1,
-    });
+  it("is expired only after nextUpdate (inclusive bound)", () => {
+    expect(computeCrlStatus(start, end, Date.parse(end))).toBe("stale");
+    expect(computeCrlStatus(start, end, Date.parse(end) + 1)).toBe("expired");
   });
 
   it("is stale with less than 20% left without Next CRL Publish", () => {
     // 10 days: the 80% point is 8 days after thisUpdate.
     const eightDays = Date.parse(start) + 8 * DAY;
-    expect(computeCrlStatus(start, end, now).state).toBe("current");
-    expect(computeCrlStatus(start, end, eightDays).state).toBe("current");
-    expect(computeCrlStatus(start, end, eightDays + 1).state).toBe("stale");
+    expect(computeCrlStatus(start, end, now)).toBe("current");
+    expect(computeCrlStatus(start, end, eightDays)).toBe("current");
+    expect(computeCrlStatus(start, end, eightDays + 1)).toBe("stale");
   });
 
   it("with Next CRL Publish, is stale only more than an hour after it (AD CS)", () => {
     const publish = Date.parse(ADCS.nextPublish);
     const status = (at: number) =>
-      computeCrlStatus(ADCS.thisUpdate, ADCS.nextUpdate, at, ADCS.nextPublish).state;
+      computeCrlStatus(ADCS.thisUpdate, ADCS.nextUpdate, at, ADCS.nextPublish);
 
     // Past the 80% point but before Next CRL Publish: current.
     const eightyPercent =
@@ -82,28 +76,15 @@ describe("computeCrlStatus", () => {
 
 describe("computeCertificateStatus", () => {
   it("is still valid at notAfter (expiring there) and expired one millisecond later", () => {
-    expect(computeCertificateStatus(start, end, Date.parse(end))).toEqual({
-      state: "expiring",
-      expiresIn: 0,
-    });
-    expect(computeCertificateStatus(start, end, Date.parse(end) + 1).state).toBe("expired");
+    expect(computeCertificateStatus(start, end, Date.parse(end))).toBe("expiring");
+    expect(computeCertificateStatus(start, end, Date.parse(end) + 1)).toBe("expired");
   });
 
   it("is expiring with less than 10% of the validity period left", () => {
     // 10 days: expiring once less than one day remains.
     const oneDayLeft = Date.parse(end) - DAY;
-    expect(computeCertificateStatus(start, end, oneDayLeft)).toEqual({
-      state: "valid",
-      expiresIn: DAY / 1000,
-    });
-    expect(computeCertificateStatus(start, end, oneDayLeft + 1).state).toBe("expiring");
-  });
-
-  it("reports the distance to notBefore of a certificate that is not yet valid", () => {
-    expect(computeCertificateStatus(start, end, Date.parse(start) - 61_000)).toEqual({
-      state: "not-yet-valid",
-      startsIn: 61,
-    });
+    expect(computeCertificateStatus(start, end, oneDayLeft)).toBe("valid");
+    expect(computeCertificateStatus(start, end, oneDayLeft + 1)).toBe("expiring");
   });
 });
 

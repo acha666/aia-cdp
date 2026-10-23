@@ -103,7 +103,7 @@ describe("HexValue", () => {
     const execCommand = vi.fn(() => true);
     document.execCommand = execCommand;
 
-    const hex = render(HexValue, { value: "0a:1b 2c", variant: "grouped" });
+    const hex = render(HexValue, { value: "0a1b2c" });
     expect(hex.get('[data-testid="hex-value"]').element.textContent).toBe("0A:1B:2C");
     const button = hex.get("button");
     expect(button.attributes("aria-label")).toBe("Copy");
@@ -158,12 +158,6 @@ describe("HexValue", () => {
     expect(execCommand).toHaveBeenCalledWith("copy");
     expect(error).toHaveBeenCalledWith("无法复制到剪贴板");
     expect(button.attributes("aria-label")).toBe("复制");
-  });
-
-  it("shows the fallback and no copy button without a value", () => {
-    const hex = render(HexValue, { value: null, fallback: "—" });
-    expect(hex.text()).toBe("—");
-    expect(hex.find("button").exists()).toBe(false);
   });
 });
 

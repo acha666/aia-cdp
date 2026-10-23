@@ -24,7 +24,7 @@ export function useLocale() {
   });
 
   return computed<AppLocale>({
-    get: () => normalizeLocale(locale.value) ?? "en",
+    get: () => locale.value as AppLocale,
     set: (value) => {
       locale.value = value;
       stored.value = value;

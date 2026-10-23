@@ -1,10 +1,9 @@
-// One-line texts for X.509 names, algorithms and general names. formatAttribute is exported for
-// DistributionPointList; the "salt" of RSASSA-PSS parameters comes from i18n.
+// One-line texts for X.509 name attributes, algorithms and general names; the "salt" of RSASSA-PSS
+// parameters comes from i18n.
 import type {
   AlgorithmIdentifier,
   AttributeTypeAndValue,
   GeneralName,
-  Name,
   ObjectIdentifier,
 } from "@/client/types";
 
@@ -13,17 +12,6 @@ export function formatAttribute(attribute: AttributeTypeAndValue): string {
   const key = attribute.type.name ?? attribute.type.oid;
   const value = attribute.value.string ?? "";
   return `${key}=${value}`;
-}
-
-/** The RFC 4514 form from the API; built from the RDNs only if that is empty. */
-export function formatName(name: Name): string {
-  if (name.rfc4514 !== "") {
-    return name.rfc4514;
-  }
-  return name.rdnSequence
-    .map((rdn) => rdn.attributes.map(formatAttribute).join("+"))
-    .filter((entry) => entry.length > 0)
-    .join(", ");
 }
 
 function oidLabel(oid: ObjectIdentifier): string {

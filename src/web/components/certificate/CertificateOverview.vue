@@ -9,7 +9,7 @@ import StatusBadge from "@/components/StatusBadge.vue";
 import NameDetails from "@/components/x509/NameDetails.vue";
 import { useClock } from "@/composables/useClock";
 import { useDateText } from "@/composables/useDateText";
-import { formatDateTimeWithZone, getRelativeTimeDetailed } from "@/utils/dates";
+import { formatDate, relativeTime } from "@/utils/dates";
 import { compareTargets } from "@/utils/labels";
 import { computeCertificateStatus } from "@/utils/status";
 import { formatAlgorithm } from "@/utils/x509";
@@ -31,22 +31,22 @@ const tbs = computed(() => props.certificate.tbsCertificate);
 const validity = computed(() => {
   const { notBefore, notAfter } = tbs.value.validity;
   const nowMs = now.value.getTime();
-  const status = computeCertificateStatus(notBefore.iso, notAfter.iso, nowMs);
-  const boundary = status.state === "not-yet-valid" ? notBefore.iso : notAfter.iso;
+  const state = computeCertificateStatus(notBefore.iso, notAfter.iso, nowMs);
+  const boundary = state === "not-yet-valid" ? notBefore.iso : notAfter.iso;
   return {
     items: [
       {
         label: t("details.certificate.notBefore"),
-        value: formatDateTimeWithZone(notBefore.iso, dateText),
+        value: formatDate(notBefore.iso, dateText),
       },
       {
         label: t("details.certificate.notAfter"),
-        value: formatDateTimeWithZone(notAfter.iso, dateText),
+        value: formatDate(notAfter.iso, dateText),
       },
-      { label: t("details.certificate.status"), value: status.state },
+      { label: t("details.certificate.status"), value: state },
     ],
-    state: status.state,
-    detail: status.state === "unknown" ? null : getRelativeTimeDetailed(boundary, nowMs, dateText),
+    state,
+    detail: state === "unknown" ? null : relativeTime(boundary, nowMs, dateText, true),
   };
 });
 
@@ -55,7 +55,7 @@ const general = computed(() => [
   { label: t("details.certificate.serialNumber"), value: tbs.value.serialNumber.hex, hex: true },
   {
     label: t("details.certificate.imported"),
-    value: formatDateTimeWithZone(props.certificate.importedAt, dateText),
+    value: formatDate(props.certificate.importedAt, dateText),
   },
   {
     label: t("details.certificate.size"),

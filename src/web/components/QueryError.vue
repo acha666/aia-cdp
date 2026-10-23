@@ -10,8 +10,9 @@ import { errorMessage } from "@/utils/errors";
 const props = defineProps<{ error: unknown; title: string }>();
 defineEmits<{ retry: [] }>();
 
-const { t } = useI18n();
-const message = computed(() => errorMessage(props.error, t));
+const i18n = useI18n();
+const { t } = i18n;
+const message = computed(() => errorMessage(props.error, i18n));
 </script>
 
 <template>

@@ -56,8 +56,8 @@
     "commonName": "通用名称",
     "organization": "组织",
     "organizationalUnit": "组织单位",
-    "countryName": "国家/地区",
-    "stateProvince": "省/州",
+    "country": "国家/地区",
+    "stateOrProvince": "省/州",
     "locality": "城市"
   },
   "algorithm": {

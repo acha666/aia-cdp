@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/table";
 import { useClock } from "@/composables/useClock";
 import { useDateText } from "@/composables/useDateText";
-import { formatDateDay, formatDateDayWithoutTimezone, getRelativeTime } from "@/utils/dates";
+import { formatDate, relativeTime } from "@/utils/dates";
 import { compareTargets, issuerName } from "@/utils/labels";
 import { computeTargetStatus } from "@/utils/status";
 
@@ -43,7 +43,7 @@ const rows = computed(() => {
   return [...(data.value ?? [])]
     .sort((a, b) => compareTargets(a, b, locale.value))
     .map((target) => {
-      const status = computeTargetStatus(target.current, nowMs);
+      const state = computeTargetStatus(target.current, nowMs);
       const summary = target.current?.summary ?? null;
       return {
         targetId: target.targetId,
@@ -51,12 +51,13 @@ const rows = computed(() => {
         kind: target.kind,
         issuer: issuerName(target.issuer) ?? t("common.unknown"),
         crlNumber: summary?.crlNumber ?? null,
-        thisUpdate: summary ? formatDateDayWithoutTimezone(summary.thisUpdate, dateText) : null,
-        nextUpdate: summary ? formatDateDay(summary.nextUpdate, dateText) : null,
-        remaining:
-          status.state === "current" ? getRelativeTime(summary?.nextUpdate, nowMs, dateText) : null,
+        thisUpdate: summary
+          ? formatDate(summary.thisUpdate, dateText, { time: false, zone: false })
+          : null,
+        nextUpdate: summary ? formatDate(summary.nextUpdate, dateText, { time: false }) : null,
+        remaining: state === "current" ? relativeTime(summary?.nextUpdate, nowMs, dateText) : null,
         revoked: summary === null ? null : String(summary.revokedCount),
-        state: status.state,
+        state,
         downloads: target.current === null ? [] : target.downloads,
       };
     });

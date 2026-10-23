@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/table";
 import { useClock } from "@/composables/useClock";
 import { useDateText } from "@/composables/useDateText";
-import { formatDateDay, formatDateDayWithoutTimezone, getRelativeTime } from "@/utils/dates";
+import { formatDate, relativeTime } from "@/utils/dates";
 import { certificateName } from "@/utils/labels";
 import { computeCertificateStatus } from "@/utils/status";
 
@@ -43,7 +43,7 @@ const rows = computed(() => {
   return (data.value ?? [])
     .map((certificate) => {
       const { notBefore, notAfter, issuerCN, subjectCN } = certificate.summary;
-      const status = computeCertificateStatus(notBefore, notAfter, nowMs);
+      const state = computeCertificateStatus(notBefore, notAfter, nowMs);
       const name = certificateName(certificate);
       return {
         id: certificate.id,
@@ -51,14 +51,14 @@ const rows = computed(() => {
         // The CN under a label, when they differ.
         subjectCN: certificate.label !== null && subjectCN !== certificate.label ? subjectCN : null,
         issuer: issuerCN ?? t("common.unknown"),
-        from: formatDateDayWithoutTimezone(notBefore, dateText),
-        until: formatDateDay(notAfter, dateText),
+        from: formatDate(notBefore, dateText, { time: false, zone: false }),
+        until: formatDate(notAfter, dateText, { time: false }),
         // Only while the certificate is valid (expiring is the last tenth of that).
         remaining:
-          status.state === "valid" || status.state === "expiring"
-            ? getRelativeTime(notAfter, nowMs, dateText)
+          state === "valid" || state === "expiring"
+            ? relativeTime(notAfter, nowMs, dateText)
             : null,
-        state: status.state,
+        state,
         downloads: certificate.downloads,
       };
     })

@@ -3,7 +3,7 @@
 // an ApiError, whose `code` the UI maps to a message.
 //
 // Where each code comes from:
-// - a v1 code (error-codes.ts, or one this build does not know yet): unwrap, from the envelope
+// - a v1 code (src/http/schemas.ts, or one this build does not know yet): unwrap, from the envelope
 //   `{ error: { code, message, details? } }` of a non-2xx response; `status` is the HTTP status.
 // - invalid_response: unwrap, when the body is not JSON (a proxy's HTML page, an empty body) or a
 //   non-2xx JSON body is not the envelope; `status` is the HTTP status.
@@ -15,7 +15,7 @@
 /** A failed API call. Thrown by unwrap and by the client's fetch (api.ts). */
 export class ApiError extends Error {
   // erasableSyntaxOnly: explicit fields instead of constructor parameter properties.
-  /** A v1 code, `network` or `invalid_response` (error-codes.ts), or a code of a newer server. */
+  /** A v1 code, `network` or `invalid_response`, or a code of a newer server. */
   readonly code: string;
   /** The HTTP status; 0 for `network` (no response). */
   readonly status: number;
@@ -89,18 +89,12 @@ async function readJson(res: ResponseLike): Promise<unknown> {
 function envelopeError(
   body: unknown
 ): { code: string; message: string; details: unknown } | undefined {
-  if (typeof body !== "object" || body === null || !("error" in body)) {
-    return undefined;
-  }
-  const { error } = body;
-  if (typeof error !== "object" || error === null || !("code" in error) || !("message" in error)) {
-    return undefined;
-  }
-  const { code, message } = error;
-  if (typeof code !== "string" || typeof message !== "string") {
-    return undefined;
-  }
-  return { code, message, details: "details" in error ? error.details : undefined };
+  const error = (
+    body as { error?: { code?: unknown; message?: unknown; details?: unknown } | null } | null
+  )?.error;
+  return typeof error?.code === "string" && typeof error.message === "string"
+    ? { code: error.code, message: error.message, details: error.details }
+    : undefined;
 }
 
 function invalidResponse(status: number): ApiError {

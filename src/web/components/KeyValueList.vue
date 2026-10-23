@@ -28,7 +28,7 @@ const { t } = useI18n();
       <dt class="text-muted-foreground sm:break-words" :title="item.title">{{ item.label }}</dt>
       <dd class="mb-2 min-w-0 break-words sm:mb-0">
         <slot name="value" :item="item" :index="index">
-          <HexValue v-if="item.hex && item.value" :value="item.value" variant="grouped" />
+          <HexValue v-if="item.hex && item.value" :value="item.value" />
           <span v-else-if="item.value" class="whitespace-pre-wrap">{{ item.value }}</span>
           <span v-else class="text-muted-foreground">{{ t("common.emptyValue") }}</span>
         </slot>

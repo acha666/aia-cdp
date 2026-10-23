@@ -29,8 +29,7 @@ const attention = computed(() => {
     return null;
   }
   const nowMs = now.value.getTime();
-  return list.filter((target) => needsAttention(computeTargetStatus(target.current, nowMs).state))
-    .length;
+  return list.filter((target) => needsAttention(computeTargetStatus(target.current, nowMs))).length;
 });
 
 const tiles = computed<Tile[] | null>(() => {

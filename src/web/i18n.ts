@@ -23,47 +23,19 @@ type MessageSchema = typeof en;
 /** A language tag as a UI language: `zh*` → zh-CN, `en*` → en; else null. */
 export function normalizeLocale(tag: string): AppLocale | null {
   const primary = tag.trim().toLowerCase().split(/[-_]/)[0];
-  if (primary === "zh") {
-    return "zh-CN";
-  }
-  if (primary === "en") {
-    return "en";
-  }
-  return null;
-}
-
-/** The stored choice; null without one, with an unsupported one, or when storage is unavailable. */
-export function storedLocale(): AppLocale | null {
-  try {
-    const value = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-    return value === null ? null : normalizeLocale(value);
-  } catch {
-    return null;
-  }
-}
-
-function browserLanguages(): readonly string[] {
-  if (typeof navigator === "undefined") {
-    return [];
-  }
-  return navigator.languages.length > 0 ? navigator.languages : [navigator.language];
+  return primary === "zh" ? "zh-CN" : primary === "en" ? "en" : null;
 }
 
 /** The stored choice, else the first supported browser language, else en. */
-export function detectLocale(
-  stored: AppLocale | null = storedLocale(),
-  languages: readonly string[] = browserLanguages()
-): AppLocale {
-  if (stored !== null) {
-    return stored;
+function detectLocale(): AppLocale {
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem(LOCALE_STORAGE_KEY);
+  } catch {
+    // Blocked storage: no stored choice.
   }
-  for (const language of languages) {
-    const locale = normalizeLocale(language);
-    if (locale !== null) {
-      return locale;
-    }
-  }
-  return "en";
+  const locales = [stored ?? "", ...navigator.languages].map(normalizeLocale);
+  return locales.find((locale) => locale !== null) ?? "en";
 }
 
 export function createAppI18n(locale: AppLocale = detectLocale()) {

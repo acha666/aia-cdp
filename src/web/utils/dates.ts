@@ -10,52 +10,21 @@ export interface DateText {
   readonly t: (key: string, named?: Record<string, unknown>) => string;
 }
 
-const MINUTE_S = 60;
-const HOUR_S = 60 * MINUTE_S;
-const DAY_S = 24 * HOUR_S;
-
-function formatDatePart(date: Date, text: DateText): string {
-  return new Intl.DateTimeFormat(text.locale, {
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-  }).format(date);
-}
-
-function formatTimePart(date: Date, text: DateText): string {
-  return new Intl.DateTimeFormat(text.locale, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).format(date);
-}
-
-function withDirection(value: string, sign: number, text: DateText): string {
-  return sign >= 0 ? text.t("dates.in", { value }) : text.t("dates.ago", { value });
-}
-
-/**
- * `iso` as a date, through `format`; N/A without a value, the text itself when it is no date
- * (Intl throws a RangeError for an invalid Date).
- */
-function formatIso(
-  iso: string | null | undefined,
-  text: DateText,
-  format: (date: Date) => string
-): string {
-  if (iso === null || iso === undefined || iso === "") {
-    return text.t("common.notAvailable");
-  }
-  try {
-    return format(new Date(iso));
-  } catch {
-    return iso;
-  }
-}
+const DAY_S = 24 * 60 * 60;
+const DATE_OPTIONS: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "2-digit",
+  year: "numeric",
+};
+const TIME_OPTIONS: Intl.DateTimeFormatOptions = {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+};
 
 /** The local UTC offset at `date`: "UTC", "UTC+8", "UTC-3:30". */
-export function formatTimezoneOffset(date: Date): string {
+function formatTimezoneOffset(date: Date): string {
   const offsetMinutes = -date.getTimezoneOffset();
   if (offsetMinutes === 0) {
     return "UTC";
@@ -70,115 +39,65 @@ export function formatTimezoneOffset(date: Date): string {
   return `UTC${sign}${hours}:${String(minutes).padStart(2, "0")}`;
 }
 
-/** "Jan 04, 2026 00:05:07 (UTC)". */
-export function formatDateTimeWithZone(iso: string | null | undefined, text: DateText): string {
-  return formatIso(
-    iso,
-    text,
-    (date) =>
-      `${formatDatePart(date, text)} ${formatTimePart(date, text)} (${formatTimezoneOffset(date)})`
-  );
-}
-
-/** "Jan 04, 2026 (UTC)". */
-export function formatDateDay(iso: string | null | undefined, text: DateText): string {
-  return formatIso(
-    iso,
-    text,
-    (date) => `${formatDatePart(date, text)} (${formatTimezoneOffset(date)})`
-  );
-}
-
-/** "Jan 04, 2026". */
-export function formatDateDayWithoutTimezone(
+/**
+ * "Jan 04, 2026 00:05:07 (UTC)", without the time or the offset when they are turned off; N/A
+ * without a value, the text itself when it is no date.
+ */
+export function formatDate(
   iso: string | null | undefined,
-  text: DateText
+  text: DateText,
+  { time = true, zone = true } = {}
 ): string {
-  return formatIso(iso, text, (date) => formatDatePart(date, text));
+  if (!iso) {
+    return text.t("common.notAvailable");
+  }
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  return [
+    new Intl.DateTimeFormat(text.locale, DATE_OPTIONS).format(date),
+    time ? new Intl.DateTimeFormat(text.locale, TIME_OPTIONS).format(date) : "",
+    zone ? `(${formatTimezoneOffset(date)})` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /**
- * A signed distance in seconds (positive: in the future) as "in 2h 5m" / "5m ago" below a day,
- * else in the largest whole unit through Intl.RelativeTimeFormat ("in 3 days"). Minutes are
- * rounded, never shown as 0, and 60 of them carry into the hour.
+ * The distance from `nowMs` to `iso` as "in 2h 5m" / "5m ago": minutes are rounded, never shown as
+ * 0, and 60 of them carry into the hour. From one day on it is whole days through
+ * Intl.RelativeTimeFormat ("in 3 days"), unless `detailed` asks for every unit ("in 3d 4h 5m").
+ * "" without a valid date.
  */
-export function formatRelativeSeconds(seconds: number, text: DateText): string {
-  if (!Number.isFinite(seconds)) {
+export function relativeTime(
+  iso: string | null | undefined,
+  nowMs: number,
+  text: DateText,
+  detailed = false
+): string {
+  const seconds = Math.floor((Date.parse(iso ?? "") - nowMs) / 1000);
+  if (Number.isNaN(seconds)) {
     return "";
   }
   const abs = Math.abs(seconds);
-  const sign = seconds >= 0 ? 1 : -1;
-
-  if (abs < DAY_S) {
-    if (abs === 0) {
-      return text.t("dates.now");
-    }
-    const totalMinutes = Math.max(1, Math.round(abs / MINUTE_S));
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    const segments: string[] = [];
-    if (hours > 0) {
-      segments.push(`${String(hours)}${text.t("dates.short.hour")}`);
-    }
-    if (minutes > 0 || segments.length === 0) {
-      segments.push(`${String(minutes)}${text.t("dates.short.minute")}`);
-    }
-    return withDirection(segments.join(" "), sign, text);
+  if (!detailed && abs >= DAY_S) {
+    const days = Math.sign(seconds) * Math.round(abs / DAY_S);
+    return new Intl.RelativeTimeFormat(text.locale).format(days, "day");
   }
-
-  const formatter = new Intl.RelativeTimeFormat(text.locale, { numeric: "always" });
-  return formatter.format(sign * Math.round(abs / DAY_S), "day");
-}
-
-/** "in 3d 4h 5m" / "5m ago": every unit down to rounded minutes (at least 1 minute). */
-export function formatRelativeDetailedSeconds(seconds: number, text: DateText): string {
-  if (!Number.isFinite(seconds)) {
-    return "";
+  if (!detailed && seconds === 0) {
+    return text.t("dates.now");
   }
-  const sign = seconds >= 0 ? 1 : -1;
-  const totalMinutes = Math.max(1, Math.round(Math.abs(seconds) / MINUTE_S));
-  const days = Math.floor(totalMinutes / (24 * 60));
-  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
-  const minutes = totalMinutes % 60;
-
-  const segments: string[] = [];
-  if (days > 0) {
-    segments.push(`${String(days)}${text.t("dates.short.day")}`);
-  }
-  if (hours > 0) {
-    segments.push(`${String(hours)}${text.t("dates.short.hour")}`);
-  }
-  if (minutes > 0 || segments.length === 0) {
-    segments.push(`${String(minutes)}${text.t("dates.short.minute")}`);
-  }
-  return withDirection(segments.join(" "), sign, text);
-}
-
-/** Whole seconds from `nowMs` to `iso` (negative in the past); null without a valid date. */
-function secondsUntil(iso: string | null | undefined, nowMs: number): number | null {
-  if (iso === null || iso === undefined || iso === "") {
-    return null;
-  }
-  const time = Date.parse(iso);
-  return Number.isNaN(time) ? null : Math.floor((time - nowMs) / 1000);
-}
-
-/** formatRelativeSeconds from `nowMs` to `iso`; "" without a valid date. */
-export function getRelativeTime(
-  iso: string | null | undefined,
-  nowMs: number,
-  text: DateText
-): string {
-  const seconds = secondsUntil(iso, nowMs);
-  return seconds === null ? "" : formatRelativeSeconds(seconds, text);
-}
-
-/** formatRelativeDetailedSeconds from `nowMs` to `iso`; "" without a valid date. */
-export function getRelativeTimeDetailed(
-  iso: string | null | undefined,
-  nowMs: number,
-  text: DateText
-): string {
-  const seconds = secondsUntil(iso, nowMs);
-  return seconds === null ? "" : formatRelativeDetailedSeconds(seconds, text);
+  const total = Math.max(1, Math.round(abs / 60));
+  const days = detailed ? Math.floor(total / (24 * 60)) : 0;
+  const units = [
+    [days, "day"],
+    [Math.floor((total - days * 24 * 60) / 60), "hour"],
+    [total % 60, "minute"],
+  ] as const;
+  const value = units
+    .filter(([count]) => count > 0)
+    .map(([count, unit]) => `${String(count)}${text.t(`dates.short.${unit}`)}`)
+    .join(" ");
+  return text.t(seconds >= 0 ? "dates.in" : "dates.ago", { value });
 }

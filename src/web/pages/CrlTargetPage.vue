@@ -18,7 +18,7 @@ import NameDetails from "@/components/x509/NameDetails.vue";
 import { useClock } from "@/composables/useClock";
 import { useDateText } from "@/composables/useDateText";
 import { usePageTitle } from "@/composables/usePageTitle";
-import { formatDateTimeWithZone, getRelativeTimeDetailed } from "@/utils/dates";
+import { formatDate, relativeTime } from "@/utils/dates";
 import { isNotFound } from "@/utils/errors";
 import { issuerName } from "@/utils/labels";
 import { computeTargetStatus } from "@/utils/status";
@@ -49,7 +49,7 @@ const issuer = computed(() =>
 const extensions = computed(() => current.value?.tbsCertList.crlExtensions?.items ?? []);
 
 const salt = (length: number) => t("algorithm.salt", { length });
-const time = (iso: string | null | undefined) => formatDateTimeWithZone(iso, dateText);
+const time = (iso: string | null | undefined) => formatDate(iso, dateText);
 
 /** The overview of the current CRL, in sections; the issuer link and the status are in the header. */
 const overview = computed(() => {
@@ -96,11 +96,11 @@ const SECTIONS = ["information", "validity", "cryptography", "fingerprints"] as 
  */
 const statusDetail = computed(() => {
   const summary = current.value?.summary;
-  if (!summary || status.value.state === "unknown") {
+  if (!summary || status.value === "unknown") {
     return null;
   }
-  const boundary = status.value.state === "not-yet-valid" ? summary.thisUpdate : summary.nextUpdate;
-  return getRelativeTimeDetailed(boundary, now.value.getTime(), dateText) || null;
+  const boundary = status.value === "not-yet-valid" ? summary.thisUpdate : summary.nextUpdate;
+  return relativeTime(boundary, now.value.getTime(), dateText, true) || null;
 });
 
 const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
@@ -128,7 +128,7 @@ watch(
         <div class="flex flex-wrap items-center gap-2">
           <h1 class="text-2xl font-semibold tracking-tight break-all">{{ data.label }}</h1>
           <KindBadge :kind="data.kind" />
-          <StatusBadge :state="status.state" />
+          <StatusBadge :state="status" />
           <span
             v-if="statusDetail"
             class="text-sm text-muted-foreground"

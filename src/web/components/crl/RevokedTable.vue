@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDateText } from "@/composables/useDateText";
 import { describeEntry } from "@/utils/crl-entries";
-import { formatDateTimeWithZone } from "@/utils/dates";
+import { formatDate } from "@/utils/dates";
 
 // The revoked certificates of a target's current CRL (plan §8): serial number, revocation date,
 // reason, invalidity date and indirect issuer. `null` is a target without a current CRL: no list at
@@ -51,7 +51,7 @@ async function turn(delta: 1 | -1) {
 
 const entryContext = {
   nameLabel: (type: GeneralName["type"]) => t(`extension.generalName.${type}`),
-  time: (iso: string) => formatDateTimeWithZone(iso, dateText),
+  time: (iso: string) => formatDate(iso, dateText),
 };
 
 /** Only the rows of the current page are formatted. */
@@ -59,7 +59,7 @@ const rows = computed(() =>
   (props.revoked?.items ?? []).slice(first.value, last.value).map((entry, index) => ({
     key: first.value + index,
     serial: entry.userCertificate.hex,
-    revoked: formatDateTimeWithZone(entry.revocationDate.iso, dateText),
+    revoked: formatDate(entry.revocationDate.iso, dateText),
     ...describeEntry(entry.crlEntryExtensions?.items, entryContext),
   }))
 );

@@ -35,7 +35,8 @@ import { errorCode, errorMessage, errorReason } from "@/utils/errors";
 // asks for it. Keyboard focus: the submit button is only aria-disabled while an upload runs (a
 // disabled button drops the focus to <body>), and the result alert takes the focus from it
 // afterwards (a cleared input disables the button).
-const { t } = useI18n();
+const i18n = useI18n();
+const { t } = i18n;
 const client = useQueryClient();
 const upload = useUploadCrl();
 const { input, text, file, isValid, selectFile, clear } = useCrlUploadInput();
@@ -132,8 +133,8 @@ async function submit() {
     }
     void focusResult(successAlert);
   } catch (error) {
-    const message = errorMessage(error, t);
-    failure.value = { code: errorCode(error), message, reason: errorReason(error, t) };
+    const message = errorMessage(error, i18n);
+    failure.value = { code: errorCode(error), message, reason: errorReason(error, i18n) };
     toast.error(message);
     if (error instanceof ApiError && error.code === "unauthorized") {
       openToken();

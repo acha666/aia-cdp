@@ -56,8 +56,8 @@
     "commonName": "Common Name",
     "organization": "Organization",
     "organizationalUnit": "Organizational Unit",
-    "countryName": "Country Name",
-    "stateProvince": "State/Province",
+    "country": "Country Name",
+    "stateOrProvince": "State/Province",
     "locality": "Locality"
   },
   "algorithm": {

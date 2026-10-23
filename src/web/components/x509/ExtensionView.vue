@@ -14,7 +14,7 @@ import DistributionPointList from "@/components/x509/DistributionPointList.vue";
 import GeneralNameList from "@/components/x509/GeneralNameList.vue";
 import TagList from "@/components/x509/TagList.vue";
 import { useDateText } from "@/composables/useDateText";
-import { formatDateTimeWithZone } from "@/utils/dates";
+import { formatDate } from "@/utils/dates";
 import { describeExtension, describeSubtree, oidText } from "@/utils/extension-blocks";
 import type { ExtensionContext } from "@/utils/extension-blocks";
 import { formatGeneralName } from "@/utils/x509";
@@ -32,7 +32,7 @@ const dateText = useDateText();
 const ctx: ExtensionContext = {
   field: (key) => t(`extension.fields.${key}`),
   nameLabel: (type) => t(`extension.generalName.${type}`),
-  time: (iso) => formatDateTimeWithZone(iso, dateText),
+  time: (iso) => formatDate(iso, dateText),
   yesNo: (value) => t(value ? "common.yes" : "common.no"),
 };
 
@@ -170,7 +170,6 @@ const status = computed(() =>
           <CollapsibleContent>
             <HexValue
               block
-              variant="grouped"
               :value="extension.extnValue.hex"
               class="mt-1 max-h-32 overflow-auto rounded-md bg-muted/50 p-2 text-xs"
             />

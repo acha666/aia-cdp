@@ -22,17 +22,17 @@ const NORMALIZED_OIDS = new Set([
 ]);
 
 const FIELDS = [
-  ["commonName", "commonName"],
-  ["organization", "organization"],
-  ["organizationalUnit", "organizationalUnit"],
-  ["country", "countryName"],
-  ["stateOrProvince", "stateProvince"],
-  ["locality", "locality"],
+  "commonName",
+  "organization",
+  "organizationalUnit",
+  "country",
+  "stateOrProvince",
+  "locality",
 ] as const;
 
 const items = computed(() => [
-  ...FIELDS.map(([field, label]) => ({
-    label: t(`nameFields.${label}`),
+  ...FIELDS.map((field) => ({
+    label: t(`nameFields.${field}`),
     value: props.name[field]?.trim() ?? "",
   })),
   ...props.name.rdnSequence

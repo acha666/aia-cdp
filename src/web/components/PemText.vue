@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { CheckIcon, CopyIcon } from "@lucide/vue";
 import { useQuery } from "@tanstack/vue-query";
-import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { ApiError, apiFetch } from "@/client/errors";
 import QueryError from "@/components/QueryError.vue";
@@ -29,8 +28,7 @@ const pem = useQuery({
   },
 });
 
-const { copy, copied } = useCopy();
-const copyLabel = computed(() => (copied.value ? t("common.copied") : t("common.copy")));
+const { copy, copied, label } = useCopy();
 </script>
 
 <template>
@@ -47,12 +45,12 @@ const copyLabel = computed(() => (copied.value ? t("common.copied") : t("common.
       variant="outline"
       size="xs"
       class="absolute top-2 right-2"
-      :aria-label="copyLabel"
+      :aria-label="label"
       @click="copy(pem.data.value ?? '')"
     >
       <CheckIcon v-if="copied" data-icon="inline-start" />
       <CopyIcon v-else data-icon="inline-start" />
-      {{ copyLabel }}
+      {{ label }}
     </Button>
     <pre
       class="max-h-[32rem] overflow-auto rounded-lg bg-muted/50 p-3 pr-24 font-mono text-xs leading-5"

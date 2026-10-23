@@ -6,23 +6,20 @@
 
 /** Puts `text` on the clipboard; throws when neither way worked. */
 export async function copyText(text: string): Promise<void> {
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return;
-    } catch {
-      // Denied, or no user activation the API accepts: try the fallback.
-    }
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    // No Clipboard API (no secure context), denied, or no user activation the API accepts: try
+    // the fallback.
   }
   if (!legacyCopy(text)) {
     throw new Error("The browser refused to copy to the clipboard.");
   }
 }
 
+/** false when the browser refuses, or has no execCommand (it throws then). */
 function legacyCopy(text: string): boolean {
-  if (typeof document === "undefined" || typeof document.execCommand !== "function") {
-    return false;
-  }
   // Selecting the textarea takes the focus; it goes back to the copy button afterwards.
   const active = document.activeElement;
   const area = document.createElement("textarea");

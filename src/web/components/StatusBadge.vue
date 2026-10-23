@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { cva } from "class-variance-authority";
 import { useI18n } from "vue-i18n";
 import { Badge } from "@/components/ui/badge";
 import type { CertificateStatusState, CrlStatusState } from "@/utils/status";
@@ -14,20 +13,16 @@ const SUCCESS = "border-transparent bg-success/10 text-success dark:bg-success/2
 const WARNING = "border-transparent bg-warning/10 text-warning dark:bg-warning/20";
 const DESTRUCTIVE = "border-transparent bg-destructive/10 text-destructive dark:bg-destructive/20";
 
-const statusVariants = cva("", {
-  variants: {
-    state: {
-      valid: SUCCESS,
-      current: SUCCESS,
-      expiring: WARNING,
-      stale: WARNING,
-      "not-yet-valid": WARNING,
-      expired: DESTRUCTIVE,
-      unknown: "text-muted-foreground",
-      unpublished: "border-dashed text-muted-foreground",
-    } satisfies Record<State, string>,
-  },
-});
+const CLASSES = {
+  valid: SUCCESS,
+  current: SUCCESS,
+  expiring: WARNING,
+  stale: WARNING,
+  "not-yet-valid": WARNING,
+  expired: DESTRUCTIVE,
+  unknown: "text-muted-foreground",
+  unpublished: "border-dashed text-muted-foreground",
+} satisfies Record<State, string>;
 
 const LABEL_KEYS = {
   valid: "status.valid",
@@ -46,7 +41,7 @@ const { t } = useI18n();
 </script>
 
 <template>
-  <Badge variant="outline" :data-state="state" :class="statusVariants({ state })">
+  <Badge variant="outline" :data-state="state" :class="CLASSES[state]">
     {{ t(LABEL_KEYS[state]) }}
   </Badge>
 </template>

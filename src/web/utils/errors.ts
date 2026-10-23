@@ -1,13 +1,15 @@
-// What the UI says about a failed API call: the message of its code, `errors.<code>`, for every
-// code the client knows (error-codes.ts); a code it does not know (a newer server's) or a failure
-// that is not an ApiError reads `errors.unknown` with that code. An upload failure's
-// `details.reason` reads `upload.reasons.<reason>`, an unknown reason as it is.
-import { CLIENT_ERROR_CODES, ERROR_CODES } from "@/client/error-codes";
+// What the UI says about a failed API call: the message of its code, `errors.<code>`; a code
+// without a message (a newer server's) or a failure that is not an ApiError reads `errors.unknown`
+// with that code. An upload failure's `details.reason` reads `upload.reasons.<reason>`, a reason
+// without a message as it is. vue-i18n's te() tells whether a message exists;
+// tests/web/locales.test.ts checks that every code and reason the server sends has one.
 import { ApiError } from "@/client/errors";
 
-const KNOWN_CODES: ReadonlySet<string> = new Set([...ERROR_CODES, ...CLIENT_ERROR_CODES]);
-
-type Translate = (key: string, named?: Record<string, unknown>) => string;
+/** What these helpers need from vue-i18n (useI18n() has both). */
+interface Messages {
+  t: (key: string, named?: Record<string, unknown>) => string;
+  te: (key: string) => boolean;
+}
 
 /** The code of a failure: ApiError's code, else the error's name. */
 export function errorCode(error: unknown): string {
@@ -18,44 +20,23 @@ export function errorCode(error: unknown): string {
 }
 
 /** The message of `error` in the UI language. */
-export function errorMessage(error: unknown, t: Translate): string {
+export function errorMessage(error: unknown, { t, te }: Messages): string {
   const code = errorCode(error);
-  return KNOWN_CODES.has(code) ? t(`errors.${code}`) : t("errors.unknown", { code });
+  const key = `errors.${code}`;
+  return t(te(key) ? key : "errors.unknown", { code });
 }
 
-/**
- * The `details.reason` values the server sends with an upload failure (invalid_crl:
- * src/core/pki/errors.ts and the signature check of src/core/publish.ts; issuer_not_found:
- * missing_aki), each with an `upload.reasons.<reason>` message.
- */
-export const UPLOAD_REASONS: readonly string[] = [
-  "der",
-  "trailing_bytes",
-  "time",
-  "structure",
-  "extension_value",
-  "pem_label",
-  "pem_blocks",
-  "pem_base64",
-  "signature_algorithm_mismatch",
-  "missing_aki",
-];
-const KNOWN_REASONS: ReadonlySet<string> = new Set(UPLOAD_REASONS);
-
 /** The `details.reason` of a failure in the UI language; null without one. */
-export function errorReason(error: unknown, t: Translate): string | null {
+export function errorReason(error: unknown, { t, te }: Messages): string | null {
   if (!(error instanceof ApiError)) {
     return null;
   }
-  const { details } = error;
-  if (typeof details !== "object" || details === null || !("reason" in details)) {
-    return null;
-  }
-  const { reason } = details;
+  const reason = (error.details as { reason?: unknown } | null | undefined)?.reason;
   if (typeof reason !== "string") {
     return null;
   }
-  return KNOWN_REASONS.has(reason) ? t(`upload.reasons.${reason}`) : reason;
+  const key = `upload.reasons.${reason}`;
+  return te(key) ? t(key) : reason;
 }
 
 /** The API answered 404 `not_found`: the page's resource does not exist. */

@@ -4,15 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAppI18n } from "@/i18n";
 import type { AppLocale } from "@/i18n";
 import type { DateText } from "@/utils/dates";
-import {
-  formatDateDay,
-  formatDateDayWithoutTimezone,
-  formatDateTimeWithZone,
-  formatRelativeDetailedSeconds,
-  formatRelativeSeconds,
-  getRelativeTime,
-  getRelativeTimeDetailed,
-} from "@/utils/dates";
+import { formatDate, relativeTime } from "@/utils/dates";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -37,10 +29,8 @@ describe("absolute dates", () => {
   it("labels each date with its own offset, daylight saving time included", () => {
     // Newfoundland: UTC-3:30 in January, UTC-2:30 in July.
     vi.stubEnv("TZ", "America/St_Johns");
-    expect(formatDateTimeWithZone("2026-07-04T00:05:07Z", en)).toBe(
-      "Jul 03, 2026 21:35:07 (UTC-2:30)"
-    );
-    expect(formatDateTimeWithZone(ISO, en)).toBe("Jan 03, 2026 20:35:07 (UTC-3:30)");
+    expect(formatDate("2026-07-04T00:05:07Z", en)).toBe("Jul 03, 2026 21:35:07 (UTC-2:30)");
+    expect(formatDate(ISO, en)).toBe("Jan 03, 2026 20:35:07 (UTC-3:30)");
   });
 
   it("prints five past midnight as 00:05, not 24:05 (hourCycle h23)", () => {
@@ -53,7 +43,7 @@ describe("absolute dates", () => {
       return new DateTimeFormat(locales, options);
     });
 
-    expect(formatDateTimeWithZone(ISO, en)).toBe("Jan 04, 2026 00:05:07 (UTC)");
+    expect(formatDate(ISO, en)).toBe("Jan 04, 2026 00:05:07 (UTC)");
     const time = asked.filter((options) => options.hour !== undefined);
     expect(time.length).toBeGreaterThan(0);
     for (const options of time) {
@@ -64,62 +54,65 @@ describe("absolute dates", () => {
 
   it("shows the local time with its offset", () => {
     vi.stubEnv("TZ", "Asia/Kolkata");
-    expect(formatDateTimeWithZone(ISO, en)).toBe("Jan 04, 2026 05:35:07 (UTC+5:30)");
+    expect(formatDate(ISO, en)).toBe("Jan 04, 2026 05:35:07 (UTC+5:30)");
     vi.stubEnv("TZ", "America/St_Johns");
-    expect(formatDateDay(ISO, en)).toBe("Jan 03, 2026 (UTC-3:30)");
-    expect(formatDateDayWithoutTimezone(ISO, en)).toBe("Jan 03, 2026");
+    expect(formatDate(ISO, en, { time: false })).toBe("Jan 03, 2026 (UTC-3:30)");
+    expect(formatDate(ISO, en, { time: false, zone: false })).toBe("Jan 03, 2026");
   });
 
   it("formats in the message locale (zh-CN)", () => {
     vi.stubEnv("TZ", "Asia/Shanghai");
-    expect(formatDateTimeWithZone(ISO, zh)).toBe("2026年1月04日 08:05:07 (UTC+8)");
-    expect(formatDateDay(ISO, zh)).toBe("2026年1月04日 (UTC+8)");
+    expect(formatDate(ISO, zh)).toBe("2026年1月04日 08:05:07 (UTC+8)");
+    expect(formatDate(ISO, zh, { time: false })).toBe("2026年1月04日 (UTC+8)");
   });
 
   it("says N/A without a date and keeps text that is no date", () => {
-    expect(formatDateTimeWithZone(null, en)).toBe("N/A");
-    expect(formatDateDay(undefined, zh)).toBe("无");
-    expect(formatDateDayWithoutTimezone("", en)).toBe("N/A");
-    expect(formatDateTimeWithZone("not a date", en)).toBe("not a date");
+    expect(formatDate(null, en)).toBe("N/A");
+    expect(formatDate(undefined, zh, { time: false })).toBe("无");
+    expect(formatDate("", en, { time: false, zone: false })).toBe("N/A");
+    expect(formatDate("not a date", en)).toBe("not a date");
   });
 });
 
 describe("relative times", () => {
+  const at = Date.parse(ISO);
+  /** The text for a time `seconds` after the clock (before it when negative). */
+  const inSeconds = (seconds: number, detailed = false) =>
+    relativeTime(ISO, at - seconds * 1000, en, detailed);
+
   it("rounds to minutes, shows at least one and carries 60 minutes into the hour", () => {
-    expect(formatRelativeSeconds(0, en)).toBe("now");
-    expect(formatRelativeSeconds(29, en)).toBe("in 1m");
-    expect(formatRelativeSeconds(-29, en)).toBe("1m ago");
-    expect(formatRelativeSeconds(59 * MINUTE + 29, en)).toBe("in 59m");
-    expect(formatRelativeSeconds(59 * MINUTE + 30, en)).toBe("in 1h");
-    expect(formatRelativeSeconds(-(2 * HOUR + 5 * MINUTE), en)).toBe("2h 5m ago");
-    expect(formatRelativeSeconds(DAY - 1, en)).toBe("in 24h");
+    expect(inSeconds(0)).toBe("now");
+    expect(inSeconds(29)).toBe("in 1m");
+    expect(inSeconds(-29)).toBe("1m ago");
+    expect(inSeconds(59 * MINUTE + 29)).toBe("in 59m");
+    expect(inSeconds(59 * MINUTE + 30)).toBe("in 1h");
+    expect(inSeconds(-(2 * HOUR + 5 * MINUTE))).toBe("2h 5m ago");
+    expect(inSeconds(DAY - 1)).toBe("in 24h");
   });
 
   it("switches to whole days from one day on", () => {
-    expect(formatRelativeSeconds(DAY, en)).toBe("in 1 day");
-    expect(formatRelativeSeconds(3 * DAY + 13 * HOUR, en)).toBe("in 4 days");
-    expect(formatRelativeSeconds(-3 * DAY, en)).toBe("3 days ago");
+    expect(inSeconds(DAY)).toBe("in 1 day");
+    expect(inSeconds(3 * DAY + 13 * HOUR)).toBe("in 4 days");
+    expect(inSeconds(-3 * DAY)).toBe("3 days ago");
   });
 
   it("details days, hours and minutes", () => {
-    expect(formatRelativeDetailedSeconds(3 * DAY + 4 * HOUR + 5 * MINUTE, en)).toBe("in 3d 4h 5m");
-    expect(formatRelativeDetailedSeconds(-2 * DAY, en)).toBe("2d ago");
-    expect(formatRelativeDetailedSeconds(10, en)).toBe("in 1m");
+    expect(inSeconds(3 * DAY + 4 * HOUR + 5 * MINUTE, true)).toBe("in 3d 4h 5m");
+    expect(inSeconds(-2 * DAY, true)).toBe("2d ago");
+    expect(inSeconds(10, true)).toBe("in 1m");
   });
 
   it("measures from the injected clock, not Date.now()", () => {
-    const at = Date.parse(ISO);
-    expect(getRelativeTime(ISO, at - 2 * HOUR * 1000, en)).toBe("in 2h");
-    expect(getRelativeTime(ISO, at + 5 * MINUTE * 1000, en)).toBe("5m ago");
-    expect(getRelativeTime(ISO, at, en)).toBe("now");
-    expect(getRelativeTimeDetailed(ISO, at - (DAY + HOUR) * 1000, en)).toBe("in 1d 1h");
-    expect(getRelativeTime(null, at, en)).toBe("");
-    expect(getRelativeTimeDetailed("not a date", at, en)).toBe("");
+    expect(relativeTime(ISO, at - 2 * HOUR * 1000, en)).toBe("in 2h");
+    expect(relativeTime(ISO, at + 5 * MINUTE * 1000, en)).toBe("5m ago");
+    expect(relativeTime(ISO, at, en)).toBe("now");
+    expect(relativeTime(ISO, at - (DAY + HOUR) * 1000, en, true)).toBe("in 1d 1h");
+    expect(relativeTime(null, at, en)).toBe("");
+    expect(relativeTime("not a date", at, en, true)).toBe("");
   });
 
   it("speaks zh-CN", () => {
-    const at = Date.parse(ISO);
-    expect(getRelativeTime(ISO, at + (2 * HOUR + 5 * MINUTE) * 1000, zh)).toBe("2小时 5分钟前");
-    expect(getRelativeTimeDetailed(ISO, at - (DAY + 30 * MINUTE) * 1000, zh)).toBe("1天 30分钟后");
+    expect(relativeTime(ISO, at + (2 * HOUR + 5 * MINUTE) * 1000, zh)).toBe("2小时 5分钟前");
+    expect(relativeTime(ISO, at - (DAY + 30 * MINUTE) * 1000, zh, true)).toBe("1天 30分钟后");
   });
 });

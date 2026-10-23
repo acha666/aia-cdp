@@ -44,7 +44,7 @@ usePageTitle(name);
 const state = computed(() => {
   const summary = data.value?.summary;
   return summary
-    ? computeCertificateStatus(summary.notBefore, summary.notAfter, now.value.getTime()).state
+    ? computeCertificateStatus(summary.notBefore, summary.notAfter, now.value.getTime())
     : null;
 });
 const extensions = computed(() => data.value?.tbsCertificate.extensions?.items ?? []);
