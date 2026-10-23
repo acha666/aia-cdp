@@ -3,14 +3,11 @@
   // `import type { AppType }`) and the happy-dom component tests.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true,
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "types": ["vite/client"],
     // Generated shadcn-vue code imports without extensions.
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    // Otherwise vue-tsc reports TS2876 on .vue imports.
-    "rewriteRelativeImportExtensions": false,
     "paths": {
       "@/*": ["./src/web/*"]
     }

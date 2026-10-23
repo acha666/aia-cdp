@@ -1,23 +1,19 @@
-# Commit messages come out as
-# "chore(deps): ..." / "ci(deps): ...": the prefix carries no colon or scope of its own.
+# Commit messages come out as "chore(deps): ...", "chore(deps-dev): ..." and "ci(deps): ...":
+# the prefix carries no colon or scope of its own.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
-      day: monday
       time: "09:00"
       timezone: America/Vancouver
-    open-pull-requests-limit: 5
     labels:
       - dependencies
       - pnpm
     commit-message:
       prefix: chore
       include: scope
-    pull-request-branch-name:
-      separator: /
     ignore:
       # typescript-eslint 8.x supports TypeScript < 6.1.0 (implementation §2.3).
       - dependency-name: typescript
@@ -30,7 +26,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
-      day: monday
       time: "09:00"
       timezone: America/Vancouver
     labels:
@@ -39,14 +34,11 @@ updates:
     commit-message:
       prefix: ci
       include: scope
-    pull-request-branch-name:
-      separator: /
 
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
-      day: monday
       time: "09:00"
       timezone: America/Vancouver
     labels:
@@ -55,5 +47,3 @@ updates:
     commit-message:
       prefix: chore
       include: scope
-    pull-request-branch-name:
-      separator: /

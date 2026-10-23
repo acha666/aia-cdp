@@ -136,7 +136,7 @@ aia-cdp/
 
 模块约定（全仓 ESM、服务端相对导入写 `.ts`、只用可擦除语法、`src/web` 对服务端模块只许 `import type`、core 与 http 只用 Web 标准全局）
 见 implementation 总则 §2.1。tsconfig 拓扑（worker / node / web 三个程序加只发射的 `tsconfig.build.json`）见总则 §2.2：三套程序都编译
-`src/core` 与 `src/http`，Worker 程序的类型只有 `worker-configuration.d.ts`。`eslint.config.ts` 只另加一条规则：`src/web` 对 `src/core`、`src/http`、
+`src/core` 与 `src/http`，Worker 程序的类型只有 `worker-configuration.d.ts`。`eslint.config.ts` 只另加一条导入规则：`src/web` 对 `src/core`、`src/http`、
 `src/storage`、`src/runtime` 只许 `import type`，Hono 只许 `hono/client`。core 与 http 不用 Node 全局、不导入 http / storage / runtime 是约定，没有专门的检查；
 接受的剩余风险：某个依赖的类型声明引用了 node 时，core / http 里误用的 `process`、`Buffer` 也能通过 Worker 程序的类型检查，只有 `smoke:worker` 执行到的路径
 会失败。R2 适配器按结构化类型 `R2BucketLike` 写，r2 一致性测试因此在 `tsconfig.node.json` 下编译。
@@ -148,7 +148,7 @@ aia-cdp/
 - `wrangler.jsonc`：`name: "aia-cdp"`（`wrangler deploy` 会覆盖同一账号里的同名 Worker，名字不能与已有的 Worker 相同）；
   `main: src/runtime/worker.ts`；`compatibility_date: "2026-10-19"`（= wrangler 4.152.0 自带的 workerd，随 wrangler 一起升）；
   不设兼容标志（`nodejs_compat` 自 2026-08-04 起默认开启，真正的护栏是 tsconfig 的 `types`，§3）；
-  `observability.logs.enabled: true`（§4.3）；`minify: true`；`upload_source_maps: true`；
+  `observability.logs.enabled: true`（§4.3）；`minify: true`；source maps 用 `wrangler deploy` 的默认（构建并上传）；
   `r2_buckets: [{ binding: "STORE" }]`，不写 `bucket_name`（自动置备；是否共用旧桶是切片 7 的 owner 项）；
   `assets: { directory: "dist/web", binding: "ASSETS", run_worker_first: true,
   not_found_handling: "single-page-application" }`（history 路由的兜底）。不写 `routes`、`build.command`、`vars`。
@@ -161,7 +161,8 @@ aia-cdp/
 - 令牌是可选的 `wrangler secret`（`AIA_ADMIN_TOKEN` / `AIA_UPLOAD_TOKEN`），代码里类型为可选，不用 `secrets.required`；
   `AIA_MAX_UPLOAD_BYTES` 有默认值，需要时用 `vars`。入口把每个变量作为字符串交给 `parseSettings`：不是字符串的值（如写成 JSON 数字）
   取其 JSON 文本，`null` 视为未设，有效与否由 `parseSettings` 判定。
-- 脚本与 CI 调 wrangler 时设 `WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true`（`send_metrics: false` 挡不住 deploy 的遥测）；
+- 调用 wrangler CLI 的脚本（`types`、`dev:worker`、`ci:worker`）设 `WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true`（`wrangler types`、
+  `wrangler dev` 不读 `send_metrics`，deploy 的 autoconfig 事件也不看它），`worker-smoke.ts` 与 `r2.test.ts` 在进程内设，CI 不另设；
   `wrangler deploy --dry-run --outdir dist/worker` 需要先有 `dist/web`（先 `vite build`）。不加 `deploy` 脚本（首次部署会自动置备新桶，部署按 `docs/operations.md` 手工执行），生产部署只在切片 7。
 
 ### 4.2 Node / Docker
@@ -639,7 +640,7 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 布局与夹具规则见 implementation 总则 §2.5（B15、B16、决策 13），脚本见 `package.json`。检查只用常规的一套（决策 15）。
 
 - 类型：`pnpm run typecheck` = `wrangler types` 后 `tsc -p tsconfig.worker.json`、`tsc -p tsconfig.node.json`、`vue-tsc -p tsconfig.web.json`。
-- Lint 与格式：ESLint 常规预设（`@eslint/js`、`typescript-eslint`、`eslint-plugin-vue`），另加一条规则：`src/web` 对 `src/core`、`src/http`、
+- Lint 与格式：ESLint 常规预设（`@eslint/js`、`typescript-eslint`、`eslint-plugin-vue`），另加一条导入规则：`src/web` 对 `src/core`、`src/http`、
   `src/storage`、`src/runtime` 只许 `import type`，Hono 只许 `hono/client`；`prettier --check`。
 - vitest 5 两个 `projects`：`node`（`tests/` 下除 `tests/web` 外的 `*.test.ts`，node 环境）与 `web`（`tests/web`，happy-dom）；独立的
   `vitest.config.ts`（不继承 `vite.config.ts` 的 `root`），没有 `globalSetup`。HTTP 测试通过

@@ -10,6 +10,3 @@
 !tsconfig.build.json
 !vite.config.ts
 !src
-# Developer-local overrides and tests must not change what an image build produces.
-**/*.test.ts
-**/.env*.local

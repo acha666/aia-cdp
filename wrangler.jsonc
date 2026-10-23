@@ -4,7 +4,6 @@
   "main": "src/runtime/worker.ts",
   "compatibility_date": "2026-10-19",
   "minify": true,
-  "upload_source_maps": true,
   "send_metrics": false,
   "observability": { "logs": { "enabled": true } },
   "r2_buckets": [{ "binding": "STORE" }],

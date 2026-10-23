@@ -1,13 +1,12 @@
 {
-  // Emit-only config for the Node server and the CLI (Docker image, `pnpm start`): tsc follows the
-  // import graphs of src/runtime/node.ts and src/cli/aia.ts and writes dist/server/** (the CLI is
-  // dist/server/cli/aia.js). Type checking stays in tsconfig.node.json. Not referenced from
-  // tsconfig.json.
+  // Emit-only: compiles the import graphs of src/runtime/node.ts and src/cli/aia.ts to dist/server
+  // for `pnpm start` and the Docker image. Not referenced from tsconfig.json.
   "extends": "./tsconfig.node.json",
   "compilerOptions": {
     "noEmit": false,
     "rootDir": "src",
     "outDir": "dist/server",
+    "rewriteRelativeImportExtensions": true,
     "sourceMap": true,
     "noEmitOnError": true
   },

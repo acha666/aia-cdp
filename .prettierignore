@@ -1,11 +1,6 @@
-# Generated
+# Committed generated files and fixtures (Prettier also reads .gitignore)
 pnpm-lock.yaml
-worker-configuration.d.ts
 docs/openapi.json
-dist/
-coverage/
-.wrangler/
-.data/
 tests/fixtures/pki/
 
 # Hand-written Chinese docs: wide tables are not reflowed by Prettier

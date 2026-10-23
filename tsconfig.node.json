@@ -3,22 +3,8 @@
   // and the tool configs. Only @types/node is visible, so R2Bucket / Env / ExportedHandler fail here.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true,
     "types": ["node"]
   },
-  "include": [
-    "src/core/**/*.ts",
-    "src/http/**/*.ts",
-    "src/storage/**/*.ts",
-    "src/runtime/node.ts",
-    "src/runtime/node-ui.ts",
-    "src/runtime/settings.ts",
-    "src/cli/**/*.ts",
-    "scripts/**/*.ts",
-    "tests/**/*.ts",
-    "eslint.config.ts",
-    "vite.config.ts",
-    "vitest.config.ts"
-  ],
-  "exclude": ["tests/web/**"]
+  "include": ["src", "scripts", "tests", "*.config.ts"],
+  "exclude": ["src/web", "src/runtime/worker.ts", "tests/web"]
 }
