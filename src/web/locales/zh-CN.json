@@ -139,7 +139,6 @@
     "detail": {
       "loading": "正在检查服务状态…",
       "healthy": "存储与配置均正常。",
-      "degraded": "服务在运行，但配置需要处理。",
       "missing": "存储正常，但尚未应用配置。",
       "invalid": "存储正常，但已存的配置无效。",
       "unhealthy": "存储后端出错。",
@@ -349,8 +348,7 @@
       "toggle": "上传令牌",
       "set": "已填写",
       "label": "上传令牌（AIA_UPLOAD_TOKEN）",
-      "hint": "仅当服务器设置了 AIA_UPLOAD_TOKEN 时需要。",
-      "invalid": "上传令牌只能由字母、数字和 - . _ ~ + / 组成，末尾可以带 = 号。"
+      "hint": "仅当服务器设置了 AIA_UPLOAD_TOKEN 时需要。"
     }
   }
 }

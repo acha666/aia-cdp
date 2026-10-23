@@ -9,7 +9,9 @@ import {
   UploadIcon,
 } from "@lucide/vue";
 import { useQueryClient } from "@tanstack/vue-query";
-import { computed, nextTick, ref, shallowRef, useId, useTemplateRef, watchEffect } from "vue";
+import { useDropZone, useFocus } from "@vueuse/core";
+import { computed, nextTick, ref, shallowRef, useId, useTemplateRef } from "vue";
+import type { ComponentPublicInstance } from "vue";
 import { useI18n } from "vue-i18n";
 import { toast } from "vue-sonner";
 import { ApiError } from "@/client/errors";
@@ -43,29 +45,20 @@ const { input, text, file, isValid, selectFile, clear } = useCrlUploadInput();
 const token = useUploadToken();
 
 const ids = { text: useId(), token: useId() };
-const dragActive = ref(false);
-const tokenOpen = ref(false);
-// The token field gets the focus once it is rendered (the collapsible mounts it when it opens).
-const tokenField = useTemplateRef<{ $el: HTMLInputElement }>("tokenField");
-const focusToken = ref(false);
-watchEffect(
-  () => {
-    if (focusToken.value && tokenField.value) {
-      tokenField.value.$el.focus();
-      focusToken.value = false;
+const dropZone = useTemplateRef<HTMLElement>("dropZone");
+const { isOverDropZone } = useDropZone(dropZone, {
+  onDrop: (files) => {
+    if (files?.[0]) {
+      selectFile(files[0]);
     }
   },
-  { flush: "post" }
-);
+});
+const tokenOpen = ref(false);
+// The token field takes the focus whenever it is rendered (the collapsible mounts it when it opens).
+const tokenField = useTemplateRef<ComponentPublicInstance>("tokenField");
+const { focused: tokenFocused } = useFocus(tokenField, { initialValue: true });
 // Set before the first await: two clicks in one tick must not both pass the guard.
 const busy = ref(false);
-
-/**
- * RFC 6750 b64token, the only form AIA_UPLOAD_TOKEN's bearerAuth accepts. Anything else cannot even
- * be sent: hono/client sets the header through Headers, which throws a TypeError on non-Latin-1
- * text ("Unexpected error (TypeError)").
- */
-const TOKEN_SHAPE = /^[A-Za-z0-9._~+/-]+=*$/;
 
 const submitButton = useTemplateRef<{ $el: HTMLElement }>("submitButton");
 const successAlert = useTemplateRef<{ $el: HTMLElement }>("successAlert");
@@ -87,7 +80,7 @@ const showPemHint = computed(() => !isValid.value && text.value.trim() !== "");
 
 function openToken() {
   tokenOpen.value = true;
-  focusToken.value = true;
+  tokenFocused.value = true;
 }
 
 /** The result alert takes the focus when the submit button had it (or it was already lost). */
@@ -104,15 +97,6 @@ async function submit() {
   if (!isValid.value || busy.value) {
     return;
   }
-  const bearer = token.value.trim();
-  if (bearer !== "" && !TOKEN_SHAPE.test(bearer)) {
-    const message = t("upload.token.invalid");
-    success.value = null;
-    failure.value = { code: "invalid_token", message, reason: null };
-    toast.error(message);
-    openToken();
-    return;
-  }
   busy.value = true;
   success.value = null;
   failure.value = null;
@@ -122,7 +106,7 @@ async function submit() {
       ? new File([submitted], "crl.pem", { type: "application/x-pem-file" })
       : submitted;
   try {
-    const published = await upload.mutateAsync({ file: crl, token: bearer });
+    const published = await upload.mutateAsync({ file: crl, token: token.value.trim() });
     const target =
       cachedTargetLabel(client, published.target) ?? t(`upload.kindTarget.${published.kind}`);
     const message = t(`upload.outcome.${published.outcome}`, { target });
@@ -143,20 +127,6 @@ async function submit() {
     }
   } finally {
     busy.value = false;
-  }
-}
-
-function onDragOver(event: DragEvent) {
-  event.preventDefault();
-  dragActive.value = true;
-}
-
-function onDrop(event: DragEvent) {
-  event.preventDefault();
-  dragActive.value = false;
-  const dropped = event.dataTransfer?.files[0];
-  if (dropped) {
-    selectFile(dropped);
   }
 }
 
@@ -225,12 +195,10 @@ function onFileChange(event: Event) {
       <form class="grid gap-3" @submit.prevent="submit">
         <Label :for="ids.text">{{ t("upload.labels.pemContent") }}</Label>
         <div
+          ref="dropZone"
           class="relative rounded-lg"
-          :class="{ 'ring-3 ring-ring/50': dragActive }"
+          :class="{ 'ring-3 ring-ring/50': isOverDropZone }"
           data-testid="drop-zone"
-          @dragover="onDragOver"
-          @dragleave="dragActive = false"
-          @drop="onDrop"
         >
           <Textarea
             :id="ids.text"

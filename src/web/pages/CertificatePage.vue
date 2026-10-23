@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowLeftIcon } from "@lucide/vue";
-import { computed, ref, watch } from "vue";
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 import { useCertificate } from "@/client/queries";
@@ -25,7 +25,8 @@ import { computeCertificateStatus } from "@/utils/status";
 // router's pattern, so it is safe to put into the request URL. The tabs may not widen the page
 // (min-w-0: the PEM text and ASN.1 dumps scroll in their own boxes, the tab list scrolls sideways
 // on a phone, never down: the triggers' hidden line-variant ::after reaches below it); the panels
-// are tab stops (Reka), so they show a focus ring.
+// are tab stops (Reka), so they show a focus ring. The tabs are keyed by `id`: another certificate
+// (a link from a target page) starts on its overview.
 const props = defineProps<{ id: string }>();
 
 const { t } = useI18n();
@@ -51,15 +52,6 @@ const extensions = computed(() => data.value?.tbsCertificate.extensions?.items ?
 const pemPath = computed(() => data.value?.downloads.find((path) => path.endsWith(".pem")) ?? null);
 
 const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
-
-const tab = ref("overview");
-// Another certificate (a link from a target page) starts on its overview.
-watch(
-  () => props.id,
-  () => {
-    tab.value = "overview";
-  }
-);
 </script>
 
 <template>
@@ -87,7 +79,7 @@ watch(
         <DownloadLinks :downloads="data.downloads" />
       </header>
 
-      <Tabs v-model="tab" class="min-w-0">
+      <Tabs :key="id" default-value="overview" class="min-w-0">
         <TabsList class="max-w-full justify-start overflow-x-auto overflow-y-hidden">
           <TabsTrigger value="overview">{{ t("details.tabs.overview") }}</TabsTrigger>
           <TabsTrigger value="extensions">

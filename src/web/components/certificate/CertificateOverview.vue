@@ -67,25 +67,22 @@ const general = computed(() => [
 const publicKey = computed(() => {
   const spki = tbs.value.subjectPublicKeyInfo;
   const key = spki.parsed;
-  const items = [
+  return [
     {
       label: t("details.certificate.publicKeyAlgorithm"),
       value: formatAlgorithm(spki.algorithm, salt) ?? t("common.unknown"),
     },
-  ];
-  if (key.type === "rsa") {
-    items.push({
+    key.type === "rsa" && {
       label: t("details.certificate.keySize"),
       value: `${String(key.modulus.bitLength)} ${t("common.bits")}`,
-    });
-  } else if (key.type === "ec") {
-    items.push({ label: t("details.certificate.curve"), value: key.curve.name ?? key.curve.oid });
-  }
-  return [
-    ...items,
+    },
+    key.type === "ec" && {
+      label: t("details.certificate.curve"),
+      value: key.curve.name ?? key.curve.oid,
+    },
     { label: t("details.certificate.publicKeySha1"), value: spki.fingerprints.sha1, hex: true },
     { label: t("details.certificate.publicKeySha256"), value: spki.fingerprints.sha256, hex: true },
-  ];
+  ].filter((row) => row !== false);
 });
 
 const signature = computed(() => {
@@ -114,26 +111,21 @@ const targets = computed(() =>
   [...props.certificate.targets].sort((a, b) => compareTargets(a, b, locale.value))
 );
 
-const uniqueIds = computed(() => [
-  ...(tbs.value.issuerUniqueID
-    ? [
-        {
-          label: t("details.certificate.issuerUniqueId"),
-          value: tbs.value.issuerUniqueID.hex,
-          hex: true,
-        },
-      ]
-    : []),
-  ...(tbs.value.subjectUniqueID
-    ? [
-        {
-          label: t("details.certificate.subjectUniqueId"),
-          value: tbs.value.subjectUniqueID.hex,
-          hex: true,
-        },
-      ]
-    : []),
-]);
+const uniqueIds = computed(() => {
+  const { issuerUniqueID, subjectUniqueID } = tbs.value;
+  return [
+    issuerUniqueID !== undefined && {
+      label: t("details.certificate.issuerUniqueId"),
+      value: issuerUniqueID.hex,
+      hex: true,
+    },
+    subjectUniqueID !== undefined && {
+      label: t("details.certificate.subjectUniqueId"),
+      value: subjectUniqueID.hex,
+      hex: true,
+    },
+  ].filter((row) => row !== false);
+});
 </script>
 
 <template>

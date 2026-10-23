@@ -67,7 +67,11 @@ export function describeSubtree(
   return `${base} [${String(minimum ?? 0)}${upper}]`;
 }
 
-const rows = (...list: Row[]): Block => ({ kind: "rows", rows: list });
+/** A rows block; a `false` entry is an optional row that is absent. */
+const rows = (...list: (Row | false)[]): Extract<Block, { kind: "rows" }> => ({
+  kind: "rows",
+  rows: list.filter((row) => row !== false),
+});
 
 /**
  * The render blocks of a decoded extension value, in display order; null for an extensionType this
@@ -83,9 +87,10 @@ export function describeExtension(
       return [
         rows(
           { label: field("ca"), value: yesNo(value.cA) },
-          ...(value.pathLenConstraint !== undefined
-            ? [{ label: field("pathLength"), value: String(value.pathLenConstraint) }]
-            : [])
+          value.pathLenConstraint !== undefined && {
+            label: field("pathLength"),
+            value: String(value.pathLenConstraint),
+          }
         ),
       ];
     case "keyUsage":
@@ -105,21 +110,19 @@ export function describeExtension(
     case "subjectKeyIdentifier":
       return [rows({ label: field("keyId"), value: value.keyIdentifier, hex: true })];
     case "authorityKeyIdentifier": {
-      const blocks: Block[] = [];
-      const list: Row[] = [];
-      if (value.keyIdentifier) {
-        list.push({ label: field("keyId"), value: value.keyIdentifier, hex: true });
-      }
-      if (value.authorityCertSerialNumber) {
-        list.push({
+      const ids = rows(
+        value.keyIdentifier !== undefined && {
+          label: field("keyId"),
+          value: value.keyIdentifier,
+          hex: true,
+        },
+        value.authorityCertSerialNumber !== undefined && {
           label: field("authorityCertSerialNumber"),
           value: value.authorityCertSerialNumber,
           hex: true,
-        });
-      }
-      if (list.length > 0) {
-        blocks.push({ kind: "rows", rows: list });
-      }
+        }
+      );
+      const blocks: Block[] = ids.rows.length > 0 ? [ids] : [];
       if (value.authorityCertIssuer?.length) {
         blocks.push({
           kind: "names",
@@ -206,17 +209,9 @@ export function describeExtension(
     case "policyConstraints":
       return [
         rows(
-          ...(value.requireExplicitPolicy !== undefined
-            ? [
-                {
-                  label: field("requireExplicitPolicy"),
-                  value: String(value.requireExplicitPolicy),
-                },
-              ]
-            : []),
-          ...(value.inhibitPolicyMapping !== undefined
-            ? [{ label: field("inhibitPolicyMapping"), value: String(value.inhibitPolicyMapping) }]
-            : [])
+          ...(["requireExplicitPolicy", "inhibitPolicyMapping"] as const).map(
+            (key) => value[key] !== undefined && { label: field(key), value: String(value[key]) }
+          )
         ),
       ];
     case "policyMappings":

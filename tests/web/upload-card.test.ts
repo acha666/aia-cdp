@@ -71,8 +71,16 @@ describe("CrlUploadCard", () => {
     const der = new File([new Uint8Array([0x30, 0x82, 0x01])], "full.crl");
     const drop = new Event("drop", { bubbles: true, cancelable: true });
     Object.defineProperty(drop, "dataTransfer", {
-      value: { files: [der, new File(["x"], "second.crl")] },
+      value: {
+        files: [der, new File(["x"], "second.crl")],
+        items: [
+          { kind: "file", type: "" },
+          { kind: "file", type: "" },
+        ],
+      },
     });
+    // useDropZone adds its listeners in a post-flush watcher, after the mount.
+    await flushPromises();
     card.get('[data-testid="drop-zone"]').element.dispatchEvent(drop);
     await flushPromises();
     // Otherwise the browser opens the dropped file instead of the page (and its token).
@@ -222,31 +230,6 @@ describe("CrlUploadCard", () => {
     expect(button.text()).toBe("Upload CRL");
     expect(posts()).toHaveLength(1);
     expect(document.activeElement).toBe(card.get('[data-testid="upload-success"]').element);
-  });
-
-  it("refuses a token the server cannot accept before sending it", async () => {
-    const error = vi.spyOn(toast, "error");
-    const { card, posts } = render(ok("created"));
-    await card.get('[data-testid="token-toggle"]').trigger("click");
-    await card.get('[data-testid="token-input"]').setValue(" 令牌 ");
-    await paste(card, PEM);
-    await submit(card);
-
-    // RFC 6750 b64token: hono/client would throw a TypeError building the header.
-    expect(posts()).toHaveLength(0);
-    const text =
-      "The upload token may only contain letters, digits and - . _ ~ + /, optionally followed by = signs.";
-    expect(error).toHaveBeenCalledWith(text);
-    const alert = card.get('[data-testid="upload-error"]');
-    expect(alert.attributes("data-code")).toBe("invalid_token");
-    expect(alert.text()).toContain(text);
-    expect(document.activeElement).toBe(card.get('[data-testid="token-input"]').element);
-
-    await card.get('[data-testid="token-input"]').setValue("  abc-DEF_1.2~3+4/5==  ");
-    await submit(card);
-    expect(new Headers(posts()[0]!.headers).get("Authorization")).toBe(
-      "Bearer abc-DEF_1.2~3+4/5=="
-    );
   });
 
   it("hints at invalid PEM only for text that is there", async () => {

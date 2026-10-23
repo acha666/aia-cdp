@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowLeftIcon } from "@lucide/vue";
-import { computed, ref, watch } from "vue";
+import { computed } from "vue";
 import { I18nT, useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 import { useCrlTarget } from "@/client/queries";
@@ -61,20 +61,22 @@ const overview = computed(() => {
   return {
     information: [
       { label: t("details.crl.crlNumber"), value: summary.crlNumber },
-      ...(summary.baseCrlNumber === null
-        ? []
-        : [{ label: t("details.crl.baseCrlNumber"), value: summary.baseCrlNumber }]),
+      summary.baseCrlNumber !== null && {
+        label: t("details.crl.baseCrlNumber"),
+        value: summary.baseCrlNumber,
+      },
       { label: t("details.crl.version"), value: crl.tbsCertList.version.display },
       { label: t("details.crl.publishedAt"), value: time(crl.publishedAt) },
       { label: t("details.crl.size"), value: t("common.bytes", { count: crl.size }) },
-    ],
+    ].filter((row) => row !== false),
     validity: [
       { label: t("details.crl.thisUpdate"), value: time(summary.thisUpdate) },
       { label: t("details.crl.nextUpdate"), value: time(summary.nextUpdate) },
-      ...(summary.nextPublish === null
-        ? []
-        : [{ label: t("details.crl.nextPublish"), value: time(summary.nextPublish) }]),
-    ],
+      summary.nextPublish !== null && {
+        label: t("details.crl.nextPublish"),
+        value: time(summary.nextPublish),
+      },
+    ].filter((row) => row !== false),
     cryptography: [
       {
         label: t("details.crl.signatureAlgorithm"),
@@ -104,14 +106,6 @@ const statusDetail = computed(() => {
 });
 
 const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
-
-const tab = ref("overview");
-watch(
-  () => props.targetId,
-  () => {
-    tab.value = "overview";
-  }
-);
 </script>
 
 <template>
@@ -165,7 +159,7 @@ watch(
         <p class="text-sm text-muted-foreground">{{ t("details.crl.unpublishedBody") }}</p>
       </div>
 
-      <Tabs v-else v-model="tab" class="min-w-0">
+      <Tabs v-else :key="targetId" default-value="overview" class="min-w-0">
         <TabsList class="max-w-full justify-start overflow-x-auto overflow-y-hidden">
           <TabsTrigger value="overview">{{ t("details.tabs.overview") }}</TabsTrigger>
           <TabsTrigger value="revoked">

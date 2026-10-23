@@ -618,8 +618,8 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   --font inter --yes --no-rtl --no-pointer`（永不用 `--defaults`，它等于 `--preset nova --template nuxt`），之后删掉 `main.css` 的
   Google Fonts `@import` 与 `components.json` 的 `font` 键；`components.json`、生成文件与 lockfile 一并入库（registry 是线上的，
   重跑 `add` 可能得到不同代码），生成代码按仓库 Prettier 风格重排。web spike 用 `vega` 风格验证过 init + Vite 8 + Tailwind 4.3，
-  `nova` 在切片 1 首次生成。nova 组件的 `data-open:`、`data-active:` 等状态变体定义在 shadcn-vue 包自带的 CSS 里，CLI 不导入它，`main.css` 抄了那 9 个
-  `@custom-variant`。
+  `nova` 在切片 1 首次生成。nova 组件的 `data-open:`、`data-active:` 等状态变体定义在 shadcn-vue 包自带的 CSS 里，CLI 不导入它，`main.css` 抄了其中用到的
+  5 个 `@custom-variant`。
 
 ## 9. AD CS 助手
 

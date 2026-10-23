@@ -17,7 +17,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function render(revoked: RevokedCertificates | null, locale: AppLocale = "en") {
+function render(revoked: RevokedCertificates, locale: AppLocale = "en") {
   wrapper = mount(RevokedTable, {
     props: { revoked },
     attachTo: document.body,
@@ -51,12 +51,12 @@ describe("RevokedTable", () => {
     const table = render(list(revokedEntries(201)));
     expect(serials(table)).toHaveLength(200);
     expect(table.get('[data-testid="revoked-range"]').text()).toBe("1–200 of 201");
-    expect(table.get('[data-testid="previous-page"]').attributes("disabled")).toBeDefined();
+    expect(table.get('[data-testid="previous-page"]').attributes("aria-disabled")).toBe("true");
 
     await table.get('[data-testid="next-page"]').trigger("click");
     expect(serials(table)).toEqual(["00C9"]);
     expect(table.get('[data-testid="revoked-range"]').text()).toBe("201–201 of 201");
-    expect(table.get('[data-testid="next-page"]').attributes("disabled")).toBeDefined();
+    expect(table.get('[data-testid="next-page"]').attributes("aria-disabled")).toBe("true");
 
     // Another list (a refetch) starts again on the first page.
     await table.setProps({ revoked: list(revokedEntries(250)) });

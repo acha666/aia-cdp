@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronLeftIcon, ChevronRightIcon } from "@lucide/vue";
-import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { GeneralName, RevokedCertificates } from "@/client/types";
 import { Button } from "@/components/ui/button";
@@ -10,11 +10,11 @@ import { describeEntry } from "@/utils/crl-entries";
 import { formatDate } from "@/utils/dates";
 
 // The revoked certificates of a target's current CRL (plan §8): serial number, revocation date,
-// reason, invalidity date and indirect issuer. `null` is a target without a current CRL: no list at
-// all, never 0; an empty list says so. The API sends every entry (a 10 000-entry CRL is 5.5 MB of
-// JSON), so the table renders PAGE_SIZE rows at a time; the header row stays in view while the box
-// scrolls. The first and the last page disable one page button: the other one takes its focus.
-const props = defineProps<{ revoked: RevokedCertificates | null }>();
+// reason, invalidity date and indirect issuer; an empty list says so. The API sends every entry (a
+// 10 000-entry CRL is 5.5 MB of JSON), so the table renders PAGE_SIZE rows at a time; the header row
+// stays in view while the box scrolls. On the first and the last page one page button is only
+// aria-disabled (a disabled button drops the focus to <body>).
+const props = defineProps<{ revoked: RevokedCertificates }>();
 
 const PAGE_SIZE = 200;
 
@@ -30,24 +30,10 @@ watch(
   }
 );
 
-const total = computed(() => props.revoked?.items.length ?? 0);
+const total = computed(() => props.revoked.items.length);
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)));
 const first = computed(() => page.value * PAGE_SIZE);
 const last = computed(() => Math.min(first.value + PAGE_SIZE, total.value));
-
-const previousButton = useTemplateRef<{ $el: HTMLElement }>("previousButton");
-const nextButton = useTemplateRef<{ $el: HTMLElement }>("nextButton");
-
-async function turn(delta: 1 | -1) {
-  const pressed = (delta < 0 ? previousButton : nextButton).value?.$el;
-  const hadFocus = pressed !== undefined && document.activeElement === pressed;
-  page.value += delta;
-  // A disabled button drops the focus to <body>.
-  if (hadFocus && (page.value === 0 || page.value === pageCount.value - 1)) {
-    await nextTick();
-    (delta < 0 ? nextButton : previousButton).value?.$el.focus();
-  }
-}
 
 const entryContext = {
   nameLabel: (type: GeneralName["type"]) => t(`extension.generalName.${type}`),
@@ -56,7 +42,7 @@ const entryContext = {
 
 /** Only the rows of the current page are formatted. */
 const rows = computed(() =>
-  (props.revoked?.items ?? []).slice(first.value, last.value).map((entry, index) => ({
+  props.revoked.items.slice(first.value, last.value).map((entry, index) => ({
     key: first.value + index,
     serial: entry.userCertificate.hex,
     revoked: formatDate(entry.revocationDate.iso, dateText),
@@ -66,14 +52,7 @@ const rows = computed(() =>
 </script>
 
 <template>
-  <p
-    v-if="revoked === null"
-    class="text-sm text-muted-foreground"
-    data-testid="revoked-unpublished"
-  >
-    {{ t("crl.unpublished") }}
-  </p>
-  <p v-else-if="total === 0" class="text-sm text-muted-foreground" data-testid="revoked-empty">
+  <p v-if="total === 0" class="text-sm text-muted-foreground" data-testid="revoked-empty">
     {{ t("details.crl.noRevoked") }}
   </p>
   <div v-else class="grid gap-2">
@@ -111,24 +90,24 @@ const rows = computed(() =>
         {{ t("details.crl.range", { from: first + 1, to: last, total }) }}
       </span>
       <Button
-        ref="previousButton"
         variant="outline"
         size="icon-xs"
-        :disabled="page === 0"
+        :aria-disabled="page === 0 || undefined"
+        class="aria-disabled:opacity-50"
         :aria-label="t('common.previousPage')"
         data-testid="previous-page"
-        @click="turn(-1)"
+        @click="page = Math.max(0, page - 1)"
       >
         <ChevronLeftIcon />
       </Button>
       <Button
-        ref="nextButton"
         variant="outline"
         size="icon-xs"
-        :disabled="page >= pageCount - 1"
+        :aria-disabled="page >= pageCount - 1 || undefined"
+        class="aria-disabled:opacity-50"
         :aria-label="t('common.nextPage')"
         data-testid="next-page"
-        @click="turn(1)"
+        @click="page = Math.min(pageCount - 1, page + 1)"
       >
         <ChevronRightIcon />
       </Button>

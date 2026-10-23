@@ -15,30 +15,18 @@ import { queryKeys } from "@/client/queries";
 import { Badge } from "@/components/ui/badge";
 import type { BadgeVariants } from "@/components/ui/badge";
 
-interface Health {
-  status: "healthy" | "degraded" | "unhealthy";
-  configuration: "ok" | "missing" | "invalid" | "unknown";
-}
-
-// 200 → healthy / degraded, 503 → unhealthy. Anything else (network error, a proxy's 502, a body
-// that is not the health JSON) rejects, and the badge shows "unknown".
-async function fetchHealth(): Promise<Health> {
+// 200 → healthy / degraded, 503 → unhealthy, both with the same body. Anything else (network
+// error, a proxy's 502, a body that is not JSON) rejects, and the badge shows "unknown".
+async function fetchHealth() {
   const response = await api.api.v1.health.$get();
   const { status } = response;
-  if (response.status === 503) {
-    return { status: "unhealthy", configuration: "unknown" };
+  if (status !== 200 && status !== 503) {
+    throw new Error(`Unexpected health response status ${String(status)}`);
   }
-  if (response.status === 200) {
-    const body = await response.json();
-    if (body.status !== "healthy" && body.status !== "degraded") {
-      throw new Error("Unexpected health response body");
-    }
-    return { status: body.status, configuration: body.checks.configuration };
-  }
-  throw new Error(`Unexpected health response status ${String(status)}`);
+  return response.json();
 }
 
-type BadgeState = Health["status"] | "loading" | "unknown";
+type BadgeState = "loading" | "healthy" | "degraded" | "unhealthy" | "unknown";
 
 const APPEARANCE = {
   loading: { variant: "outline", icon: LoaderCircleIcon },
@@ -54,19 +42,14 @@ const { t } = useI18n();
 // next mount or window focus (staleTime 0, main.ts).
 const health = useQuery({ queryKey: queryKeys.health, queryFn: fetchHealth, retry: false });
 
-const state = computed<BadgeState>(() => {
-  if (health.isError.value) {
-    return "unknown";
-  }
-  return health.data.value?.status ?? "loading";
-});
+const state = computed<BadgeState>(() =>
+  health.isError.value ? "unknown" : (health.data.value?.status ?? "loading")
+);
 const appearance = computed(() => APPEARANCE[state.value]);
+// Degraded means the configuration is missing or invalid, and the detail says which.
 const detail = computed(() => {
-  const configuration = health.data.value?.configuration;
-  if (state.value === "degraded" && (configuration === "missing" || configuration === "invalid")) {
-    return t(`health.detail.${configuration}`);
-  }
-  return t(`health.detail.${state.value}`);
+  const key = state.value === "degraded" ? health.data.value?.checks.configuration : state.value;
+  return t(`health.detail.${key ?? "unknown"}`);
 });
 </script>
 
