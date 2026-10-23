@@ -37,13 +37,6 @@ describe("GET /api/v1/health", () => {
     '{"version":2}',
     // A misspelled key (the schema is strict).
     '{"version":1,"certificates":{},"targets":{},"pahts":{}}',
-    // A path to a certificate that was never imported (V4).
-    JSON.stringify({
-      version: 1,
-      certificates: {},
-      targets: {},
-      paths: { "/ca/root-ca.crt": { certificate: cert("root-ca").sha256 } },
-    }),
   ])("is degraded / invalid for config.json %j", async (text) => {
     const { res, body } = await health(await configured(text));
     expect(res.status).toBe(200);

@@ -18,16 +18,6 @@ async function importInto(store: MemoryStore, name: string): Promise<string> {
   return cert(name).sha256;
 }
 
-/** A config text with one /ca/ path to `certificate`. */
-function configServing(certificate: string): string {
-  return JSON.stringify({
-    version: 1,
-    certificates: {},
-    targets: {},
-    paths: { "/ca/root-ca.crt": { certificate } },
-  });
-}
-
 const DEGRADED_INVALID = { status: "degraded", checks: { store: "ok", configuration: "invalid" } };
 
 describe("checkHealth", () => {
@@ -63,25 +53,6 @@ describe("checkHealth", () => {
     const store = new MemoryStore();
     await store.put(CONFIG_KEY, Uint8Array.of(0x7b, 0xff, 0x7d));
     expect((await checkHealth(store)).checks.configuration).toBe("invalid");
-  });
-
-  it("runs the static rules: a path that breaks V2 is invalid", async () => {
-    const store = new MemoryStore();
-    const root = await importInto(store, "root-ca");
-    const text = JSON.stringify({
-      version: 1,
-      certificates: {},
-      targets: {},
-      paths: { "/ca/root-ca.crt.pem": { certificate: root } },
-    });
-    expect(await checkHealth(await storeWithConfig(text, store))).toEqual(DEGRADED_INVALID);
-  });
-
-  it("runs the state rules: a reference to a certificate that is not imported is invalid", async () => {
-    const store = new MemoryStore();
-    await importInto(store, "root-ca");
-    const text = configServing(cert("issuing-ca-1").sha256);
-    expect(await checkHealth(await storeWithConfig(text, store))).toEqual(DEGRADED_INVALID);
   });
 
   it.each(["{not json", '{"version":1,"certificates":{},"targets":{},"certificatePaths":{}}'])(

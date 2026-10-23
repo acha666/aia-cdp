@@ -17,7 +17,6 @@ export interface R2ConditionalLike {
 /** The subset of the Workers R2Bucket binding this adapter uses. */
 export interface R2BucketLike {
   get(key: string): Promise<{ etag: string; arrayBuffer(): Promise<ArrayBuffer> } | null>;
-  head(key: string): Promise<{ etag: string; size: number } | null>;
   /** Resolves to null (it does not throw) when `onlyIf` fails. */
   put(
     key: string,
@@ -49,12 +48,6 @@ export class R2Store implements ObjectStore {
     return object ? { bytes: new Uint8Array(await object.arrayBuffer()), etag: object.etag } : null;
   }
 
-  async head(key: string): Promise<{ etag: string; size: number } | null> {
-    assertStoreKey(key);
-    const object = await this.#bucket.head(key);
-    return object ? { etag: object.etag, size: object.size } : null;
-  }
-
   async put(key: string, bytes: Uint8Array, opts: PutOptions = {}): Promise<PutResult> {
     assertStoreKey(key);
     // Both conditions together never succeed, as in the other adapters.
@@ -84,9 +77,6 @@ export class R2Store implements ObjectStore {
       const page = await this.#bucket.list({ prefix, cursor });
       for (const object of page.objects) {
         out.push({ key: object.key, size: object.size });
-      }
-      if (page.truncated && page.cursor === undefined) {
-        throw new Error(`R2 list(${JSON.stringify(prefix)}) is truncated but has no cursor`);
       }
       cursor = page.truncated ? page.cursor : undefined;
     } while (cursor !== undefined);

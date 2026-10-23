@@ -73,7 +73,6 @@ export function logRecords(deps: Pick<TestDeps, "lines">): LogLine[] {
 export function patchStore(patch: Partial<ObjectStore>, base: ObjectStore = new MemoryStore()) {
   return {
     get: patch.get ?? ((key) => base.get(key)),
-    head: patch.head ?? ((key) => base.head(key)),
     put: patch.put ?? ((key, bytes, opts) => base.put(key, bytes, opts)),
     list: patch.list ?? ((prefix) => base.list(prefix)),
     delete: patch.delete ?? ((key) => base.delete(key)),

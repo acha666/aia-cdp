@@ -18,7 +18,6 @@ export interface ObjectStore {
    * it is; it may be a view into a larger buffer.
    */
   get(key: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; etag: string } | null>;
-  head(key: string): Promise<{ etag: string; size: number } | null>;
   put(key: string, bytes: Uint8Array, opts?: PutOptions): Promise<PutResult>;
   /** Admin only. */
   list(prefix: string): Promise<{ key: string; size: number }[]>;
@@ -30,7 +29,7 @@ const SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 
 /**
  * One segment of a store key. The fs adapter also uses it on directory entries: names that fail
- * it (temporary files, `lost+found`, `a (copy).der`) are never keys and never walked into.
+ * it (temporary files, `lost+found`, `a (copy).der`) are never keys.
  */
 export function isStoreKeySegment(segment: string): boolean {
   return SEGMENT.test(segment);
@@ -41,8 +40,8 @@ function isStoreKey(key: string): boolean {
 }
 
 /**
- * Every adapter calls this before get / head / put / delete (it is also the fs adapter's path
- * traversal guard). A key is one or more `/`-separated segments matching
+ * Every adapter calls this before get / put / delete (it is also the fs adapter's path traversal
+ * guard). A key is one or more `/`-separated segments matching
  * `[A-Za-z0-9_-][A-Za-z0-9._-]*`: no empty key or segment, no `.` / `..` or other leading dot, no
  * absolute path, backslash or NUL. All keys of plan §5.1 qualify.
  */

@@ -58,14 +58,13 @@ export function describeObjectStore(
 
     it("① returns null for a missing key and deletes it without error", async () => {
       expect(await store.get("config.json")).toBeNull();
-      expect(await store.head("config.json")).toBeNull();
       expect(await store.get("blobs/certificates/missing.der")).toBeNull();
       await expect(store.delete("config.json")).resolves.toBeUndefined();
       await expect(store.delete("blobs/certificates/missing.der")).resolves.toBeUndefined();
       expect(await store.list("")).toEqual([]);
     });
 
-    it("② stores bytes unconditionally and reports the same ETag and size", async () => {
+    it("② stores bytes unconditionally and reports the same ETag", async () => {
       const bytes = new Uint8Array([0, 1, 2, 253, 254, 255]);
       const result = await store.put("blobs/certificates/a.der", bytes);
       if (!result.ok) {
@@ -77,10 +76,6 @@ export function describeObjectStore(
       expect(got).not.toBeNull();
       expect(Array.from(got!.bytes)).toEqual([0, 1, 2, 253, 254, 255]);
       expect(got!.etag).toBe(result.etag);
-      expect(await store.head("blobs/certificates/a.der")).toEqual({
-        etag: result.etag,
-        size: 6,
-      });
 
       // Unconditional puts replace.
       const second = await store.put("blobs/certificates/a.der", bytesOf("replaced"));
@@ -97,23 +92,22 @@ export function describeObjectStore(
       const output = (await store.get("catalog.json"))!.bytes;
       output.fill(0x3f);
       expect(await text(store, "catalog.json")).toBe("original");
-      expect((await store.head("catalog.json"))?.size).toBe(8);
     });
 
     it('④ creates with ifNoneMatch: "*" only when the key is missing', async () => {
       const first = await store.put("catalog.json", bytesOf("first"), { ifNoneMatch: "*" });
       expect(first.ok).toBe(true);
-      const before = await store.head("catalog.json");
+      const before = await store.get("catalog.json");
 
       expect(await store.put("catalog.json", bytesOf("second"), { ifNoneMatch: "*" })).toEqual({
         ok: false,
         reason: "precondition-failed",
       });
       expect(await text(store, "catalog.json")).toBe("first");
-      expect(await store.head("catalog.json")).toEqual(before);
+      expect(await store.get("catalog.json")).toEqual(before);
     });
 
-    it("⑤ replaces with ifMatch on the current ETag (from put, head or get) and changes it", async () => {
+    it("⑤ replaces with ifMatch on the current ETag (from put or get) and changes it", async () => {
       const created = await store.put("catalog.json", bytesOf("v1"), { ifNoneMatch: "*" });
       if (!created.ok) {
         throw new Error("create failed");
@@ -126,17 +120,9 @@ export function describeObjectStore(
       expect(fromPut.etag).not.toBe(created.etag);
       expect(await text(store, "catalog.json")).toBe("v2");
 
-      const head = (await store.head("catalog.json"))!;
-      expect(head.etag).toBe(fromPut.etag);
-      const fromHead = await store.put("catalog.json", bytesOf("v3"), { ifMatch: head.etag });
-      if (!fromHead.ok) {
-        throw new Error("ifMatch with the ETag returned by head failed");
-      }
-      expect(fromHead.etag).not.toBe(head.etag);
-
       const got = (await store.get("catalog.json"))!;
-      expect(got.etag).toBe(fromHead.etag);
-      const fromGet = await store.put("catalog.json", bytesOf("v4"), { ifMatch: got.etag });
+      expect(got.etag).toBe(fromPut.etag);
+      const fromGet = await store.put("catalog.json", bytesOf("v3"), { ifMatch: got.etag });
       if (!fromGet.ok) {
         throw new Error("ifMatch with the ETag returned by get failed");
       }
@@ -145,7 +131,7 @@ export function describeObjectStore(
         bytes: expect.anything() as unknown,
         etag: fromGet.etag,
       });
-      expect(await text(store, "catalog.json")).toBe("v4");
+      expect(await text(store, "catalog.json")).toBe("v3");
     });
 
     it("⑥ refuses a stale ifMatch and keeps the content", async () => {
@@ -155,14 +141,14 @@ export function describeObjectStore(
       }
       const updated = await store.put("catalog.json", bytesOf("v2"), { ifMatch: created.etag });
       expect(updated.ok).toBe(true);
-      const before = await store.head("catalog.json");
+      const before = await store.get("catalog.json");
 
       expect(await store.put("catalog.json", bytesOf("v3"), { ifMatch: created.etag })).toEqual({
         ok: false,
         reason: "precondition-failed",
       });
       expect(await text(store, "catalog.json")).toBe("v2");
-      expect(await store.head("catalog.json")).toEqual(before);
+      expect(await store.get("catalog.json")).toEqual(before);
     });
 
     it("⑦ refuses ifMatch on a missing key", async () => {
@@ -177,7 +163,7 @@ export function describeObjectStore(
           reason: "precondition-failed",
         });
       }
-      expect(await store.head("catalog.json")).toBeNull();
+      expect(await store.get("catalog.json")).toBeNull();
       expect((await store.list("")).map((object) => object.key)).toEqual(["config.json"]);
     });
 
@@ -243,13 +229,12 @@ export function describeObjectStore(
       expect(await store.list("")).toHaveLength(8);
     });
 
-    it("⑩ hides a deleted key from get, head and list", async () => {
+    it("⑩ hides a deleted key from get and list", async () => {
       expect((await store.put("blobs/certificates/a.der", bytesOf("a"))).ok).toBe(true);
       expect((await store.put("blobs/certificates/b.der", bytesOf("bb"))).ok).toBe(true);
 
       await store.delete("blobs/certificates/a.der");
       expect(await store.get("blobs/certificates/a.der")).toBeNull();
-      expect(await store.head("blobs/certificates/a.der")).toBeNull();
       expect(await store.list("blobs/")).toEqual([{ key: "blobs/certificates/b.der", size: 2 }]);
       expect(await store.list("")).toEqual([{ key: "blobs/certificates/b.der", size: 2 }]);
       await expect(store.delete("blobs/certificates/a.der")).resolves.toBeUndefined();
@@ -267,7 +252,6 @@ export function describeObjectStore(
 
       for (const key of INVALID_KEYS) {
         await expect(store.get(key), `get(${JSON.stringify(key)})`).rejects.toThrow(TypeError);
-        await expect(store.head(key), `head(${JSON.stringify(key)})`).rejects.toThrow(TypeError);
         await expect(store.put(key, bytesOf("x")), `put(${JSON.stringify(key)})`).rejects.toThrow(
           TypeError
         );
@@ -314,7 +298,6 @@ export function describeObjectStore(
         etag: replaced.etag,
       });
       expect(await text(store, "blobs/crls/t1/x.der")).toBe("crl-22");
-      expect(await store.head("blobs/crls/t1/x.der")).toEqual({ etag: replaced.etag, size: 6 });
       expect(
         await store.put("blobs/crls/t1/x.der", bytesOf("crl-3"), {
           contentType,

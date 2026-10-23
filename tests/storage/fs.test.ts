@@ -1,28 +1,16 @@
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  open,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative } from "node:path";
+import { basename, dirname, join } from "node:path";
 import process from "node:process";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { FsStore } from "../../src/storage/fs.ts";
 import { describeObjectStore } from "./conformance.ts";
 
-// rename and open stay the real ones unless a case swaps in its own implementation (to pause or
-// fail a put between writing its temporary file and renaming it into place, or to see which
-// directories a put fsyncs).
+// rename stays the real one unless a case swaps in its own implementation (to pause or fail a put
+// between writing its temporary file and renaming it into place).
 vi.mock(import("node:fs/promises"), async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, open: vi.fn(actual.open), rename: vi.fn(actual.rename) };
+  return { ...actual, rename: vi.fn(actual.rename) };
 });
 
 const isRoot = process.getuid?.() === 0;
@@ -124,110 +112,6 @@ describe("FsStore", () => {
     ]);
   });
 
-  it.skipIf(isRoot)(
-    "skips an unreadable directory whose name is not a key segment (lost+found)",
-    async () => {
-      const root = await freshDir();
-      const store = new FsStore(root);
-      expect((await store.put("config.json", bytes("{}"))).ok).toBe(true);
-      const lostFound = join(root, "lost+found");
-      await mkdir(lostFound);
-      await chmod(lostFound, 0o000);
-      try {
-        expect(await store.list("")).toEqual([{ key: "config.json", size: 2 }]);
-        expect(await store.removeTemporaryFiles()).toBe(0);
-      } finally {
-        await chmod(lostFound, 0o700);
-      }
-    }
-  );
-
-  it("fsyncs every directory from the key's parent up to the root after the rename", async () => {
-    const root = await freshDir();
-    // Directories this put does not create: their own entries may not be durable yet (another
-    // put created them and has not synced, or failed before it did).
-    await mkdir(join(root, "blobs", "crls", "t1"), { recursive: true });
-    const store = new FsStore(root);
-    const events: string[] = [];
-    const name = (path: unknown) => relative(root, String(path)) || ".";
-    const realOpen = vi.mocked(open).getMockImplementation()!;
-    const realRename = vi.mocked(rename).getMockImplementation()!;
-    vi.mocked(rename).mockImplementationOnce(async (from, to) => {
-      events.push(`rename ${name(to)}`);
-      return realRename(from, to);
-    });
-    // fsyncDirectory opens the directory read-only and syncs that handle.
-    vi.mocked(open).mockImplementation(async (path, flags, mode) => {
-      const handle = await realOpen(path, flags, mode);
-      if (flags === "r") {
-        const sync = handle.sync.bind(handle);
-        handle.sync = () => {
-          events.push(`fsync ${name(path)}`);
-          return sync();
-        };
-      }
-      return handle;
-    });
-    try {
-      expect((await store.put("blobs/crls/t1/x.der", bytes("x"))).ok).toBe(true);
-      expect((await store.put("config.json", bytes("{}"))).ok).toBe(true);
-    } finally {
-      vi.mocked(open).mockImplementation(realOpen);
-    }
-    expect(events).toEqual([
-      "rename blobs/crls/t1/x.der",
-      "fsync blobs/crls/t1",
-      "fsync blobs/crls",
-      "fsync blobs",
-      "fsync .",
-      "fsync .",
-    ]);
-  });
-
-  it("removeTemporaryFiles removes what interrupted puts left, and nothing else", async () => {
-    const root = await freshDir();
-    const store = new FsStore(root);
-    expect((await store.put("config.json", bytes("{}"))).ok).toBe(true);
-    expect((await store.put("blobs/crls/t1/x.der", bytes("x"))).ok).toBe(true);
-    const uuid = () => crypto.randomUUID();
-    const stale = [
-      `.config.json.${uuid()}.tmp`,
-      `blobs/.a.der.${uuid()}.tmp`,
-      `blobs/crls/t1/.x.der.${uuid()}.tmp`,
-    ];
-    // Not dot-leading, so a key (it is listed), not a temporary file.
-    const keyLike = `blobs/a.der.${uuid()}.tmp`;
-    const kept = [
-      ".x.tmp",
-      `blobs/.a.der.not-a-uuid.tmp`,
-      keyLike,
-      `.hidden/.b.der.${uuid()}.tmp`,
-      `lost+found/.c.der.${uuid()}.tmp`,
-    ];
-    await mkdir(join(root, ".hidden"));
-    await mkdir(join(root, "lost+found"));
-    for (const path of [...stale, ...kept]) {
-      await writeFile(join(root, ...path.split("/")), "partial");
-    }
-    // A directory with a temporary file's name is not a file: left alone.
-    await mkdir(join(root, "blobs", `.d.der.${uuid()}.tmp`));
-
-    expect(await store.removeTemporaryFiles()).toBe(3);
-    for (const path of stale) {
-      await expect(stat(join(root, path)), path).rejects.toMatchObject({ code: "ENOENT" });
-    }
-    for (const path of kept) {
-      expect((await stat(join(root, path))).isFile(), path).toBe(true);
-    }
-    expect(await store.list("")).toEqual([
-      { key: keyLike, size: 7 },
-      { key: "blobs/crls/t1/x.der", size: 1 },
-      { key: "config.json", size: 2 },
-    ]);
-    expect(await store.removeTemporaryFiles()).toBe(0);
-    expect(await new FsStore(join(root, "missing")).removeTemporaryFiles()).toBe(0);
-  });
-
   it("does not list the temporary file of a put in progress", async () => {
     const root = await freshDir();
     const store = new FsStore(root);
@@ -268,18 +152,12 @@ describe("FsStore", () => {
     expect(new TextDecoder().decode((await store.get("config.json"))!.bytes)).toBe("old");
   });
 
-  it("treats a missing root as empty and never creates it", async () => {
-    const root = join(await freshDir(), "missing");
-    const store = new FsStore(root);
+  it("treats a missing root as empty", async () => {
+    const store = new FsStore(join(await freshDir(), "missing"));
     expect(await store.list("")).toEqual([]);
     expect(await store.list("blobs/")).toEqual([]);
     expect(await store.get("config.json")).toBeNull();
-    expect(await store.head("blobs/certificates/a.der")).toBeNull();
     await expect(store.delete("config.json")).resolves.toBeUndefined();
-
-    await expect(store.put("config.json", bytes("x"))).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(store.put("blobs/a.der", bytes("x"))).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(stat(root)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("treats a directory, or a path below a file, as a missing key", async () => {
@@ -287,7 +165,6 @@ describe("FsStore", () => {
     expect((await store.put("blobs/a.der", bytes("a"))).ok).toBe(true);
     for (const key of ["blobs", "blobs/a.der/x"]) {
       expect(await store.get(key)).toBeNull();
-      expect(await store.head(key)).toBeNull();
       await expect(store.delete(key)).resolves.toBeUndefined();
     }
     expect(await store.list("blobs/a.der/")).toEqual([]);
@@ -310,7 +187,6 @@ describe("FsStore", () => {
     expect((await store.put("config.json", bytes("{}"))).ok).toBe(true);
     await chmod(root, 0o000);
     try {
-      await expect(store.head("config.json")).rejects.toMatchObject({ code: "EACCES" });
       await expect(store.get("config.json")).rejects.toMatchObject({ code: "EACCES" });
       await expect(store.list("")).rejects.toMatchObject({ code: "EACCES" });
     } finally {

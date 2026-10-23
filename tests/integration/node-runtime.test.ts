@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import type { ChildProcessByStdio } from "node:child_process";
 import { once } from "node:events";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { connect, createServer } from "node:net";
 import type { AddressInfo, Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -177,12 +177,8 @@ describe("node src/runtime/node.ts on a real socket", { timeout: TIMEOUT }, () =
   let base: string;
   let dataDir: string;
 
-  /** Left by a put that was killed mid-write; removed at startup. */
-  const staleTemp = `.config.json.${UUID}.tmp`;
-
   beforeAll(async () => {
     dataDir = await freshDataDir();
-    await writeFile(join(dataDir, staleTemp), "partial");
     server = start({
       PORT: "0",
       AIA_DATA_DIR: dataDir,
@@ -195,14 +191,7 @@ describe("node src/runtime/node.ts on a real socket", { timeout: TIMEOUT }, () =
 
   it("listens on the free port that PORT=0 picked and logs it", () => {
     expect(port).toBeGreaterThan(0);
-    expect(server.records().slice(0, 2)).toEqual([
-      { level: "info", msg: "temp_files_removed", count: 1 },
-      { level: "info", msg: "listening", port },
-    ]);
-  });
-
-  it("removed the temporary file a killed put left behind before listening", async () => {
-    await expect(stat(join(dataDir, staleTemp))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(server.records()[0]).toEqual({ level: "info", msg: "listening", port });
   });
 
   it("reports degraded, then healthy once the minimal configuration is written", async () => {

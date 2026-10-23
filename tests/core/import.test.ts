@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   CATALOG_KEY,
   CatalogSchema,
@@ -25,13 +25,6 @@ import { flakyStore, puts, recordingStore } from "../helpers/store.ts";
 // importCertificate (slice 2 step 5): the second half of case 1 of
 // worker-aia-cdp@5b570aa:tests/worker/r2-summary.test.ts (summary written at import), plus the
 // zero-write rule (M9), the concurrent import and the orphan blob (C8).
-
-// buildCertificateSummary stays the real one unless a case makes it return a summary the catalog
-// format cannot hold.
-vi.mock(import("../../src/core/summary/catalog-summary.ts"), async (importOriginal) => {
-  const actual = await importOriginal();
-  return { ...actual, buildCertificateSummary: vi.fn(actual.buildCertificateSummary) };
-});
 
 const noSleep = async () => undefined;
 
@@ -164,20 +157,6 @@ describe("importCertificate", () => {
     expect(store.writes).toEqual([]);
   });
 
-  it("rejects a summary the catalog format cannot hold before writing anything", async () => {
-    const real = vi.mocked(buildCertificateSummary).getMockImplementation()!;
-    vi.mocked(buildCertificateSummary).mockImplementationOnce(async (certificate, der) => ({
-      ...(await real(certificate, der)),
-      serialNumber: "",
-    }));
-    const store = recordingStore();
-    expect(await importInto(store, fixture(cert("root-ca").der))).toEqual({
-      error: "invalid_certificate",
-      details: { reason: "structure" },
-    });
-    expect(store.writes).toEqual([]);
-  });
-
   it("ends two concurrent imports of one certificate as created + unchanged", async () => {
     const base = new MemoryStore();
     // The first four catalog reads are released in pairs: both imports pass the early check, then
@@ -248,7 +227,7 @@ describe("importCertificate", () => {
     const store = new MemoryStore();
     await importInto(store, fixture(cert("issuing-ca-1").der));
     expect((await storedCatalog(store)).targets).toEqual({});
-    expect(await store.head(CONFIG_KEY)).toBeNull();
+    expect(await store.get(CONFIG_KEY)).toBeNull();
   });
 
   it("adds the catalog entry when an earlier attempt left the blob behind", async () => {
@@ -279,7 +258,7 @@ describe("importCertificate", () => {
       ...Array.from({ length: 4 }, () => [CATALOG_KEY, false]),
     ]);
     expect(await storedCatalog(base)).toEqual(emptyCatalog());
-    expect(await base.head(certificateBlobKey(id))).not.toBeNull();
+    expect(await base.get(certificateBlobKey(id))).not.toBeNull();
   });
 
   it("throws on an invalid stored catalog before writing anything", async () => {

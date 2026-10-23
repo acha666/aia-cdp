@@ -1,13 +1,7 @@
 // Certificate import (plan §5.5, implementation slice 2 step 5; §10 #5, #14; M1, M9, M23).
 // There is one commit point, the catalog write: no companion objects, no edge cache. Importing does
 // not authorize anything: a certificate only becomes an issuer once a config target names it.
-import {
-  CertificateSummarySchema,
-  certificateBlobKey,
-  readCatalog,
-  realSleep,
-  updateCatalog,
-} from "./catalog.ts";
+import { certificateBlobKey, readCatalog, realSleep, updateCatalog } from "./catalog.ts";
 import type { CatalogCertificate } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { PkiParseError } from "./pki/errors.ts";
@@ -50,10 +44,7 @@ interface Parsed {
 
 // toDer → parseCertificate (strict DER, RFC 5280 times) → the two signature algorithms → summary;
 // every PkiParseError is a 422. The outer signatureAlgorithm must be the TBS signature, octet for
-// octet as received (RFC 5280 §4.1.1.2; the same comparison as the CRL upload policy, M11): it is
-// outside the signature, and the detail shows it (slice 5a review). The summary is checked against
-// the catalog format here, before the blob write: a value the catalog cannot hold would otherwise
-// only fail in updateCatalog, after it (a 500 and a blob).
+// octet as received (RFC 5280 §4.1.1.2): it is outside the signature, and the detail shows it.
 async function parse(bytes: Uint8Array): Promise<Parsed | { reason: InvalidCertificateReason }> {
   try {
     const der = toDer(bytes, "certificate");
@@ -61,12 +52,7 @@ async function parse(bytes: Uint8Array): Promise<Parsed | { reason: InvalidCerti
     if (!sameSignatureAlgorithms(certificate)) {
       return { reason: "signature_algorithm_mismatch" };
     }
-    const summary = await buildCertificateSummary(certificate, der);
-    if (!CertificateSummarySchema.safeParse(summary).success) {
-      // No catalog form for the summary.
-      return { reason: "structure" };
-    }
-    return { der, summary };
+    return { der, summary: await buildCertificateSummary(certificate, der) };
   } catch (error) {
     if (error instanceof PkiParseError) {
       return { reason: error.reason };

@@ -84,11 +84,6 @@ export class FakeR2Bucket implements R2BucketLike {
     return { ...this.#object(key, entry), arrayBuffer: async () => bytes.buffer };
   }
 
-  async head(key: string): Promise<FakeR2Object | null> {
-    const entry = this.#entries.get(key);
-    return entry ? this.#object(key, entry) : null;
-  }
-
   async put(
     key: string,
     value: Uint8Array,

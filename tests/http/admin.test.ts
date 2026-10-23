@@ -516,7 +516,7 @@ describe("PUT /api/v1/admin/config", () => {
     const { app } = setup({ store });
     const etag = await applyMinimal(app);
     expect(etag).toBe(await etagOf(minimalBytes()));
-    expect((await store.head(CONFIG_KEY))?.etag).toMatch(/^store:/);
+    expect((await store.get(CONFIG_KEY))?.etag).toMatch(/^store:/);
     const got = await app.request(CONFIG, { headers: AUTH });
     expect(got.headers.get("ETag")).toBe(etag);
     // The store ETag that was read goes back to the store; the HTTP one never does.

@@ -19,12 +19,6 @@ export class MemoryStore implements ObjectStore {
     return object ? { bytes: object.bytes.slice(), etag: object.etag } : null;
   }
 
-  async head(key: string): Promise<{ etag: string; size: number } | null> {
-    assertStoreKey(key);
-    const object = this.#objects.get(key);
-    return object ? { etag: object.etag, size: object.bytes.byteLength } : null;
-  }
-
   async put(key: string, bytes: Uint8Array, opts: PutOptions = {}): Promise<PutResult> {
     assertStoreKey(key);
     // Copy before the await so later changes to the caller's buffer cannot leak in.

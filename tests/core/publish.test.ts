@@ -767,7 +767,7 @@ describe("publishCrl: concurrent writers (plan §5.5)", () => {
     // Step 6.6: the retry resolved the same issuer and reused the first attempt's check.
     expect(rivalVerifications).toBe(1);
     expect(verify.mock.calls.length - rivalVerifications).toBe(1);
-    expect(await base.head(ours.key)).not.toBeNull();
+    expect(await base.get(ours.key)).not.toBeNull();
     const written = puts(store).map((put) => [put.key, put.ok]);
     switch (outcome) {
       case "updated": {
@@ -834,7 +834,7 @@ describe("publishCrl: concurrent writers (plan §5.5)", () => {
     // Left behind: the orphan blob, and the marker of full-01, which stays current (a history
     // listing pairs them by name, plan §5.3). The marker holds no time: whenever full-01 is really
     // superseded, its existing marker is still right (slice 4 review C6).
-    expect(await base.head(second.key)).not.toBeNull();
+    expect(await base.get(second.key)).not.toBeNull();
     expect(await currentOf(base, targetId)).toEqual(first);
     expect(await json(base, marker)).toEqual(first);
   });

@@ -17,7 +17,6 @@ function countingBucket(bucket: R2BucketLike): { bucket: R2BucketLike; pages: ()
   return {
     bucket: {
       get: (key) => bucket.get(key),
-      head: (key) => bucket.head(key),
       put: (key, value, options) => bucket.put(key, value, options),
       list: (options) => {
         pages += 1;
@@ -57,21 +56,20 @@ describe("R2Store on the fake bucket", () => {
       (await store.put("blobs/crls/t/a.der", bytes("a"), { contentType: "application/pkix-crl" }))
         .ok
     ).toBe(true);
-    expect((await bucket.head("blobs/crls/t/a.der"))?.httpMetadata).toEqual({
+    expect((await bucket.get("blobs/crls/t/a.der"))?.httpMetadata).toEqual({
       contentType: "application/pkix-crl",
     });
     expect((await store.put("catalog.json", bytes("{}"))).ok).toBe(true);
-    expect((await bucket.head("catalog.json"))?.httpMetadata).toEqual({});
+    expect((await bucket.get("catalog.json"))?.httpMetadata).toEqual({});
   });
 
   it("returns R2Object.etag (unquoted), never httpEtag", async () => {
     const bucket = new FakeR2Bucket();
     const store = new R2Store(bucket);
     const put = await store.put("catalog.json", bytes("{}"));
-    const raw = (await bucket.head("catalog.json"))!;
+    const raw = (await bucket.get("catalog.json"))!;
     expect(raw.httpEtag).toBe(`"${raw.etag}"`);
     expect(put).toEqual({ ok: true, etag: raw.etag });
-    expect((await store.head("catalog.json"))?.etag).toBe(raw.etag);
     expect((await store.get("catalog.json"))?.etag).toBe(raw.etag);
   });
 

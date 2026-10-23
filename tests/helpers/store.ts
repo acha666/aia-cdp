@@ -73,9 +73,9 @@ export function flakyStore(base: ObjectStore, options: FlakyOptions): ObjectStor
 }
 
 /**
- * Store ETags that are neither the content SHA-256 nor HTTP entity tags (as on R2): `get`, `head`
- * and `put` report `store:<etag>`, and `ifMatch` is translated back. Shows that a caller passes
- * the store's ETag back and never a digest it computed.
+ * Store ETags that are neither the content SHA-256 nor HTTP entity tags (as on R2): `get` and
+ * `put` report `store:<etag>`, and `ifMatch` is translated back. Shows that a caller passes the
+ * store's ETag back and never a digest it computed.
  */
 export function opaqueEtagStore(base: ObjectStore = new MemoryStore()): ObjectStore {
   const wrap = (etag: string) => `store:${etag}`;
@@ -83,10 +83,6 @@ export function opaqueEtagStore(base: ObjectStore = new MemoryStore()): ObjectSt
     {
       get: async (key) => {
         const object = await base.get(key);
-        return object === null ? null : { ...object, etag: wrap(object.etag) };
-      },
-      head: async (key) => {
-        const object = await base.head(key);
         return object === null ? null : { ...object, etag: wrap(object.etag) };
       },
       put: async (key, bytes, opts = {}) => {

@@ -463,17 +463,6 @@ describe("downloadHeaders", () => {
       }
     });
   });
-
-  it('sanitises the filename: ", \\, control characters and non-ASCII become _', () => {
-    const segment = 'a"b\\c\u0001d\te\u007fé€\u{1f600} f.crt';
-    const odd: Config = { ...config, paths: { [`/ca/${segment}`]: { certificate: ROOT.sha256 } } };
-    const disposition = (path: string) =>
-      downloadHeaders(found(resolveDownload(odd, catalog, path)), NOW)["Content-Disposition"];
-    expect(disposition(`/ca/${segment}`)).toBe('attachment; filename="a_b_c_d_e____ f.crt"');
-    expect(disposition(`/ca/${segment}.pem`)).toBe(
-      'attachment; filename="a_b_c_d_e____ f.crt.pem"'
-    );
-  });
 });
 
 describe("ifNoneMatchHit", () => {

@@ -89,7 +89,7 @@ export const CertificateSummarySchema = z
   .meta({ id: "CertificateSummary" });
 
 const CatalogCertificate = z.strictObject({
-  /** certificateBlobKey(id); checked against the id by CatalogSchema. */
+  /** certificateBlobKey(id). */
   key: z.string(),
   size: z.number().int().positive(),
   importedAt: Timestamp,
@@ -128,17 +128,6 @@ export const CatalogSchema = z
     version: z.literal(1),
     certificates: z.record(Sha256Hex, CatalogCertificate),
     targets: z.record(TargetId, CatalogTarget),
-  })
-  .superRefine((catalog, ctx) => {
-    for (const [id, entry] of Object.entries(catalog.certificates)) {
-      if (entry.key !== certificateBlobKey(id)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["certificates", id, "key"],
-          message: `Expected ${certificateBlobKey(id)}`,
-        });
-      }
-    }
   })
   .meta({ id: "Catalog" });
 

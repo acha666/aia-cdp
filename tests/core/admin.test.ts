@@ -284,7 +284,7 @@ describe("applyConfig", () => {
     const store = recordingStore(opaqueEtagStore(base));
     const first = await apply(store, baseline().config);
     expect(first).toMatchObject({ sha256: expect.any(String) as unknown });
-    const etag = (await store.head(CONFIG_KEY))!.etag;
+    const etag = (await store.get(CONFIG_KEY))!.etag;
     expect(etag).toMatch(/^store:/);
 
     const second = baseline().config;
@@ -527,6 +527,6 @@ describe("applyConfig", () => {
       config: { version: 1, certificates: {}, targets: {}, paths: {} },
     });
     expect(await catalogOf(store)).toEqual(emptyCatalog());
-    expect(await store.head(CATALOG_KEY)).toBeNull();
+    expect(await store.get(CATALOG_KEY)).toBeNull();
   });
 });

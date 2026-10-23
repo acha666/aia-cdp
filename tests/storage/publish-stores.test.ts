@@ -92,7 +92,7 @@ function describePublish(name: string, factory: () => ObjectStore | Promise<Obje
       expect(puts(recording).find((put) => put.key === CATALOG_KEY)?.ok).toBe(false);
       const ours = await currentCrl(FULL_02, targetId);
       const rival = await currentCrl(rivalFile, targetId);
-      expect(await store.head(ours.key)).not.toBeNull();
+      expect(await store.get(ours.key)).not.toBeNull();
       if (outcome === "stale_crl") {
         const entry = manifest.crls.find((crl) => crl.file === rivalFile)!;
         expect(run.result).toEqual({

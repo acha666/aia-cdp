@@ -50,17 +50,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const store = new FsStore(settings.dataDir);
-  // Before serving, so no put is running (one process per directory, plan §1).
-  try {
-    const count = await store.removeTemporaryFiles();
-    log({ level: "info", msg: "temp_files_removed", count });
-  } catch (error) {
-    log({ level: "warn", msg: "temp_files_cleanup_failed", error: describeError(error) });
-  }
-
   const app = createApp({
-    store,
+    store: new FsStore(settings.dataDir),
     now: () => new Date(),
     settings: settings.app,
     log: write,

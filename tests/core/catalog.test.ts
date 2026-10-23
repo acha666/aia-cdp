@@ -177,18 +177,6 @@ describe("CatalogSchema", () => {
       expect(CatalogSchema.safeParse(value).success).toBe(false);
     }
   });
-
-  it("rejects a certificate key that is not derived from the id", async () => {
-    const { id, entry } = await certificateEntry("root-ca");
-    const other = cert("issuing-ca-1").sha256;
-    const value = {
-      ...emptyCatalog(),
-      certificates: { [id]: { ...entry, key: `blobs/certificates/${other}.der` } },
-    };
-    expect(CatalogSchema.safeParse(value).error?.issues).toContainEqual(
-      expect.objectContaining({ path: ["certificates", id, "key"] })
-    );
-  });
 });
 
 describe("encodeJson / decodeJson", () => {
@@ -220,9 +208,9 @@ describe("readState", () => {
     await putCatalog(store, catalog);
     expect(await readState(store)).toEqual({
       config: JSON.parse(MINIMAL_CONFIG) as unknown,
-      configEtag: (await store.head(CONFIG_KEY))!.etag,
+      configEtag: (await store.get(CONFIG_KEY))!.etag,
       catalog,
-      catalogEtag: (await store.head(CATALOG_KEY))!.etag,
+      catalogEtag: (await store.get(CATALOG_KEY))!.etag,
     });
   });
 
@@ -261,7 +249,7 @@ describe("updateCatalog", () => {
     const store = recordingStore(base);
     const { sleep, calls } = recordingSleep();
     expect(await updateCatalog(store, await addRoot(), { sleep })).toEqual({ result: "created" });
-    const first = await base.head(CATALOG_KEY);
+    const first = await base.get(CATALOG_KEY);
 
     const issuing = await certificateEntry("issuing-ca-1");
     const addIssuing = (catalog: Catalog): CatalogMutation<string> => ({

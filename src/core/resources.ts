@@ -29,7 +29,10 @@ export interface FoundDownload {
   key: string;
   /** DER size in bytes, from the catalog. */
   size: number;
-  /** Last segment of the request path, `.pem` included; sanitised by downloadHeaders. */
+  /**
+   * Last segment of the request path, `.pem` included. The path is a config path (plus `.pem`),
+   * never other request text, so it goes into Content-Disposition as it is.
+   */
   filename: string;
   /** The CRL's nextUpdate; null for a certificate and for a CRL without one. */
   nextUpdate: Date | null;
@@ -174,10 +177,6 @@ const CERTIFICATE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 /** CRL max-age bounds in seconds (§10 #3): an expired CRL still gets 60, a far one at most 3600. */
 const CRL_MAX_AGE = { min: 60, max: 3600, withoutNextUpdate: 300 } as const;
 
-// C13, M17: the live shape `attachment; filename="…"` without filename*; anything outside printable
-// ASCII (per code point), `"` and `\` become `_`. A no-op for paths V2 accepts, kept as defence.
-const UNSAFE_FILENAME = /[^\x20-\x7e]|["\\]/gu;
-
 /** The PEM boundaries of a kind (derToPem and pemLength take them). */
 export function pemMarkers(kind: DownloadKind): PemBlockMarkers {
   return kind === "certificate" ? PEM_BLOCK_MARKERS.certificate : PEM_BLOCK_MARKERS.crl;
@@ -218,7 +217,7 @@ export function downloadHeaders(found: FoundDownload, now: Date): DownloadHeader
     "Content-Length": String(pem ? pemLength(found.size, pemMarkers(found.kind)) : found.size),
     "Cache-Control": cacheControl(found, now),
     "Last-Modified": found.lastModified.toUTCString(),
-    "Content-Disposition": `attachment; filename="${found.filename.replace(UNSAFE_FILENAME, "_")}"`,
+    "Content-Disposition": `attachment; filename="${found.filename}"`,
   };
 }
 
