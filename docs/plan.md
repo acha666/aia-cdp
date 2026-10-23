@@ -154,7 +154,7 @@ aia-cdp/
   not_found_handling: "single-page-application" }`（history 路由的兜底）。不写 `routes`、`build.command`、`vars`。
 - 绑定类型：`wrangler types --env-file=/dev/null` 生成 `worker-configuration.d.ts`（不读 `.dev.vars`，结果确定），不入库；
   `pnpm run types` 在 check / typecheck / lint 之前重生成，ESLint 与 Prettier 排除它。
-- 入口：按 `env` 缓存一个 app（`WeakMap<Env, App>`），`createApp({ store: new R2Store(env.STORE), now, settings,
+- 入口：按 `env` 缓存一个 app（`WeakMap<Env, AppType>`），`createApp({ store: new R2Store(env.STORE), now, settings,
   log: (line) => console.log(line), ui: (req) => env.ASSETS.fetch(req) })`，`app.fetch(req, env, ctx)`；设置无效时每个请求返回 500 信封并记一行 error 日志。
   ASSETS 只经 `deps.ui` 调用，保留前缀与 UI 兜底规则在应用内（§4.4）：`/api/*` 与下载前缀的未命中不会被 SPA 兜底答成
   200 HTML。
@@ -537,7 +537,7 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
   `/api/v1/admin/*` 的 `bearerAuth` → `POST /api/v1/crls` 的路由级 middleware（可选 `bearerAuth` → 媒体类型闸 → `bodyLimit`，都在
   zod-openapi 的校验器之前，匿名或类型不符的上传不读体）→
   路由 → `app.onError` 统一 500 信封，不泄漏异常文本。`bearerAuth`、`bodyLimit` 等抛出的 `HTTPException` 由 `onError` 换成
-  信封（库文本换成自己的文案，保留 `WWW-Authenticate`、`Allow`、`Retry-After`）。处理器抛错时日志依次是该操作自己的一行（如
+  信封（库文本换成自己的文案，保留 `bearerAuth` 的 `WWW-Authenticate`）。处理器抛错时日志依次是该操作自己的一行（如
   `publish` 的 `reason: "internal"`）→ `unhandled_error` → `request`。
 - OpenAPI（B11）：`GET /api/v1/openapi.json` 在运行时由路由表生成（`getOpenAPI31Document`），每个 app 实例首次请求时序列化并缓存，
   `max-age=300`；`scripts/generate-openapi.ts`（`pnpm run openapi`）用同一调用写出提交的 `docs/openapi.json`。漂移检查只有一处：

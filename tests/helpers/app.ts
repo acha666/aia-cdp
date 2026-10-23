@@ -8,19 +8,6 @@ import { NOW } from "../fixtures/pki.ts";
 /** The smallest configuration that is `ok` under the full schema. */
 export const MINIMAL_CONFIG = '{"version":1,"certificates":{},"targets":{},"paths":{}}';
 
-/** The Content-Security-Policy header of every response. */
-export const CSP_HEADER = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self'",
-  "img-src 'self' data:",
-  "connect-src 'self'",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "frame-ancestors 'self'",
-  "form-action 'none'",
-].join("; ");
-
 /** parseSettings({}): the same defaults as scripts/generate-openapi.ts. */
 function defaultSettings(): AppSettings {
   const parsed = parseSettings({});

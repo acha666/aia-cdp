@@ -2,25 +2,19 @@
 // itself, a failure is one envelope `{ error: { code, message, details? } }`, and exception text
 // never reaches a response.
 import type { Hook, z } from "@hono/zod-openapi";
-import type { Context, ErrorHandler } from "hono";
+import type { Context, Env, ErrorHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { describeError } from "./log.ts";
 import type { Logger } from "./log.ts";
 import type { ErrorCode } from "./schemas.ts";
-import type { AppEnv } from "./types.ts";
 
-export interface ErrorBody<C extends ErrorCode = ErrorCode> {
-  error: { code: C; message: string; details?: unknown };
-}
-
-/** Generic in the code, so the body satisfies a route's per-status schema with a narrowed enum. */
-export function errorBody<C extends ErrorCode>(
-  code: C,
-  message: string,
-  details?: unknown
-): ErrorBody<C> {
-  return { error: details === undefined ? { code, message } : { code, message, details } };
+/**
+ * Generic in the code, so the body satisfies a route's per-status schema with a narrowed enum. An
+ * undefined `details` is left out of the JSON.
+ */
+export function errorBody<C extends ErrorCode>(code: C, message: string, details?: unknown) {
+  return { error: { code, message, details } };
 }
 
 /** Our own fixed texts for errors raised by the framework or by unexpected failures. */
@@ -29,9 +23,6 @@ export const ERROR_MESSAGES = {
   unauthorized: "Unauthorized",
   not_found: "Not found",
   method_not_allowed: "Method not allowed",
-  conflict: "Conflict",
-  precondition_failed: "Precondition failed",
-  precondition_required: "Precondition required",
   payload_too_large: "Payload too large",
   unsupported_media_type: "Unsupported media type",
   internal: "Internal server error",
@@ -56,25 +47,19 @@ export class ApiError extends Error {
   }
 }
 
-/** Error code for an HTTPException thrown by Hono middleware (bearerAuth, bodyLimit, …). */
+/**
+ * Error code for an HTTPException thrown by Hono (bearerAuth: 400 / 401, bodyLimit: 413, the JSON
+ * validator: 400, zod-openapi's JSON media type check: 415).
+ */
 const CODE_BY_STATUS: Partial<Record<number, keyof typeof ERROR_MESSAGES>> = {
   400: "bad_request",
   401: "unauthorized",
-  404: "not_found",
-  405: "method_not_allowed",
-  409: "conflict",
-  412: "precondition_failed",
   413: "payload_too_large",
   415: "unsupported_media_type",
-  428: "precondition_required",
 };
 
-// Headers of a library HTTPException response that must survive the envelope rewrite: bearerAuth
-// sets WWW-Authenticate; a thrown 405 / 503 may carry Allow / Retry-After.
-const PRESERVED_HEADERS = ["WWW-Authenticate", "Allow", "Retry-After"] as const;
-
-export function createErrorHandler(log: Logger): ErrorHandler<AppEnv> {
-  const logUnexpected = (err: Error, c: Context<AppEnv>) => {
+export function createErrorHandler(log: Logger): ErrorHandler {
+  const logUnexpected = (err: Error, c: Context) => {
     log({
       level: "error",
       msg: "unhandled_error",
@@ -92,14 +77,9 @@ export function createErrorHandler(log: Logger): ErrorHandler<AppEnv> {
       if (code === "internal") {
         logUnexpected(err, c);
       }
-      const headers: Record<string, string> = { ...NO_STORE };
-      const res = err.getResponse();
-      for (const name of PRESERVED_HEADERS) {
-        const value = res.headers.get(name);
-        if (value !== null) {
-          headers[name] = value;
-        }
-      }
+      // bearerAuth's WWW-Authenticate survives the envelope rewrite.
+      const auth = err.getResponse().headers.get("WWW-Authenticate");
+      const headers = auth === null ? NO_STORE : { ...NO_STORE, "WWW-Authenticate": auth };
       // The library's message is not part of the contract: use our own text.
       return c.json(errorBody(code, ERROR_MESSAGES[code]), err.status, headers);
     }
@@ -124,7 +104,7 @@ export function validationError(target: string, error: z.ZodError): ApiError {
  * envelope. Thrown rather than returned so that a route-level hook can delegate to it without
  * widening its typed responses.
  */
-export const validationHook: Hook<unknown, AppEnv, string, undefined> = (result) => {
+export const validationHook: Hook<unknown, Env, string, undefined> = (result) => {
   if (!result.success) {
     throw validationError(result.target, result.error);
   }

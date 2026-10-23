@@ -25,8 +25,3 @@ export interface AppDeps {
    */
   ui?: (req: Request) => Response | Promise<Response>;
 }
-
-// No Bindings on purpose: the app must not depend on a runtime's env shape.
-export interface AppEnv {
-  Variables: Record<string, never>;
-}

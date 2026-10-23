@@ -25,53 +25,47 @@ import { mediaTypeGate } from "../media.ts";
 import {
   AdminDisabledError,
   BadRequestError,
+  CERTIFICATE_MEDIA_TYPES,
   ConcurrentUpdateError,
   ConfigInvalidError,
   ImportedCertificate,
   InvalidCertificateError,
+  jsonContent,
   NotFoundError,
-  PayloadTooLargeError,
+  PAYLOAD_TOO_LARGE,
   PreconditionFailedError,
   PreconditionRequiredError,
+  rawBody,
   UnauthorizedError,
   UnsupportedMediaTypeError,
 } from "../schemas.ts";
-import type { AppDeps, AppEnv } from "../types.ts";
+import type { AppDeps } from "../types.ts";
 
 const SECURITY_SCHEME = "adminBearer";
 const security = [{ [SECURITY_SCHEME]: [] }];
 const tags = ["admin"];
-
-function json<S extends z.ZodType>(schema: S) {
-  return { "application/json": { schema } };
-}
 
 // Shared responses -------------------------------------------------------------------------------
 
 const ADMIN_FAILURES = {
   400: {
     description: "Malformed Authorization header, or an invalid request",
-    content: json(BadRequestError),
+    content: jsonContent(BadRequestError),
   },
   401: {
     description: "Missing or wrong admin token",
     headers: z.object({ "WWW-Authenticate": z.string() }),
-    content: json(UnauthorizedError),
+    content: jsonContent(UnauthorizedError),
   },
   503: {
     description: "No admin token is configured (AIA_ADMIN_TOKEN): the admin API is disabled",
-    content: json(AdminDisabledError),
+    content: jsonContent(AdminDisabledError),
   },
 } as const;
 
-const PAYLOAD_TOO_LARGE = {
-  description: "The body is larger than AIA_MAX_UPLOAD_BYTES",
-  content: json(PayloadTooLargeError),
-};
-
 const UNSUPPORTED_MEDIA_TYPE = {
   description: "The Content-Type is missing or not one of the request body's media types",
-  content: json(UnsupportedMediaTypeError),
+  content: jsonContent(UnsupportedMediaTypeError),
 };
 
 const ETAG = z.object({
@@ -84,12 +78,10 @@ const ETAG = z.object({
 
 // The format (DER or one PEM block) is recognized from the bytes; the type only gates 415.
 const certificateMediaType = mediaTypeGate(
-  ["application/pkix-cert", "application/x-pem-file", "application/octet-stream"],
+  CERTIFICATE_MEDIA_TYPES,
   "Send the certificate as application/pkix-cert, application/x-pem-file or " +
     "application/octet-stream"
 );
-
-const binary = z.string().openapi({ format: "binary" });
 
 export const importCertificateRoute = createRoute({
   method: "post",
@@ -104,32 +96,23 @@ export const importCertificateRoute = createRoute({
   tags,
   security,
   middleware: [certificateMediaType],
-  request: {
-    body: {
-      required: true,
-      content: {
-        "application/pkix-cert": { schema: binary },
-        "application/x-pem-file": { schema: z.string() },
-        "application/octet-stream": { schema: binary },
-      },
-    },
-  },
+  request: { body: rawBody(CERTIFICATE_MEDIA_TYPES) },
   responses: {
     200: {
       description: "Already imported: the stored entry, nothing was written",
-      content: json(ImportedCertificate),
+      content: jsonContent(ImportedCertificate),
     },
-    201: { description: "Imported", content: json(ImportedCertificate) },
+    201: { description: "Imported", content: jsonContent(ImportedCertificate) },
     ...ADMIN_FAILURES,
     409: {
       description: "The catalog kept changing concurrently; retry",
-      content: json(ConcurrentUpdateError),
+      content: jsonContent(ConcurrentUpdateError),
     },
     413: PAYLOAD_TOO_LARGE,
     415: UNSUPPORTED_MEDIA_TYPE,
     422: {
       description: "Not a certificate this service accepts; `details.reason` says why",
-      content: json(InvalidCertificateError),
+      content: jsonContent(InvalidCertificateError),
     },
   },
 });
@@ -147,8 +130,12 @@ export const getConfigRoute = createRoute({
   tags,
   security,
   responses: {
-    200: { description: "The stored config.json", headers: ETAG, content: json(ConfigSchema) },
-    404: { description: "Nothing has been configured yet", content: json(NotFoundError) },
+    200: {
+      description: "The stored config.json",
+      headers: ETAG,
+      content: jsonContent(ConfigSchema),
+    },
+    404: { description: "Nothing has been configured yet", content: jsonContent(NotFoundError) },
     ...ADMIN_FAILURES,
   },
 });
@@ -215,28 +202,28 @@ export const applyConfigRoute = createRoute({
         .optional()
         .openapi({ description: "`*`: only while nothing is configured" }),
     }),
-    body: { required: true, content: json(ConfigSchema) },
+    body: { required: true, content: jsonContent(ConfigSchema) },
   },
   responses: {
     200: {
       description: "Applied: the stored bytes and their new ETag",
       headers: ETAG,
-      content: json(ConfigSchema),
+      content: jsonContent(ConfigSchema),
     },
     ...ADMIN_FAILURES,
     412: {
       description: "The precondition does not hold (another apply came first, or W/ / list / *)",
-      content: json(PreconditionFailedError),
+      content: jsonContent(PreconditionFailedError),
     },
     413: PAYLOAD_TOO_LARGE,
     415: UNSUPPORTED_MEDIA_TYPE,
     422: {
       description: "The configuration breaks rules V1–V9",
-      content: json(ConfigInvalidError),
+      content: jsonContent(ConfigInvalidError),
     },
     428: {
       description: "Not exactly one of If-Match and If-None-Match: *",
-      content: json(PreconditionRequiredError),
+      content: jsonContent(PreconditionRequiredError),
     },
   },
 });
@@ -259,7 +246,7 @@ function configResponse(bytes: Uint8Array, sha256: string) {
 
 export function adminRoutes(deps: AppDeps) {
   const log = createLogger(deps);
-  const admin = new OpenAPIHono<AppEnv>();
+  const admin = new OpenAPIHono();
 
   admin.openAPIRegistry.registerComponent("securitySchemes", SECURITY_SCHEME, {
     type: "http",
@@ -271,7 +258,7 @@ export function adminRoutes(deps: AppDeps) {
   if (token === undefined) {
     admin.use(
       "/admin/*",
-      createMiddleware<AppEnv>(async () => {
+      createMiddleware(async () => {
         throw new ApiError(
           503,
           "admin_disabled",
@@ -288,7 +275,7 @@ export function adminRoutes(deps: AppDeps) {
   }
 
   admin.openapi(importCertificateRoute, async (c) => {
-    const bytes = new Uint8Array(await c.req.arrayBuffer());
+    const bytes = await c.req.bytes();
     if (bytes.byteLength === 0) {
       throw new ApiError(400, "bad_request", "Expected a certificate in the request body");
     }

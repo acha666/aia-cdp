@@ -67,6 +67,34 @@ export function detailedErrorSchema<const C extends ErrorCodes, D extends z.ZodT
   });
 }
 
+/** The `content` of a JSON request body or response. */
+export function jsonContent<S extends z.ZodType>(schema: S) {
+  return { "application/json": { schema } };
+}
+
+const binary = z.string().openapi({ format: "binary" });
+
+/**
+ * The raw request body of an upload under each of `mediaTypes`: text for PEM, binary otherwise.
+ * The format is always recognized from the bytes.
+ */
+export function rawBody(mediaTypes: readonly string[]) {
+  return {
+    required: true,
+    content: Object.fromEntries(
+      mediaTypes.map((type) => [
+        type,
+        { schema: type === "application/x-pem-file" ? z.string() : binary },
+      ])
+    ),
+  };
+}
+
+const Timestamp = z.iso.datetime({ precision: 3 });
+
+/** Why an upload is not a certificate or CRL this service accepts. */
+const ParseReason = z.enum([...PKI_PARSE_REASONS, "signature_algorithm_mismatch"]);
+
 // Shared failures ---------------------------------------------------------------------------------
 
 export const BadRequestError = errorSchema(["bad_request"]).openapi("BadRequestError");
@@ -75,9 +103,7 @@ export const UnauthorizedError = errorSchema(["unauthorized"]).openapi("Unauthor
 
 export const NotFoundError = errorSchema(["not_found"]).openapi("NotFoundError");
 
-export const PayloadTooLargeError = errorSchema(["payload_too_large"]).openapi(
-  "PayloadTooLargeError"
-);
+const PayloadTooLargeError = errorSchema(["payload_too_large"]).openapi("PayloadTooLargeError");
 
 export const UnsupportedMediaTypeError = errorSchema(["unsupported_media_type"]).openapi(
   "UnsupportedMediaTypeError"
@@ -87,7 +113,21 @@ export const ConcurrentUpdateError = errorSchema(["concurrent_update"]).openapi(
   "ConcurrentUpdateError"
 );
 
-export const InternalError = errorSchema(["internal"]).openapi("InternalError");
+const InternalError = errorSchema(["internal"]).openapi("InternalError");
+
+/** The 500 of the certificate and CRL routes. */
+export const INTERNAL_ERROR = {
+  description:
+    "The store failed, or it cannot back what catalog.json and config.json name (logged, never " +
+    "sent); retry later",
+  content: jsonContent(InternalError),
+};
+
+/** The 413 of every route that reads a request body. */
+export const PAYLOAD_TOO_LARGE = {
+  description: "The body is larger than AIA_MAX_UPLOAD_BYTES",
+  content: jsonContent(PayloadTooLargeError),
+};
 
 /** 200: the store answers. `degraded` while config.json is missing or invalid. */
 export const HealthOk = z
@@ -115,6 +155,13 @@ export const HealthUnavailable = z
 
 export const AdminDisabledError = errorSchema(["admin_disabled"]).openapi("AdminDisabledError");
 
+/** The request media types of POST /api/v1/admin/certificates, for the raw body. */
+export const CERTIFICATE_MEDIA_TYPES = [
+  "application/pkix-cert",
+  "application/x-pem-file",
+  "application/octet-stream",
+] as const;
+
 /** 200 / 201 of POST /api/v1/admin/certificates: the catalog entry, without its store key. */
 export const ImportedCertificate = z
   .object({
@@ -122,14 +169,14 @@ export const ImportedCertificate = z
     /** SHA-256 of the DER. */
     id: Sha256Hex,
     size: z.number().int().positive(),
-    importedAt: z.iso.datetime({ precision: 3 }),
+    importedAt: Timestamp,
     summary: CertificateSummarySchema,
   })
   .openapi("ImportedCertificate");
 
 export const InvalidCertificateError = detailedErrorSchema(
   ["invalid_certificate"],
-  z.object({ reason: z.enum([...PKI_PARSE_REASONS, "signature_algorithm_mismatch"]) })
+  z.object({ reason: ParseReason })
 ).openapi("InvalidCertificateError");
 
 /** One entry of config_invalid's details.issues (src/core/admin.ts ConfigIssue). */
@@ -210,10 +257,7 @@ export const CrlConflictError = z
 /** `details` of 422 by code (src/core/publish.ts PublishFailure). */
 export const CrlRejectedError = z
   .union([
-    detailedErrorSchema(
-      ["invalid_crl"],
-      z.object({ reason: z.enum([...PKI_PARSE_REASONS, "signature_algorithm_mismatch"]) })
-    ),
+    detailedErrorSchema(["invalid_crl"], z.object({ reason: ParseReason })),
     detailedErrorSchema(
       ["not_yet_valid"],
       z.object({ thisUpdate: CrlSummarySchema.shape.thisUpdate })
@@ -289,8 +333,6 @@ export const TargetIdParam = z.object({
     .check(z.uuid())
     .openapi({ description: "The target id from config.json (UUID, either case)" }),
 });
-
-const Timestamp = z.iso.datetime({ precision: 3 });
 
 const Size = z.number().int().positive().openapi({ description: "DER size in bytes" });
 

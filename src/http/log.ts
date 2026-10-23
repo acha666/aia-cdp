@@ -2,7 +2,7 @@
 // object with `level` and `msg` (an event name). Never log tokens, request bodies, headers or
 // query strings.
 import { createMiddleware } from "hono/factory";
-import type { AppDeps, AppEnv } from "./types.ts";
+import type { AppDeps } from "./types.ts";
 
 export type LogLevel = "info" | "warn" | "error";
 
@@ -40,7 +40,7 @@ export function describeError(
  * createLogger, not deps.log.
  */
 export function requestLog(log: Logger) {
-  return createMiddleware<AppEnv>(async (c, next) => {
+  return createMiddleware(async (c, next) => {
     const start = performance.now();
     await next();
     log({

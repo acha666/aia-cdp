@@ -2,23 +2,11 @@
 // Node reads `*_FILE` variants first (resolveFileVariants with readFileSync); Workers pass their
 // vars / secrets straight to parseSettings.
 import { z } from "zod";
-import type { AppSettings } from "../http/types.ts";
-
-export interface Settings {
-  /** 0 picks a free port (tests, smoke scripts). */
-  port: number;
-  store: "fs";
-  /** fs store root; one service process per directory. */
-  dataDir: string;
-  /** Built UI (vite build output). */
-  staticDir: string;
-  app: AppSettings;
-}
 
 export type SettingsResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** Variables that may instead be read from the file named by `<NAME>_FILE`. */
-export const FILE_VARIANTS = ["AIA_ADMIN_TOKEN", "AIA_UPLOAD_TOKEN"] as const;
+const FILE_VARIANTS = ["AIA_ADMIN_TOKEN", "AIA_UPLOAD_TOKEN"] as const;
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -44,28 +32,44 @@ const bearerToken = z
   );
 
 // Messages never echo the value: two of these variables are secrets.
-const SettingsSchema = z.object({
-  PORT: integer(0, 65535, "must be an integer from 0 to 65535").default(8080),
-  AIA_STORE: z.enum(["fs"], 'must be "fs"').default("fs"),
-  AIA_DATA_DIR: nonEmpty("must not be empty").default("/data"),
-  AIA_STATIC_DIR: nonEmpty("must not be empty").default("./dist/web"),
-  AIA_ADMIN_TOKEN: bearerToken.optional(),
-  AIA_UPLOAD_TOKEN: bearerToken.optional(),
-  // The largest request body the CRL upload and the admin routes read, and so the largest CRL
-  // (1 MiB holds about 25 000 revoked entries).
-  AIA_MAX_UPLOAD_BYTES: integer(
-    1,
-    Number.MAX_SAFE_INTEGER,
-    "must be a positive integer (bytes)"
-  ).default(1_048_576),
-});
+const SettingsSchema = z
+  .object({
+    PORT: integer(0, 65535, "must be an integer from 0 to 65535").default(8080),
+    AIA_STORE: z.enum(["fs"], 'must be "fs"').default("fs"),
+    AIA_DATA_DIR: nonEmpty("must not be empty").default("/data"),
+    AIA_STATIC_DIR: nonEmpty("must not be empty").default("./dist/web"),
+    AIA_ADMIN_TOKEN: bearerToken.optional(),
+    AIA_UPLOAD_TOKEN: bearerToken.optional(),
+    // The largest request body the CRL upload and the admin routes read, and so the largest CRL
+    // (1 MiB holds about 25 000 revoked entries).
+    AIA_MAX_UPLOAD_BYTES: integer(
+      1,
+      Number.MAX_SAFE_INTEGER,
+      "must be a positive integer (bytes)"
+    ).default(1_048_576),
+  })
+  .transform((v) => ({
+    /** 0 picks a free port (tests, smoke scripts). */
+    port: v.PORT,
+    store: v.AIA_STORE,
+    /** fs store root; one service process per directory. */
+    dataDir: v.AIA_DATA_DIR,
+    /** Built UI (vite build output). */
+    staticDir: v.AIA_STATIC_DIR,
+    /** AppSettings (src/http/types.ts). */
+    app: {
+      maxUploadBytes: v.AIA_MAX_UPLOAD_BYTES,
+      adminToken: v.AIA_ADMIN_TOKEN,
+      uploadToken: v.AIA_UPLOAD_TOKEN,
+    },
+  }));
 
 /**
  * Validates the environment and applies the plan §4.2 defaults; `parseSettings({})` is the
  * all-defaults configuration (tests, OpenAPI generator). Unknown variables are ignored. On failure
  * `error` lists every invalid variable, one per line.
  */
-export function parseSettings(env: Env): SettingsResult<Settings> {
+export function parseSettings(env: Env): SettingsResult<z.output<typeof SettingsSchema>> {
   const result = SettingsSchema.safeParse(env);
   if (!result.success) {
     const lines = result.error.issues.map(
@@ -73,21 +77,7 @@ export function parseSettings(env: Env): SettingsResult<Settings> {
     );
     return { ok: false, error: ["Invalid settings:", ...lines].join("\n") };
   }
-  const v = result.data;
-  return {
-    ok: true,
-    value: {
-      port: v.PORT,
-      store: v.AIA_STORE,
-      dataDir: v.AIA_DATA_DIR,
-      staticDir: v.AIA_STATIC_DIR,
-      app: {
-        maxUploadBytes: v.AIA_MAX_UPLOAD_BYTES,
-        ...(v.AIA_ADMIN_TOKEN === undefined ? {} : { adminToken: v.AIA_ADMIN_TOKEN }),
-        ...(v.AIA_UPLOAD_TOKEN === undefined ? {} : { uploadToken: v.AIA_UPLOAD_TOKEN }),
-      },
-    },
-  };
+  return { ok: true, value: result.data };
 }
 
 /**

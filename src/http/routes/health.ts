@@ -2,8 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { checkHealth } from "../../core/health.ts";
 import { NO_STORE } from "../errors.ts";
 import { createLogger, describeError } from "../log.ts";
-import { HealthOk, HealthUnavailable } from "../schemas.ts";
-import type { AppDeps, AppEnv } from "../types.ts";
+import { HealthOk, HealthUnavailable, jsonContent } from "../schemas.ts";
+import type { AppDeps } from "../types.ts";
 
 export const healthRoute = createRoute({
   method: "get",
@@ -17,18 +17,18 @@ export const healthRoute = createRoute({
   responses: {
     200: {
       description: "The store answers: healthy, or degraded (configuration missing or invalid)",
-      content: { "application/json": { schema: HealthOk } },
+      content: jsonContent(HealthOk),
     },
     503: {
       description: "The store failed; the configuration could not be checked",
-      content: { "application/json": { schema: HealthUnavailable } },
+      content: jsonContent(HealthUnavailable),
     },
   },
 });
 
 export function healthRoutes(deps: AppDeps) {
   const log = createLogger(deps);
-  return new OpenAPIHono<AppEnv>().openapi(healthRoute, async (c) => {
+  return new OpenAPIHono().openapi(healthRoute, async (c) => {
     const report = await checkHealth(deps.store, (error) => {
       log({ level: "error", msg: "health_store_error", error: describeError(error) });
     });

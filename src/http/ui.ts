@@ -3,7 +3,7 @@
 // download-prefix misses never become 200 HTML.
 import type { Context, NotFoundHandler } from "hono";
 import { ERROR_MESSAGES, errorBody, NO_STORE } from "./errors.ts";
-import type { AppDeps, AppEnv } from "./types.ts";
+import type { AppDeps } from "./types.ts";
 
 /** API paths: a miss is the JSON 404 envelope. */
 export const API_PREFIX = /^\/api(?:\/|$)/;
@@ -25,11 +25,11 @@ const ASSET_STATUSES = new Set([200, 206, 304]);
 
 /** The last path segment has a file extension (`/assets/x.js`, `/favicon.ico`, `/.env`). */
 export function hasFileExtension(path: string): boolean {
-  return /\.[^/]*$/.test(path.slice(path.lastIndexOf("/") + 1));
+  return /\.[^/]*$/.test(path);
 }
 
 /** `text/plain` 404 `Not Found`, as served to download clients. */
-export function textNotFound(c: Context<AppEnv>): Response {
+export function textNotFound(c: Context): Response {
   return c.text("Not Found", 404, NO_STORE);
 }
 
@@ -53,7 +53,7 @@ function isHtml(res: Response): boolean {
  * A 404 on a registered path with another method becomes 405 in methodNotAllowed afterwards
  * (onMethodNotAllowed).
  */
-export function uiFallback(deps: Pick<AppDeps, "ui">): NotFoundHandler<AppEnv> {
+export function uiFallback(deps: Pick<AppDeps, "ui">): NotFoundHandler {
   return async (c) => {
     const path = c.req.path;
     if (API_PREFIX.test(path)) {
@@ -94,7 +94,7 @@ export function uiFallback(deps: Pick<AppDeps, "ui">): NotFoundHandler<AppEnv> {
  * path gets `GET, HEAD`): text/plain `Method Not Allowed` on the download routes (CryptoAPI and
  * OpenSSL clients), the envelope everywhere else.
  */
-export function onMethodNotAllowed(c: Context<AppEnv>, methods: string[]): Response {
+export function onMethodNotAllowed(c: Context, methods: string[]): Response {
   const headers = { ...NO_STORE, Allow: methods.join(", ") };
   if (DOWNLOAD_PREFIX.test(c.req.path)) {
     return c.text("Method Not Allowed", 405, headers);

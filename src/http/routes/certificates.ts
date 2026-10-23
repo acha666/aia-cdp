@@ -7,31 +7,21 @@
 // missing or wrong, or a store error, so onError writes every envelope (no-store) and the handlers
 // only return successes. HEAD is Hono's automatic HEAD of each GET.
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
-import type { z } from "@hono/zod-openapi";
 import { readState } from "../../core/catalog.ts";
-import { certificateDetail, certificateList, findCertificate } from "../../core/views.ts";
+import { certificateDetail, certificateList } from "../../core/views.ts";
 import { ApiError, NO_STORE } from "../errors.ts";
 import {
   BadRequestError,
   CertificateDetail,
   CertificateIdParam,
   CertificateListItem,
-  InternalError,
+  INTERNAL_ERROR,
+  jsonContent,
   NotFoundError,
 } from "../schemas.ts";
-import type { AppDeps, AppEnv } from "../types.ts";
-
-function json<S extends z.ZodType>(schema: S) {
-  return { "application/json": { schema } };
-}
+import type { AppDeps } from "../types.ts";
 
 const TAGS = ["certificates"];
-
-const INTERNAL = {
-  description:
-    "The store failed, or it cannot back what catalog.json names (logged, never sent); retry later",
-  content: json(InternalError),
-};
 
 export const listCertificatesRoute = createRoute({
   method: "get",
@@ -43,8 +33,8 @@ export const listCertificatesRoute = createRoute({
     "download paths and the targets it issues CRLs for. The whole list: no pagination.",
   tags: TAGS,
   responses: {
-    200: { description: "The certificates", content: json(CertificateListItem.array()) },
-    500: INTERNAL,
+    200: { description: "The certificates", content: jsonContent(CertificateListItem.array()) },
+    500: INTERNAL_ERROR,
   },
 });
 
@@ -59,15 +49,18 @@ export const getCertificateRoute = createRoute({
   tags: TAGS,
   request: { params: CertificateIdParam },
   responses: {
-    200: { description: "The certificate", content: json(CertificateDetail) },
-    400: { description: "The id is not 64 hex digits", content: json(BadRequestError) },
-    404: { description: "No certificate with this id is imported", content: json(NotFoundError) },
-    500: INTERNAL,
+    200: { description: "The certificate", content: jsonContent(CertificateDetail) },
+    400: { description: "The id is not 64 hex digits", content: jsonContent(BadRequestError) },
+    404: {
+      description: "No certificate with this id is imported",
+      content: jsonContent(NotFoundError),
+    },
+    500: INTERNAL_ERROR,
   },
 });
 
 export function certificateRoutes(deps: AppDeps) {
-  return new OpenAPIHono<AppEnv>()
+  return new OpenAPIHono()
     .openapi(listCertificatesRoute, async (c) => {
       const { config, catalog } = await readState(deps.store);
       return c.json(certificateList(config, catalog), 200, NO_STORE);
@@ -75,11 +68,10 @@ export function certificateRoutes(deps: AppDeps) {
     .openapi(getCertificateRoute, async (c) => {
       const { id } = c.req.valid("param");
       const { config, catalog } = await readState(deps.store);
-      const source = findCertificate(config, catalog, id);
-      if (source === undefined) {
+      const detail = await certificateDetail(deps.store, config, catalog, id);
+      if (detail === undefined) {
         throw new ApiError(404, "not_found", "No certificate with this id is imported");
       }
-      const blob = await deps.store.get(source.key);
-      return c.json(await certificateDetail(source, blob?.bytes ?? null), 200, NO_STORE);
+      return c.json(detail, 200, NO_STORE);
     });
 }

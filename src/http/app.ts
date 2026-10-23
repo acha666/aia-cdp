@@ -6,8 +6,7 @@
 // fallback lives in notFound.
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { methodNotAllowed } from "hono/method-not-allowed";
-import { secureHeaders } from "hono/secure-headers";
-import { CONTENT_SECURITY_POLICY } from "./csp.ts";
+import { securityHeaders } from "./csp.ts";
 import { createErrorHandler, validationHook } from "./errors.ts";
 import { createLogger, requestLog } from "./log.ts";
 import { adminRoutes } from "./routes/admin.ts";
@@ -16,10 +15,8 @@ import { crlRoutes } from "./routes/crls.ts";
 import { downloadRoutes } from "./routes/downloads.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { statsRoutes } from "./routes/stats.ts";
-import type { AppDeps, AppEnv } from "./types.ts";
+import type { AppDeps } from "./types.ts";
 import { onMethodNotAllowed, uiFallback } from "./ui.ts";
-
-export type { AppDeps, AppEnv, AppSettings } from "./types.ts";
 
 /** Shared by GET /api/v1/openapi.json and scripts/generate-openapi.ts (docs/openapi.json). */
 export const OPENAPI_CONFIG = {
@@ -37,7 +34,7 @@ export const OPENAPI_CONFIG = {
 
 export function createApp(deps: AppDeps) {
   const log = createLogger(deps);
-  const app = new OpenAPIHono<AppEnv>({ defaultHook: validationHook });
+  const app = new OpenAPIHono({ defaultHook: validationHook });
 
   app.onError(createErrorHandler(log));
   app.notFound(uiFallback(deps));
@@ -47,12 +44,7 @@ export function createApp(deps: AppDeps) {
   // bodyLimit as route middleware in routes/crls.ts) → routes.
   // secureHeaders covers every response, the UI's too (ui.ts copies the deps.ui answer first); its
   // CSP is the UI's (csp.ts) and changes nothing for JSON or downloads.
-  app.use(
-    secureHeaders({
-      strictTransportSecurity: false,
-      contentSecurityPolicy: CONTENT_SECURITY_POLICY,
-    })
-  );
+  app.use(securityHeaders);
   app.use(requestLog(log));
   app.use(methodNotAllowed({ app, onMethodNotAllowed }));
 
@@ -82,5 +74,4 @@ export function createApp(deps: AppDeps) {
   return routes;
 }
 
-export type App = ReturnType<typeof createApp>;
-export type AppType = App;
+export type AppType = ReturnType<typeof createApp>;

@@ -4183,7 +4183,7 @@
             }
           },
           "500": {
-            "description": "The store failed, or it cannot back what catalog.json names (logged, never sent); retry later",
+            "description": "The store failed, or it cannot back what catalog.json and config.json name (logged, never sent); retry later",
             "content": {
               "application/json": {
                 "schema": {
@@ -4248,7 +4248,7 @@
             }
           },
           "500": {
-            "description": "The store failed, or it cannot back what catalog.json names (logged, never sent); retry later",
+            "description": "The store failed, or it cannot back what catalog.json and config.json name (logged, never sent); retry later",
             "content": {
               "application/json": {
                 "schema": {
@@ -4419,7 +4419,7 @@
             }
           },
           "500": {
-            "description": "The store failed (the error is logged, never sent); retry later",
+            "description": "The store failed, or it cannot back what catalog.json and config.json name (logged, never sent); retry later",
             "content": {
               "application/json": {
                 "schema": {

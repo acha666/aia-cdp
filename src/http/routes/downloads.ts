@@ -17,7 +17,7 @@ import {
   pemMarkers,
   resolveDownload,
 } from "../../core/resources.ts";
-import type { AppDeps, AppEnv } from "../types.ts";
+import type { AppDeps } from "../types.ts";
 import { textNotFound } from "../ui.ts";
 
 /** Registered for GET (and so HEAD). Hono's `/ca/*` also matches `/ca` itself. */
@@ -37,7 +37,7 @@ export const DOWNLOAD_ROUTES = ["/ca/*", "/crl/*", "/dcrl/*"] as const;
  * Every 200 sets Content-Type itself: left unset, a GET reached a Node socket as text/plain while
  * the HEAD had none.
  */
-async function serveDownload(c: Context<AppEnv>, deps: AppDeps): Promise<Response> {
+async function serveDownload(c: Context, deps: AppDeps): Promise<Response> {
   const path = c.req.path;
   const { config, catalog } = await readState(deps.store);
   const resolution = resolveDownload(config, catalog, path);
@@ -71,7 +71,7 @@ async function serveDownload(c: Context<AppEnv>, deps: AppDeps): Promise<Respons
 }
 
 export function downloadRoutes(deps: AppDeps) {
-  const downloads = new Hono<AppEnv>();
+  const downloads = new Hono();
   for (const path of DOWNLOAD_ROUTES) {
     downloads.get(path, (c) => serveDownload(c, deps));
   }

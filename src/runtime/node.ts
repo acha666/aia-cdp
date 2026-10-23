@@ -78,7 +78,8 @@ async function main(): Promise<void> {
     }
     stopping = true;
     log({ level: "info", msg: "shutdown", signal });
-    // Stops accepting and calls back once every connection has closed.
+    // Stops accepting, ends idle keep-alive sockets, and calls back once every connection has
+    // closed.
     server.close((error) => {
       if (error) {
         log({ level: "error", msg: "closed", error: describeError(error) });
@@ -87,9 +88,8 @@ async function main(): Promise<void> {
       log({ level: "info", msg: "closed" });
       process.exit(0);
     });
-    // Idle keep-alive sockets now; in-flight requests get GRACE_MS, then everything left goes
-    // (close() also stops Node's header timeout, so a socket without a request never would).
-    server.closeIdleConnections();
+    // In-flight requests get GRACE_MS, then everything left goes (close() stops Node's header
+    // timeout, so a socket without a request never would).
     setTimeout(() => {
       server.closeAllConnections();
     }, GRACE_MS).unref();
