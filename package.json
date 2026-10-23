@@ -50,7 +50,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@lucide/vue": "1.59.0",
+    "@lucide/vue": "1.60.0",
     "@tailwindcss/vite": "4.3.3",
     "@tanstack/vue-query": "5.104.4",
     "@types/node": "24.19.2",
