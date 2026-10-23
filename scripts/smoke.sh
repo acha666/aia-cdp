@@ -94,7 +94,7 @@ up=..%2f..%2f..%2f..%2f..%2f..%2f..%2f..%2f..%2f..%2f
 for path in /../package.json /%2e%2e/package.json /assets/..%2f..%2fpackage.json \
   /../../../../../../../../../../etc/passwd "/assets/${up}etc%2fpasswd"; do
   request GET "$path" --path-as-is
-  [[ $CODE != 5* && $CODE != 000 ]] && ! grep -qE '"packageManager"|root:x:0:0' "$T/b"
+  [[ $CODE != 5* && $CODE != 000 ]] && ! grep -qE '"devEngines"|root:x:0:0' "$T/b"
   report $?
 done
 

@@ -4,7 +4,6 @@
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
-!.npmrc
 !tsconfig.base.json
 !tsconfig.node.json
 !tsconfig.build.json

@@ -27,7 +27,7 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | # | 事项 | owner 决定 |
 | --- | --- | --- |
 | D1 | 前端（plan 决策 5） | Vue 3 + vue-router 5 + TanStack Query + shadcn-vue（Reka UI）+ Tailwind 4；不用 Pinia |
-| D2 | Node | Node 24 LTS（EOL 2028-04-30）全面取代 Node 22：`.nvmrc` = `24`、`engines.node` = `^24.11.0`、`engine-strict=true`、`@types/node` 24.x、Docker `ARG NODE_VERSION=24` 与 `node:24-slim`；本机工具链见总则 §2.4 |
+| D2 | Node | Node 24 LTS（EOL 2028-04-30）全面取代 Node 22：`.nvmrc` = `24`、`engines.node` = `^24.11.0`、`engineStrict`、`@types/node` 24.x、Docker `ARG NODE_VERSION=24` 与 `node:24-slim`；本机工具链见总则 §2.4 |
 | D3 | Git | `main` 放文档与已合入的切片；每个切片在 `slice/<n>-<name>` 上开发，评审后本地 `--no-ff` 合并再推送。2026-10-19 起有远端 `github.com/acha666/aia-cdp`（public）：GitHub Actions 在推送 `main` 与 PR 时跑四个 `pnpm run ci:<job>`，与本机执行等价；出口条件仍可全部在本机验证 |
 | D4 | 迁移源 | `~/aia-cdp/worker-aia-cdp` 本地分支 `parsing-2026-10-18` 的提交 `5b570aa`；只有附录 A 与切片 7 还引用它（`worker-aia-cdp@5b570aa:<path>`，§1.4） |
 | D5 | 切片 1 的存储 | ObjectStore 端口、memory / fs / r2 适配器与一致性套件在切片 1（原在切片 2），`/api/v1/health` 在切片 1 就做真实的 store / configuration 检查；切片 2 保留 catalog/config schema 与条件写重试、`importCertificate`、`applyConfig`、管理路由与 CLI 的 import / config |
@@ -43,7 +43,7 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 
 | # | 默认值（可推翻） | 落实 |
 | --- | --- | --- |
-| B1 | 精确锁 `typescript@6.0.3`（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）、`wrangler@4.152.0`、`packageManager: pnpm@10.34.7`（npm latest 是 12.x，pnpm 一律经 corepack）；其余版本按 plan §2 | `package.json` |
+| B1 | 精确锁 `typescript@6.0.3`（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）、`wrangler@4.152.0`；pnpm 不精确锁定（2026-10-23 从 10.34.7 升到 12）：`devEngines.packageManager` = `^12.15.0`，实际版本记在 `pnpm-lock.yaml`；其余版本按 plan §2 | `package.json` |
 | B2 | 包修正：`@lucide/vue` 取代 `lucide-vue-next`；生成代码用 `cn`；补 `tw-animate-css`、`@vitejs/plugin-vue`、`@tailwindcss/vite`、`vue-tsc`、`eslint-plugin-vue`、`vue-eslint-parser`、`jiti`；`vue-sonner` 需 `import "vue-sonner/style.css"`；浏览器包都是 devDependencies；`@tanstack/vue-table` 仅需要时加；`@vueuse/core` 跟最新 major，reka-ui 未跟上时允许两份 | `package.json` |
 | B3 | 模块约定：相对导入带 `.ts`；`allowImportingTsExtensions` + `rewriteRelativeImportExtensions` + `verbatimModuleSyntax` + `erasableSyntaxOnly`、每个程序显式列 `types`、`skipLibCheck`；服务端无路径别名，web 可用 `@/`；共享代码只用裸 `crypto` / `performance`、`Uint8Array<ArrayBuffer>`，core / http 无 `Buffer`、`process` | 总则 §2.1 |
 | B4 | tsconfig 拓扑：解决方案式 `tsconfig.json` + base / worker / node / build / web；三套程序都编译 `src/core` 与 `src/http`；R2 适配器用结构化类型 `R2BucketLike` | 总则 §2.2 |
@@ -59,9 +59,9 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | B14 | 适配器（D5）：memory sha256 ETag；fs 临时文件 + fsync + `rename`、按键互斥、拒 `..` 与绝对路径、递归 `list`；r2 `onlyIf` 用不带引号的 `R2Object.etag`、`put` 返回 `null` 即 `precondition-failed`、`list` 跟随游标；一致性套件 memory + fs 每次跑，r2 在 `AIA_TEST_R2=1` 下经 `getPlatformProxy`；store ETag 从不当 HTTP ETag | `src/storage/` |
 | B15 | vitest 5 `projects` = node + web（happy-dom）；独立 `vitest.config.ts`；没有 `globalSetup`；HTTP 用 `createApp(...).request()` | `vitest.config.ts`、总则 §2.5 |
 | B16 | 夹具：`tests/fixtures/generate-test-data.sh` 不带参数，固定日期 / 序列号 / CRL 号，每次完整重写 `tests/fixtures/pki/`（含 `manifest.json`），产物入库（`.gitattributes` `tests/fixtures/pki/** -text`），生成需要 OpenSSL ≥ 3.0；测试从文件或 manifest 读值、`now` = `manifest.now`；`.gitattributes` `*.sh text eol=lf` | `tests/fixtures/`、总则 §2.5 |
-| B17 | ESLint 10 flat `eslint.config.ts`、typescript-eslint 8.72.0 projectService、eslint-plugin-vue、`consistent-type-imports` + `no-import-type-side-effects`、`--max-warnings 0`；`pnpm-workspace.yaml` 的 `ignoredBuiltDependencies` 与 `publicHoistPattern`；Prettier 3 的 `.prettierrc.json`，生成组件每次 `add` 后重排 | `eslint.config.ts`、`pnpm-workspace.yaml`、`.prettierrc.json` |
+| B17 | ESLint 10 flat `eslint.config.ts`、typescript-eslint 8.72.0 projectService、eslint-plugin-vue、`consistent-type-imports` + `no-import-type-side-effects`、`--max-warnings 0`；`pnpm-workspace.yaml` 的 `engineStrict`、`saveExact`、`allowBuilds` 与 `publicHoistPattern`；Prettier 3 的 `.prettierrc.json`，生成组件每次 `add` 后重排 | `eslint.config.ts`、`pnpm-workspace.yaml`、`.prettierrc.json` |
 | B18 | Docker：base → prod-deps ∥ build → runtime（`node:24-slim`、uid 1000、`/data`、`NODE_ENV=production`、exec 形式 CMD、HEALTHCHECK）；`ARG VITE_SITE_NAME`；白名单 `.dockerignore`；浮动基础标签 | `Dockerfile` |
-| B19 | `.github/workflows/ci.yml` 四个任务 check / test / worker / docker 各调 `pnpm run ci:<job>`；`docker-publish.yml` 在推送 `main` 与 `v*.*.*` 标签时把镜像推到 `ghcr.io`；dependabot 管 npm、github-actions、docker；`pnpm verify` = check + test + build | `.github/workflows/`、`package.json` |
+| B19 | `.github/workflows/ci.yml` 四个任务 check / test / worker / docker 各用 `pnpm/setup` 装 Node、pnpm 与依赖后调 `pnpm run ci:<job>`；`docker-publish.yml` 在推送 `main` 与 `v*.*.*` 标签时把镜像推到 `ghcr.io`；dependabot 管 npm、github-actions、docker；`pnpm verify` = check + test + build | `.github/workflows/`、`package.json` |
 | B20 | Web：Vite root `src/web`、`outDir` `dist/web`、`envDir` 仓库根；`shadcn-vue@2.8.2 init` 固定参数（不用 `--defaults`）；vue-router、vue-query、i18n `en` + `zh-CN`、主题、`VITE_SITE_NAME`、经 `hc<AppType>` 的客户端；客户端目录 `src/web/client/`；dev 代理键 `^/(?:api\|ca\|crl\|dcrl)/` | `vite.config.ts`、`src/web/` |
 | B21 | 验签不用 PKIjs `crl.verify()`，改为对收到的 TBS 字节调 `pkijs.getCrypto(true).verifyWithPublicKey(...)`，在 CRL 级检查之后、按算法白名单（EdDSA 按 OID → `unsupported_algorithm`）；不调 `pkijs.setEngine` | `src/core/pki/verify.ts` |
 | B22 | 未定的 owner 问题列在需要它的切片的"开工前需 owner 确认"，每项带推荐默认 | 附录 C |
@@ -154,9 +154,10 @@ D8：批次 1 = 本目录（当时为单文件 `docs/implementation.md`）+ plan
 
 ### 2.3 版本锁定（B1、B2）
 
-- 依赖一律精确版本（`.npmrc` `save-exact=true`、`engine-strict=true`），提交 `pnpm-lock.yaml`；Docker、CI、全新克隆都用
+- 依赖一律精确版本（`pnpm-workspace.yaml` 的 `saveExact`、`engineStrict`），提交 `pnpm-lock.yaml`；Docker、CI、全新克隆都用
   `pnpm install --frozen-lockfile`。
-- pnpm 只经 corepack 按 `packageManager: pnpm@10.34.7` 解析；`typescript` 锁 `6.0.3`、`wrangler` 锁 `4.152.0`；dependabot 忽略
+- pnpm 由 `devEngines.packageManager`（`^12.15.0`）约束，corepack 与 `pnpm/setup` 都读它，实际版本记在 `pnpm-lock.yaml`；pnpm 默认
+  `minimumReleaseAge` 为 1 天，发布不满一天的版本不会被解析，lockfile 里有这种版本时安装失败。`typescript` 锁 `6.0.3`、`wrangler` 锁 `4.152.0`；dependabot 忽略
   `typescript` ≥ 6.1 与 `@types/node` 的 major 升级。`compatibility_date` 随 wrangler 一起升。
 - 版本见 `package.json`。`pkijs@4.0.0`、`asn1js@4.0.0` 是 dependencies（asn1js 是 pkijs 4 的 peer，两者一起升）；切片 8 加
   `@aws-sdk/client-s3`（dependencies，开工时 `npm view` 复核版本）。

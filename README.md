@@ -22,9 +22,10 @@ X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloud
 
 ## 开发环境
 
-- Node 24（`.nvmrc` = `24`，`engines.node` = `^24.11.0`，`engine-strict`）。本机工具链不在默认 PATH 上，每个 shell 先执行
+- Node 24（`.nvmrc` = `24`，`engines.node` = `^24.11.0`，`engineStrict`）。本机工具链不在默认 PATH 上，每个 shell 先执行
   `export PATH=$HOME/.local/opt/node-24/bin:$PATH COREPACK_ENABLE_DOWNLOAD_PROMPT=0`（后者让 corepack 下载 pnpm 时不停下来询问）。
-- pnpm 经 corepack 按 `package.json` 的 `packageManager`（`pnpm@10.34.7`）解析，不要用全局安装的 pnpm（npm `latest` 已是 12.x）。
+- pnpm 12：`package.json` 的 `devEngines.packageManager` 给出范围（`^12.15.0`），实际版本记在 `pnpm-lock.yaml`；经 corepack 使用
+  （`corepack enable pnpm`）。pnpm 默认不解析发布不满 1 天的版本（`minimumReleaseAge`）。
 - bash：冒烟脚本用（`smoke:worker`、`ci:docker`）。OpenSSL ≥ 3.0（不是 LibreSSL）只在重新生成测试夹具时需要。
 - Docker Engine ≥ 25：`ci:docker` 与镜像构建用。
 - 远端 `github.com/acha666/aia-cdp`：每个切片在 `slice/<n>-<name>` 分支开发，本地合入 `main` 后推送；GitHub Actions 在推送 `main` 与 PR 时

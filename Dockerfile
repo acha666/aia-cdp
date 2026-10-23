@@ -1,17 +1,17 @@
 # syntax=docker/dockerfile:1
 ARG NODE_VERSION=24
 FROM node:${NODE_VERSION}-slim AS base
-ENV PNPM_HOME=/pnpm COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 WORKDIR /app
 RUN corepack enable pnpm
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-RUN corepack install
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Fetches pnpm (devEngines.packageManager) and its native binary once, for both install stages.
+RUN pnpm --version
 
 FROM base AS prod-deps
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --prod --frozen-lockfile --ignore-scripts
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --store-dir /pnpm/store --prod --frozen-lockfile --ignore-scripts
 
 FROM base AS build
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile --ignore-scripts
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --store-dir /pnpm/store --frozen-lockfile --ignore-scripts
 COPY tsconfig.base.json tsconfig.node.json tsconfig.build.json vite.config.ts ./
 COPY src ./src
 ARG VITE_SITE_NAME

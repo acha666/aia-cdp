@@ -1,5 +1,6 @@
 # Each job only installs dependencies and runs `pnpm run ci:<job>`: the package.json scripts are the
-# definition of CI and run the same way locally.
+# definition of CI and run the same way locally. pnpm/setup takes Node from .nvmrc and pnpm from
+# devEngines.packageManager, then runs `pnpm install` (frozen lockfile in CI).
 name: CI
 
 on:
@@ -23,12 +24,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: pnpm/setup@v3
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+          cache: true
       - run: pnpm run ci:check
 
   test:
@@ -37,12 +35,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: pnpm/setup@v3
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+          cache: true
       - run: pnpm run ci:test
 
   worker:
@@ -51,12 +46,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: pnpm/setup@v3
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+          cache: true
       - run: pnpm run ci:worker
 
   docker:
@@ -65,10 +57,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: pnpm/setup@v3
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+          cache: true
       - run: pnpm run ci:docker

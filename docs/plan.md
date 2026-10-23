@@ -16,7 +16,7 @@
 | 6   | 测试       | vitest                                                                                 |
 | 7   | API        | `/api/v1`；下载 URL（`/ca/*`、`/crl/*`、`/dcrl/*`）由路径表配置，已签发证书里写死的 URL 不变 |
 | 8   | 交付       | 2026-10-18：批次 1 = 实施计划（`docs/implementation/`）+ 本文修订 + 切片 1（已完成），之后每批一个切片 |
-| 9   | Node       | 2026-10-18：Node 24 LTS（EOL 2028-04-30）全面取代 Node 22：`.nvmrc` = `24`、`engines.node` = `^24.11.0` + `engine-strict=true`、`@types/node` 24.x、Docker `ARG NODE_VERSION=24` 与 `node:24-slim` |
+| 9   | Node       | 2026-10-18：Node 24 LTS（EOL 2028-04-30）全面取代 Node 22：`.nvmrc` = `24`、`engines.node` = `^24.11.0` + `engineStrict`、`@types/node` 24.x、Docker `ARG NODE_VERSION=24` 与 `node:24-slim` |
 | 10  | 版本库     | 2026-10-18：`main` 放文档与已合入的切片，每个切片在 `slice/<n>-<name>` 分支开发、评审后本地 `--no-ff` 合并；每个 CI 任务都是本地可跑的 `pnpm run ci:<job>`。2026-10-19 建远端 `github.com/acha666/aia-cdp`，合并后推送，GitHub Actions 跑同一组脚本 |
 | 11  | 切片 1 范围 | 2026-10-18：ObjectStore 端口、memory / fs / r2 适配器与一致性套件在切片 1（原在切片 2），`/api/v1/health` 在切片 1 就做真实的 store / configuration 检查 |
 | 12  | shadcn-vue 风格 | 2026-10-18：`--style nova`、base color `neutral`、图标库 lucide（`@lucide/vue`） |
@@ -51,13 +51,13 @@
 
 ## 2. 技术选型
 
-版本为规划时 `npm view` 查到的最新版，并经工具链 spike 修正。依赖一律精确版本（`.npmrc` `save-exact=true`），以提交的
+版本为规划时 `npm view` 查到的最新版，并经工具链 spike 修正。依赖一律精确版本（`pnpm-workspace.yaml` `saveExact: true`），以提交的
 `package.json` 与 `pnpm-lock.yaml` 为准，Docker、CI、全新克隆都用 `pnpm install --frozen-lockfile`；后续切片新增的包见 implementation 总则 §2.3。
 
 | 领域          | 选型                                            | 版本                              | 说明                                                                                           |
 | ------------- | ----------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------- |
-| 运行时        | Node 24 LTS（固定）、Cloudflare Workers          | —                                 | `.nvmrc` = `24`、`engines.node` = `^24.11.0` + `.npmrc` `engine-strict=true`（不符即安装失败）、`node:24-slim`（决策 9） |
-| 包管理        | pnpm 10（corepack）                              | 10.34.7                           | `packageManager: pnpm@10.34.7`；npm `latest` 已是 pnpm 12，pnpm 一律经 corepack 按 `packageManager` 解析；`pnpm-workspace.yaml` 设 `ignoredBuiltDependencies` 与 `publicHoistPattern` |
+| 运行时        | Node 24 LTS（固定）、Cloudflare Workers          | —                                 | `.nvmrc` = `24`、`engines.node` = `^24.11.0` + `pnpm-workspace.yaml` `engineStrict: true`（不符即安装失败）、`node:24-slim`（决策 9） |
+| 包管理        | pnpm 12（corepack）                              | ^12.15.0                          | 2026-10-23 起不精确锁定：`devEngines.packageManager` 给范围，实际版本记在 `pnpm-lock.yaml`，corepack 与 CI 的 `pnpm/setup` 都读它；`pnpm-workspace.yaml` 设 `engineStrict`、`saveExact`、`allowBuilds` 与 `publicHoistPattern`；默认 `minimumReleaseAge` 1 天 |
 | HTTP          | `hono`                                          | 4.13.13                           | 路由、自动 HEAD、`methodNotAllowed`（`hono/method-not-allowed`，hono ≥ 4.13.0）、`bodyLimit`、`bearerAuth`、`secureHeaders`；下载的 ETag / 304 手写，不用 `hono/etag`（§6） |
 | Node 服务器   | `@hono/node-server`                             | 2.1.5                             | `serve()` + `serve-static`；替代手写 `node:http` 桥                                            |
 | 校验与 OpenAPI | `@hono/zod-openapi` + `zod`                    | 1.6.3 / 4.6.7                     | 路由声明即 schema，处理器返回值按状态码类型检查；OpenAPI 文档运行时从路由表生成，另写出提交的 `docs/openapi.json` 作漂移基线（§7.3） |
@@ -86,7 +86,7 @@
 
 ```text
 aia-cdp/
-  package.json  pnpm-lock.yaml  pnpm-workspace.yaml  .nvmrc  .npmrc
+  package.json  pnpm-lock.yaml  pnpm-workspace.yaml  .nvmrc
   .gitignore  .gitattributes  .prettierrc.json  .prettierignore  .dockerignore
   tsconfig.json  tsconfig.base.json  tsconfig.worker.json  tsconfig.node.json
   tsconfig.build.json  tsconfig.web.json
@@ -190,9 +190,10 @@ aia-cdp/
 
 Dockerfile（`ARG NODE_VERSION=24`，基础镜像浮动标签 `node:24-slim`，bookworm；digest 固定以后再定）：
 
-- 阶段 base：`corepack enable pnpm`，复制 `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml`、`.npmrc` 后 `corepack install`；
-  prod-deps：`pnpm install --prod --frozen-lockfile --ignore-scripts`（store 缓存挂载）；build：全量安装 + `vite build` +
-  `tsc -p tsconfig.build.json`。`engine-strict` 让 `NODE_VERSION=22` 的构建在安装阶段失败。
+- 阶段 base：`corepack enable pnpm`，复制 `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml` 后 `pnpm --version`（按 `devEngines`
+  取 pnpm 及其原生二进制，两个安装阶段共用）；prod-deps：`pnpm install --store-dir /pnpm/store --prod --frozen-lockfile --ignore-scripts`
+  （store 缓存挂载；不写 `--store-dir` 时 pnpm 见挂载点在另一文件系统会改用 `/.pnpm-store`）；build：全量安装 + `vite build` +
+  `tsc -p tsconfig.build.json`。`engineStrict` 让 `NODE_VERSION=22` 的构建在安装阶段失败。
 - 阶段 runtime（`node:24-slim`）：`NODE_ENV=production`；只复制生产依赖、`dist/` 与 `package.json`（`"type": "module"` 需要它）；
   先建 `/data` 并 chown 给 `node`，再 `USER node`（uid 1000）与 `VOLUME /data`；`EXPOSE 8080`；
   exec 形式 `CMD ["node", "--enable-source-maps", "dist/server/runtime/node.js"]`；
@@ -662,7 +663,7 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 - Web：组件与逻辑在 vitest `web` 项目；`tests/http/csp.test.ts` 对照 `index.html` 查 CSP hash。
 - Docker（`scripts/docker-smoke.sh`）：构建镜像、启动、健康检查 `healthy` 而 API 报 `degraded`、uid 1000、经镜像内 CLI `aia import` 与
   `config apply` 后 health `healthy`，再跑 `scripts/smoke.sh`，`docker stop` < 5 s。
-- CI：`.github/workflows/ci.yml` 四个任务，每个只装依赖并调用 `pnpm run ci:<job>`：`ci:check` = typecheck + ESLint + `prettier --check`；
+- CI：`.github/workflows/ci.yml` 四个任务，每个只用 `pnpm/setup` 装 Node（`.nvmrc`）、pnpm（`devEngines`）与依赖，再调用 `pnpm run ci:<job>`：`ci:check` = typecheck + ESLint + `prettier --check`；
   `ci:test` = test + build；`ci:worker` = `build:web` + `wrangler deploy --dry-run` + `smoke:worker` + `test:r2`；`ci:docker` =
   `scripts/docker-smoke.sh`。`.github/dependabot.yml` 管 npm、github-actions、docker。GitHub Actions 在推送 `main` 与 PR 时运行（决策 10），
   本机执行的是同一组脚本。`pnpm verify` = check + test + build。

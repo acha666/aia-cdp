@@ -4,9 +4,14 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "packageManager": "pnpm@10.34.7",
   "engines": {
     "node": "^24.11.0"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^12.15.0"
+    }
   },
   "scripts": {
     "types": "WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true wrangler types --env-file=/dev/null",
