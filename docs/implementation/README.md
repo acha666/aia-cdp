@@ -44,7 +44,7 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | # | 默认值（可推翻） | 落实 |
 | --- | --- | --- |
 | B1 | 精确锁 `typescript@6.0.3`（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）、`wrangler@4.152.0`、`packageManager: pnpm@10.34.7`（npm latest 是 12.x，pnpm 一律经 corepack）；其余版本按 plan §2 | `package.json` |
-| B2 | 包修正：`@lucide/vue` 取代 `lucide-vue-next`；生成代码用 `cn`；补 `tw-animate-css`、`@vitejs/plugin-vue`、`@tailwindcss/vite`、`vue-tsc`、`eslint-plugin-vue`、`vue-eslint-parser`、`jiti`；`vue-sonner` 需 `import "vue-sonner/style.css"`；浏览器包都是 devDependencies；`@tanstack/vue-table` 仅需要时加；`@vueuse/core` 用 reka-ui 依赖的同一 major | `package.json` |
+| B2 | 包修正：`@lucide/vue` 取代 `lucide-vue-next`；生成代码用 `cn`；补 `tw-animate-css`、`@vitejs/plugin-vue`、`@tailwindcss/vite`、`vue-tsc`、`eslint-plugin-vue`、`vue-eslint-parser`、`jiti`；`vue-sonner` 需 `import "vue-sonner/style.css"`；浏览器包都是 devDependencies；`@tanstack/vue-table` 仅需要时加；`@vueuse/core` 跟最新 major，reka-ui 未跟上时允许两份 | `package.json` |
 | B3 | 模块约定：相对导入带 `.ts`；`allowImportingTsExtensions` + `rewriteRelativeImportExtensions` + `verbatimModuleSyntax` + `erasableSyntaxOnly`、`types: []`、`skipLibCheck`；服务端无路径别名，web 可用 `@/`；共享代码只用裸 `crypto` / `performance`、`Uint8Array<ArrayBuffer>`，core / http 无 `Buffer`、`process` | 总则 §2.1 |
 | B4 | tsconfig 拓扑：解决方案式 `tsconfig.json` + base / worker / node / build / web；三套程序都编译 `src/core` 与 `src/http`；R2 适配器用结构化类型 `R2BucketLike` | 总则 §2.2 |
 | B5 | `wrangler types --env-file=/dev/null` 生成的 `worker-configuration.d.ts` 不入库，`pnpm run types` 在 check / typecheck / lint 前重生成；ESLint、Prettier 排除它 | `package.json` |

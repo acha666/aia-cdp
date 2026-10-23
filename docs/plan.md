@@ -66,7 +66,7 @@
 | 前端          | `vue`、`vue-router`、`@tanstack/vue-query`、`vue-i18n` | 3.5.44 / 5.4.0 / 5.104.5 / 11.4.16 | 不用 Pinia（决策 5）                                                                   |
 | 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.5 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8（Rolldown、默认 oxc 压缩）；`vue-tsc` 检查 `tsconfig.web.json` |
 | UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.61.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`；`@tanstack/vue-table` 不随 shadcn Table 安装，也没用上（吊销列表分页只是 `slice()`） |
-| 前端工具      | `@vueuse/core`                                   | 14.4.0                            | 与 reka-ui 2.11.0 依赖的 `^14.1.0` 同一份（装 15 会出现两份）；`useColorMode`、`useNow`（统一时钟快照）、`useStorage`；复制不用 `useClipboard`（其 `execCommand` 退路失败也报成功） |
+| 前端工具      | `@vueuse/core`                                   | 15.0.0                            | reka-ui 2.11.0 仍依赖 `^14.1.0`，web 包里暂有两份（多约 0.4 kB gzip），reka-ui 跟上后自然合一；`useColorMode`、`useNow`（统一时钟快照，15 起间隔经 `scheduler` 传 `useIntervalFn`）、`useStorage`；复制不用 `useClipboard`（其 `execCommand` 退路失败也报成功） |
 | 测试          | `vitest`、`@vue/test-utils`、`happy-dom`        | 5.0.5 / 2.5.1 / 21.0.4            | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`；夹具由脚本生成后入库（§10） |
 | Cloudflare    | `wrangler`                                      | 4.152.0（精确锁定）               | `wrangler types` 生成绑定类型 `worker-configuration.d.ts`（不入库）；不装 `@cloudflare/workers-types`；`compatibility_date` 随 wrangler 一起升 |
 | CLI           | `node:util` `parseArgs` + `fetch`               | 内置                              | 零依赖                                                                                         |
@@ -581,7 +581,7 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   （拖放、选择文件或粘贴 PEM，都用 `fetch` 把文件作为原始请求体发送，`Content-Type: application/octet-stream`，服务端按字节识别；created / updated / unchanged 是三句成功文案，附 CRL 号与下载路径；
   错误按 `error.code` 映射 i18n，带 `details.reason` 时附原因，toast + 行内 Alert；可选上传令牌只存内存，`unauthorized` 时自动展开）。
   骨架屏只在首次加载显示。手机宽度（`sm` 以下）两张表只显示名称 / 标签、类别与状态，其余列在详情页。
-- 状态规则（徽标、相对时间与"需关注"共用一个 `useNow({ interval: 60_000 })` 时钟；owner 确认，附录 C 切片 5b 第 2 项）：
+- 状态规则（徽标、相对时间与"需关注"共用一个每分钟一跳的 `useNow` 时钟；owner 确认，附录 C 切片 5b 第 2 项）：
   证书 `not-yet-valid`、`valid`、`expiring`（剩余不足有效期的 10%：根 20 年 → 2 年，签发 CA 10 年 → 1 年；`now == notAfter` 仍在有效期内）、
   `expired`；CRL 目标 `unpublished`（无 current）、`unknown`（无 nextUpdate）、`not-yet-valid`（now < thisUpdate：服务端拒收超前 5 分钟以上的
   thisUpdate（§6），所以只在浏览器时钟落后于服务端或在那 5 分钟内出现；不计入"需关注"）、`expired`（now > nextUpdate）、`stale`（带 AD CS
