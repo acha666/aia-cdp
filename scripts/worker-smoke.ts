@@ -20,8 +20,8 @@
 //
 // The publish segment sends CRLs through POST /api/v1/crls so that signature verification runs on
 // workerd's WebCrypto, not only Node's: ECDSA P-384 (root-ca), RSA PKCS#1 v1.5, RSASSA-PSS and
-// SHA-1 (issuing-ca-1), and a broken RSA signature (422 invalid_signature); raw and multipart
-// bodies (workerd parses the form), the upload token (401 without it). Then the same download
+// SHA-1 (issuing-ca-1), and a broken RSA signature (422 invalid_signature); DER and PEM
+// bodies, the upload token (401 without it). Then the same download
 // checks on /crl/root-ca.crl and its .pem: workerd runs on the real clock, so crls/root-ca/full-01
 // is past its nextUpdate and gets max-age=60.
 //
@@ -237,8 +237,8 @@ async function downloadSegment(base: URL): Promise<Targets> {
 
 interface Upload {
   file: string;
-  /** How the CRL is sent: a raw DER body, or the field crl of a multipart form. */
-  as: "raw" | "file field" | "string field";
+  /** How the CRL is sent: a DER body (application/pkix-crl) or PEM (application/x-pem-file). */
+  as: "der" | "pem";
   target: keyof Targets;
   status: 200 | 201 | 422;
   /** outcome for 200 / 201, error.code for 422. */
@@ -248,11 +248,10 @@ interface Upload {
 // In order: each row expects the state the rows before it left.
 const UPLOADS: Upload[] = [
   // ECDSA P-384 with SHA-384.
-  { file: ROOT_CA_CRL, as: "raw", target: "root", status: 201, result: "created" },
-  { file: ROOT_CA_CRL, as: "file field", target: "root", status: 200, result: "unchanged" },
+  { file: ROOT_CA_CRL, as: "der", target: "root", status: 201, result: "created" },
   {
     file: "crls/root-ca/full-01.pem",
-    as: "string field",
+    as: "pem",
     target: "root",
     status: 200,
     result: "unchanged",
@@ -260,28 +259,28 @@ const UPLOADS: Upload[] = [
   // RSA PKCS#1 v1.5 with SHA-256, then RSASSA-PSS and SHA-1 with higher CRL Numbers.
   {
     file: "crls/issuing-ca-1/full-01.der",
-    as: "raw",
+    as: "der",
     target: "issuing",
     status: 201,
     result: "created",
   },
   {
     file: "crls/issuing-ca-1/full-pss.der",
-    as: "raw",
+    as: "der",
     target: "issuing",
     status: 200,
     result: "updated",
   },
   {
     file: "crls/issuing-ca-1/full-sha1.der",
-    as: "raw",
+    as: "der",
     target: "issuing",
     status: 200,
     result: "updated",
   },
   {
     file: "crls/issuing-ca-1/full-broken-sig.der",
-    as: "raw",
+    as: "der",
     target: "issuing",
     status: 422,
     result: "invalid_signature",
@@ -289,19 +288,11 @@ const UPLOADS: Upload[] = [
 ];
 
 function uploadInit(upload: Upload): RequestInit {
-  const bytes = fixture(upload.file);
-  const headers = new Headers({ Authorization: `Bearer ${UPLOAD_TOKEN}` });
-  if (upload.as === "raw") {
-    headers.set("Content-Type", "application/pkix-crl");
-    return { method: "POST", headers, body: bytes };
-  }
-  const form = new FormData();
-  if (upload.as === "file field") {
-    form.append("crl", new Blob([bytes]), "upload.crl");
-  } else {
-    form.append("crl", new TextDecoder().decode(bytes));
-  }
-  return { method: "POST", headers, body: form };
+  const headers = new Headers({
+    Authorization: `Bearer ${UPLOAD_TOKEN}`,
+    "Content-Type": upload.as === "der" ? "application/pkix-crl" : "application/x-pem-file",
+  });
+  return { method: "POST", headers, body: fixture(upload.file) };
 }
 
 /** The manifest digest of a CRL fixture (a .pem stands for its .der). */

@@ -5,7 +5,6 @@ import type { Hook, z } from "@hono/zod-openapi";
 import type { Context, ErrorHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { ReadInconsistencyError } from "../core/views.ts";
 import { describeError } from "./log.ts";
 import type { Logger } from "./log.ts";
 import type { ErrorCode } from "./schemas.ts";
@@ -88,20 +87,6 @@ export function createErrorHandler(log: Logger): ErrorHandler<AppEnv> {
     if (err instanceof ApiError) {
       return c.json(errorBody(err.code, err.message, err.details), err.status, NO_STORE);
     }
-    // A read the store cannot back (src/core/views.ts): its own line with the ids and store key
-    // involved (the parse error, if any, without a stack), then the plain 500.
-    if (err instanceof ReadInconsistencyError) {
-      log({
-        level: "error",
-        msg: "read_inconsistent",
-        method: c.req.method,
-        path: c.req.path,
-        reason: err.reason,
-        ...err.refs,
-        ...(err.cause === undefined ? {} : { error: describeError(err.cause) }),
-      });
-      return c.json(errorBody("internal", ERROR_MESSAGES.internal), 500, NO_STORE);
-    }
     if (err instanceof HTTPException) {
       const code = CODE_BY_STATUS[err.status] ?? (err.status >= 500 ? "internal" : "bad_request");
       if (code === "internal") {
@@ -122,26 +107,6 @@ export function createErrorHandler(log: Logger): ErrorHandler<AppEnv> {
     logUnexpected(err, c);
     return c.json(errorBody("internal", ERROR_MESSAGES.internal), 500, NO_STORE);
   };
-}
-
-/**
- * The paths of the download routes (routes/downloads.ts): `/ca`, `/crl`, `/dcrl` and everything
- * under them, as Hono matches `/ca/*`; not `/cafoo` or the UI's `/crls/…`.
- */
-const DOWNLOAD_ROUTE_PATH = /^\/(?:ca|crl|dcrl)(?:\/|$)/;
-
-/**
- * hono/method-not-allowed callback, no-store with `Allow` (GET routes include HEAD, so a download
- * path gets `GET, HEAD`): text/plain `Method Not Allowed` on the download routes (CryptoAPI and
- * OpenSSL clients, M19), the envelope everywhere else. It only runs for a path some route
- * matches: `/ca%2Fx` or `//crl/x` stay the reserved-prefix text 404 of ui.ts.
- */
-export function onMethodNotAllowed(c: Context<AppEnv>, methods: string[]): Response {
-  const headers = { ...NO_STORE, Allow: methods.join(", ") };
-  if (DOWNLOAD_ROUTE_PATH.test(c.req.path)) {
-    return c.text("Method Not Allowed", 405, headers);
-  }
-  return c.json(errorBody("method_not_allowed", ERROR_MESSAGES.method_not_allowed), 405, headers);
 }
 
 /** 400 bad_request for a zod validation failure, with the target and the issues. */

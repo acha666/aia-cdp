@@ -18,37 +18,27 @@ import {
   pemMarkers,
   resolveDownload,
 } from "../../core/resources.ts";
-import { ApiError, ERROR_MESSAGES } from "../errors.ts";
-import { createLogger } from "../log.ts";
-import type { Logger } from "../log.ts";
 import type { AppDeps, AppEnv } from "../types.ts";
 import { textNotFound } from "../ui.ts";
 
 /** Registered for GET (and so HEAD). Hono's `/ca/*` also matches `/ca` itself. */
 export const DOWNLOAD_ROUTES = ["/ca/*", "/crl/*", "/dcrl/*"] as const;
 
-// The store cannot back what config.json and catalog.json name. The caller logs the cause as its
-// own event first; onError then writes the plain 500 envelope, with no further log line.
-function storeInconsistency(): ApiError {
-  return new ApiError(500, "internal", ERROR_MESSAGES.internal);
-}
-
 /**
- * One download request, in this order (slice 3 step 4):
+ * One download request, in this order:
  *
  * 1. config.json and catalog.json, one `get` each: a missing config.json is an empty path table,
  *    an invalid one (or catalog.json) throws, which is a 500.
- * 2. not_found → text/plain 404, no-store; inconsistent → `download_inconsistent`, 500.
+ * 2. not_found → text/plain 404, no-store; inconsistent → a thrown Error, the generic 500.
  * 3. If-None-Match hit → 304 with ETag and Cache-Control only (RFC 9110 §15.4.5).
  * 4. HEAD → 200 with every header, Content-Length from the catalog; the blob is not read.
- * 5. GET → the blob: missing → `download_blob_missing`, another size than the catalog's →
- *    `download_size_mismatch`, both 500 (a 404 would hide a broken store). DER as stored, PEM as
- *    derToPem of it; Content-Length is the length of the body sent.
+ * 5. GET → the blob: missing → a thrown Error, the generic 500 (a 404 would hide a broken store).
+ *    DER as stored, PEM as derToPem of it; Content-Length is the length of the body sent.
  *
  * Every 200 sets Content-Type itself: left unset, a GET reached a Node socket as text/plain while
  * the HEAD had none.
  */
-async function serveDownload(c: Context<AppEnv>, deps: AppDeps, log: Logger): Promise<Response> {
+async function serveDownload(c: Context<AppEnv>, deps: AppDeps): Promise<Response> {
   const path = c.req.path;
   const { config, catalog } = await readState(deps.store);
   const resolution = resolveDownload(config, catalog, path);
@@ -56,8 +46,7 @@ async function serveDownload(c: Context<AppEnv>, deps: AppDeps, log: Logger): Pr
     return textNotFound(c);
   }
   if (resolution.status === "inconsistent") {
-    log({ level: "error", msg: "download_inconsistent", path, ...resolution.reference });
-    throw storeInconsistency();
+    throw new Error(`The store cannot back the path entry ${JSON.stringify(resolution.reference)}`);
   }
 
   const headers = downloadHeaders(resolution, deps.now());
@@ -68,17 +57,11 @@ async function serveDownload(c: Context<AppEnv>, deps: AppDeps, log: Logger): Pr
     return c.body(null, 200, { ...headers });
   }
 
-  const { key, size } = resolution;
-  const object = await deps.store.get(key);
+  const object = await deps.store.get(resolution.key);
   if (object === null) {
-    log({ level: "error", msg: "download_blob_missing", path, key });
-    throw storeInconsistency();
+    throw new Error(`The store has no blob ${resolution.key}`);
   }
   const der = object.bytes;
-  if (der.byteLength !== size) {
-    log({ level: "error", msg: "download_size_mismatch", path, key, size, actual: der.byteLength });
-    throw storeInconsistency();
-  }
   let body = der;
   if (resolution.format === "pem") {
     const { begin, end } = pemMarkers(resolution.kind);
@@ -89,10 +72,9 @@ async function serveDownload(c: Context<AppEnv>, deps: AppDeps, log: Logger): Pr
 }
 
 export function downloadRoutes(deps: AppDeps) {
-  const log = createLogger(deps);
   const downloads = new Hono<AppEnv>();
   for (const path of DOWNLOAD_ROUTES) {
-    downloads.get(path, (c) => serveDownload(c, deps, log));
+    downloads.get(path, (c) => serveDownload(c, deps));
   }
   return downloads;
 }

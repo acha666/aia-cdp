@@ -10,7 +10,7 @@ import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { connect, createServer } from "node:net";
 import type { AddressInfo, Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import process from "node:process";
 import type { Readable } from "node:stream";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -105,22 +105,6 @@ async function freshDataDir(): Promise<string> {
   return mkdtemp(join(scratch, "data-"));
 }
 
-/** Waits until a stdout record matches: the child writes a request line before it answers, but
- * its stdout pipe may be read after the response arrives. */
-async function waitForRecord(
-  server: Server,
-  match: (record: LogLine) => boolean
-): Promise<LogLine> {
-  for (let tries = 0; tries < 500; tries += 1) {
-    const found = server.records().find(match);
-    if (found) {
-      return found;
-    }
-    await sleep(10);
-  }
-  throw new Error(`no matching log record in\n${server.stdout()}`);
-}
-
 /** A raw client socket; errors (the server resetting it at shutdown) are expected and ignored. */
 async function openSocket(port: number): Promise<Socket> {
   const socket = connect(port, "127.0.0.1");
@@ -203,7 +187,6 @@ describe("node src/runtime/node.ts on a real socket", { timeout: TIMEOUT }, () =
       PORT: "0",
       AIA_DATA_DIR: dataDir,
       AIA_STATIC_DIR: staticDir,
-      AIA_TRUST_PROXY: "true",
     });
     shared = server;
     port = await server.listening;
@@ -220,15 +203,6 @@ describe("node src/runtime/node.ts on a real socket", { timeout: TIMEOUT }, () =
 
   it("removed the temporary file a killed put left behind before listening", async () => {
     await expect(stat(join(dataDir, staleTemp))).rejects.toMatchObject({ code: "ENOENT" });
-  });
-
-  it("logs the right-most X-Forwarded-For entry as client (AIA_TRUST_PROXY=true)", async () => {
-    const res = await fetch(`${base}/api/v1/health`, {
-      headers: { "X-Forwarded-For": "6.6.6.6, 203.0.113.7", "CF-Connecting-IP": "198.51.100.1" },
-    });
-    expect(res.status).toBe(200);
-    const record = await waitForRecord(server, (line) => line.client !== undefined);
-    expect(record).toMatchObject({ msg: "request", path: "/api/v1/health", client: "203.0.113.7" });
   });
 
   it("reports degraded, then healthy once the minimal configuration is written", async () => {
@@ -406,21 +380,15 @@ describe("node src/runtime/node.ts shutdown and degraded start-up", { timeout: T
     await socketsClosed;
     const messages = server.records().map((record) => record.msg);
     expect(messages.slice(-2)).toEqual(["shutdown", "closed"]);
-    expect(messages).not.toContain("forced_exit");
   });
 
-  it("warns once with the resolved path and keeps serving without index.html", async () => {
-    // Relative, as the default ./dist/web is: resolved against the working directory.
-    const relativeDir = "dist/no-such-static-dir";
+  it("keeps serving without index.html", async () => {
     const server = start({
       PORT: "0",
       AIA_DATA_DIR: await freshDataDir(),
-      AIA_STATIC_DIR: relativeDir,
+      AIA_STATIC_DIR: "dist/no-such-static-dir",
     });
     const port = await server.listening;
-    expect(server.records().filter((record) => record.level !== "info")).toEqual([
-      { level: "warn", msg: "static_dir_missing", staticDir: resolve(ROOT, relativeDir) },
-    ]);
 
     const health = await fetch(`http://127.0.0.1:${port}/api/v1/health`);
     expect(health.status).toBe(200);
@@ -430,9 +398,6 @@ describe("node src/runtime/node.ts shutdown and degraded start-up", { timeout: T
 
     server.child.kill("SIGTERM");
     expect((await server.closed).code).toBe(0);
-    expect(server.records().filter((record) => record.msg === "static_dir_missing")).toHaveLength(
-      1
-    );
   });
 });
 

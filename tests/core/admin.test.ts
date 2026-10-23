@@ -201,28 +201,6 @@ describe("static layer (checkConfigStatic)", () => {
     });
     expect(rules(check)).toEqual([["V6", ["targets", second]]]);
   });
-
-  // zod's records skip an own "__proto__" key without looking at it or its value; JSON.parse
-  // creates one as an ordinary property.
-  it.each([
-    ["certificates", '{"label":"Root CA"}', "V1"],
-    ["targets", JSON.stringify(target("root-ca", "full")), "V1"],
-    ["paths", '"not even an entry"', "V2"],
-  ])("reports a __proto__ key in %s instead of dropping it", (map, value, rule) => {
-    const maps = {
-      certificates: "{}",
-      targets: "{}",
-      paths: "{}",
-      [map]: `{"__proto__":${value}}`,
-    };
-    const document: unknown = JSON.parse(
-      `{"version":1,"certificates":${maps.certificates},"targets":${maps.targets},"paths":${maps.paths}}`
-    );
-    expect(rules(checkConfigStatic(document))).toEqual([[rule, [map, "__proto__"]]]);
-    expect(rules(validateConfig(document, { catalog: emptyCatalog() }))).toEqual([
-      [rule, [map, "__proto__"]],
-    ]);
-  });
 });
 
 describe("state layer (checkConfigState)", () => {

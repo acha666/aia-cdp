@@ -20,8 +20,6 @@ import {
   encodeJson,
   JSON_CONTENT_TYPE,
   readCatalog,
-  Sha256Hex,
-  TargetId,
 } from "./catalog.ts";
 import type { Catalog, Config, CrlKind } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
@@ -41,11 +39,6 @@ export interface ConfigIssue {
 }
 
 export type ConfigCheck = { ok: true; config: Config } | { ok: false; issues: ConfigIssue[] };
-
-// Own properties only: path keys are arbitrary strings until V2 has looked at them.
-function own<T>(record: Record<string, T>, key: string): T | undefined {
-  return Object.hasOwn(record, key) ? record[key] : undefined;
-}
 
 // Stable, so issues of one rule keep the document's order.
 function byRule(issues: ConfigIssue[]): ConfigIssue[] {
@@ -98,7 +91,7 @@ function staticIssues(config: Config): ConfigIssue[] {
       }
       continue;
     }
-    const target = own(config.targets, entry.target);
+    const target = config.targets[entry.target];
     if (target === undefined) {
       issues.push({
         path: [...at, "target"],
@@ -142,7 +135,7 @@ function staticIssues(config: Config): ConfigIssue[] {
 }
 
 /** The V1 issues of a failed ConfigSchema parse. */
-function schemaIssues(error: z.ZodError): ConfigIssue[] {
+export function schemaIssues(error: z.ZodError): ConfigIssue[] {
   return error.issues.map((issue) => ({
     path: issue.path.map((key) => (typeof key === "symbol" ? String(key) : key)),
     rule: "V1",
@@ -154,42 +147,14 @@ function schemaIssues(error: z.ZodError): ConfigIssue[] {
   }));
 }
 
-// zod's records skip an own "__proto__" key without checking the key or its value (a guard against
-// prototype pollution), so ConfigSchema alone would accept such a document and drop the entry.
-// JSON.parse makes the key an ordinary property: report it as its map's other keys would be, V1
-// for an id that is not one, V2 for a path.
-function protoKeyIssues(value: unknown): ConfigIssue[] {
-  if (typeof value !== "object" || value === null) {
-    return [];
-  }
-  const issues: ConfigIssue[] = [];
-  const keySchemas = { certificates: Sha256Hex, targets: TargetId } as const;
-  for (const map of ["certificates", "targets", "paths"] as const) {
-    const record = own(value as Record<string, unknown>, map);
-    if (typeof record !== "object" || record === null || !Object.hasOwn(record, "__proto__")) {
-      continue;
-    }
-    const path = [map, "__proto__"];
-    if (map === "paths") {
-      issues.push({ path, rule: "V2", message: PATH_SYNTAX_MESSAGE });
-    } else {
-      const parsed = keySchemas[map].safeParse("__proto__");
-      const problems = parsed.success ? [] : parsed.error.issues.map((issue) => issue.message);
-      issues.push({ path, rule: "V1", message: `Invalid key: ${problems.join("; ")}` });
-    }
-  }
-  return issues;
-}
-
 // V1, then the other static rules on a schema-valid document. `config` is undefined when V1 fails:
 // the other rules need a well-formed document and do not run.
 function staticLayer(value: unknown): { config: Config | undefined; issues: ConfigIssue[] } {
-  const protoKeys = protoKeyIssues(value);
   const parsed = ConfigSchema.safeParse(value);
   if (parsed.success) {
-    return { config: parsed.data, issues: [...protoKeys, ...staticIssues(parsed.data)] };
+    return { config: parsed.data, issues: staticIssues(parsed.data) };
   }
-  return { config: undefined, issues: [...protoKeys, ...schemaIssues(parsed.error)] };
+  return { config: undefined, issues: schemaIssues(parsed.error) };
 }
 
 /**
@@ -215,12 +180,12 @@ export function checkConfigState(config: Config, catalog: Catalog): ConfigIssue[
   const issues: ConfigIssue[] = [];
   const notImported = (id: string) => `Certificate ${id} has not been imported`;
   for (const id of Object.keys(config.certificates)) {
-    if (own(catalog.certificates, id) === undefined) {
+    if (catalog.certificates[id] === undefined) {
       issues.push({ path: ["certificates", id], rule: "V4", message: notImported(id) });
     }
   }
   for (const [path, entry] of Object.entries(config.paths)) {
-    if ("certificate" in entry && own(catalog.certificates, entry.certificate) === undefined) {
+    if ("certificate" in entry && catalog.certificates[entry.certificate] === undefined) {
       issues.push({
         path: ["paths", path, "certificate"],
         rule: "V4",
@@ -231,7 +196,7 @@ export function checkConfigState(config: Config, catalog: Catalog): ConfigIssue[
   const bySubjectKey = new Map<string, { id: string; issuer: string }>();
   for (const [id, target] of Object.entries(config.targets)) {
     const at = ["targets", id, "issuer"];
-    const issuer = own(catalog.certificates, target.issuer);
+    const issuer = catalog.certificates[target.issuer];
     if (issuer === undefined) {
       issues.push({ path: at, rule: "V4", message: notImported(target.issuer) });
       continue;
@@ -278,7 +243,8 @@ export function checkConfigMigration(
   const issues: ConfigIssue[] = [];
   if (current !== undefined) {
     for (const [path, entry] of Object.entries(config.paths)) {
-      const before = own(current.paths, path);
+      // Own properties only: a path key is any string until V2 has looked at it.
+      const before = Object.hasOwn(current.paths, path) ? current.paths[path] : undefined;
       if (
         path.startsWith("/ca/") &&
         "certificate" in entry &&
@@ -297,7 +263,7 @@ export function checkConfigMigration(
     }
   }
   for (const [id, target] of Object.entries(catalog.targets)) {
-    if (target.current !== null && own(config.targets, id) === undefined) {
+    if (target.current !== null && config.targets[id] === undefined) {
       issues.push({
         path: ["targets", id],
         rule: "V8",
@@ -307,7 +273,7 @@ export function checkConfigMigration(
   }
   if (current !== undefined) {
     for (const [id, target] of Object.entries(config.targets)) {
-      const before = own(current.targets, id);
+      const before = current.targets[id];
       for (const field of ["issuer", "kind"] as const) {
         if (before !== undefined && before[field] !== target[field]) {
           issues.push({

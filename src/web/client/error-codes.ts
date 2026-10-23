@@ -25,7 +25,6 @@ export const ERROR_CODES = [
   "issuer_not_found",
   "target_not_configured",
   "invalid_signature",
-  "issuer_mismatch",
   "stale_crl",
   "conflict",
   "non_orderable",

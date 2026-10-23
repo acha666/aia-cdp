@@ -8,8 +8,8 @@ import { QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/vu
 import { toValue } from "vue";
 import type { MaybeRefOrGetter } from "vue";
 import { api } from "./api";
-import { ApiError, unwrap } from "./errors";
-import type { CrlTargetList } from "./types";
+import { ApiError, apiFetch, unwrap } from "./errors";
+import type { CrlTargetList, PublishedCrl } from "./types";
 
 const v1 = api.api.v1;
 
@@ -92,7 +92,7 @@ export function useCrlTarget(targetId: MaybeRefOrGetter<string>) {
 }
 
 export interface UploadCrlInput {
-  /** DER or PEM bytes; pasted text is wrapped as a File by the caller (M8: never a string field). */
+  /** DER or PEM bytes; pasted text is wrapped as a File by the caller. */
   file: File;
   /** AIA_UPLOAD_TOKEN; empty: no Authorization header (bearerAuth answers 400 to an empty one). */
   token: string;
@@ -106,19 +106,25 @@ export function cachedTargetLabel(client: QueryClient, targetId: string): string
 }
 
 /**
- * POST /api/v1/crls as multipart `crl`; the token, when given, goes in this request's headers only
- * (the client's shared `init` carries nothing but `cache`). A success refreshes every query: the
- * data is small, and lists, details and stats all change.
+ * POST /api/v1/crls with the file as the raw body (the server tells PEM from DER by the bytes),
+ * through apiFetch and unwrap like the hc client's calls; the token, when given, goes in this
+ * request's headers only. A success refreshes every query: the data is small, and lists, details
+ * and stats all change.
  */
 export function useUploadCrl() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async ({ file, token }: UploadCrlInput) =>
+    mutationFn: async ({ file, token }: UploadCrlInput): Promise<PublishedCrl> =>
       unwrap(
-        await v1.crls.$post(
-          { form: { crl: file } },
-          token === "" ? undefined : { headers: { Authorization: `Bearer ${token}` } }
-        )
+        await apiFetch("/api/v1/crls", {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            ...(token === "" ? {} : { Authorization: `Bearer ${token}` }),
+          },
+          body: file,
+        })
       ),
     onSuccess: () => {
       // invalidateQueries does not restart a first load that is still in flight (TanStack only

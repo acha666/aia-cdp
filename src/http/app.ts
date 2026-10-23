@@ -8,7 +8,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { methodNotAllowed } from "hono/method-not-allowed";
 import { secureHeaders } from "hono/secure-headers";
 import { CONTENT_SECURITY_POLICY } from "./csp.ts";
-import { createErrorHandler, onMethodNotAllowed, validationHook } from "./errors.ts";
+import { createErrorHandler, validationHook } from "./errors.ts";
 import { createLogger, requestLog } from "./log.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { certificateRoutes } from "./routes/certificates.ts";
@@ -17,9 +17,9 @@ import { downloadRoutes } from "./routes/downloads.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { statsRoutes } from "./routes/stats.ts";
 import type { AppDeps, AppEnv } from "./types.ts";
-import { uiFallback } from "./ui.ts";
+import { onMethodNotAllowed, uiFallback } from "./ui.ts";
 
-export type { AppDeps, AppEnv, AppSettings, ClientIpHeader } from "./types.ts";
+export type { AppDeps, AppEnv, AppSettings } from "./types.ts";
 
 /** Shared by GET /api/v1/openapi.json and scripts/generate-openapi.ts (docs/openapi.json). */
 export const OPENAPI_CONFIG = {
@@ -53,7 +53,7 @@ export function createApp(deps: AppDeps) {
       contentSecurityPolicy: CONTENT_SECURITY_POLICY,
     })
   );
-  app.use(requestLog(deps, log));
+  app.use(requestLog(log));
   app.use(methodNotAllowed({ app, onMethodNotAllowed }));
 
   // Generated from the route registry on the first request and kept for the life of this app

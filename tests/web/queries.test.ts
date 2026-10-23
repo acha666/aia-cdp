@@ -108,7 +108,7 @@ describe("useUploadCrl", () => {
     ]);
   });
 
-  it("sends the file as multipart crl, the token as a bearer header only when given", async () => {
+  it("sends the file as the body, the token as a bearer header only when given", async () => {
     const api = stubApi({
       "POST /api/v1/crls": () => Response.json(publishedCrl("unchanged")),
     });
@@ -119,8 +119,8 @@ describe("useUploadCrl", () => {
 
     const posts = api.fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
     const [withoutToken, withToken] = posts.map(([, init]) => init!);
-    expect(withoutToken!.body).toBeInstanceOf(FormData);
-    expect((withoutToken!.body as FormData).get("crl")).toBe(FILE);
+    expect(withoutToken!.body).toBe(FILE);
+    expect(new Headers(withoutToken!.headers).get("Content-Type")).toBe("application/octet-stream");
     expect(new Headers(withoutToken!.headers).has("Authorization")).toBe(false);
     expect(new Headers(withToken!.headers).get("Authorization")).toBe("Bearer s3cret");
   });

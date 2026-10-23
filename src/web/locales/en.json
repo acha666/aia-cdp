@@ -301,7 +301,6 @@
     "issuer_not_found": "No imported certificate is the issuer of this CRL.",
     "target_not_configured": "No configured CRL target takes this kind of CRL from its issuer.",
     "invalid_signature": "The CRL's signature does not verify with the issuer's key.",
-    "issuer_mismatch": "The CRL was not issued by the expected certificate.",
     "stale_crl": "The CRL is older than the target's current CRL.",
     "conflict": "The current CRL has the same CRL number and thisUpdate but other contents.",
     "non_orderable": "Only one of this CRL and the current CRL has a CRL number, so they cannot be ordered.",

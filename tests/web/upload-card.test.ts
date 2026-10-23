@@ -58,20 +58,15 @@ async function submit(card: VueWrapper) {
 }
 
 describe("CrlUploadCard", () => {
-  it("sends pasted PEM as a file in the multipart field crl, never as a string field", async () => {
+  it("sends pasted PEM as the request body", async () => {
     const { card, posts } = render(ok("created"));
     await paste(card, PEM);
     await submit(card);
 
     expect(posts()).toHaveLength(1);
     const body = posts()[0]!.body;
-    expect(body).toBeInstanceOf(FormData);
-    const field = (body as FormData).get("crl");
-    expect(field).toBeInstanceOf(File);
-    expect((field as File).name).toBe("crl.pem");
-    expect((field as File).type).toBe("application/x-pem-file");
-    expect(await (field as File).text()).toBe(PEM);
-    expect([...(body as FormData).keys()]).toEqual(["crl"]);
+    expect(body).toBeInstanceOf(File);
+    expect(await (body as File).text()).toBe(PEM);
   });
 
   it("sends a dropped file as it is, the first of several", async () => {
@@ -88,7 +83,7 @@ describe("CrlUploadCard", () => {
     expect(card.get('[data-testid="upload-helper"]').text()).toBe("full.crl");
 
     await submit(card);
-    expect((posts()[0]!.body as FormData).get("crl")).toBe(der);
+    expect(posts()[0]!.body).toBe(der);
   });
 
   it("takes a chosen file and resets the file input", async () => {

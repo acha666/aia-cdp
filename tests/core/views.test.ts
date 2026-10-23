@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CatalogSchema, ConfigSchema } from "../../src/core/catalog.ts";
 import type { Catalog, Config, CrlKind } from "../../src/core/catalog.ts";
 import { sha256Hex } from "../../src/core/digest.ts";
+import { PkiParseError } from "../../src/core/pki/errors.ts";
 import { parseCertificate, parseCRL } from "../../src/core/pki/parsers.ts";
 import { crlBlobKey } from "../../src/core/publish.ts";
 import { buildCrlSummary } from "../../src/core/summary/catalog-summary.ts";
@@ -14,10 +15,8 @@ import {
   crlTargetList,
   findCertificate,
   findCrlTarget,
-  ReadInconsistencyError,
   stats,
 } from "../../src/core/views.ts";
-import type { ReadInconsistency } from "../../src/core/views.ts";
 import { fixture, NOW } from "../fixtures/pki.ts";
 import { cert, certificateEntry, crlEntry, currentCrl } from "../helpers/catalog.ts";
 import { crlWithEntries } from "../helpers/pki.ts";
@@ -125,19 +124,6 @@ async function state(): Promise<{ config: Config; catalog: Catalog }> {
     }
   }
   return { config: ConfigSchema.parse(config), catalog: CatalogSchema.parse(catalog) };
-}
-
-/** The reason of the ReadInconsistencyError that `run` throws or rejects with. */
-async function inconsistency(run: () => unknown): Promise<ReadInconsistency> {
-  try {
-    await run();
-  } catch (error) {
-    if (error instanceof ReadInconsistencyError) {
-      return error.reason;
-    }
-    throw error;
-  }
-  throw new Error("Expected a ReadInconsistencyError, but nothing was thrown");
 }
 
 describe("certificateList", () => {
@@ -256,16 +242,14 @@ describe("certificateDetail", () => {
   it("throws for a missing blob, another certificate's bytes and bytes that do not parse", async () => {
     const { config, catalog } = await state();
     const source = findCertificate(config, catalog, cert(ISSUING).sha256)!;
-    expect(await inconsistency(() => certificateDetail(source, null))).toBe("blob_missing");
-    expect(await inconsistency(() => certificateDetail(source, fixture(cert(ROOT).der)))).toBe(
-      "blob_mismatch"
+    await expect(certificateDetail(source, null)).rejects.toThrow("has no blob");
+    await expect(certificateDetail(source, fixture(cert(ROOT).der))).rejects.toThrow(
+      "does not have the catalog's SHA-256"
     );
     // The digest is compared before parsing: foreign bytes that do not parse are a mismatch too.
-    expect(
-      await inconsistency(() =>
-        certificateDetail(source, new TextEncoder().encode("not this certificate"))
-      )
-    ).toBe("blob_mismatch");
+    await expect(
+      certificateDetail(source, new TextEncoder().encode("not this certificate"))
+    ).rejects.toThrow("does not have the catalog's SHA-256");
     // A catalog entry whose id is the digest of bytes that are no certificate.
     const garbage = new TextEncoder().encode("not a certificate");
     const id = await sha256Hex(garbage);
@@ -276,16 +260,12 @@ describe("certificateDetail", () => {
       targets: {},
     };
     const garbageSource = findCertificate(null, broken, id)!;
-    expect(await inconsistency(() => certificateDetail(garbageSource, garbage))).toBe(
-      "blob_invalid"
-    );
+    await expect(certificateDetail(garbageSource, garbage)).rejects.toThrow(PkiParseError);
   });
 
-  it("finds own catalog ids only", async () => {
+  it("finds catalog ids only", async () => {
     const { config, catalog } = await state();
-    for (const id of ["constructor", "__proto__", "toString", "0".repeat(64)]) {
-      expect(findCertificate(config, catalog, id)).toBeUndefined();
-    }
+    expect(findCertificate(config, catalog, "0".repeat(64))).toBeUndefined();
   });
 });
 
@@ -377,9 +357,9 @@ describe("crlTargetList", () => {
     const { config, catalog } = await state();
     const { [cert(ISSUING_2).sha256]: _removed, ...certificates } = catalog.certificates;
     const broken = { ...catalog, certificates };
-    expect(await inconsistency(() => crlTargetList(config, broken))).toBe("issuer_missing");
-    expect(await inconsistency(() => findCrlTarget(config, broken, T_UNPUBLISHED))).toBe(
-      "issuer_missing"
+    expect(() => crlTargetList(config, broken)).toThrow("which is not in the catalog");
+    expect(() => findCrlTarget(config, broken, T_UNPUBLISHED)).toThrow(
+      "which is not in the catalog"
     );
   });
 });
@@ -480,27 +460,23 @@ describe("crlTargetDetail", () => {
   it("throws for a missing blob, another CRL's bytes and bytes that do not parse", async () => {
     const { config, catalog } = await state();
     const source = findCrlTarget(config, catalog, T_ISSUING_FULL)!;
-    expect(await inconsistency(() => crlTargetDetail(source, null))).toBe("blob_missing");
-    expect(await inconsistency(() => crlTargetDetail(source, fixture(DELTA_ADCS)))).toBe(
-      "blob_mismatch"
+    await expect(crlTargetDetail(source, null)).rejects.toThrow("has no blob");
+    await expect(crlTargetDetail(source, fixture(DELTA_ADCS))).rejects.toThrow(
+      "does not have the catalog's SHA-256"
     );
     // The digest is compared before parsing: foreign bytes that do not parse are a mismatch too.
-    expect(
-      await inconsistency(() => crlTargetDetail(source, new TextEncoder().encode("not this CRL")))
-    ).toBe("blob_mismatch");
+    await expect(crlTargetDetail(source, new TextEncoder().encode("not this CRL"))).rejects.toThrow(
+      "does not have the catalog's SHA-256"
+    );
     const garbage = new TextEncoder().encode("not a CRL");
     const current = { ...source.current!, sha256: await sha256Hex(garbage) };
-    expect(await inconsistency(() => crlTargetDetail({ ...source, current }, garbage))).toBe(
-      "blob_invalid"
-    );
+    await expect(crlTargetDetail({ ...source, current }, garbage)).rejects.toThrow(PkiParseError);
   });
 
-  it("finds configured targets only: none without config.json, own keys only", async () => {
+  it("finds configured targets only: none without config.json", async () => {
     const { config, catalog } = await state();
     expect(findCrlTarget(null, catalog, T_ROOT)).toBeUndefined();
-    for (const id of ["constructor", "__proto__", "00000000-0000-4000-8000-0000000000ff"]) {
-      expect(findCrlTarget(config, catalog, id)).toBeUndefined();
-    }
+    expect(findCrlTarget(config, catalog, "00000000-0000-4000-8000-0000000000ff")).toBeUndefined();
   });
 });
 
@@ -509,8 +485,8 @@ describe("stats", () => {
   it("throws when a configured target's issuer is not in the catalog", async () => {
     const { config, catalog } = await state();
     const { [cert(ISSUING_2).sha256]: _removed, ...certificates } = catalog.certificates;
-    expect(await inconsistency(() => stats(config, { ...catalog, certificates }))).toBe(
-      "issuer_missing"
+    expect(() => stats(config, { ...catalog, certificates })).toThrow(
+      "which is not in the catalog"
     );
   });
 

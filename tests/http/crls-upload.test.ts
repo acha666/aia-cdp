@@ -1,8 +1,6 @@
 // POST /api/v1/crls (implementation slice 4 step 8, plan §7.1): the route gate (optional bearerAuth
-// → media type → bodyLimit, all ahead of the form validator), multipart and raw bodies, every row
-// of the step 8 status table with its envelope and details, the log lines, and the route's OpenAPI
-// shape. Migrated: worker-aia-cdp@5b570aa:tests/web/api-client.test.ts case 3 (a multipart upload
-// keeps the original DER bytes; repeating it is now 200 unchanged instead of an error).
+// → media type → bodyLimit), raw bodies, every row of the status table with its envelope and
+// details, the log lines, and the route's OpenAPI shape.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CATALOG_KEY } from "../../src/core/catalog.ts";
@@ -69,18 +67,6 @@ function uploadFile(app: App, file: string, headers: HeaderFields = {}) {
 
 function text(path: string): string {
   return readFileSync(fixturePath(path), "utf8");
-}
-
-function formWith(...fields: [name: string, value: Blob | string][]): FormData {
-  const form = new FormData();
-  for (const [name, value] of fields) {
-    if (typeof value === "string") {
-      form.append(name, value);
-    } else {
-      form.append(name, value, `${name}.der`);
-    }
-  }
-  return form;
 }
 
 async function errorOf(
@@ -171,14 +157,13 @@ function lazyUpload(app: App, size: number, headers: Record<string, string>) {
 }
 
 describe("POST /api/v1/crls: bodies", () => {
-  // worker-aia-cdp@5b570aa:tests/web/api-client.test.ts case 3.
-  it("publishes the file field crl of a multipart form as sent; the repeat is 200 unchanged", async () => {
+  it("publishes the body as sent; the repeat is 200 unchanged", async () => {
     const { app, base, setup } = await service();
     const der = fixture(ROOT_FULL_01);
     const expected = await publishedBody(ROOT_FULL_01, "created", setup);
     expect(expected.downloads).toEqual(["/crl/root-ca.crl", "/crl/root-ca.crl.pem"]);
 
-    const created = await upload(app, formWith(["crl", new Blob([der])]));
+    const created = await upload(app, der, "application/pkix-crl");
     expect(created.status).toBe(201);
     expect(created.headers.get("Content-Type")).toMatch(/^application\/json/);
     expect(created.headers.get("Cache-Control")).toBe("no-store");
@@ -186,17 +171,10 @@ describe("POST /api/v1/crls: bodies", () => {
     const current = await currentCrl(ROOT_FULL_01, expected.target);
     expect((await base.get(current.key))?.bytes).toEqual(der);
 
-    const again = await upload(app, formWith(["crl", new Blob([der])]));
+    const again = await upload(app, der, "application/pkix-crl");
     expect(again.status).toBe(200);
     expect(again.headers.get("Cache-Control")).toBe("no-store");
     expect(await again.json()).toEqual({ ...expected, outcome: "unchanged" });
-  });
-
-  it("takes PEM text in the string field crl (pasted, curl -F crl=<file)", async () => {
-    const { app, setup } = await service();
-    const res = await upload(app, formWith(["crl", text("crls/issuing-ca-1/full-01.pem")]));
-    expect(res.status).toBe(201);
-    expect(await res.json()).toEqual(await publishedBody(FULL_01, "created", setup));
   });
 
   it.each<[string, string, () => Uint8Array<ArrayBuffer> | string]>([
@@ -222,56 +200,6 @@ describe("POST /api/v1/crls: bodies", () => {
     expect(await res.json()).toEqual(body);
   });
 
-  it.each<[string, () => FormData]>([
-    ["another field name", () => formWith(["file", new Blob([fixture(FULL_01)])])],
-    [
-      "the field twice",
-      () => formWith(["crl", new Blob([fixture(FULL_01)])], ["crl", new Blob([fixture(FULL_02)])]),
-    ],
-    ["no field", () => new FormData()],
-  ])("answers a multipart form with %s with 400 from the form validator", async (_, form) => {
-    const { app, deps, base } = await service();
-    const before = await base.list("");
-    const res = await upload(app, form());
-    expect(res.status).toBe(400);
-    expect(await errorOf(res)).toMatchObject({
-      code: "bad_request",
-      details: { target: "form" },
-    });
-    expect(await base.list("")).toEqual(before);
-    expect(logRecords(deps).filter((line) => line.msg === "publish")).toEqual([]);
-  });
-
-  it.each<[string, () => FormData]>([
-    ["an empty file", () => formWith(["crl", new Blob([])])],
-    ["an empty string", () => formWith(["crl", ""])],
-  ])("answers the field crl as %s with 400", async (_, form) => {
-    const { app, deps } = await service();
-    const res = await upload(app, form());
-    expect(res.status).toBe(400);
-    expect(await errorOf(res)).toEqual({
-      code: "bad_request",
-      message: "Expected a CRL, but the upload is empty",
-    });
-    expect(logRecords(deps).filter((line) => line.msg === "publish")).toEqual([]);
-  });
-
-  it.each<[string, string, Body]>([
-    ["a body that is not multipart", "multipart/form-data; boundary=xyz", "garbage"],
-    ["no boundary", "multipart/form-data", "garbage"],
-    ["an empty body", "multipart/form-data; boundary=xyz", ""],
-    [
-      "a parameter besides the boundary",
-      "multipart/form-data; boundary=xyz; charset=utf-8",
-      '--xyz\r\nContent-Disposition: form-data; name="crl"\r\n\r\nx\r\n--xyz--\r\n',
-    ],
-  ])("answers a malformed multipart request (%s) with 400", async (_, contentType, body) => {
-    const { app } = await service();
-    const res = await upload(app, body, contentType);
-    expect(res.status).toBe(400);
-    expect(await errorOf(res)).toMatchObject({ code: "bad_request" });
-  });
-
   it.each<[string, Body]>([
     ["an empty body", new Uint8Array(0)],
     ["no body", null],
@@ -290,6 +218,7 @@ describe("POST /api/v1/crls: bodies", () => {
     ["application/json", "application/json", "application/json"],
     ["urlencoded", "application/x-www-form-urlencoded", "application/x-www-form-urlencoded"],
     ["application/pkix-cert", "application/pkix-cert", "application/pkix-cert"],
+    ["multipart/form-data", "multipart/form-data; boundary=xyz", "multipart/form-data"],
     ["no Content-Type", undefined, null],
     ["an empty Content-Type", "", null],
   ])("answers a body sent as %s with 415 and what it received", async (_, type, received) => {
@@ -368,14 +297,6 @@ describe("POST /api/v1/crls: token, media type and size gate", () => {
     const wrongType = lazyUpload(app, 1024, { "Content-Type": "application/json" });
     expect((await wrongType.res).status).toBe(415);
     expect(wrongType.pulled()).toBe(false);
-  });
-
-  it("answers an oversized multipart form with 413 before the validator sees it", async () => {
-    const { app } = await service({ overrides: { settings: { maxUploadBytes: 64 } } });
-    // No field crl: the validator would say 400.
-    const res = await upload(app, formWith(["file", new Blob([fixture(FULL_01)])]));
-    expect(res.status).toBe(413);
-    expect(await errorOf(res)).toEqual({ code: "payload_too_large", message: "Payload too large" });
   });
 
   it("answers 413 from Content-Length without reading the body", async () => {
@@ -705,26 +626,12 @@ describe("POST /api/v1/crls: OpenAPI", () => {
     return [...found].sort();
   }
 
-  it("documents the multipart field crl as one binary string, and the raw types", async () => {
+  it("documents the raw body's media types", async () => {
     const doc = await document();
     const operation = doc.paths[CRLS]?.post;
     expect(operation?.operationId).toBe("uploadCrl");
-    expect(operation?.requestBody.required).toBe(false);
+    expect(operation?.requestBody.required).toBe(true);
     expect(Object.keys(operation?.requestBody.content ?? {})).toEqual([...CRL_MEDIA_TYPES]);
-    expect(operation?.requestBody.content["multipart/form-data"]?.schema).toEqual({
-      $ref: "#/components/schemas/CrlUpload",
-    });
-    expect(doc.components.schemas.CrlUpload).toEqual({
-      type: "object",
-      properties: {
-        crl: {
-          type: "string",
-          format: "binary",
-          description: "The CRL: a DER or PEM file, or PEM text",
-        },
-      },
-      required: ["crl"],
-    });
     expect(operation?.security).toEqual([{}, { uploadBearer: [] }]);
     expect(doc.components.securitySchemes.uploadBearer).toMatchObject({
       type: "http",
@@ -765,11 +672,6 @@ describe("POST /api/v1/crls: OpenAPI", () => {
       ].sort()
     );
     expect(codes(doc, schemaOf("500"))).toEqual(["internal"]);
-    // Owner answer 4: uploads never produce issuer_mismatch.
-    expect(JSON.stringify(doc.paths[CRLS])).not.toContain("issuer_mismatch");
-    expect(JSON.stringify(doc.components.schemas.CrlRejectedError)).not.toContain(
-      "issuer_mismatch"
-    );
   });
 
   it("is the same document whether or not an upload token is set", async () => {

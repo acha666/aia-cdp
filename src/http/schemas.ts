@@ -38,7 +38,6 @@ export const ERROR_CODES = [
   "issuer_not_found",
   "target_not_configured",
   "invalid_signature",
-  "issuer_mismatch",
   "stale_crl",
   "conflict",
   "non_orderable",
@@ -159,30 +158,14 @@ export const PreconditionRequiredError = errorSchema(["precondition_required"]).
 // CRL upload ---------------------------------------------------------------------------------------
 
 /**
- * The request media types of POST /api/v1/crls (M8). The three raw types only pass the gate: the
+ * The request media types of POST /api/v1/crls, for the raw body. They only pass the gate: the
  * format (DER or one X509 CRL PEM block) is always recognized from the bytes.
  */
 export const CRL_MEDIA_TYPES = [
-  "multipart/form-data",
   "application/pkix-crl",
   "application/x-pem-file",
   "application/octet-stream",
 ] as const;
-
-/**
- * The multipart form of an upload: the field `crl`, a file or a string (pasted PEM text, `curl -F
- * crl=<file`), exactly once. Documented as one binary string: zod-openapi renders the union so,
- * and the form validator checks the union (tests/http/crls-upload.test.ts).
- */
-export const CrlUpload = z
-  .object({
-    crl: z.union([z.file(), z.string()]).openapi({
-      type: "string",
-      format: "binary",
-      description: "The CRL: a DER or PEM file, or PEM text",
-    }),
-  })
-  .openapi("CrlUpload");
 
 /** 200 / 201 of POST /api/v1/crls (plan §7.1, M16). */
 export const PublishedCrl = z

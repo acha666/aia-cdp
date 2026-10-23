@@ -8,20 +8,20 @@
 // (AIA_MAX_UPLOAD_BYTES, 413). Failures are thrown as ApiError / HTTPException, so onError writes
 // every envelope (no-store) and the handlers only return successes.
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import type { Context, TypedResponse } from "hono";
+import type { TypedResponse } from "hono";
 import { bearerAuth } from "hono/bearer-auth";
 import { bodyLimit } from "hono/body-limit";
 import { createMiddleware } from "hono/factory";
 import type { JSONParsed } from "hono/utils/types";
-import { applyConfig } from "../../core/admin.ts";
+import { applyConfig, schemaIssues } from "../../core/admin.ts";
 import type { ConfigIssue, ConfigPrecondition } from "../../core/admin.ts";
 import { CONFIG_KEY, ConfigSchema, encodeJson } from "../../core/catalog.ts";
 import type { Config } from "../../core/catalog.ts";
 import { sha256Hex } from "../../core/digest.ts";
 import { importCertificate } from "../../core/import.ts";
-import { ApiError, ERROR_MESSAGES, NO_STORE, validationError } from "../errors.ts";
+import { ApiError, NO_STORE, validationError } from "../errors.ts";
 import { createLogger } from "../log.ts";
-import { mediaType, MULTIPART } from "../media.ts";
+import { mediaTypeGate } from "../media.ts";
 import {
   AdminDisabledError,
   BadRequestError,
@@ -70,7 +70,7 @@ const PAYLOAD_TOO_LARGE = {
 };
 
 const UNSUPPORTED_MEDIA_TYPE = {
-  description: "The Content-Type is not one of the request body's media types",
+  description: "The Content-Type is missing or not one of the request body's media types",
   content: json(UnsupportedMediaTypeError),
 };
 
@@ -83,31 +83,13 @@ const ETAG = z.object({
 // POST /admin/certificates -----------------------------------------------------------------------
 
 // The format (DER or one PEM block) is recognized from the bytes; the type only gates 415.
-const CERTIFICATE_MEDIA_TYPES = new Set([
-  "application/pkix-cert",
-  "application/x-pem-file",
-  "application/octet-stream",
-  MULTIPART,
-]);
-
-// zod-openapi's media gate counts application/x-www-form-urlencoded as the declared form type; this
-// one runs first and lets only the four declared types through. The gate still answers 415 for a
-// body without a Content-Type.
-const certificateMediaType = createMiddleware<AppEnv>(async (c, next) => {
-  const type = mediaType(c.req.header("Content-Type"));
-  if (type !== undefined && !CERTIFICATE_MEDIA_TYPES.has(type)) {
-    throw new ApiError(415, "unsupported_media_type", ERROR_MESSAGES.unsupported_media_type);
-  }
-  await next();
-});
+const certificateMediaType = mediaTypeGate(
+  ["application/pkix-cert", "application/x-pem-file", "application/octet-stream"],
+  "Send the certificate as application/pkix-cert, application/x-pem-file or " +
+    "application/octet-stream"
+);
 
 const binary = z.string().openapi({ format: "binary" });
-
-// A file entry of a form is a File, so a Blob; a string field is not. (z.file() is typed with zod's
-// own File stand-in in the Worker program.)
-const CertificateUpload = z
-  .object({ certificate: z.instanceof(Blob).openapi({ type: "string", format: "binary" }) })
-  .openapi("CertificateUpload");
 
 export const importCertificateRoute = createRoute({
   method: "post",
@@ -115,22 +97,20 @@ export const importCertificateRoute = createRoute({
   operationId: "importCertificate",
   summary: "Import a CA certificate",
   description:
-    "DER or a single PEM block, as the raw body or as the file field `certificate` of a " +
-    "multipart form; the format is recognized from the bytes. Importing does not authorize " +
-    "anything: a certificate only issues CRLs once a config target names it. A PEM bundle is " +
-    "rejected (`pem_blocks`): the CLI sends each block on its own.",
+    "DER or a single PEM block, as the request body; the format is recognized from the bytes. " +
+    "Importing does not authorize anything: a certificate only issues CRLs once a config " +
+    "target names it. A PEM bundle is rejected (`pem_blocks`): the CLI sends each block on its " +
+    "own.",
   tags,
   security,
   middleware: [certificateMediaType],
   request: {
     body: {
-      // Not required: with `required` the form validator would also run for the raw types.
-      required: false,
+      required: true,
       content: {
         "application/pkix-cert": { schema: binary },
         "application/x-pem-file": { schema: z.string() },
         "application/octet-stream": { schema: binary },
-        [MULTIPART]: { schema: CertificateUpload },
       },
     },
   },
@@ -213,14 +193,6 @@ function configInvalid(issues: ConfigIssue[]): ApiError {
   return new ApiError(422, "config_invalid", "The configuration is invalid", { issues });
 }
 
-// 428 and the malformed-If-Match 412 come from the headers alone: answered before the body is
-// parsed. Every other 412 needs the stored bytes, and applyConfig compares them before V1–V9, so a
-// body that fails the schema still gets the 412 first (see the route's hook).
-const requirePrecondition = createMiddleware<AppEnv>(async (c, next) => {
-  configPrecondition(c.req.raw.headers);
-  await next();
-});
-
 export const applyConfigRoute = createRoute({
   method: "put",
   path: "/admin/config",
@@ -232,7 +204,6 @@ export const applyConfigRoute = createRoute({
     "`If-None-Match: *` for the first configuration.",
   tags,
   security,
-  middleware: [requirePrecondition],
   request: {
     headers: z.object({
       "If-Match": z
@@ -317,15 +288,7 @@ export function adminRoutes(deps: AppDeps) {
   }
 
   admin.openapi(importCertificateRoute, async (c) => {
-    let bytes: Uint8Array;
-    if (mediaType(c.req.header("Content-Type")) === MULTIPART) {
-      // Validated against CertificateUpload: exactly one field `certificate`, a file (a string
-      // field is 400). Typed as the union of all four body schemas, hence the cast.
-      const { certificate } = c.req.valid("form") as z.output<typeof CertificateUpload>;
-      bytes = new Uint8Array(await certificate.arrayBuffer());
-    } else {
-      bytes = new Uint8Array(await c.req.arrayBuffer());
-    }
+    const bytes = new Uint8Array(await c.req.arrayBuffer());
     if (bytes.byteLength === 0) {
       throw new ApiError(400, "bad_request", "Expected a certificate in the request body");
     }
@@ -362,41 +325,31 @@ export function adminRoutes(deps: AppDeps) {
     return configResponse(stored.bytes, await sha256Hex(stored.bytes));
   });
 
-  // The body as JSON.parse gave it (Hono caches the text), not the validator's output: applyConfig
-  // runs V1 itself, and the schema's records drop a "__proto__" key that V1 / V2 must report.
-  const apply = async (c: Context<AppEnv>) => {
-    const result = await applyConfig(
-      deps,
-      await c.req.json(),
-      configPrecondition(c.req.raw.headers)
-    );
-    if ("error" in result) {
-      throw result.error === "precondition_failed"
-        ? preconditionFailed()
-        : configInvalid(result.details.issues);
-    }
-    return configResponse(encodeJson(result.config), result.sha256);
-  };
-
   admin.openapi(
     applyConfigRoute,
-    async (c) => apply(c),
-    // ConfigSchema validates the body before the handler runs. A failure goes to applyConfig all
-    // the same, which compares the stored precondition first (412) and then reports the schema
-    // failure as config_invalid (rule V1), not as the default 400.
-    (result, c) => {
+    async (c) => {
+      const result = await applyConfig(
+        deps,
+        c.req.valid("json"),
+        configPrecondition(c.req.raw.headers)
+      );
+      if ("error" in result) {
+        throw result.error === "precondition_failed"
+          ? preconditionFailed()
+          : configInvalid(result.details.issues);
+      }
+      return configResponse(encodeJson(result.config), result.sha256);
+    },
+    // ConfigSchema validates the body before the handler runs: a failure is config_invalid (rule
+    // V1), not the default 400, whatever the precondition. Without a JSON Content-Type the
+    // validator checks `{}`.
+    (result) => {
       if (result.success) {
         return undefined;
       }
-      if (result.target !== "json") {
-        throw validationError(result.target, result.error);
-      }
-      // No Content-Type: the media gate let the request through only because it has no body, and
-      // the validator checked a placeholder `{}`.
-      if (c.req.header("Content-Type") === undefined) {
-        throw new ApiError(400, "bad_request", "Expected a JSON body");
-      }
-      return apply(c);
+      throw result.target === "json"
+        ? configInvalid(schemaIssues(result.error))
+        : validationError(result.target, result.error);
     }
   );
 

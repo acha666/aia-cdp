@@ -11,13 +11,12 @@
 // order (code units; the UI sorts for display). Without config.json the certificates come from the
 // catalog alone, with no labels, downloads or targets, and there are no targets.
 //
-// What the catalog and config name but the store cannot back throws ReadInconsistencyError, which
-// the HTTP layer logs and answers 500 (§10 #9: never a 404, an empty list or a partial 200).
+// What the catalog and config name but the store cannot back throws, and the HTTP layer answers
+// its generic 500: never a 404, an empty list or a partial 200.
 import type { BitString } from "asn1js";
 import type * as pkijs from "pkijs";
 import type { Catalog, CatalogCertificate, Config, CrlKind, CurrentCrl } from "./catalog.ts";
 import { SIGNATURE_ALG_NAMES } from "./pki/constants.ts";
-import { PkiParseError } from "./pki/errors.ts";
 import { parseCertificate, parseCRL } from "./pki/parsers.ts";
 import { downloadPaths } from "./resources.ts";
 import { buildTBSCertificate } from "./summary/certificate.ts";
@@ -134,41 +133,7 @@ export interface Stats {
   derBytes: number;
 }
 
-// Failures ----------------------------------------------------------------------------------------
-
-export type ReadInconsistency =
-  /** The blob of a catalog entry is missing. */
-  | "blob_missing"
-  /** The blob has the catalog's SHA-256 but does not parse as a certificate or CRL. */
-  | "blob_invalid"
-  /** The blob's SHA-256 is not the catalog's (other or truncated bytes). */
-  | "blob_mismatch"
-  /** A configured target names an issuer that is not in the catalog. */
-  | "issuer_missing";
-
-/**
- * The catalog or config names something the store cannot back. Import and publish checked all of
- * it, so only an out-of-band change, a lost blob or a race with a deletion gets here. `refs` are
- * the ids and the store key involved, for the log line (never for the response).
- */
-export class ReadInconsistencyError extends Error {
-  override name = "ReadInconsistencyError";
-  readonly reason: ReadInconsistency;
-  readonly refs: Readonly<Record<string, string>>;
-
-  constructor(reason: ReadInconsistency, refs: Record<string, string>, options?: ErrorOptions) {
-    super(`Inconsistent store: ${reason}`, options);
-    this.reason = reason;
-    this.refs = refs;
-  }
-}
-
 // Helpers -----------------------------------------------------------------------------------------
-
-// Own properties only: an id never reaches Object.prototype, whatever the schemas let through.
-function own<T>(record: Record<string, T>, key: string): T | undefined {
-  return Object.hasOwn(record, key) ? record[key] : undefined;
-}
 
 /** Keys in code-unit order. */
 function sortedKeys(record: Record<string, unknown>): string[] {
@@ -177,8 +142,8 @@ function sortedKeys(record: Record<string, unknown>): string[] {
 
 /**
  * `der` with its fingerprints, when it is the DER whose SHA-256 the catalog records: a missing blob
- * (null) or one with another digest throws ReadInconsistencyError. Checked before parsing, so a
- * detail never shows other bytes under the catalog's id.
+ * (null) or one with another digest throws. Checked before parsing, so a detail never shows other
+ * bytes under the catalog's id.
  */
 async function checkedBlob(
   der: Uint8Array | null,
@@ -186,25 +151,13 @@ async function checkedBlob(
   key: string
 ): Promise<{ der: Uint8Array; fingerprints: Fingerprints }> {
   if (der === null) {
-    throw new ReadInconsistencyError("blob_missing", { key });
+    throw new Error(`The store has no blob ${key}`);
   }
   const fingerprints = await buildFingerprints(der);
   if (fingerprints.sha256 !== sha256) {
-    throw new ReadInconsistencyError("blob_mismatch", { key, sha256: fingerprints.sha256 });
+    throw new Error(`Blob ${key} does not have the catalog's SHA-256`);
   }
   return { der, fingerprints };
-}
-
-/** `parse(der)`, with a PkiParseError reported as blob_invalid. */
-function parseBlob<T>(parse: () => T, key: string): T {
-  try {
-    return parse();
-  } catch (error) {
-    if (error instanceof PkiParseError) {
-      throw new ReadInconsistencyError("blob_invalid", { key }, { cause: error });
-    }
-    throw error;
-  }
 }
 
 /**
@@ -244,7 +197,7 @@ function certificateItem(
         });
   return {
     id,
-    label: config === null ? null : (own(config.certificates, id)?.label ?? null),
+    label: config === null ? null : (config.certificates[id]?.label ?? null),
     importedAt: entry.importedAt,
     size: entry.size,
     summary: entry.summary,
@@ -273,7 +226,7 @@ export function findCertificate(
   catalog: Catalog,
   id: string
 ): CertificateSource | undefined {
-  const entry = own(catalog.certificates, id);
+  const entry = catalog.certificates[id];
   return entry === undefined
     ? undefined
     : { item: certificateItem(config, id, entry), key: entry.key };
@@ -282,8 +235,7 @@ export function findCertificate(
 /**
  * GET /api/v1/certificates/{id}: the list item plus fingerprints, TBSCertificate, signature
  * algorithm (with its parameters) and signature value of `der`, the blob at `source.key` (null
- * when the store has none). Throws ReadInconsistencyError for a missing blob, other bytes or a
- * blob that does not parse.
+ * when the store has none). Throws for a missing blob, other bytes or a blob that does not parse.
  */
 export async function certificateDetail(
   source: CertificateSource,
@@ -291,7 +243,7 @@ export async function certificateDetail(
 ): Promise<CertificateDetail> {
   const { item, key } = source;
   const blob = await checkedBlob(der, item.id, key);
-  const certificate = parseBlob(() => parseCertificate(blob.der), key);
+  const certificate = parseCertificate(blob.der);
   return {
     ...item,
     fingerprints: blob.fingerprints,
@@ -307,15 +259,17 @@ function crlTargetItem(
   catalog: Catalog,
   targetId: string
 ): { item: CrlTargetListItem; current: CurrentCrl | null } | undefined {
-  const target = own(config.targets, targetId);
+  const target = config.targets[targetId];
   if (target === undefined) {
     return undefined;
   }
-  const issuer = own(catalog.certificates, target.issuer);
+  const issuer = catalog.certificates[target.issuer];
   if (issuer === undefined) {
-    throw new ReadInconsistencyError("issuer_missing", { targetId, issuer: target.issuer });
+    throw new Error(
+      `Target ${targetId} names issuer ${target.issuer}, which is not in the catalog`
+    );
   }
-  const current = own(catalog.targets, targetId)?.current ?? null;
+  const current = catalog.targets[targetId]?.current ?? null;
   return {
     item: {
       targetId,
@@ -323,7 +277,7 @@ function crlTargetItem(
       label: target.label,
       issuer: {
         id: target.issuer,
-        label: own(config.certificates, target.issuer)?.label ?? null,
+        label: config.certificates[target.issuer]?.label ?? null,
         subjectCN: issuer.summary.subjectCN,
       },
       downloads: downloadPaths(config, { target: targetId }),
@@ -374,7 +328,7 @@ export function findCrlTarget(
  * GET /api/v1/crls/{targetId}: the list item, and for a published target its current CRL with
  * verifier, fingerprints, TBSCertList (every revoked entry), signature algorithm and value of
  * `der`, the blob at `source.current.key` (null when the store has none; not read and ignored while
- * unpublished). Throws ReadInconsistencyError like certificateDetail.
+ * unpublished). Throws like certificateDetail.
  */
 export async function crlTargetDetail(
   source: CrlTargetSource,
@@ -386,7 +340,7 @@ export async function crlTargetDetail(
   }
   const blob = await checkedBlob(der, current.sha256, current.key);
   // One parse per request: on a large CRL it costs several times the projection (slice 5a step 11).
-  const crl = parseBlob(() => parseCRL(blob.der), current.key);
+  const crl = parseCRL(blob.der);
   return {
     ...item,
     current: {
@@ -404,8 +358,8 @@ export async function crlTargetDetail(
 /**
  * GET /api/v1/stats, from config.json and catalog.json alone: no blob is read and the store is
  * never listed (history blobs are not counted; listing them is an admin operation). A configured
- * target whose issuer is not in the catalog throws ReadInconsistencyError, as in the CRL lists:
- * the counts never describe a state the lists refuse to show.
+ * target whose issuer is not in the catalog throws, as in the CRL lists: the counts never
+ * describe a state the lists refuse to show.
  */
 export function stats(config: Config | null, catalog: Catalog): Stats {
   const result: Stats = {
@@ -420,11 +374,13 @@ export function stats(config: Config | null, catalog: Catalog): Stats {
     result.derBytes += entry.size;
   }
   for (const [targetId, target] of Object.entries(config?.targets ?? {})) {
-    if (own(catalog.certificates, target.issuer) === undefined) {
-      throw new ReadInconsistencyError("issuer_missing", { targetId, issuer: target.issuer });
+    if (catalog.certificates[target.issuer] === undefined) {
+      throw new Error(
+        `Target ${targetId} names issuer ${target.issuer}, which is not in the catalog`
+      );
     }
     result.targets[target.kind]++;
-    const current = own(catalog.targets, targetId)?.current ?? null;
+    const current = catalog.targets[targetId]?.current ?? null;
     if (current === null) {
       continue;
     }

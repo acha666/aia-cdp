@@ -20,7 +20,6 @@ const app = createApp({
   store: new MemoryStore(),
   now: () => new Date(0),
   settings: settings.value.app,
-  clientIpHeader: "x-forwarded-for",
   log: () => undefined,
 });
 // The time the runtime spends on the first GET /api/v1/openapi.json (slice 5a exit condition 9).

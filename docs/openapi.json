@@ -3392,7 +3392,6 @@
                     "items": {
                       "type": "string",
                       "enum": [
-                        "multipart/form-data",
                         "application/pkix-crl",
                         "application/x-pem-file",
                         "application/octet-stream"
@@ -3696,19 +3695,6 @@
           }
         ]
       },
-      "CrlUpload": {
-        "type": "object",
-        "properties": {
-          "crl": {
-            "type": "string",
-            "format": "binary",
-            "description": "The CRL: a DER or PEM file, or PEM text"
-          }
-        },
-        "required": [
-          "crl"
-        ]
-      },
       "Stats": {
         "type": "object",
         "properties": {
@@ -3907,18 +3893,6 @@
         },
         "required": [
           "error"
-        ]
-      },
-      "CertificateUpload": {
-        "type": "object",
-        "properties": {
-          "certificate": {
-            "type": "string",
-            "format": "binary"
-          }
-        },
-        "required": [
-          "certificate"
         ]
       },
       "Config": {
@@ -4323,7 +4297,7 @@
       "post": {
         "operationId": "uploadCrl",
         "summary": "Publish a CRL",
-        "description": "One CRL, DER or a single X509 CRL PEM block, as the raw body or as the field `crl` of a multipart form (a file, or PEM text); the format is recognized from the bytes. It goes to the target that the configuration binds to its issuer (found by the Authority Key Identifier) and its kind (full or delta), once the extension policy, the issuer's signature and the comparison with the target's current CRL accept it. `Authorization: Bearer <AIA_UPLOAD_TOKEN>` is needed only while that token is set.",
+        "description": "One CRL, DER or a single X509 CRL PEM block, as the request body; the format is recognized from the bytes. It goes to the target that the configuration binds to its issuer (found by the Authority Key Identifier) and its kind (full or delta), once the extension policy, the issuer's signature and the comparison with the target's current CRL accept it. `Authorization: Bearer <AIA_UPLOAD_TOKEN>` is needed only while that token is set.",
         "tags": [
           "crls"
         ],
@@ -4334,13 +4308,8 @@
           }
         ],
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/CrlUpload"
-              }
-            },
             "application/pkix-crl": {
               "schema": {
                 "type": "string",
@@ -4382,7 +4351,7 @@
             }
           },
           "400": {
-            "description": "A malformed Authorization header; the field `crl` missing, repeated or empty; an empty body; or a malformed multipart body",
+            "description": "A malformed Authorization header, or an empty body",
             "content": {
               "application/json": {
                 "schema": {
@@ -4563,7 +4532,7 @@
       "post": {
         "operationId": "importCertificate",
         "summary": "Import a CA certificate",
-        "description": "DER or a single PEM block, as the raw body or as the file field `certificate` of a multipart form; the format is recognized from the bytes. Importing does not authorize anything: a certificate only issues CRLs once a config target names it. A PEM bundle is rejected (`pem_blocks`): the CLI sends each block on its own.",
+        "description": "DER or a single PEM block, as the request body; the format is recognized from the bytes. Importing does not authorize anything: a certificate only issues CRLs once a config target names it. A PEM bundle is rejected (`pem_blocks`): the CLI sends each block on its own.",
         "tags": [
           "admin"
         ],
@@ -4573,7 +4542,7 @@
           }
         ],
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
             "application/pkix-cert": {
               "schema": {
@@ -4590,11 +4559,6 @@
               "schema": {
                 "type": "string",
                 "format": "binary"
-              }
-            },
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/CertificateUpload"
               }
             }
           }
@@ -4669,7 +4633,7 @@
             }
           },
           "415": {
-            "description": "The Content-Type is not one of the request body's media types",
+            "description": "The Content-Type is missing or not one of the request body's media types",
             "content": {
               "application/json": {
                 "schema": {
@@ -4899,7 +4863,7 @@
             }
           },
           "415": {
-            "description": "The Content-Type is not one of the request body's media types",
+            "description": "The Content-Type is missing or not one of the request body's media types",
             "content": {
               "application/json": {
                 "schema": {

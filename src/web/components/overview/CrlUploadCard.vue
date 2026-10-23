@@ -30,9 +30,9 @@ import { errorCode, errorMessage, errorReason } from "@/utils/errors";
 // src/web/components/CrlUpload.vue with its behaviour kept: no submit while the input is invalid
 // or an upload runs (:22), the input cleared only if it did not change meanwhile (:28), a drop
 // takes its first file (:31-48), the file input is reset after a choice (:53), the PEM hint only
-// for text that is there. Files go as they are, pasted PEM as a file named crl.pem, both in the
-// multipart field `crl` (M8); the server tells PEM from DER by the bytes. created, updated and
-// unchanged are all successes (§10 #4); a failure shows errors.<code> as a toast and inline. The
+// for text that is there. Files go as they are, pasted PEM as a file named crl.pem, both as the
+// request body; the server tells PEM from DER by the bytes. created, updated and unchanged are
+// all successes; a failure shows errors.<code> as a toast and inline. The
 // optional token (AIA_UPLOAD_TOKEN) stays in memory and opens itself when the server asks for it.
 // Keyboard focus: the submit button is only aria-disabled while an upload runs (a disabled button
 // drops the focus to <body>), and the result alert takes the focus from it afterwards (a cleared

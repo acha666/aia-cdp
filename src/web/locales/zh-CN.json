@@ -301,7 +301,6 @@
     "issuer_not_found": "没有已导入的证书是此 CRL 的签发者。",
     "target_not_configured": "没有已配置的 CRL 目标接收该签发者的此类 CRL。",
     "invalid_signature": "用签发者的公钥无法验证此 CRL 的签名。",
-    "issuer_mismatch": "此 CRL 不是由预期的证书签发的。",
     "stale_crl": "此 CRL 比目标当前的 CRL 更旧。",
     "conflict": "当前 CRL 的 CRL 编号与本次更新时间相同，但内容不同。",
     "non_orderable": "此 CRL 与当前 CRL 中只有一个带有 CRL 编号，无法比较先后。",

@@ -198,17 +198,15 @@ describe("GET /api/v1/certificates/{id}", () => {
     const key = certificateBlobKey(id);
     await service.base.delete(key);
     const res = await service.app.request(`${LIST}/${id}`);
-    await expectInternal(res, key, "blob_missing");
-    // One line of its own, then the request line.
-    const records = logRecords(service.deps).slice(-2);
-    expect(records).toEqual([
-      expect.objectContaining({
+    await expectInternal(res, key);
+    // The unexpected error's line, then the request line.
+    expect(logRecords(service.deps).slice(-2)).toMatchObject([
+      {
         level: "error",
-        msg: "read_inconsistent",
-        reason: "blob_missing",
-        key,
-      }),
-      expect.objectContaining({ msg: "request", status: 500 }),
+        msg: "unhandled_error",
+        error: { message: `The store has no blob ${key}` },
+      },
+      { msg: "request", status: 500 },
     ]);
   });
 
@@ -218,9 +216,8 @@ describe("GET /api/v1/certificates/{id}", () => {
     await service.base.put(key, fixture(cert(ISSUING).der));
     await expectInternal(await service.app.request(detailPath(ROOT)), key);
     expect(logRecords(service.deps).at(-2)).toMatchObject({
-      msg: "read_inconsistent",
-      reason: "blob_mismatch",
-      key,
+      msg: "unhandled_error",
+      error: { message: `Blob ${key} does not have the catalog's SHA-256` },
     });
   });
 

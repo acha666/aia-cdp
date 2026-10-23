@@ -123,9 +123,12 @@ describe("GET /api/v1/stats", () => {
     const { [issuer]: _removed, ...certificates } = catalog.certificates;
     await putCatalog(service.base, { ...catalog, certificates });
     await expectInternal(await service.app.request(STATS), issuer);
-    expect(logRecords(service.deps).slice(-2)).toEqual([
-      expect.objectContaining({ msg: "read_inconsistent", reason: "issuer_missing", issuer }),
-      expect.objectContaining({ msg: "request", status: 500 }),
+    expect(logRecords(service.deps).slice(-2)).toMatchObject([
+      {
+        msg: "unhandled_error",
+        error: { message: expect.stringContaining(`issuer ${issuer},`) as unknown },
+      },
+      { msg: "request", status: 500 },
     ]);
   });
 

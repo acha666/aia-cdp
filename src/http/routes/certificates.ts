@@ -5,9 +5,9 @@
 // certificates/{list,detail}.ts: no search, pagination, include= or storage block, and the id is
 // the certificate's SHA-256, never a store key (§10 #2: an archive-style id is a 400).
 //
-// Failures are thrown: ApiError for the 404, ReadInconsistencyError (a blob the catalog names is
-// missing or wrong) and store errors for the 500, so onError writes every envelope (no-store) and
-// the handlers only return successes. HEAD is Hono's automatic HEAD of each GET.
+// Failures are thrown: ApiError for the 404, and for the 500 a blob the catalog names that is
+// missing or wrong, or a store error, so onError writes every envelope (no-store) and the handlers
+// only return successes. HEAD is Hono's automatic HEAD of each GET.
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import type { z } from "@hono/zod-openapi";
 import { readState } from "../../core/catalog.ts";

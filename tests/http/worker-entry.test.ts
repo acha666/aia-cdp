@@ -55,40 +55,21 @@ async function get(vars: Record<string, unknown>, headers: HeaderFields = {}): P
 }
 
 describe("src/runtime/worker.ts", () => {
-  it("accepts wrangler vars written as a JSON boolean and number", async () => {
-    const res = await get(
-      { AIA_TRUST_PROXY: true, AIA_MAX_UPLOAD_BYTES: 1048576 },
-      { "CF-Connecting-IP": "198.51.100.1", "X-Forwarded-For": "203.0.113.7" }
-    );
+  it("accepts a wrangler var written as a JSON number", async () => {
+    const res = await get({ AIA_MAX_UPLOAD_BYTES: 1048576 });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ status: "degraded" });
-    // trustProxy is on, and the Worker takes the client from CF-Connecting-IP only.
-    expect(records()).toEqual([
-      expect.objectContaining({ msg: "request", status: 200, client: "198.51.100.1" }),
-    ]);
-  });
-
-  it("reads AIA_TRUST_PROXY: false (boolean) and the string forms the same way", async () => {
-    const headers = { "CF-Connecting-IP": "198.51.100.1" };
-    expect((await get({ AIA_TRUST_PROXY: false }, headers)).status).toBe(200);
-    expect(
-      (await get({ AIA_TRUST_PROXY: "true", AIA_MAX_UPLOAD_BYTES: "1048576" }, headers)).status
-    ).toBe(200);
-    expect(records().map((record) => record.client)).toEqual([undefined, "198.51.100.1"]);
-  });
-
-  it("does not take the client from X-Forwarded-For", async () => {
-    await get({ AIA_TRUST_PROXY: "true" }, { "X-Forwarded-For": "203.0.113.7" });
     expect(records()).toEqual([expect.objectContaining({ msg: "request", status: 200 })]);
-    expect(records()[0]).not.toHaveProperty("client");
   });
 
-  it.each<[string, unknown]>([
-    ["AIA_LOG_FORMAT", ["json"]],
-    ["AIA_MAX_UPLOAD_BYTES", { bytes: 1048576 }],
-    ["AIA_TRUST_PROXY", null],
-    ["AIA_ADMIN_TOKEN", { secret: "s3cret" }],
-  ])("answers 500 and logs the variable when %s is %j", async (name, value) => {
+  it.each<[string, unknown, string]>([
+    ["AIA_MAX_UPLOAD_BYTES", { bytes: 1048576 }, "must be a positive integer (bytes)"],
+    [
+      "AIA_ADMIN_TOKEN",
+      { secret: "s3cret" },
+      "must be a bearer token: letters, digits and - . _ ~ + /, optionally ending in =",
+    ],
+  ])("answers 500 and logs the variable when %s is %j", async (name, value, message) => {
     const res = await get({ [name]: value });
     expect(res.status).toBe(500);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
@@ -99,7 +80,7 @@ describe("src/runtime/worker.ts", () => {
       {
         level: "error",
         msg: "invalid_settings",
-        error: `Invalid settings:\n  ${name}: must be a string, number or boolean (a wrangler var cannot be an object, array or null)`,
+        error: `Invalid settings:\n  ${name}: ${message}`,
       },
     ]);
     expect(lines.join("\n")).not.toContain("s3cret");

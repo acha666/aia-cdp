@@ -6,7 +6,6 @@ import { HTTPException } from "hono/http-exception";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../src/http/app.ts";
 import { ApiError } from "../../src/http/errors.ts";
-import { formatLogLine, isIpAddress } from "../../src/http/log.ts";
 import { logRecords, testDeps } from "../helpers/app.ts";
 import type { LogLine, TestOverrides } from "../helpers/app.ts";
 
@@ -52,9 +51,6 @@ function setup(overrides: TestOverrides = {}) {
   return { app: createApp(deps), deps, stub };
 }
 
-/** What `headers` in a RequestInit takes (HeadersInit is not a global in the Node program). */
-type HeaderFields = NonNullable<RequestInit["headers"]>;
-
 function requestLines(lines: LogLine[]): LogLine[] {
   return lines.filter((line) => line.msg === "request");
 }
@@ -98,54 +94,6 @@ describe("reserved prefixes", () => {
     expect(res.headers.get("Content-Type")).toMatch(/^text\/plain/);
     expect(await res.text()).toBe("Method Not Allowed");
     expect(stub.requests).toEqual([]);
-  });
-
-  // A base URL with a trailing slash, or a proxy that re-encodes slashes (C12).
-  it.each(["//api/v1/missing", "/api%2Fv1/missing", "/api%2fv1/missing", "//api", "/%2Fapi/x"])(
-    "GET %s → JSON 404 not_found, not the UI",
-    async (path) => {
-      const { app, stub } = setup();
-      const res = await app.request(`http://localhost${path}`);
-      expect(res.status).toBe(404);
-      expect(res.headers.get("Content-Type")).toMatch(/^application\/json/);
-      expect(await res.json()).toEqual({ error: { code: "not_found", message: "Not found" } });
-      expect(stub.requests).toEqual([]);
-    }
-  );
-
-  // The bare prefixes are download routes too (slice 3): //ca and /%2Fdcrl are spellings of them.
-  it.each([
-    "/crl%2fissuing",
-    "/crl%2Fx.crl",
-    "//crl/x.crl",
-    "/ca%2fx.crt",
-    "///dcrl//x.crl",
-    "//ca",
-    "//crl",
-    "//dcrl",
-    "/%2Fdcrl",
-  ])("GET %s → text/plain 404, not the UI", async (path) => {
-    const { app, stub } = setup();
-    const res = await app.request(`http://localhost${path}`);
-    expect(res.status).toBe(404);
-    expect(res.headers.get("Content-Type")).toMatch(/^text\/plain/);
-    expect(await res.text()).toBe("Not Found");
-    expect(stub.requests).toEqual([]);
-  });
-
-  it("matches the normalised path only for the prefixes: routing still sees the raw path", async () => {
-    const { app, stub } = setup();
-    // Not the health route: the router does not decode %2F.
-    const health = await app.request("http://localhost/api%2Fv1/health");
-    expect(health.status).toBe(404);
-    expect(await health.json()).toEqual({ error: { code: "not_found", message: "Not found" } });
-    // /crls/ is a UI route, also when spelled with %2F or a double slash.
-    for (const path of [`/crls%2F${UUID}`, `//crls/${UUID}`]) {
-      const res = await app.request(`http://localhost${path}`);
-      expect(res.status, path).toBe(200);
-      expect(res.headers.get("Content-Type"), path).toMatch(/^text\/html/);
-    }
-    expect(stub.requests).toHaveLength(2);
   });
 });
 
@@ -500,145 +448,5 @@ describe("request log", () => {
       "/api/v1/health",
       "/api/v1/missing",
     ]);
-  });
-
-  it("has no client unless trustProxy is set", async () => {
-    const { app, deps } = setup();
-    await app.request("/api/v1/health", {
-      headers: { "X-Forwarded-For": "203.0.113.7", "CF-Connecting-IP": "198.51.100.1" },
-    });
-    expect(logRecords(deps)[0]).not.toHaveProperty("client");
-  });
-
-  /** The `client` field of one request line (undefined when absent). */
-  async function clientFor(
-    clientIpHeader: "x-forwarded-for" | "cf-connecting-ip",
-    headers: HeaderFields
-  ): Promise<unknown> {
-    const { app, deps } = setup({ clientIpHeader, settings: { trustProxy: true } });
-    await app.request("/api/v1/health", { headers });
-    const records = logRecords(deps);
-    expect(records).toHaveLength(1);
-    return records[0]?.client;
-  }
-
-  it.each<[string, HeaderFields, string | undefined]>([
-    ["the right-most entry", { "X-Forwarded-For": "6.6.6.6, 203.0.113.7" }, "203.0.113.7"],
-    ["a single entry, trimmed", { "X-Forwarded-For": " 203.0.113.7 " }, "203.0.113.7"],
-    ["an IPv6 entry", { "X-Forwarded-For": "6.6.6.6,2001:db8::1" }, "2001:db8::1"],
-    [
-      "the last of several header lines",
-      [
-        ["X-Forwarded-For", "6.6.6.6"],
-        ["X-Forwarded-For", "203.0.113.9"],
-      ],
-      "203.0.113.9",
-    ],
-    [
-      "nothing for CF-Connecting-IP (any client can send it)",
-      { "CF-Connecting-IP": "198.51.100.1" },
-      undefined,
-    ],
-    [
-      "nothing for a spoofed right-most value, without falling back",
-      { "X-Forwarded-For": "203.0.113.7, 1.2.3.4 spoofed" },
-      undefined,
-    ],
-    ["nothing for unknown", { "X-Forwarded-For": "203.0.113.7, unknown" }, undefined],
-    ["nothing for an empty entry", { "X-Forwarded-For": "203.0.113.7, " }, undefined],
-    ["nothing for an address with a port", { "X-Forwarded-For": "198.51.100.1:443" }, undefined],
-    ["nothing for an out-of-range octet", { "X-Forwarded-For": "256.1.1.1" }, undefined],
-    ["nothing for a bracketed IPv6", { "X-Forwarded-For": "[2001:db8::1]" }, undefined],
-    ["nothing without the header", {}, undefined],
-  ])("x-forwarded-for (Node): %s", async (_, headers, client) => {
-    expect(await clientFor("x-forwarded-for", headers)).toBe(client);
-  });
-
-  it.each<[string, HeaderFields, string | undefined]>([
-    [
-      "CF-Connecting-IP, ignoring X-Forwarded-For",
-      { "CF-Connecting-IP": "198.51.100.1", "X-Forwarded-For": "203.0.113.7" },
-      "198.51.100.1",
-    ],
-    ["an IPv6 CF-Connecting-IP", { "CF-Connecting-IP": "2001:db8::2" }, "2001:db8::2"],
-    ["nothing for a non-IP value", { "CF-Connecting-IP": "1.2.3.4 spoofed" }, undefined],
-    ["nothing for X-Forwarded-For alone", { "X-Forwarded-For": "203.0.113.7" }, undefined],
-  ])("cf-connecting-ip (Workers): %s", async (_, headers, client) => {
-    expect(await clientFor("cf-connecting-ip", headers)).toBe(client);
-  });
-
-  it("isIpAddress accepts IP literals only", () => {
-    for (const ok of ["0.0.0.0", "203.0.113.7", "255.255.255.255", "::1", "2001:db8::1"]) {
-      expect(isIpAddress(ok), ok).toBe(true);
-    }
-    for (const ok of ["::ffff:192.0.2.1", "2001:0db8:0000:0000:0000:0000:0000:0001"]) {
-      expect(isIpAddress(ok), ok).toBe(true);
-    }
-    for (const bad of [
-      "",
-      "1.2.3",
-      "1.2.3.4.5",
-      "01.2.3.4",
-      "0x7f.0.0.1",
-      "1.2.3.4 ",
-      ":::",
-      "2001:db8::1::2",
-      "fe80::1%eth0",
-      "[::1]",
-      "localhost",
-      "\u001b[31m",
-    ]) {
-      expect(isIpAddress(bad), JSON.stringify(bad)).toBe(false);
-    }
-  });
-
-  it("writes one line of text in the pretty format", async () => {
-    const { app, deps } = setup({ settings: { logFormat: "pretty" } });
-    await app.request("/api/v1/health?token=s3cret");
-    expect(deps.lines).toHaveLength(1);
-    const [line] = deps.lines;
-    expect(line).not.toContain("\n");
-    expect(() => JSON.parse(line!) as unknown).toThrow(SyntaxError);
-    expect(line).toMatch(/^INFO request method=GET path=\/api\/v1\/health status=200 ms=[0-9.]+$/);
-  });
-
-  it("escapes control characters from the path in the pretty format", async () => {
-    const { app, deps } = setup({ settings: { logFormat: "pretty" } });
-    // ESC [2J (clear screen), ESC [31m (red), BEL; then CSI as a C1 control (U+009B) and DEL.
-    await app.request("http://localhost/%1b[2J%1b[31mFAKE%07");
-    await app.request("http://localhost/x%c2%9b31m%7f");
-    expect(deps.lines).toHaveLength(2);
-    // No C0 control, DEL or C1 control left raw in the line.
-    const isControl = (code: number) => code < 0x20 || (code >= 0x7f && code <= 0x9f);
-    for (const line of deps.lines) {
-      expect([...line].filter((char) => isControl(char.charCodeAt(0)))).toEqual([]);
-    }
-    expect(deps.lines[0]).toContain('path="/\\u001b[2J\\u001b[31mFAKE\\u0007" status=200');
-    expect(deps.lines[1]).toContain('path="/x\\u009b31m\\u007f" status=200');
-  });
-});
-
-describe("formatLogLine (pretty)", () => {
-  const line = (value: unknown) =>
-    formatLogLine("pretty", { level: "info", msg: "test", value }).slice("INFO test ".length);
-
-  it("leaves printable ASCII without space, quote or = bare", () => {
-    expect(line("/a/b-c_d.e~!#$%&'()*+,:;<>?@[]^`{|}")).toBe(
-      "value=/a/b-c_d.e~!#$%&'()*+,:;<>?@[]^`{|}"
-    );
-  });
-
-  it("JSON-encodes everything else, with DEL, C1 controls and U+2028 / U+2029 escaped", () => {
-    expect(line("a b")).toBe('value="a b"');
-    expect(line('a"b')).toBe('value="a\\"b"');
-    expect(line("a=b")).toBe('value="a=b"');
-    expect(line("")).toBe('value=""');
-    expect(line("é")).toBe('value="é"');
-    expect(line("a\nb\u0000")).toBe('value="a\\nb\\u0000"');
-    expect(line("\u007f\u0085\u009b\u2028\u2029")).toBe(
-      'value="\\u007f\\u0085\\u009b\\u2028\\u2029"'
-    );
-    expect(line({ message: "x\u009by" })).toBe('value={"message":"x\\u009by"}');
-    expect(line(1.5)).toBe("value=1.5");
   });
 });

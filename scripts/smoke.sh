@@ -175,16 +175,6 @@ want_body '"openapi": ?"3\.1\.0"'
 want_body '"/api/v1/health"'
 report
 
-# Reserved prefixes spelled with a double slash or an encoded slash (a base URL ending in /, a
-# proxy that re-encodes): still reserved, never the UI's 200 HTML (C12).
-for path in //api/v1/missing /api%2Fv1/missing /crl%2fissuing; do
-  request GET "$path" --path-as-is
-  want_not_2xx
-  want_not_5xx
-  want_not_html
-  report
-done
-
 # --- download prefixes: plain-text 404 for CryptoAPI clients, never the UI ----------------------
 for path in /ca/x.crt /crl/missing.crl /dcrl/x.crl; do
   request GET "$path"

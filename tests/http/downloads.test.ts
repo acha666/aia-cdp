@@ -409,12 +409,10 @@ describe("text/plain 404", () => {
     ["an encoded slash in a served nested path", "/ca/sub%2Froot-ca.crt"],
     ["a lower-case encoded slash in a served nested path", "/ca/sub%2froot-ca.crt"],
     ["the PEM of a served nested path with an encoded slash", "/ca/sub%2Froot-ca.crt.pem"],
-    ["an encoded slash after the prefix", "/ca%2Froot-ca.crt"],
     ["an encoded slash before the name", "/ca/%2Froot-ca.crt"],
     ["a malformed escape", "/ca/%ZZ.crt"],
     ["a malformed escape in a served name", "/ca/root-ca%ZZ.crt"],
     ["a double slash", "/ca//root-ca.crt"],
-    ["a leading double slash", "//ca/root-ca.crt"],
     ["a trailing slash", `${P.root}/`],
     ["the prefix with a slash", "/ca/"],
     ["the prefix alone", "/ca"],
@@ -599,41 +597,17 @@ describe("500 when the store cannot back what it names", () => {
     expect(revalidated.status).toBe(304);
   });
 
-  it("blob missing → 500 and download_blob_missing (HEAD still answers from the catalog)", async () => {
+  it("blob missing → 500 (HEAD still answers from the catalog)", async () => {
     const { base, request, deps } = await setup();
     const key = certificateBlobKey(ROOT.sha256);
     await base.delete(key);
     await expectInternal(await request(`${P.root}?token=s3cret`));
-    expect(errorLines(logRecords(deps))).toEqual([
-      { level: "error", msg: "download_blob_missing", path: P.root, key },
+    expect(errorLines(logRecords(deps))).toMatchObject([
+      { msg: "unhandled_error", path: P.root, error: { message: `The store has no blob ${key}` } },
     ]);
     expect(requestLines(logRecords(deps))).toMatchObject([{ path: P.root, status: 500 }]);
     expect(deps.lines.join("\n")).not.toContain("s3cret");
     expect((await request(P.root, { method: "HEAD" })).status).toBe(200);
-  });
-
-  it.each([
-    ["shorter", (der: Uint8Array) => der.subarray(1)],
-    ["longer", (der: Uint8Array) => Uint8Array.from([...der, 0])],
-  ])("blob %s than the catalog's size → 500 and download_size_mismatch", async (_, change) => {
-    const { base, seed, request, deps } = await setup();
-    const key = crlKey(seed, "full");
-    const der = fixture(SEED_CRLS.full);
-    const stored = change(der);
-    await base.put(key, stored);
-    for (const path of [P.full, `${P.full}.pem`]) {
-      await expectInternal(await request(path));
-    }
-    expect(errorLines(logRecords(deps))).toEqual(
-      [P.full, `${P.full}.pem`].map((path) => ({
-        level: "error",
-        msg: "download_size_mismatch",
-        path,
-        key,
-        size: der.byteLength,
-        actual: stored.byteLength,
-      }))
-    );
   });
 
   // The path table names what the catalog or config does not hold (a delete racing applyConfig,
@@ -641,7 +615,7 @@ describe("500 when the store cannot back what it names", () => {
   it.each([
     ["a certificate the catalog does not hold", "/ca/leaf-min.crt", "certificate"],
     ["a target config.targets does not define", "/crl/dangling.crl", "target"],
-  ])("a path to %s → 500 and download_inconsistent, GET and HEAD", async (_, path, field) => {
+  ])("a path to %s → 500, GET and HEAD", async (_, path, field) => {
     const { base, seed, request, deps, blobGets } = await setup();
     const reference =
       field === "certificate"
@@ -655,12 +629,12 @@ describe("500 when the store cannot back what it names", () => {
       expect(res.headers.get("Cache-Control"), method).toBe("no-store");
     }
     expect(blobGets()).toEqual([]);
-    expect(errorLines(logRecords(deps))).toEqual(
+    const message = `The store cannot back the path entry ${JSON.stringify(reference)}`;
+    expect(errorLines(logRecords(deps))).toMatchObject(
       [path, `${path}.pem`, `${path}.pem`].map((logged) => ({
-        level: "error",
-        msg: "download_inconsistent",
+        msg: "unhandled_error",
         path: logged,
-        ...reference,
+        error: { message },
       }))
     );
   });

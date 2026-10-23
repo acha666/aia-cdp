@@ -265,9 +265,9 @@ describe("GET /api/v1/crls/{targetId}", () => {
     const key = (await stateOf(service)).catalog.targets[targetId]?.current?.key ?? "";
     await service.base.delete(key);
     await expectInternal(await service.app.request(`${LIST}/${targetId}`), key);
-    expect(logRecords(service.deps).slice(-2)).toEqual([
-      expect.objectContaining({ msg: "read_inconsistent", reason: "blob_missing", key }),
-      expect.objectContaining({ msg: "request", status: 500 }),
+    expect(logRecords(service.deps).slice(-2)).toMatchObject([
+      { msg: "unhandled_error", error: { message: `The store has no blob ${key}` } },
+      { msg: "request", status: 500 },
     ]);
   });
 
@@ -281,9 +281,8 @@ describe("GET /api/v1/crls/{targetId}", () => {
     for (const path of [LIST, `${LIST}/${targetId}`]) {
       await expectInternal(await service.app.request(path), issuer);
       expect(logRecords(service.deps).at(-2)).toMatchObject({
-        msg: "read_inconsistent",
-        reason: "issuer_missing",
-        issuer,
+        msg: "unhandled_error",
+        error: { message: expect.stringContaining(`issuer ${issuer},`) as unknown },
       });
     }
   });

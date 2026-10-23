@@ -3,12 +3,10 @@
 // source directly: node src/runtime/node.ts (type stripping).
 import { constants, accessSync, readFileSync, statSync } from "node:fs";
 import type { Server } from "node:http";
-import { join, resolve } from "node:path";
 import process from "node:process";
 import { serve } from "@hono/node-server";
 import { createApp } from "../http/app.ts";
-import { describeError, formatLogLine } from "../http/log.ts";
-import type { LogRecord } from "../http/log.ts";
+import { createLogger, describeError } from "../http/log.ts";
 import { FsStore } from "../storage/fs.ts";
 import { createNodeUi } from "./node-ui.ts";
 import { parseSettings, resolveFileVariants } from "./settings.ts";
@@ -20,19 +18,9 @@ import { parseSettings, resolveFileVariants } from "./settings.ts";
  * inside `docker stop`'s 10 s.
  */
 const GRACE_MS = 2_000;
-/** Last resort if closing still has not finished. */
-const FORCED_EXIT_MS = 10_000;
-
-function isFile(path: string): boolean {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
 
 async function main(): Promise<void> {
-  // Settings errors go to stderr as text: the log format is not known yet.
+  // Settings errors go to stderr as text, one invalid variable per line.
   const resolved = resolveFileVariants(process.env, (path) => readFileSync(path, "utf8"));
   const parsed = resolved.ok ? parseSettings(resolved.value) : resolved;
   if (!parsed.ok) {
@@ -44,9 +32,7 @@ async function main(): Promise<void> {
   const write = (line: string) => {
     process.stdout.write(`${line}\n`);
   };
-  const log = (record: LogRecord) => {
-    write(formatLogLine(settings.app.logFormat, record));
-  };
+  const log = createLogger({ log: write });
 
   try {
     if (!statSync(settings.dataDir).isDirectory()) {
@@ -64,13 +50,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Not fatal: `pnpm run dev:node` runs without a UI build (the Vite dev server serves the UI).
-  // Without it every UI path answers the text 404 while health stays green, so say so once.
-  const staticDir = resolve(settings.staticDir);
-  if (!isFile(join(staticDir, "index.html"))) {
-    log({ level: "warn", msg: "static_dir_missing", staticDir });
-  }
-
   const store = new FsStore(settings.dataDir);
   // Before serving, so no put is running (one process per directory, plan §1).
   try {
@@ -84,10 +63,8 @@ async function main(): Promise<void> {
     store,
     now: () => new Date(),
     settings: settings.app,
-    // Behind nginx / Traefik: the right-most entry is the one the nearest proxy appended.
-    clientIpHeader: "x-forwarded-for",
     log: write,
-    ui: createNodeUi(staticDir),
+    ui: createNodeUi(settings.staticDir),
   });
 
   // Explicit port (@hono/node-server defaults to 3000); no hostname, so Node listens on `::`
@@ -125,10 +102,6 @@ async function main(): Promise<void> {
     setTimeout(() => {
       server.closeAllConnections();
     }, GRACE_MS).unref();
-    setTimeout(() => {
-      log({ level: "error", msg: "forced_exit", afterMs: FORCED_EXIT_MS });
-      process.exit(1);
-    }, FORCED_EXIT_MS).unref();
   };
   process.once("SIGTERM", shutdown);
   process.once("SIGINT", shutdown);
