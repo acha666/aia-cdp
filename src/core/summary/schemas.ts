@@ -44,12 +44,7 @@ export const ObjectIdentifierSchema = z.object({
 export type ObjectIdentifier = z.infer<typeof ObjectIdentifierSchema>;
 
 export const SignatureValueSchema = BitStringSchema.extend({
-  parsed: z
-    .discriminatedUnion("type", [
-      z.object({ type: z.literal("ecdsa"), r: z.string(), s: z.string() }),
-      z.object({ type: z.literal("dsa"), r: z.string(), s: z.string() }),
-    ])
-    .optional(),
+  parsed: z.object({ type: z.enum(["ecdsa", "dsa"]), r: z.string(), s: z.string() }).optional(),
 }).meta({ id: "SignatureValue" });
 export type SignatureValue = z.infer<typeof SignatureValueSchema>;
 

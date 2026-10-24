@@ -2674,51 +2674,26 @@
             "type": "number"
           },
           "parsed": {
-            "oneOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "ecdsa"
-                    ]
-                  },
-                  "r": {
-                    "type": "string"
-                  },
-                  "s": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "r",
-                  "s"
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ecdsa",
+                  "dsa"
                 ]
               },
-              {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "dsa"
-                    ]
-                  },
-                  "r": {
-                    "type": "string"
-                  },
-                  "s": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "r",
-                  "s"
-                ]
+              "r": {
+                "type": "string"
+              },
+              "s": {
+                "type": "string"
               }
+            },
+            "required": [
+              "type",
+              "r",
+              "s"
             ]
           }
         },
