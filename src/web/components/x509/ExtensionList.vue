@@ -20,16 +20,11 @@ const items = computed(() => {
     }
     return label(a).localeCompare(label(b));
   });
-  // Accordion values must be unique; an OID can repeat (e.g. in CRL entry extensions).
-  const seen = new Map<string, number>();
-  return sorted.map((extension) => {
-    const count = seen.get(extension.extnID.oid) ?? 0;
-    seen.set(extension.extnID.oid, count + 1);
-    return {
-      extension,
-      value: count === 0 ? extension.extnID.oid : `${extension.extnID.oid}#${String(count)}`,
-    };
-  });
+  // Accordion values must be unique, and an OID can repeat (e.g. in CRL entry extensions).
+  return sorted.map((extension, index) => ({
+    extension,
+    value: `${String(index)}-${extension.extnID.oid}`,
+  }));
 });
 </script>
 
