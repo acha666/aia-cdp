@@ -94,6 +94,24 @@ export function readTlv(der: Uint8Array, start: number, limit: number): Tlv | un
   return end <= limit ? { tag, start, contents, end } : undefined;
 }
 
+/** The DER TLV of `tag` (one identifier octet) around `parts`, with the shortest-form length. */
+export function encodeTlv(tag: number, parts: readonly Uint8Array[]): Uint8Array {
+  const length = parts.reduce((sum, part) => sum + part.byteLength, 0);
+  const octets: number[] = [];
+  for (let rest = length; rest > 0; rest = Math.floor(rest / 256)) {
+    octets.unshift(rest & 0xff);
+  }
+  const header = length < 0x80 ? [tag, length] : [tag, 0x80 | octets.length, ...octets];
+  const der = new Uint8Array(header.length + length);
+  der.set(header);
+  let at = header.length;
+  for (const part of parts) {
+    der.set(part, at);
+    at += part.byteLength;
+  }
+  return der;
+}
+
 /**
  * Whether `bytes` is one SEQUENCE TLV with a DER header spanning all of them: toDer's test for DER
  * input, shared with the CLI, which sends such a file as is and splits anything else that holds

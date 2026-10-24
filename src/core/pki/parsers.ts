@@ -10,7 +10,7 @@ import {
   readExtensionSchema,
   readSubjectKeyId,
 } from "./extensions.ts";
-import { readTlv } from "./pem.ts";
+import { encodeTlv, readTlv } from "./pem.ts";
 import type { Tlv } from "./pem.ts";
 import { toHex } from "../digest.ts";
 
@@ -198,25 +198,6 @@ function fieldsOf(der: Uint8Array, parent: Tlv, max: number): Tlv[] {
   return fields;
 }
 
-/** The DER of a SEQUENCE of `parts`. */
-function sequenceOf(parts: Uint8Array[]): Uint8Array {
-  const length = parts.reduce((sum, part) => sum + part.byteLength, 0);
-  const octets: number[] = [];
-  for (let rest = length; rest > 0; rest = Math.floor(rest / 256)) {
-    octets.unshift(rest & 0xff);
-  }
-  const header =
-    length < 0x80 ? [SEQUENCE_TAG, length] : [SEQUENCE_TAG, 0x80 | octets.length, ...octets];
-  const der = new Uint8Array(header.length + length);
-  der.set(header);
-  let at = header.length;
-  for (const part of parts) {
-    der.set(part, at);
-    at += part.byteLength;
-  }
-  return der;
-}
-
 /**
  * The CRL in `der` without its revoked entries, for the checks an upload passes before its
  * signature is verified: those entries are only split off by their TLV header, never decoded.
@@ -250,8 +231,8 @@ export function parseCrlHeader(der: Uint8Array): ReceivedCrl {
       [UTC_TIME_TAG, GENERALIZED_TIME_TAG].includes(fields[index - 1]?.tag ?? 0)
   );
   const octets = (tlv: Tlv) => der.subarray(tlv.start, tlv.end);
-  const header = sequenceOf([
-    sequenceOf(fields.filter((_, index) => index !== revoked).map(octets)),
+  const header = encodeTlv(SEQUENCE_TAG, [
+    encodeTlv(SEQUENCE_TAG, fields.filter((_, index) => index !== revoked).map(octets)),
     ...unsigned.map(octets),
   ]);
   if (header.byteLength > MAX_HEADER_BYTES) {

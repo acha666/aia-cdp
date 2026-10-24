@@ -1,6 +1,7 @@
 // Shared by the PKI, import, publish and CRL detail tests.
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
+import { encodeTlv } from "../../src/core/pki/pem.ts";
 
 /**
  * BER encodings of one DER TLV (a certificate or CRL fixture) that DER forbids, each with the same
@@ -52,23 +53,6 @@ export function extension(
   return new pkijs.Extension({ extnID: oid, critical, extnValue: value.toBER(false) });
 }
 
-/** The definite-form length octets of `length` (X.690 §8.1.3, the fewest octets). */
-function lengthOctets(length: number): number[] {
-  if (length < 0x80) {
-    return [length];
-  }
-  const octets: number[] = [];
-  for (let rest = length; rest > 0; rest = Math.floor(rest / 256)) {
-    octets.unshift(rest & 0xff);
-  }
-  return [0x80 | octets.length, ...octets];
-}
-
-/** A TLV of `tag` around `contents`. */
-function tlv(tag: number, contents: ArrayLike<number>): Uint8Array {
-  return Uint8Array.from([tag, ...lengthOctets(contents.length), ...Array.from(contents)]);
-}
-
 /**
  * `der` (a certificate or CRL: SEQUENCE { tbs, signatureAlgorithm, signatureValue }) with its outer
  * signatureAlgorithm replaced by `rewrite` of its octets. That field is outside the signature, so
@@ -82,10 +66,10 @@ export function withOuterAlgorithm(
   if (tbs === undefined || algorithm === undefined || signature === undefined) {
     throw new Error("not SEQUENCE { tbs, signatureAlgorithm, signatureValue }");
   }
-  return tlv(0x30, [
-    ...tbs.valueBeforeDecodeView,
-    ...rewrite(algorithm.valueBeforeDecodeView),
-    ...signature.valueBeforeDecodeView,
+  return encodeTlv(0x30, [
+    tbs.valueBeforeDecodeView,
+    rewrite(algorithm.valueBeforeDecodeView),
+    signature.valueBeforeDecodeView,
   ]);
 }
 
@@ -110,7 +94,7 @@ export function padOid(algorithm: Uint8Array): Uint8Array {
     start--;
   }
   const padded = [...oid.subarray(0, start), 0x80, ...oid.subarray(start)];
-  return tlv(0x30, [...tlv(0x06, padded), ...parameters]);
+  return encodeTlv(0x30, [encodeTlv(0x06, [Uint8Array.from(padded)]), parameters]);
 }
 
 /**
@@ -119,5 +103,5 @@ export function padOid(algorithm: Uint8Array): Uint8Array {
  */
 export function nullWithContents(algorithm: Uint8Array): Uint8Array {
   const [oid] = algorithmParts(algorithm);
-  return tlv(0x30, [...tlv(0x06, oid), 0x05, 0x01, 0x00]);
+  return encodeTlv(0x30, [encodeTlv(0x06, [oid]), Uint8Array.of(0x05, 0x01, 0x00)]);
 }

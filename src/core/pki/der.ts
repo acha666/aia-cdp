@@ -5,6 +5,7 @@
 import { fromBER, Integer, ObjectIdentifier } from "asn1js";
 import type { BaseBlock } from "asn1js";
 import { asciiOf, assertWellFormed, integerNumber } from "./asn1.ts";
+import { encodeTlv } from "./pem.ts";
 
 export interface Tag {
   readonly cls: number;
@@ -60,11 +61,7 @@ export function expectTag(block: BaseBlock, tag: Tag): BaseBlock {
 
 /** An implicitly tagged primitive as the universal type `tag` ([0] IMPLICIT GeneralizedTime). */
 export function asUniversal(block: BaseBlock, tag: Tag): BaseBlock {
-  const bytes = contents(block);
-  if (bytes.length > 127) {
-    throw new Error("Implicitly tagged value too long");
-  }
-  return readDer(Uint8Array.of(tag.num, bytes.length, ...bytes));
+  return readDer(encodeTlv(tag.num, [contents(block)]));
 }
 
 /** The contents octets of a primitive element, also when it is implicitly tagged. */
