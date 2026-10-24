@@ -1,46 +1,35 @@
 <script setup lang="ts">
-import { ArrowLeftIcon } from "@lucide/vue";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { RouterLink } from "vue-router";
 import { useCertificate } from "@/client/queries";
 import CertificateOverview from "@/components/certificate/CertificateOverview.vue";
+import DetailLayout from "@/components/DetailLayout.vue";
 import DownloadLinks from "@/components/DownloadLinks.vue";
 import KindBadge from "@/components/KindBadge.vue";
 import PemText from "@/components/PemText.vue";
-import QueryError from "@/components/QueryError.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ExtensionList from "@/components/x509/ExtensionList.vue";
 import { useClock } from "@/composables/useClock";
-import { usePageTitle } from "@/composables/usePageTitle";
-import { isNotFound } from "@/utils/errors";
 import { certificateName } from "@/utils/labels";
 import { computeCertificateStatus } from "@/utils/status";
 
-// One certificate (plan §8): header with name, status and downloads; tabs for the overview, the
-// extensions and, when the configuration serves a .pem path, the PEM text. `id` matched the
-// router's pattern, so it is safe to put into the request URL. The tabs may not widen the page
-// (min-w-0: the PEM text and ASN.1 dumps scroll in their own boxes, the tab list scrolls sideways
-// on a phone, never down: the triggers' hidden line-variant ::after reaches below it); the panels
-// are tab stops (Reka), so they show a focus ring. The tabs are keyed by `id`: another certificate
-// (a link from a target page) starts on its overview.
+// One certificate (plan §8), in DetailLayout's frame: header with name, status and downloads; tabs
+// for the overview, the extensions and, when the configuration serves a .pem path, the PEM text.
+// `id` matched the router's pattern, so it is safe to put into the request URL. The tabs may not
+// widen the page (min-w-0: the PEM text and ASN.1 dumps scroll in their own boxes, the tab list
+// scrolls sideways on a phone, never down: the triggers' hidden line-variant ::after reaches below
+// it); the panels are tab stops (Reka), so they show a focus ring. The tabs are keyed by `id`:
+// another certificate (a link from a target page) starts on its overview.
 const props = defineProps<{ id: string }>();
 
 const { t } = useI18n();
 const now = useClock();
-const { data, isError, error, refetch } = useCertificate(() => props.id);
+const { data, error, refetch } = useCertificate(() => props.id);
 
-const missing = computed(() => data.value === undefined && isNotFound(error.value));
-const name = computed(() => {
-  if (data.value === undefined) {
-    return t(missing.value ? "details.certificate.notFoundTitle" : "pages.certificate.title");
-  }
-  return certificateName(data.value) ?? t("details.certificate.unknownName");
-});
-usePageTitle(name);
+const name = computed(
+  () => data.value && (certificateName(data.value) ?? t("details.certificate.unknownName"))
+);
 
 const state = computed(() => {
   const summary = data.value?.summary;
@@ -55,14 +44,7 @@ const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
 </script>
 
 <template>
-  <section class="grid gap-4">
-    <Button as-child variant="ghost" size="sm" class="w-fit">
-      <RouterLink to="/">
-        <ArrowLeftIcon data-icon="inline-start" />
-        {{ t("nav.backToOverview") }}
-      </RouterLink>
-    </Button>
-
+  <DetailLayout :id="id" kind="certificate" :name="name" :error="error" @retry="refetch()">
     <template v-if="data">
       <header class="grid gap-2">
         <div class="flex flex-wrap items-center gap-2">
@@ -103,26 +85,5 @@ const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
         </TabsContent>
       </Tabs>
     </template>
-
-    <div v-else-if="missing" class="grid gap-2" data-testid="missing">
-      <h1 class="text-2xl font-semibold tracking-tight">
-        {{ t("details.certificate.notFoundTitle") }}
-      </h1>
-      <p class="text-muted-foreground">{{ t("details.certificate.notFound") }}</p>
-      <code class="font-mono text-xs break-all text-muted-foreground">{{ id }}</code>
-    </div>
-
-    <QueryError
-      v-else-if="isError"
-      :error="error"
-      :title="t('details.certificate.loadFailed')"
-      @retry="refetch()"
-    />
-
-    <div v-else class="grid gap-3" data-testid="detail-skeleton">
-      <Skeleton class="h-8 w-72" />
-      <Skeleton class="h-5 w-40" />
-      <Skeleton class="h-48 w-full" />
-    </div>
-  </section>
+  </DetailLayout>
 </template>

@@ -1,45 +1,36 @@
 <script setup lang="ts">
-import { ArrowLeftIcon } from "@lucide/vue";
 import { computed } from "vue";
 import { I18nT, useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 import { useCrlTarget } from "@/client/queries";
 import RevokedTable from "@/components/crl/RevokedTable.vue";
+import DetailLayout from "@/components/DetailLayout.vue";
 import DownloadLinks from "@/components/DownloadLinks.vue";
 import KeyValueList from "@/components/KeyValueList.vue";
 import KindBadge from "@/components/KindBadge.vue";
-import QueryError from "@/components/QueryError.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ExtensionList from "@/components/x509/ExtensionList.vue";
 import NameDetails from "@/components/x509/NameDetails.vue";
 import { useClock } from "@/composables/useClock";
-import { usePageTitle } from "@/composables/usePageTitle";
 import { formatDate, relativeTime } from "@/utils/dates";
-import { isNotFound } from "@/utils/errors";
 import { issuerName } from "@/utils/labels";
 import { computeTargetStatus } from "@/utils/status";
 import { rows } from "@/utils/values";
 import { formatAlgorithm } from "@/utils/x509";
 
-// One CRL target (plan §8): header with label, kind, status and downloads, then the current CRL in
-// tabs (overview with the issuer link, CRL and base CRL numbers, thisUpdate / nextUpdate / Next CRL
-// Publish, algorithm and fingerprints; revoked certificates; extensions). A target without a
-// current CRL says it is not published instead, and offers no downloads (its paths answer 404).
-// `targetId` matched the router's pattern. Tabs and panels as on CertificatePage.
+// One CRL target (plan §8), in DetailLayout's frame: header with label, kind, status and
+// downloads, then the current CRL in tabs (overview with the issuer link, CRL and base CRL numbers,
+// thisUpdate / nextUpdate / Next CRL Publish, algorithm and fingerprints; revoked certificates;
+// extensions). A target without a current CRL says it is not published instead, and offers no
+// downloads (its paths answer 404). `targetId` matched the router's pattern. Tabs and panels as on
+// CertificatePage.
 const props = defineProps<{ targetId: string }>();
 
 const i18n = useI18n();
 const { t } = i18n;
 const now = useClock();
-const { data, isError, error, refetch } = useCrlTarget(() => props.targetId);
-
-const missing = computed(() => data.value === undefined && isNotFound(error.value));
-usePageTitle(
-  () => data.value?.label ?? t(missing.value ? "details.crl.notFoundTitle" : "pages.crl.title")
-);
+const { data, error, refetch } = useCrlTarget(() => props.targetId);
 
 const current = computed(() => data.value?.current ?? null);
 const status = computed(() => computeTargetStatus(current.value, now.value.getTime()));
@@ -108,14 +99,7 @@ const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
 </script>
 
 <template>
-  <section class="grid gap-4">
-    <Button as-child variant="ghost" size="sm" class="w-fit">
-      <RouterLink to="/">
-        <ArrowLeftIcon data-icon="inline-start" />
-        {{ t("nav.backToOverview") }}
-      </RouterLink>
-    </Button>
-
+  <DetailLayout :id="targetId" kind="crl" :name="data?.label" :error="error" @retry="refetch()">
     <template v-if="data">
       <header class="grid gap-2">
         <div class="flex flex-wrap items-center gap-2">
@@ -191,24 +175,5 @@ const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
         </TabsContent>
       </Tabs>
     </template>
-
-    <div v-else-if="missing" class="grid gap-2" data-testid="missing">
-      <h1 class="text-2xl font-semibold tracking-tight">{{ t("details.crl.notFoundTitle") }}</h1>
-      <p class="text-muted-foreground">{{ t("details.crl.notFound") }}</p>
-      <code class="font-mono text-xs break-all text-muted-foreground">{{ targetId }}</code>
-    </div>
-
-    <QueryError
-      v-else-if="isError"
-      :error="error"
-      :title="t('details.crl.loadFailed')"
-      @retry="refetch()"
-    />
-
-    <div v-else class="grid gap-3" data-testid="detail-skeleton">
-      <Skeleton class="h-8 w-72" />
-      <Skeleton class="h-5 w-40" />
-      <Skeleton class="h-48 w-full" />
-    </div>
-  </section>
+  </DetailLayout>
 </template>
