@@ -2,7 +2,7 @@
 // string), and the GeneralName CHOICE with its text forms (otherName and the AD GUID, IP addresses
 // and constraint ranges, directoryName). The GeneralName readers take strict DER through
 // ../pki/der.ts, like the extension decoders in extensions.ts that call them.
-import { BaseBlock, Sequence, Set as Asn1Set } from "asn1js";
+import { BaseBlock, Set as Asn1Set } from "asn1js";
 import * as pkijs from "pkijs";
 import { blockHex, displayText, stringOf } from "../pki/asn1.ts";
 import { OID_DICTIONARY, OTHER_NAME_TYPES } from "../pki/constants.ts";
@@ -84,27 +84,28 @@ function formatRfc4514(rdnSequence: RelativeDistinguishedName[]): string {
     .join(",");
 }
 
+/** One AttributeTypeAndValue ::= SEQUENCE { type, value ANY }; the value need not be a string. */
+function buildAttribute(schema: BaseBlock): AttributeTypeAndValue {
+  const tv = new pkijs.AttributeTypeAndValue({ schema });
+  const block: unknown = tv.value;
+  const tagNumber =
+    block instanceof BaseBlock && block.idBlock.tagClass === 1 ? block.idBlock.tagNumber : -1;
+  const value: AttributeValue = {
+    string: stringOf(block) ?? null,
+    encoding: ENCODING_BY_TAG[tagNumber] ?? "unknown",
+  };
+  if (value.string === null && isBlock(block)) {
+    value.rawHex = blockHex(block);
+  }
+  return { type: buildObjectIdentifier(tv.type), value };
+}
+
 export function buildName(name: pkijs.RelativeDistinguishedNames): Name {
   const rdnSequence = name.toSchema().valueBlock.value.map((group): RelativeDistinguishedName => {
     if (!(group instanceof Asn1Set)) {
       throw new Error("Invalid RDN set");
     }
-    return {
-      attributes: group.valueBlock.value.map((schema): AttributeTypeAndValue => {
-        const tv = new pkijs.AttributeTypeAndValue({ schema });
-        const block: unknown = tv.value;
-        const tagNumber =
-          block instanceof BaseBlock && block.idBlock.tagClass === 1 ? block.idBlock.tagNumber : -1;
-        const value: AttributeValue = {
-          string: stringOf(block) ?? null,
-          encoding: ENCODING_BY_TAG[tagNumber] ?? "unknown",
-        };
-        if (value.string === null && isBlock(block)) {
-          value.rawHex = blockHex(block);
-        }
-        return { type: buildObjectIdentifier(tv.type), value };
-      }),
-    };
+    return { attributes: group.valueBlock.value.map(buildAttribute) };
   });
 
   // The normalized fields: the first string value of each attribute type, in RDN order.
@@ -262,9 +263,7 @@ export function readGeneralName(block: BaseBlock): GeneralName {
 export const readGeneralNames = (block: BaseBlock, tag = SEQUENCE) =>
   sequenceOf(block, tag).map(readGeneralName);
 
-/** RelativeDistinguishedName ::= SET OF AttributeTypeAndValue, under [1] IMPLICIT. */
-export function readRelativeName(block: BaseBlock) {
-  const set = new Asn1Set({ value: sequenceOf(block, context(1)) });
-  const name = new pkijs.RelativeDistinguishedNames({ schema: new Sequence({ value: [set] }) });
-  return { attributes: buildName(name).rdnSequence.flatMap((rdn) => rdn.attributes) };
+/** RelativeDistinguishedName ::= SET SIZE (1..MAX) OF AttributeTypeAndValue, under [1] IMPLICIT. */
+export function readRelativeName(block: BaseBlock): RelativeDistinguishedName {
+  return { attributes: sequenceOf(block, context(1)).map(buildAttribute) };
 }
