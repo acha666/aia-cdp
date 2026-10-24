@@ -11,27 +11,20 @@ const props = defineProps<{ name: Name; title?: string }>();
 
 const { t } = useI18n();
 
-/** CN, O, OU, C, ST, L: shown through the fields below. */
-const NORMALIZED_OIDS = new Set([
-  "2.5.4.3",
-  "2.5.4.10",
-  "2.5.4.11",
-  "2.5.4.6",
-  "2.5.4.8",
-  "2.5.4.7",
-]);
-
+/** CN, O, OU, C, ST, L: the Name field and the attribute type it comes from. */
 const FIELDS = [
-  "commonName",
-  "organization",
-  "organizationalUnit",
-  "country",
-  "stateOrProvince",
-  "locality",
+  ["commonName", "2.5.4.3"],
+  ["organization", "2.5.4.10"],
+  ["organizationalUnit", "2.5.4.11"],
+  ["country", "2.5.4.6"],
+  ["stateOrProvince", "2.5.4.8"],
+  ["locality", "2.5.4.7"],
 ] as const;
+/** The attributes the fields show; the others are listed one by one. */
+const NORMALIZED_OIDS = new Set<string>(FIELDS.map(([, oid]) => oid));
 
 const items = computed(() => [
-  ...FIELDS.map((field) => ({
+  ...FIELDS.map(([field]) => ({
     label: t(`nameFields.${field}`),
     value: props.name[field]?.trim() ?? "",
   })),
