@@ -17,10 +17,10 @@ import { extension } from "../../helpers/pki.ts";
 
 const certificate = (name: string) => parseCertificate(fixture(cert(name).der));
 
-/** The Time projection of a manifest time (ISO 8601 UTC) that the fixture encodes as UTCTime. */
-function utcTime(iso: string) {
-  const date = new Date(iso);
-  return { iso: date.toISOString(), type: "utcTime", raw: formatGeneralizedTime(date).slice(2) };
+/** The Time projection of an ISO 8601 UTC time (manifest or test) encoded as `type`. */
+function time(iso: string, type: "utcTime" | "generalizedTime") {
+  const raw = formatGeneralizedTime(new Date(iso));
+  return { iso: new Date(iso).toISOString(), type, raw: type === "utcTime" ? raw.slice(2) : raw };
 }
 
 function byOid<T extends { extnID: { oid: string } }>(items: T[] | undefined, oid: string): T {
@@ -64,8 +64,8 @@ describe("the fixtures", () => {
     expect(tbs.issuer.rfc4514).toBe("CN=Example Root CA (ECC P-384),O=Example PKI,C=US");
     expect(tbs.subject.rdnSequence[0]?.attributes[0]?.value.encoding).toBe("printableString");
     expect(tbs.validity).toEqual({
-      notBefore: utcTime(entry.notBefore),
-      notAfter: utcTime(entry.notAfter),
+      notBefore: time(entry.notBefore, "utcTime"),
+      notAfter: time(entry.notAfter, "utcTime"),
     });
     // Signed by root-ca: ECDSA, whose AlgorithmIdentifier has no parameters (RFC 5758 §3.2).
     expect(tbs.signature).toEqual({
@@ -102,7 +102,7 @@ describe("the fixtures", () => {
     ]);
     expect(byOid(items, "1.3.6.1.4.1.311.21.4").parsed).toEqual({
       extensionType: "msCrlNextPublish",
-      date: utcTime(full.nextPublish!),
+      date: time(full.nextPublish!, "utcTime"),
     });
     expect(byOid(items, "2.5.29.20").parsed).toEqual({
       extensionType: "cRLNumber",
@@ -186,11 +186,6 @@ const ip = (...bytes: number[]) => new pkijs.GeneralName({ type: 7, value: octet
 const block = (name: pkijs.GeneralName) => name.toSchema() as asn1.BaseBlock;
 const URI = (value: string) => ({ type: "uniformResourceIdentifier", value });
 const named = (oid: string, name: string | null = null) => ({ oid, name });
-const generalized = (iso: string) => ({
-  iso: new Date(iso).toISOString(),
-  type: "generalizedTime",
-  raw: formatGeneralizedTime(new Date(iso)),
-});
 
 const SCT_LOG_ID = Uint8Array.from({ length: 32 }, (_, index) => index);
 const SCT_SIGNATURE = [0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02];
@@ -199,9 +194,9 @@ const SCT_TIME = new Date("2026-01-02T03:04:05.678Z");
 /** A list of one v1 SCT (RFC 6962 §3.2–3.3) by hand: PKIjs's encoder pads it with zero octets. */
 function sctList(missing = 0): asn1.OctetString {
   const ms = BigInt(SCT_TIME.getTime());
-  const time = Array.from({ length: 8 }, (_, at) => Number((ms >> BigInt(56 - 8 * at)) & 0xffn));
+  const stamp = Array.from({ length: 8 }, (_, at) => Number((ms >> BigInt(56 - 8 * at)) & 0xffn));
   // v1, log id, timestamp, no extensions, sha256 / ecdsa, signature.
-  const sct = [0, ...SCT_LOG_ID, ...time, 0, 0, 4, 3, 0, SCT_SIGNATURE.length, ...SCT_SIGNATURE];
+  const sct = [0, ...SCT_LOG_ID, ...stamp, 0, 0, 4, 3, 0, SCT_SIGNATURE.length, ...SCT_SIGNATURE];
   // `missing` octets cut from the end, with the SCT's own length left as it was.
   const kept = sct.slice(0, sct.length - missing);
   return octets([0, kept.length + 2, 0, sct.length, ...kept]);
@@ -224,6 +219,8 @@ const policies = (policyIdentifier: string, policyQualifiers?: pkijs.PolicyQuali
       }),
     ],
   }).toSchema();
+
+const notice = new asn1.IA5String({ value: "not a UserNotice" });
 
 const DECODED: [type: string, oid: string, value: { toBER(): ArrayBuffer }, parsed: object][] = [
   [
@@ -362,8 +359,8 @@ const DECODED: [type: string, oid: string, value: { toBER(): ArrayBuffer }, pars
       notAfter: new Date("2027-01-01T00:00:00Z"),
     }).toSchema(),
     {
-      notBefore: generalized("2026-01-01T00:00:00Z"),
-      notAfter: generalized("2027-01-01T00:00:00Z"),
+      notBefore: time("2026-01-01T00:00:00Z", "generalizedTime"),
+      notAfter: time("2027-01-01T00:00:00Z", "generalizedTime"),
     },
   ],
   [
@@ -376,7 +373,7 @@ const DECODED: [type: string, oid: string, value: { toBER(): ArrayBuffer }, pars
     "expiredCertsOnCRL",
     "2.5.29.60",
     new asn1.GeneralizedTime({ valueDate: new Date("2020-06-01T00:00:00Z") }),
-    { date: generalized("2020-06-01T00:00:00Z") },
+    { date: time("2020-06-01T00:00:00Z", "generalizedTime") },
   ],
   [
     "certificatePolicies",
@@ -409,6 +406,25 @@ const DECODED: [type: string, oid: string, value: { toBER(): ArrayBuffer }, pars
                 noticeNumbers: ["1", "2"],
                 explicitText: "Read the CPS",
               },
+            },
+          ],
+        },
+      ],
+    },
+  ],
+  [
+    // A qualifier that does not decode keeps only its DER.
+    "certificatePolicies",
+    "2.5.29.32",
+    seq(seq(objectId("2.5.29.32.0"), seq(seq(objectId("1.3.6.1.5.5.7.2.2"), notice)))),
+    {
+      policies: [
+        {
+          policyIdentifier: named("2.5.29.32.0", "anyPolicy"),
+          policyQualifiers: [
+            {
+              qualifierId: named("1.3.6.1.5.5.7.2.2", "userNotice"),
+              rawHex: toHex(notice.toBER(false)).toUpperCase(),
             },
           ],
         },
@@ -651,22 +667,5 @@ describe("decoders on values built in the test", () => {
     const result = buildExtension(extension(oid, value));
     expect([result.parseStatus, result.parsed]).toEqual(["error", undefined]);
     expect(result.asn1).toBeDefined();
-  });
-
-  it("keeps a policy qualifier that does not decode as its DER only", () => {
-    const notice = new asn1.IA5String({ value: "not a UserNotice" });
-    const result = buildExtension(
-      extension(
-        "2.5.29.32",
-        seq(seq(objectId("2.5.29.32.0"), seq(seq(objectId("1.3.6.1.5.5.7.2.2"), notice))))
-      )
-    );
-    const parsed = result.parsed?.extensionType === "certificatePolicies" ? result.parsed : null;
-    expect(parsed?.policies[0]?.policyQualifiers).toEqual([
-      {
-        qualifierId: named("1.3.6.1.5.5.7.2.2", "userNotice"),
-        rawHex: toHex(notice.toBER(false)).toUpperCase(),
-      },
-    ]);
   });
 });
