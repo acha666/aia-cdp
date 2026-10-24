@@ -4799,7 +4799,7 @@
       "delete": {
         "operationId": "deleteCertificate",
         "summary": "Delete a CA certificate",
-        "description": "Removes an imported certificate and its blob, unless config.json or the current CRL of a target (also of one removed from config.json) references it: then 409 `referenced` with `details.references`. A certificate that verified a published CRL stays referenced for good.",
+        "description": "Removes an imported certificate and its blob, unless config.json or the current CRL of a target (also of one removed from config.json) references it: then 409 `referenced` with `details.references`. The verifier of a target's current CRL stays referenced, also once the target is removed.",
         "tags": [
           "admin"
         ],

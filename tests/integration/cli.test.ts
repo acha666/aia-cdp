@@ -589,7 +589,7 @@ describe("history", () => {
     const [old, current] = FILES.map((file) => crlEntry(file));
     const line = (entry: typeof old, size: number) =>
       `${new Date(entry!.thisUpdate).toISOString()}  #${entry!.crlNumber}  ` +
-      `${entry!.sha256.slice(0, 16)}  ${size} B`;
+      `${entry!.sha256}  ${size} B`;
     const sizes = FILES.map((file) => readFileSync(fixturePath(file)).byteLength);
     expect(await against(svc, ["history", targetId])).toEqual({
       code: 0,

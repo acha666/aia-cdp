@@ -289,6 +289,8 @@ CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段
   新鲜度不跨签发者比较；规则 V9，`src/core/admin.ts`）。
 - 目标可以随时从 config 删除，删除即退役（原规则 V8 已取消，编号保留空缺）：下载、列表与上传都只认 config 里的目标，catalog 保留它
   最后的 current，作为历史与证书删除保护的依据。同一 UUID 加回 config 会重新提供删除前的 current，所以恢复发布用新 UUID。
+  V9 与 V7 一样只与当前 config 比对：删掉目标后再以同一 UUID、另一签发者或种类加回不检测，由操作员负责（那样上一条的
+  "同一张证书验证"与删除保护对该目标的历史不再成立）。
 - 被 config 引用（`certificates`、目标的 `issuer`、路径）或作为任一目标 current 的 `verifier` 的证书不能删除（§7.2）。
 
 ### 5.3 `catalog.json`（服务）
@@ -466,7 +468,7 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
   在 TLS 之后，AIA/CDP 下载按设计走明文 HTTP，HSTS 留给 Cloudflare / 反向代理决定。另加 UI 的 `Content-Security-Policy`（§8），
   同样落在全部响应上，对 JSON 与下载没有作用。
 - 退役：从 config 删除目标与它的路径。路径 404，列表与详情不再有它，上传按 `target_not_configured` 拒绝；历史 blob 与标记保留，
-  仍可经管理接口列出与下载。恢复发布用新 UUID（§5.2）。验证过已发布 CRL 的签发者证书永久不可删除（§5.2）。
+  仍可经管理接口列出与下载。恢复发布用新 UUID（§5.2）。目标当前 CRL 的验证者证书不可删除，目标删除后也一样（§5.2）。
 - 上传安全：`bodyLimit` 永远开；可选 `AIA_UPLOAD_TOKEN`；未验签的字节不完整解码（§5.5）。工具本身不做限速，限速交给前面的平台
   （Cloudflare、反向代理），文档写明。
 

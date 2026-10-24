@@ -133,7 +133,8 @@ export const deleteCertificateRoute = createRoute({
   description:
     "Removes an imported certificate and its blob, unless config.json or the current CRL of a " +
     "target (also of one removed from config.json) references it: then 409 `referenced` with " +
-    "`details.references`. A certificate that verified a published CRL stays referenced for good.",
+    "`details.references`. The verifier of a target's current CRL stays referenced, also once " +
+    "the target is removed.",
   tags,
   security,
   request: { params: CertificateIdParam },
@@ -401,7 +402,7 @@ export function adminRoutes(deps: AppDeps) {
           409,
           "referenced",
           "The certificate is referenced: remove the references from config.json first, or keep " +
-            "it (the verifier of a published CRL stays referenced)",
+            "it (the verifier of a target's current CRL stays referenced)",
           result.details
         )
       : new ApiError(409, "concurrent_update", "The catalog kept changing concurrently: retry");

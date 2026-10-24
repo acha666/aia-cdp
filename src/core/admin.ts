@@ -241,7 +241,9 @@ export function checkConfigState(config: Config, catalog: Catalog): ConfigIssue[
  * uploads only look at config.json's targets, so nothing serves it any more and its CRLs get
  * target_not_configured; the catalog keeps its last current as history and as the reference that
  * protects its verifier from deletion. Adding the same id back serves that current again, so a
- * target that publishes again gets a new id (`aia new-target-id`).
+ * target that publishes again gets a new id (`aia new-target-id`). Like a rebound `/ca/` path, an
+ * id removed by one apply and added back with another issuer or kind by a later one is not
+ * detected: that is the operator's responsibility.
  */
 export function checkConfigMigration(config: Config, current: Config | undefined): ConfigIssue[] {
   if (current === undefined) {
@@ -395,7 +397,8 @@ export type DeleteCertificateResult =
  * Every reference to certificate `id`: config.json's certificates, target issuers and paths, and
  * the verifier of any current CRL in the catalog, also of a target removed from config.json. A
  * target's history is verified by the certificate that verified its current (V9), so that
- * reference protects the history too.
+ * reference protects the history too, unless the target's id was removed and added back with
+ * another issuer (checkConfigMigration).
  */
 function referencesOf(state: State, id: string): CertificateReference[] {
   const references: CertificateReference[] = [];
@@ -428,7 +431,8 @@ function referencesOf(state: State, id: string): CertificateReference[] {
 
 /**
  * Removes an unreferenced certificate (`id`, the SHA-256 of its DER) from the catalog, then deletes
- * its blob. A certificate that verified a published CRL stays referenced by it for good. The
+ * its blob. The verifier of a target's current CRL stays referenced, also once the target is
+ * removed from config.json. The
  * catalog write is conditional and retried (updateState); config.json is not written, and an apply
  * that adds a reference in between is the accepted cross-object window (one operator at a time). A
  * crash between the two writes leaves an unreferenced blob, which a later import of the same

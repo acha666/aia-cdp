@@ -2,7 +2,9 @@
 // target's current, from one `list` of its blob prefix and one of its marker prefix, paired by
 // name (crlVersionName), so no blob or marker is read. A version is history when it has a marker
 // (a superseded current) or is the catalog's current. A blob without either is an orphan of a
-// lost publish race or a crash and is not listed.
+// lost publish race or a crash and is not listed. The catalog is read before the lists: a publish
+// writes the blob and the marker before the catalog and nothing removes them, so the lists hold
+// every version that catalog names.
 import { readState } from "./catalog.ts";
 import { parseCrlVersionName } from "./publish.ts";
 import type { ObjectStore } from "./store.ts";
@@ -48,11 +50,8 @@ async function storedHistory(
 ): Promise<{ configured: boolean; entries: StoredEntry[] } | undefined> {
   const blobPrefix = `blobs/crls/${targetId}/`;
   const markerPrefix = `history/${targetId}/`;
-  const [{ config, catalog }, blobs, markers] = await Promise.all([
-    readState(store),
-    store.list(blobPrefix),
-    store.list(markerPrefix),
-  ]);
+  const { config, catalog } = await readState(store);
+  const [blobs, markers] = await Promise.all([store.list(blobPrefix), store.list(markerPrefix)]);
   const configured = config?.targets[targetId] !== undefined;
   const current = catalog.targets[targetId]?.current ?? null;
   // Version names: a marker's key and its blob's key without prefix and extension.

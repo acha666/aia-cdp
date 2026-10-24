@@ -52,7 +52,7 @@ Commands:
   history <targetId> <sha256> --out <file>
                           Write the DER of one of those versions to <file>
   delete-certificate <id> Delete an imported certificate that nothing references (the
-                          verifier of a published CRL stays referenced)
+                          verifier of a target's current CRL stays referenced)
   health                  Exit 0 only if the service reports healthy
 
 Options:
@@ -811,7 +811,7 @@ async function listHistory(ctx: Context, targetId: string): Promise<number> {
     const line = [
       entry.thisUpdate,
       (numbers[index] ?? "").padEnd(width),
-      entry.sha256.slice(0, 16),
+      entry.sha256,
       `${entry.size} B`,
       entry.current ? "current" : "",
     ];
