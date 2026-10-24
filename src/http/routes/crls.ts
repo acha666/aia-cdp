@@ -163,40 +163,41 @@ export const getCrlTargetRoute = createRoute({
 
 // Failures --------------------------------------------------------------------------------------
 
-const CONFLICTS: ReadonlySet<PublishErrorCode> = new Set<PublishErrorCode>([
-  "stale_crl",
-  "conflict",
-  "non_orderable",
-  "concurrent_update",
-]);
-
-const MESSAGES = {
-  invalid_crl: "Not a valid X.509 CRL",
-  not_yet_valid: "The CRL's thisUpdate is more than 5 minutes ahead of the service's clock",
-  unknown_critical_extension: "The CRL has a critical extension this service does not know",
-  scoped_crl_unsupported: "Scoped and indirect CRLs are not supported",
-  unsupported_algorithm: "The CRL's signature algorithm is not supported",
-  issuer_not_found:
+/** 409 for the four conflicts, 422 for every other failure, each with its message. */
+const FAILURES = {
+  invalid_crl: [422, "Not a valid X.509 CRL"],
+  not_yet_valid: [422, "The CRL's thisUpdate is more than 5 minutes ahead of the service's clock"],
+  unknown_critical_extension: [422, "The CRL has a critical extension this service does not know"],
+  scoped_crl_unsupported: [422, "Scoped and indirect CRLs are not supported"],
+  unsupported_algorithm: [422, "The CRL's signature algorithm is not supported"],
+  issuer_not_found: [
+    422,
     "No imported certificate has the CRL's Authority Key Identifier as its Subject Key Identifier",
-  target_not_configured: "No configured target of the CRL's kind names its issuer",
-  invalid_signature: "The CRL's signature does not verify with the issuer's key",
-  stale_crl: "The CRL is older than the target's current CRL",
-  conflict: "The target's current CRL has other bytes for the same CRL Number and thisUpdate",
-  non_orderable: "Only one of the CRL and the target's current CRL has a CRL Number",
-  concurrent_update: "The catalog kept changing concurrently: retry the upload",
-} as const satisfies Record<PublishErrorCode, string>;
+  ],
+  target_not_configured: [422, "No configured target of the CRL's kind names its issuer"],
+  invalid_signature: [422, "The CRL's signature does not verify with the issuer's key"],
+  stale_crl: [409, "The CRL is older than the target's current CRL"],
+  conflict: [
+    409,
+    "The target's current CRL has other bytes for the same CRL Number and thisUpdate",
+  ],
+  non_orderable: [409, "Only one of the CRL and the target's current CRL has a CRL Number"],
+  concurrent_update: [409, "The catalog kept changing concurrently: retry the upload"],
+} as const satisfies Record<PublishErrorCode, readonly [409 | 422, string]>;
 
-/** 409 for the four conflicts, 422 for every other failure; details as publishCrl gives them. */
+/** The failure's status and message; details as publishCrl gives them (concurrent_update has none). */
 function publishError(failure: PublishFailure): ApiError {
-  const status = CONFLICTS.has(failure.error) ? 409 : 422;
-  if (failure.error === "concurrent_update") {
-    return new ApiError(status, failure.error, MESSAGES[failure.error]);
-  }
+  const [status, text] = FAILURES[failure.error];
   const message =
     failure.error === "issuer_not_found" && "reason" in failure.details
       ? "The CRL has no Authority Key Identifier keyIdentifier"
-      : MESSAGES[failure.error];
-  return new ApiError(status, failure.error, message, failure.details);
+      : text;
+  return new ApiError(
+    status,
+    failure.error,
+    message,
+    "details" in failure ? failure.details : undefined
+  );
 }
 
 // Sub-app ---------------------------------------------------------------------------------------
