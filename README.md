@@ -37,7 +37,7 @@ X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloud
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm run types     # 生成 worker-configuration.d.ts（不入库）；装完先跑一次，check / typecheck / lint 也会先重生成
+pnpm run types     # 生成 .wrangler/types/worker-configuration.d.ts（不入库）；装完先跑一次，check / typecheck / lint 也会先重生成
 pnpm run verify    # check + test + build
 pnpm run ci:check  # 以下四个就是 CI 的定义，合并前都要在本机跑通
 pnpm run ci:test

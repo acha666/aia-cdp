@@ -87,10 +87,10 @@
 ```text
 aia-cdp/
   package.json  pnpm-lock.yaml  pnpm-workspace.yaml  .nvmrc
-  .gitignore  .gitattributes  .prettierrc.json  .prettierignore  .dockerignore
+  .gitignore  .gitattributes  .prettierignore  .dockerignore
   tsconfig.json  tsconfig.base.json  tsconfig.worker.json  tsconfig.node.json
   tsconfig.build.json  tsconfig.web.json
-  wrangler.jsonc  worker-configuration.d.ts（`pnpm run types` 生成，不入库）
+  wrangler.jsonc  .wrangler/types/worker-configuration.d.ts（`pnpm run types` 生成，不入库）
   Dockerfile  vite.config.ts  vitest.config.ts  eslint.config.ts  components.json（shadcn-vue）
   .github/             workflows/ci.yml  workflows/docker-publish.yml  dependabot.yml
   .devcontainer/       devcontainer.json（决策 15）
@@ -131,7 +131,7 @@ aia-cdp/
   dist/                web/（vite build） server/（tsc -p tsconfig.build.json） worker/（dry-run）；不入库
 ```
 
-不入库：`worker-configuration.d.ts`、`dist/`、`.wrangler/`、`.data/`、`.dev.vars*`、`node_modules/`。
+不入库：`dist/`、`.wrangler/`（含生成的 `worker-configuration.d.ts`）、`.data/`、`.dev.vars*`、`node_modules/`。
 `.gitattributes` 设 `*.sh text eol=lf` 与 `tests/fixtures/pki/** -text`（夹具逐字节比较）；`.dockerignore` 用白名单，`tests/fixtures`、`.dev.vars`、`.git` 进不了构建上下文。
 
 模块约定（全仓 ESM、服务端相对导入写 `.ts`、只用可擦除语法、`src/web` 对服务端模块只许 `import type`、core 与 http 只用 Web 标准全局）
@@ -152,7 +152,7 @@ aia-cdp/
   `r2_buckets: [{ binding: "STORE" }]`，不写 `bucket_name`（自动置备；是否共用旧桶是切片 7 的 owner 项）；
   `assets: { directory: "dist/web", binding: "ASSETS", run_worker_first: true,
   not_found_handling: "single-page-application" }`（history 路由的兜底）。不写 `routes`、`build.command`、`vars`。
-- 绑定类型：`wrangler types --env-file=/dev/null` 生成 `worker-configuration.d.ts`（不读 `.dev.vars`，结果确定），不入库；
+- 绑定类型：`wrangler types --env-file=/dev/null` 生成 `.wrangler/types/worker-configuration.d.ts`（不读 `.dev.vars`，结果确定），不入库；
   `pnpm run types` 在 check / typecheck / lint 之前重生成，ESLint 与 Prettier 排除它。
 - 入口：按 `env` 缓存一个 app（`WeakMap<Env, AppType>`），`createApp({ store: new R2Store(env.STORE), now, settings,
   log: (line) => console.log(line), ui: (req) => env.ASSETS.fetch(req) })`，`app.fetch(req, env, ctx)`；设置无效时每个请求返回 500 信封并记一行 error 日志。

@@ -14,7 +14,7 @@
     }
   },
   "scripts": {
-    "types": "WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true wrangler types --env-file=/dev/null",
+    "types": "mkdir -p .wrangler/types && WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true wrangler types .wrangler/types/worker-configuration.d.ts --env-file=/dev/null",
     "typecheck": "pnpm run types && tsc -p tsconfig.worker.json && tsc -p tsconfig.node.json && vue-tsc -p tsconfig.web.json",
     "lint": "pnpm run types && eslint --max-warnings 0 .",
     "format": "prettier --write .",
@@ -39,6 +39,18 @@
     "ci:test": "pnpm run test && pnpm run build",
     "ci:worker": "pnpm run build:web && WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true wrangler deploy --dry-run --outdir dist/worker && pnpm run smoke:worker && pnpm run test:r2",
     "ci:docker": "bash scripts/docker-smoke.sh"
+  },
+  "prettier": {
+    "trailingComma": "es5",
+    "printWidth": 100,
+    "overrides": [
+      {
+        "files": "*.jsonc",
+        "options": {
+          "trailingComma": "none"
+        }
+      }
+    ]
   },
   "dependencies": {
     "@hono/node-server": "2.1.5",

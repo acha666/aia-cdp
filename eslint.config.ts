@@ -4,7 +4,7 @@ import pluginVue from "eslint-plugin-vue";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
-  // Build outputs, .wrangler/ and the generated worker-configuration.d.ts.
+  // Build outputs and .wrangler/ (with the generated worker-configuration.d.ts).
   includeIgnoreFile(`${import.meta.dirname}/.gitignore`),
 
   js.configs.recommended,

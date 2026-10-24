@@ -5,6 +5,7 @@
     "ghcr.io/devcontainers/features/powershell:2": {}
   },
   "remoteUser": "node",
+  "postCreateCommand": "pnpm install && pnpm run types",
   "containerEnv": {
     "WRANGLER_SEND_METRICS": "false"
   },
@@ -16,6 +17,20 @@
   },
   "customizations": {
     "vscode": {
+      // Root config files fold under the file they belong to in the Explorer.
+      "settings": {
+        "explorer.fileNesting.enabled": true,
+        "explorer.fileNesting.expand": false,
+        "explorer.fileNesting.patterns": {
+          "package.json": "pnpm-lock.yaml, pnpm-workspace.yaml, .nvmrc",
+          "tsconfig.json": "tsconfig.*.json",
+          "vite.config.ts": "vitest.config.ts, components.json",
+          "wrangler.jsonc": ".dev.vars*",
+          "Dockerfile": ".dockerignore",
+          ".gitignore": ".gitattributes, .prettierignore",
+          "README.md": "LICENSE"
+        }
+      },
       "extensions": [
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
