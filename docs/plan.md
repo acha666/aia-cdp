@@ -125,7 +125,7 @@ aia-cdp/
       lib/utils.ts     shadcn-vue 生成（cn）
   tests/
     core/  http/  storage/  integration/  web/
-    helpers/           testDeps()、store 包装、seed
+    helpers/           testDeps()、store 包装、readService / setupPublish（按运维流程建状态）
     fixtures/          generate-test-data.sh  pki.ts；产物 pki/ 入库
   scripts/             adcs-crl-uploader.ps1  generate-openapi.ts  seed-dev.ts
                        smoke.sh  worker-smoke.ts  docker-smoke.sh（切片 7 加 migrate-from-v2.ts）
