@@ -128,15 +128,11 @@ export function buildName(name: pkijs.RelativeDistinguishedNames): Name {
 // General names
 // =============================================================================
 
+/** 16 octets in the GUID text form, whose first three fields are little-endian. */
 function formatGuid(bytes: Uint8Array): string {
+  const le = (start: number, end: number) => toHex(bytes.slice(start, end).reverse());
   const hex = toHex(bytes);
-  const swap = (start: number, length: number) =>
-    hex
-      .slice(start * 2, (start + length) * 2)
-      .match(/../g)
-      ?.reverse()
-      .join("") ?? "";
-  return `${swap(0, 4)}-${swap(4, 2)}-${swap(6, 2)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  return `${le(0, 4)}-${le(4, 6)}-${le(6, 8)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 const GENERAL_NAME_TYPES: Record<number, GeneralName["type"]> = {
@@ -189,23 +185,10 @@ function formatIpAddress(bytes: Uint8Array): string | undefined {
   return new URL(`http://[${groups}]`).hostname.slice(1, -1);
 }
 
+/** The prefix length of a contiguous netmask (ones, then zeros); undefined for any other mask. */
 function prefixLength(mask: Uint8Array): number | undefined {
-  let length = 0;
-  let sawZero = false;
-  for (const byte of mask) {
-    for (let bit = 7; bit >= 0; bit--) {
-      const set = (byte & (1 << bit)) !== 0;
-      if (set && sawZero) {
-        return undefined;
-      }
-      if (set) {
-        length++;
-      } else {
-        sawZero = true;
-      }
-    }
-  }
-  return length;
+  const bits = Array.from(mask, (byte) => byte.toString(2).padStart(8, "0")).join("");
+  return /^(1*)0*$/.exec(bits)?.[1]?.length;
 }
 
 /** iPAddress is 4/16 bytes in alternative names and 8/32 bytes (address + mask) in constraints. */
