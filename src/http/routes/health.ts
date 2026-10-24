@@ -5,7 +5,7 @@ import { createLogger, describeError } from "../log.ts";
 import { HealthOk, HealthUnavailable, jsonContent } from "../schemas.ts";
 import type { AppDeps } from "../types.ts";
 
-export const healthRoute = createRoute({
+const healthRoute = createRoute({
   method: "get",
   path: "/health",
   operationId: "getHealth",

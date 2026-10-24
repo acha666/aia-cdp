@@ -56,12 +56,12 @@ type ErrorCodes = readonly [ErrorCode, ...ErrorCode[]];
  * The failure envelope `{ error: { code, message, details? } }` for one status code, with `code`
  * narrowed to what that status can carry. Callers name it: `errorSchema([...]).openapi("…")`.
  */
-export function errorSchema<const C extends ErrorCodes>(codes: C) {
+function errorSchema<const C extends ErrorCodes>(codes: C) {
   return detailedErrorSchema(codes, z.unknown().optional());
 }
 
 /** errorSchema with a documented `details` shape (only for docs: failures are thrown as ApiError). */
-export function detailedErrorSchema<const C extends ErrorCodes, D extends z.ZodType>(
+function detailedErrorSchema<const C extends ErrorCodes, D extends z.ZodType>(
   codes: C,
   details: D
 ) {
@@ -336,7 +336,7 @@ const Downloads = z.array(z.string()).openapi({
 });
 
 /** A configured target that names the certificate as its issuer. */
-export const CertificateTarget = z
+const CertificateTarget = z
   .object({ targetId: TargetId, kind: CrlKind, label: z.string() })
   .openapi("CertificateTarget");
 
@@ -364,12 +364,12 @@ export const CertificateDetail = CertificateListItem.extend({
 }).openapi("CertificateDetail");
 
 /** A target's issuer certificate: its id, config.json label and subject CN. */
-export const CrlIssuer = z
+const CrlIssuer = z
   .object({ id: Sha256Hex, label: z.string().nullable(), subjectCN: z.string().nullable() })
   .openapi("CrlIssuer");
 
 /** A target's current CRL as the catalog records it at publish time. */
-export const CrlCurrent = z
+const CrlCurrent = z
   .object({
     /** SHA-256 of the DER. */
     sha256: Sha256Hex,
@@ -380,7 +380,7 @@ export const CrlCurrent = z
   .openapi("CrlCurrent");
 
 /** The current CRL of a target detail: every revoked entry, never a page. */
-export const CrlCurrentDetail = CrlCurrent.extend({
+const CrlCurrentDetail = CrlCurrent.extend({
   /** Id of the certificate whose key verified the signature. */
   verifier: Sha256Hex,
   fingerprints: FingerprintsSchema,
@@ -452,7 +452,7 @@ export const Stats = z
 // The bodies of src/core/history.ts and src/core/certificates.ts deleteCertificate.
 
 /** One version of a target's history. */
-export const CrlHistoryEntry = z
+const CrlHistoryEntry = z
   .object({
     /** SHA-256 of the DER. */
     sha256: Sha256Hex,

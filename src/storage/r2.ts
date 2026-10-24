@@ -8,7 +8,7 @@ import { assertStoreKey, assertStorePrefix } from "../core/store.ts";
 import type { ObjectStore, PutOptions, PutResult } from "../core/store.ts";
 
 /** R2's precondition object. Values are unquoted ETags or `*`; a quoted value throws TypeError. */
-export interface R2ConditionalLike {
+interface R2ConditionalLike {
   etagMatches?: string;
   etagDoesNotMatch?: string;
 }

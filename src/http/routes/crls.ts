@@ -66,7 +66,7 @@ function uploadGate(settings: AppSettings): MiddlewareHandler[] {
   ];
 }
 
-export function uploadCrlRoute(settings: AppSettings) {
+function uploadCrlRoute(settings: AppSettings) {
   return createRoute({
     method: "post",
     path: "/crls",
@@ -123,7 +123,7 @@ export function uploadCrlRoute(settings: AppSettings) {
 
 // Reads -----------------------------------------------------------------------------------------
 
-export const listCrlTargetsRoute = createRoute({
+const listCrlTargetsRoute = createRoute({
   method: "get",
   path: "/crls",
   operationId: "listCrlTargets",
@@ -139,7 +139,7 @@ export const listCrlTargetsRoute = createRoute({
   },
 });
 
-export const getCrlTargetRoute = createRoute({
+const getCrlTargetRoute = createRoute({
   method: "get",
   path: "/crls/{targetId}",
   operationId: "getCrlTarget",

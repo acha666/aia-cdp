@@ -23,7 +23,7 @@ import type { AppDeps } from "../types.ts";
 
 const TAGS = ["certificates"];
 
-export const listCertificatesRoute = createRoute({
+const listCertificatesRoute = createRoute({
   method: "get",
   path: "/certificates",
   operationId: "listCertificates",
@@ -38,7 +38,7 @@ export const listCertificatesRoute = createRoute({
   },
 });
 
-export const getCertificateRoute = createRoute({
+const getCertificateRoute = createRoute({
   method: "get",
   path: "/certificates/{id}",
   operationId: "getCertificate",

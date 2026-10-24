@@ -17,7 +17,7 @@ import type { AppDeps } from "../types.ts";
 import { textNotFound } from "../ui.ts";
 
 /** Registered for GET (and so HEAD). Hono's `/ca/*` also matches `/ca` itself. */
-export const DOWNLOAD_ROUTES = ["/ca/*", "/crl/*", "/dcrl/*"] as const;
+const DOWNLOAD_ROUTES = ["/ca/*", "/crl/*", "/dcrl/*"] as const;
 
 /**
  * One download request, in this order:

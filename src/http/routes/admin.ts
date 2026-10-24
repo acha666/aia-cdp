@@ -90,7 +90,7 @@ const certificateMediaType = mediaTypeGate(
     "application/octet-stream"
 );
 
-export const importCertificateRoute = createRoute({
+const importCertificateRoute = createRoute({
   method: "post",
   path: "/admin/certificates",
   operationId: "importCertificate",
@@ -126,7 +126,7 @@ export const importCertificateRoute = createRoute({
 
 // DELETE /admin/certificates/{id} ----------------------------------------------------------------
 
-export const deleteCertificateRoute = createRoute({
+const deleteCertificateRoute = createRoute({
   method: "delete",
   path: "/admin/certificates/{id}",
   operationId: "deleteCertificate",
@@ -155,7 +155,7 @@ export const deleteCertificateRoute = createRoute({
 
 // GET / PUT /admin/config ------------------------------------------------------------------------
 
-export const getConfigRoute = createRoute({
+const getConfigRoute = createRoute({
   method: "get",
   path: "/admin/config",
   operationId: "getConfig",
@@ -184,7 +184,7 @@ const STRONG_SHA256_ETAG = /^"([0-9a-f]{64})"$/;
  * strong ETag as GET sends it (`W/`, a list, unquoted, `*`) can never match → 412; so can a
  * well-formed one for another state (applyConfig).
  */
-export function configPrecondition(headers: Headers): ConfigPrecondition {
+function configPrecondition(headers: Headers): ConfigPrecondition {
   const ifMatch = headers.get("If-Match");
   const ifNoneMatch = headers.get("If-None-Match");
   if (ifMatch === null && ifNoneMatch === "*") {
@@ -216,7 +216,7 @@ function configInvalid(issues: ConfigIssue[]): ApiError {
   return new ApiError(422, "config_invalid", "The configuration is invalid", { issues });
 }
 
-export const applyConfigRoute = createRoute({
+const applyConfigRoute = createRoute({
   method: "put",
   path: "/admin/config",
   operationId: "applyConfig",
@@ -266,7 +266,7 @@ export const applyConfigRoute = createRoute({
 
 // GET /admin/crls/{targetId}/history[/{sha256}] -------------------------------------------------
 
-export const getHistoryRoute = createRoute({
+const getHistoryRoute = createRoute({
   method: "get",
   path: "/admin/crls/{targetId}/history",
   operationId: "getCrlHistory",
@@ -288,7 +288,7 @@ export const getHistoryRoute = createRoute({
   },
 });
 
-export const getHistoryVersionRoute = createRoute({
+const getHistoryVersionRoute = createRoute({
   method: "get",
   path: "/admin/crls/{targetId}/history/{sha256}",
   operationId: "getCrlHistoryVersion",

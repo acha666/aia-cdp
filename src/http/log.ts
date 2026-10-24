@@ -4,7 +4,7 @@
 import { createMiddleware } from "hono/factory";
 import type { AppDeps } from "./types.ts";
 
-export type LogLevel = "info" | "warn" | "error";
+type LogLevel = "info" | "warn" | "error";
 
 export interface LogRecord {
   level: LogLevel;

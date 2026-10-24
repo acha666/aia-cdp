@@ -8,7 +8,7 @@ import { NO_STORE } from "../errors.ts";
 import { INTERNAL_ERROR, jsonContent, Stats } from "../schemas.ts";
 import type { AppDeps } from "../types.ts";
 
-export const getStatsRoute = createRoute({
+const getStatsRoute = createRoute({
   method: "get",
   path: "/stats",
   operationId: "getStats",

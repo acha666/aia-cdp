@@ -6,7 +6,7 @@ import { ERROR_MESSAGES, errorBody, NO_STORE } from "./errors.ts";
 import type { AppDeps } from "./types.ts";
 
 /** API paths: a miss is the JSON 404 envelope. */
-export const API_PREFIX = /^\/api(?:\/|$)/;
+const API_PREFIX = /^\/api(?:\/|$)/;
 
 /**
  * Download paths (CryptoAPI / OpenSSL clients), as Hono matches the download routes' `/ca/*`:
@@ -14,7 +14,7 @@ export const API_PREFIX = /^\/api(?:\/|$)/;
  * The bare prefix counts, but a `/` or the end must follow it: /crls/ and /certificates/ are UI
  * routes.
  */
-export const DOWNLOAD_PREFIX = /^\/(?:ca|crl|dcrl)(?:\/|$)/;
+const DOWNLOAD_PREFIX = /^\/(?:ca|crl|dcrl)(?:\/|$)/;
 
 /** Content-hashed Vite output. */
 const HASHED_ASSETS = "/assets/";

@@ -3,7 +3,7 @@
 // vars / secrets straight to parseSettings.
 import { z } from "zod";
 
-export type SettingsResult<T> = { ok: true; value: T } | { ok: false; error: string };
+type SettingsResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** Variables that may instead be read from the file named by `<NAME>_FILE`. */
 const FILE_VARIANTS = ["AIA_ADMIN_TOKEN", "AIA_UPLOAD_TOKEN"] as const;
