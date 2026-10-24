@@ -33,9 +33,6 @@ const { data, error, refetch } = useCrlTarget(() => props.targetId);
 
 const current = computed(() => data.value?.current ?? null);
 const status = computed(() => computeTargetStatus(current.value, now.value.getTime()));
-const issuer = computed(() =>
-  data.value ? (data.value.issuer.label ?? data.value.issuer.subjectCN ?? t("common.unknown")) : ""
-);
 const extensions = computed(() => current.value?.tbsCertList.crlExtensions?.items ?? []);
 
 const time = (iso: string | null | undefined) => formatDate(iso, i18n);
@@ -91,7 +88,7 @@ const statusDetail = computed(() => {
     return null;
   }
   const boundary = status.value === "not-yet-valid" ? summary.thisUpdate : summary.nextUpdate;
-  return relativeTime(boundary, now.value.getTime(), i18n, true) || null;
+  return relativeTime(boundary, now.value.getTime(), i18n, true);
 });
 
 const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
@@ -125,7 +122,7 @@ const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
               class="text-foreground underline-offset-4 hover:underline"
               data-testid="issuer-link"
             >
-              {{ issuer }}
+              {{ data.issuer.label ?? data.issuer.subjectCN ?? t("common.unknown") }}
             </RouterLink>
           </template>
         </I18nT>

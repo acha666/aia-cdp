@@ -11,13 +11,6 @@ import { computeTargetStatus, needsAttention } from "@/utils/status";
 // has no time-dependent field; that one is counted here from the target list with the page's clock
 // and the badges' rule (stale, expired or unknown), so the number always matches the badges in the
 // table below.
-interface Tile {
-  key: string;
-  label: string;
-  value: string;
-  hint: string;
-}
-
 const stats = useStats();
 const targets = useCrlTargets();
 const now = useClock();
@@ -32,7 +25,7 @@ const attention = computed(() => {
   return list.filter((target) => needsAttention(computeTargetStatus(target.current, nowMs))).length;
 });
 
-const tiles = computed<Tile[] | null>(() => {
+const tiles = computed(() => {
   const data = stats.data.value;
   if (data === undefined) {
     return null;
