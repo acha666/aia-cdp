@@ -7,10 +7,12 @@ import type {
   ObjectIdentifier,
 } from "@/client/types";
 
-/** "CN=x" with the attribute's short name (or OID); a value that is no string is left empty. */
+/**
+ * "CN=x" with the attribute's short name (or OID); a value that is no string is "#hex" (RFC 4514).
+ */
 export function formatAttribute(attribute: AttributeTypeAndValue): string {
   const key = attribute.type.name ?? attribute.type.oid;
-  const value = attribute.value.string ?? "";
+  const value = attribute.value.string ?? `#${attribute.value.rawHex ?? ""}`;
   return `${key}=${value}`;
 }
 

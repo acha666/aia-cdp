@@ -22,6 +22,7 @@ import { formatDate, relativeTime } from "@/utils/dates";
 import { isNotFound } from "@/utils/errors";
 import { issuerName } from "@/utils/labels";
 import { computeTargetStatus } from "@/utils/status";
+import { rows } from "@/utils/values";
 import { formatAlgorithm } from "@/utils/x509";
 
 // One CRL target (plan §8): header with label, kind, status and downloads, then the current CRL in
@@ -59,7 +60,7 @@ const overview = computed(() => {
   }
   const { summary } = crl;
   return {
-    information: [
+    information: rows(
       { label: t("details.crl.crlNumber"), value: summary.crlNumber },
       summary.baseCrlNumber !== null && {
         label: t("details.crl.baseCrlNumber"),
@@ -67,16 +68,16 @@ const overview = computed(() => {
       },
       { label: t("details.crl.version"), value: crl.tbsCertList.version.display },
       { label: t("details.crl.publishedAt"), value: time(crl.publishedAt) },
-      { label: t("details.crl.size"), value: t("common.bytes", { count: crl.size }) },
-    ].filter((row) => row !== false),
-    validity: [
+      { label: t("details.crl.size"), value: t("common.bytes", { count: crl.size }) }
+    ),
+    validity: rows(
       { label: t("details.crl.thisUpdate"), value: time(summary.thisUpdate) },
       { label: t("details.crl.nextUpdate"), value: time(summary.nextUpdate) },
       summary.nextPublish !== null && {
         label: t("details.crl.nextPublish"),
         value: time(summary.nextPublish),
-      },
-    ].filter((row) => row !== false),
+      }
+    ),
     cryptography: [
       {
         label: t("details.crl.signatureAlgorithm"),
@@ -84,8 +85,8 @@ const overview = computed(() => {
       },
     ],
     fingerprints: [
-      { label: "SHA-1", value: crl.fingerprints.sha1, hex: true },
-      { label: "SHA-256", value: crl.fingerprints.sha256, hex: true },
+      { label: "SHA-1", value: { hex: crl.fingerprints.sha1 } },
+      { label: "SHA-256", value: { hex: crl.fingerprints.sha256 } },
     ],
   };
 });

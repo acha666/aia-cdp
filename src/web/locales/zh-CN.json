@@ -84,6 +84,12 @@
       "iPAddress": "IP",
       "registeredID": "注册 ID"
     },
+    "accessMethod": {
+      "ocsp": "OCSP",
+      "caIssuers": "CA 签发者",
+      "timeStamping": "时间戳",
+      "caRepository": "CA 存储库"
+    },
     "fields": {
       "ca": "CA",
       "pathLength": "路径长度",
@@ -124,7 +130,15 @@
       "crlIssuer": "CRL 签发者",
       "nameRelativeToCRLIssuer": "相对 CRL 签发者的名称",
       "cps": "CPS",
-      "userNotice": "用户声明"
+      "userNotice": "用户声明",
+      "fullName": "完整名称",
+      "policy": "策略",
+      "names": "名称",
+      "usages": "用法",
+      "purposes": "用途",
+      "features": "特性",
+      "certTypes": "证书类型",
+      "virtualBaseCrlNumber": "虚拟基础 CRL 编号"
     }
   },
   "health": {

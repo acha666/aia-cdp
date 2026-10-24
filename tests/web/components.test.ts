@@ -4,16 +4,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { h } from "vue";
 import type { Component } from "vue";
 import { toast } from "vue-sonner";
-import type { Extension, GeneralName, Name } from "@/client/types";
+import type { Extension, Name } from "@/client/types";
 import DownloadLinks from "@/components/DownloadLinks.vue";
 import HexValue from "@/components/HexValue.vue";
 import KindBadge from "@/components/KindBadge.vue";
 import LocaleSelect from "@/components/LocaleSelect.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
 import { Accordion } from "@/components/ui/accordion";
+import ValueView from "@/components/ValueView.vue";
 import ExtensionList from "@/components/x509/ExtensionList.vue";
 import ExtensionView from "@/components/x509/ExtensionView.vue";
-import GeneralNameList from "@/components/x509/GeneralNameList.vue";
 import NameDetails from "@/components/x509/NameDetails.vue";
 import { createAppI18n } from "@/i18n";
 import type { AppLocale } from "@/i18n";
@@ -151,6 +151,22 @@ describe("HexValue", () => {
   });
 });
 
+describe("ValueView", () => {
+  it.each([null, "", { hex: "" }, { lines: [] }, { tags: [] }])("reads (empty) for %j", (value) => {
+    expect(render(ValueView, { value }).text()).toBe("(empty)");
+  });
+
+  it("keeps the line breaks of text and gives each line or tag a list item", () => {
+    expect(render(ValueView, { value: "a\nb" }).get("span").element.textContent).toBe("a\nb");
+    const lines = render(ValueView, { value: { lines: ["URI: http://a.test/", "DNS: b.test"] } });
+    expect(lines.findAll("li").map((item) => item.text())).toEqual([
+      "URI: http://a.test/",
+      "DNS: b.test",
+    ]);
+    expect(render(ValueView, { value: { tags: ["a", "b"] } }).findAll("li")).toHaveLength(2);
+  });
+});
+
 describe("LocaleSelect", () => {
   it("switches the global locale between the two UI languages", async () => {
     const locale = render(LocaleSelect, {});
@@ -250,34 +266,6 @@ describe("ExtensionList", () => {
   });
 });
 
-describe("GeneralNameList", () => {
-  it("prefixes each name with its type label, otherName with its own name or type OID", () => {
-    const names: GeneralName[] = [
-      { type: "dNSName", value: "leaf.example.test" },
-      { type: "iPAddress", value: "2001:db8::10" },
-      {
-        type: "otherName",
-        value: "leaf@example.test",
-        typeOid: "1.3.6.1.4.1.311.20.2.3",
-        typeName: "userPrincipalName",
-      },
-      { type: "otherName", value: "x", typeOid: "1.3.6.1.4.1.32473.2" },
-      { type: "x400Address", value: "", rawHex: "a003" },
-    ];
-    expect(
-      render(GeneralNameList, { names })
-        .findAll("li")
-        .map((item) => item.text())
-    ).toEqual([
-      "DNS: leaf.example.test",
-      "IP: 2001:db8::10",
-      "userPrincipalName: leaf@example.test",
-      "1.3.6.1.4.1.32473.2: x",
-      "X.400: a003",
-    ]);
-  });
-});
-
 describe("ExtensionView", () => {
   /** An ExtensionView inside an Accordion, opened. */
   function renderOpen(value: Extension, locale: AppLocale = "en") {
@@ -317,7 +305,7 @@ describe("ExtensionView", () => {
     expect(view.get('[data-testid="hex-value"]').element.textContent).toBe("0C:03:61:62:63");
   });
 
-  it("renders the blocks of a decoded extension without dump or raw value", () => {
+  it("renders the sections of a decoded extension without dump or raw value", () => {
     // A CA renewed with its old key: CA Version V1.0.
     const caVersion = {
       extnID: { oid: "1.3.6.1.4.1.311.21.1", name: "CA Version" },
@@ -334,7 +322,6 @@ describe("ExtensionView", () => {
     expect(view.find('[data-testid="critical"]').exists()).toBe(false);
     expect(view.findAll("dt").map((term) => term.text())).toEqual(["CA 证书索引", "CA 密钥索引"]);
     expect(view.findAll("dd").map((value) => value.text())).toEqual(["1", "0"]);
-    expect(view.find("ol").exists()).toBe(false);
   });
 
   /** A decoded extension of `parsed`'s type (the header and value are not looked at here). */
@@ -348,70 +335,96 @@ describe("ExtensionView", () => {
     };
   }
 
-  /** Text with the template's line breaks and indentation collapsed. */
-  const text = (element: { text(): string }) => element.text().replace(/\s+/g, " ");
+  const KEY_CERT_SIGN_ONLY = {
+    digitalSignature: false,
+    nonRepudiation: false,
+    keyEncipherment: false,
+    dataEncipherment: false,
+    keyAgreement: false,
+    keyCertSign: true,
+    cRLSign: false,
+    encipherOnly: false,
+    decipherOnly: false,
+  };
 
-  it("names policies with their OIDs and shows CPS, user notice and other qualifiers", () => {
-    const view = renderOpen(
-      decoded("2.5.29.32", {
-        extensionType: "certificatePolicies",
-        policies: [
-          { policyIdentifier: { oid: "2.23.140.1.2.1", name: "CA/Browser Forum DV" } },
+  it("draws every value kind in its one style, a section per distribution point", () => {
+    const ldap =
+      "ldap:///CN=Example%20Issuing%20CA%2001,CN=CDP,DC=example,DC=test?deltaRevocationList";
+    const uri = (value: string) => ({ type: "uniformResourceIdentifier" as const, value });
+    const freshest = renderOpen(
+      decoded("2.5.29.46", {
+        extensionType: "freshestCRL",
+        distributionPoints: [
           {
-            policyIdentifier: { oid: "2.5.29.32.0", name: "anyPolicy" },
-            policyQualifiers: [
-              {
-                qualifierId: { oid: "1.3.6.1.5.5.7.2.1", name: "cps" },
-                cpsUri: "http://pki.example.test/cps",
-                rawHex: "16",
-              },
-              {
-                qualifierId: { oid: "1.3.6.1.5.5.7.2.2", name: "unotice" },
-                userNotice: {
-                  organization: "Example PKI",
-                  noticeNumbers: ["1", "2"],
-                  explicitText: "Test use only",
-                },
-                rawHex: "30",
-              },
-              { qualifierId: { oid: "1.3.6.1.4.1.32473.4", name: null }, rawHex: "0500" },
-            ],
+            distributionPoint: { fullName: [uri("http://pki.example.test/dcrl/a.crl"), uri(ldap)] },
+          },
+          {
+            distributionPoint: { fullName: [uri("http://b.test/b.crl")] },
+            reasons: ["keyCompromise"],
           },
         ],
       })
     );
-    expect(view.findAll("li > div").map(text)).toEqual([
-      "CA/Browser Forum DV (2.23.140.1.2.1)",
-      "anyPolicy (2.5.29.32.0)",
+    expect(freshest.findAll("dl")).toHaveLength(2);
+    expect(freshest.findAll("dt").map((term) => term.text())).toEqual([
+      "Full name",
+      "Full name",
+      "Reasons",
     ]);
-    expect(view.findAll("li li").map(text)).toEqual([
-      "CPS: http://pki.example.test/cps",
-      "User notice: Example PKI (1, 2) Test use only",
-      "1.3.6.1.4.1.32473.4: 0500",
+    const [names, , reasons] = freshest.findAll("dd");
+    expect(names!.findAll("li").map((item) => item.text())).toEqual([
+      "URI: http://pki.example.test/dcrl/a.crl",
+      `URI: ${ldap}`,
     ]);
-  });
+    expect(reasons!.get("li").text()).toBe("keyCompromise");
 
-  it("shows an IDP's point, its flags and its reasons in their tones", () => {
-    const view = renderOpen(
-      decoded("2.5.29.28", {
-        extensionType: "issuingDistributionPoint",
-        distributionPoint: {
-          fullName: [{ type: "uniformResourceIdentifier", value: "http://pki.example.test/u.crl" }],
-        },
-        onlyContainsUserCerts: true,
-        onlyContainsCACerts: false,
-        indirectCRL: true,
-        onlySomeReasons: ["keyCompromise", "superseded"],
+    const ski = renderOpen(
+      decoded("2.5.29.14", { extensionType: "subjectKeyIdentifier", keyIdentifier: "AB12" })
+    );
+    expect(ski.get('dd [data-testid="hex-value"]').element.textContent).toBe("AB:12");
+
+    const keyUsage = renderOpen(
+      decoded("2.5.29.15", {
+        extensionType: "keyUsage",
+        ...KEY_CERT_SIGN_ONLY,
+        usages: ["keyCertSign"],
       })
     );
-    expect(view.text()).toContain("URI: http://pki.example.test/u.crl");
-    expect(
-      view.findAll("[data-tone]").map((tag) => [tag.text(), tag.attributes("data-tone")])
-    ).toEqual([
-      ["Only user certificates", "purple"],
-      ["Indirect CRL", "purple"],
-      ["keyCompromise", "amber"],
-      ["superseded", "amber"],
+    // Every extension sits in the label grid: key usage too ("Usages").
+    expect(keyUsage.get("dt").text()).toBe("Usages");
+    expect(keyUsage.get("li").text()).toBe("keyCertSign");
+    // No sections: the body reads "(empty)".
+    expect(renderOpen(decoded("2.5.29.30", { extensionType: "nameConstraints" })).text()).toContain(
+      "(empty)"
+    );
+  });
+
+  it("names the access methods in the UI language, else as the server sent them", () => {
+    const uri = (value: string) => ({ type: "uniformResourceIdentifier" as const, value });
+    const view = renderOpen(
+      decoded("1.3.6.1.5.5.7.1.1", {
+        extensionType: "authorityInfoAccess",
+        accessDescriptions: [
+          {
+            accessMethod: { oid: "1.3.6.1.5.5.7.48.2", name: "caIssuers" },
+            accessLocation: uri("http://a.test/ca.crt"),
+          },
+          {
+            accessMethod: { oid: "1.3.6.1.5.5.7.48.4", name: null },
+            accessLocation: uri("http://a.test/dvcs"),
+          },
+          {
+            accessMethod: { oid: "1.3.6.1.4.1.32473.5", name: "exampleMethod" },
+            accessLocation: uri("http://a.test/x"),
+          },
+        ],
+      }),
+      "zh-CN"
+    );
+    expect(view.findAll("dt").map((term) => term.text())).toEqual([
+      "CA 签发者",
+      "1.3.6.1.5.5.7.48.4",
+      "exampleMethod",
     ]);
   });
 

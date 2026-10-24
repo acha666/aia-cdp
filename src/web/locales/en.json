@@ -84,6 +84,12 @@
       "iPAddress": "IP",
       "registeredID": "RID"
     },
+    "accessMethod": {
+      "ocsp": "OCSP",
+      "caIssuers": "CA Issuers",
+      "timeStamping": "Time Stamping",
+      "caRepository": "CA Repository"
+    },
     "fields": {
       "ca": "CA",
       "pathLength": "Path Length",
@@ -124,7 +130,15 @@
       "crlIssuer": "CRL issuer",
       "nameRelativeToCRLIssuer": "Relative to CRL issuer",
       "cps": "CPS",
-      "userNotice": "User notice"
+      "userNotice": "User notice",
+      "fullName": "Full name",
+      "policy": "Policy",
+      "names": "Names",
+      "usages": "Usages",
+      "purposes": "Purposes",
+      "features": "Features",
+      "certTypes": "Certificate types",
+      "virtualBaseCrlNumber": "Virtual base CRL number"
     }
   },
   "health": {

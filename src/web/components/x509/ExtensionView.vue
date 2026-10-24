@@ -10,39 +10,27 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import Asn1Dump from "@/components/x509/Asn1Dump.vue";
-import DistributionPointList from "@/components/x509/DistributionPointList.vue";
-import GeneralNameList from "@/components/x509/GeneralNameList.vue";
-import TagList from "@/components/x509/TagList.vue";
-import { useDateText } from "@/composables/useDateText";
-import { formatDate } from "@/utils/dates";
-import { describeExtension, describeSubtree, oidText } from "@/utils/extension-blocks";
-import type { ExtensionContext } from "@/utils/extension-blocks";
-import { formatGeneralName } from "@/utils/x509";
+import { useExtensionContext } from "@/composables/useExtensionContext";
+import { describeExtension } from "@/utils/extension-display";
 
 // One extension as an accordion item (inside ExtensionList's Accordion). The header names it
 // (OID beside a known name, on its baseline; hover underlines the name only), marks it critical
-// and, unless decoded, gives its parse status. The body shows the render blocks of
-// utils/extension-blocks.ts; an extension the server could not decode (or of a type this build
-// does not know) shows the parse error, the server's ASN.1 dump and the raw value.
+// and, unless decoded, gives its parse status. The body shows the sections of
+// utils/extension-display.ts, each one KeyValueList, a rule between them. An extension the server
+// could not decode (or of a type this build does not know) shows the parse error, the server's
+// ASN.1 dump and the raw value.
 const props = defineProps<{ extension: Extension; value: string }>();
 
 const { t } = useI18n();
-const dateText = useDateText();
+const ctx = useExtensionContext();
 
-const ctx: ExtensionContext = {
-  field: (key) => t(`extension.fields.${key}`),
-  nameLabel: (type) => t(`extension.generalName.${type}`),
-  time: (iso) => formatDate(iso, dateText),
-  yesNo: (value) => t(value ? "common.yes" : "common.no"),
-};
-
-const blocks = computed(() => {
+const sections = computed(() => {
   const { parseStatus, parsed } = props.extension;
   return parseStatus === "parsed" && parsed !== undefined ? describeExtension(parsed, ctx) : null;
 });
 /** The header's parse status; a decoded value of a type this build cannot render is unsupported. */
 const status = computed(() =>
-  props.extension.parseStatus === "error" ? "error" : blocks.value ? "parsed" : "unsupported"
+  props.extension.parseStatus === "error" ? "error" : sections.value ? "parsed" : "unsupported"
 );
 </script>
 
@@ -72,80 +60,16 @@ const status = computed(() =>
       </span>
     </AccordionTrigger>
     <AccordionContent class="space-y-3">
-      <template v-if="blocks">
-        <template v-for="(block, index) in blocks" :key="index">
-          <KeyValueList v-if="block.kind === 'rows'" :items="block.rows" />
-
-          <TagList v-else-if="block.kind === 'tags'" :tags="block.tags" :tone="block.tone" />
-
-          <div v-else-if="block.kind === 'names'">
-            <p v-if="block.title" class="mb-1 text-xs text-muted-foreground">{{ block.title }}</p>
-            <GeneralNameList :names="block.names" />
-          </div>
-
-          <DistributionPointList v-else-if="block.kind === 'points'" :points="block.points" />
-
-          <ul v-else-if="block.kind === 'access'" class="space-y-1 text-xs">
-            <li v-for="(item, itemIndex) in block.items" :key="itemIndex" class="break-all">
-              <span class="text-muted-foreground">{{
-                `${item.accessMethod.name ?? item.accessMethod.oid}: `
-              }}</span>
-              <span class="font-mono">{{
-                formatGeneralName(item.accessLocation, ctx.nameLabel)
-              }}</span>
-            </li>
-          </ul>
-
-          <ul v-else-if="block.kind === 'policies'" class="space-y-2 text-xs">
-            <li v-for="(policy, policyIndex) in block.policies" :key="policyIndex">
-              <div class="font-mono break-all">{{ oidText(policy.policyIdentifier) }}</div>
-              <ul
-                v-if="policy.policyQualifiers?.length"
-                class="mt-1 ml-3 space-y-1 text-muted-foreground"
-              >
-                <li
-                  v-for="(qualifier, qualifierIndex) in policy.policyQualifiers"
-                  :key="qualifierIndex"
-                  class="break-all"
-                >
-                  <template v-if="qualifier.cpsUri">
-                    {{ ctx.field("cps") }}:
-                    <span class="font-mono text-foreground">{{ qualifier.cpsUri }}</span>
-                  </template>
-                  <template v-else-if="qualifier.userNotice">
-                    {{ ctx.field("userNotice") }}:
-                    <span v-if="qualifier.userNotice.organization" class="text-foreground">
-                      {{ qualifier.userNotice.organization }}
-                      <template v-if="qualifier.userNotice.noticeNumbers?.length">
-                        ({{ qualifier.userNotice.noticeNumbers.join(", ") }})
-                      </template>
-                    </span>
-                    <span v-if="qualifier.userNotice.explicitText" class="text-foreground italic">
-                      {{ qualifier.userNotice.explicitText }}
-                    </span>
-                  </template>
-                  <template v-else>
-                    {{ qualifier.qualifierId.name ?? qualifier.qualifierId.oid }}:
-                    <span class="font-mono text-foreground">{{ qualifier.rawHex }}</span>
-                  </template>
-                </li>
-              </ul>
-            </li>
-          </ul>
-
-          <div v-else-if="block.kind === 'subtrees'">
-            <p class="mb-1 text-xs text-muted-foreground">{{ block.title }}</p>
-            <ul class="space-y-1">
-              <li
-                v-for="(subtree, subtreeIndex) in block.subtrees"
-                :key="subtreeIndex"
-                class="font-mono text-xs break-all"
-              >
-                {{ describeSubtree(subtree, ctx) }}
-              </li>
-            </ul>
-          </div>
-        </template>
+      <template v-if="sections">
+        <p v-if="sections.length === 0" class="text-sm text-muted-foreground">
+          {{ t("common.emptyValue") }}
+        </p>
+        <KeyValueList
+          v-for="(section, index) in sections"
+          :key="index"
+          :items="section"
+          :class="{ 'border-t pt-3': index > 0 }"
+        />
       </template>
 
       <template v-else>

@@ -2,12 +2,11 @@
 import { ChevronLeftIcon, ChevronRightIcon } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import type { GeneralName, RevokedCertificates } from "@/client/types";
+import type { RevokedCertificates } from "@/client/types";
 import { Button } from "@/components/ui/button";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useDateText } from "@/composables/useDateText";
+import { useExtensionContext } from "@/composables/useExtensionContext";
 import { describeEntry } from "@/utils/crl-entries";
-import { formatDate } from "@/utils/dates";
 
 // The revoked certificates of a target's current CRL (plan §8): serial number, revocation date,
 // reason, invalidity date and indirect issuer; an empty list says so. The API sends every entry (a
@@ -19,7 +18,7 @@ const props = defineProps<{ revoked: RevokedCertificates }>();
 const PAGE_SIZE = 200;
 
 const { t } = useI18n();
-const dateText = useDateText();
+const ctx = useExtensionContext();
 const page = ref(0);
 
 // A refetch with other entries starts over on the first page.
@@ -35,18 +34,13 @@ const pageCount = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE))
 const first = computed(() => page.value * PAGE_SIZE);
 const last = computed(() => Math.min(first.value + PAGE_SIZE, total.value));
 
-const entryContext = {
-  nameLabel: (type: GeneralName["type"]) => t(`extension.generalName.${type}`),
-  time: (iso: string) => formatDate(iso, dateText),
-};
-
 /** Only the rows of the current page are formatted. */
 const rows = computed(() =>
   props.revoked.items.slice(first.value, last.value).map((entry, index) => ({
     key: first.value + index,
     serial: entry.userCertificate.hex,
-    revoked: formatDate(entry.revocationDate.iso, dateText),
-    ...describeEntry(entry.crlEntryExtensions?.items, entryContext),
+    revoked: ctx.time(entry.revocationDate.iso),
+    ...describeEntry(entry.crlEntryExtensions?.items, ctx),
   }))
 );
 </script>

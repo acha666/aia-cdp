@@ -12,6 +12,7 @@ import { useDateText } from "@/composables/useDateText";
 import { formatDate, relativeTime } from "@/utils/dates";
 import { compareTargets } from "@/utils/labels";
 import { computeCertificateStatus } from "@/utils/status";
+import { rows } from "@/utils/values";
 import { formatAlgorithm } from "@/utils/x509";
 
 // The overview tab of a certificate: subject and issuer, validity (status with the detailed time
@@ -52,7 +53,7 @@ const validity = computed(() => {
 
 const general = computed(() => [
   { label: t("details.certificate.x509Version"), value: tbs.value.version.display },
-  { label: t("details.certificate.serialNumber"), value: tbs.value.serialNumber.hex, hex: true },
+  { label: t("details.certificate.serialNumber"), value: { hex: tbs.value.serialNumber.hex } },
   {
     label: t("details.certificate.imported"),
     value: formatDate(props.certificate.importedAt, dateText),
@@ -67,7 +68,7 @@ const general = computed(() => [
 const publicKey = computed(() => {
   const spki = tbs.value.subjectPublicKeyInfo;
   const key = spki.parsed;
-  return [
+  return rows(
     {
       label: t("details.certificate.publicKeyAlgorithm"),
       value: formatAlgorithm(spki.algorithm, salt) ?? t("common.unknown"),
@@ -80,9 +81,9 @@ const publicKey = computed(() => {
       label: t("details.certificate.curve"),
       value: key.curve.name ?? key.curve.oid,
     },
-    { label: t("details.certificate.publicKeySha1"), value: spki.fingerprints.sha1, hex: true },
-    { label: t("details.certificate.publicKeySha256"), value: spki.fingerprints.sha256, hex: true },
-  ].filter((row) => row !== false);
+    { label: t("details.certificate.publicKeySha1"), value: { hex: spki.fingerprints.sha1 } },
+    { label: t("details.certificate.publicKeySha256"), value: { hex: spki.fingerprints.sha256 } }
+  );
 });
 
 const signature = computed(() => {
@@ -95,16 +96,16 @@ const signature = computed(() => {
     },
     ...(parsed
       ? [
-          { label: t("details.signature.r"), value: parsed.r, hex: true },
-          { label: t("details.signature.s"), value: parsed.s, hex: true },
+          { label: t("details.signature.r"), value: { hex: parsed.r } },
+          { label: t("details.signature.s"), value: { hex: parsed.s } },
         ]
-      : [{ label: t("details.signature.value"), value: signatureValue.hex, hex: true }]),
+      : [{ label: t("details.signature.value"), value: { hex: signatureValue.hex } }]),
   ];
 });
 
 const fingerprints = computed(() => [
-  { label: "SHA-1", value: props.certificate.fingerprints.sha1, hex: true },
-  { label: "SHA-256", value: props.certificate.fingerprints.sha256, hex: true },
+  { label: "SHA-1", value: { hex: props.certificate.fingerprints.sha1 } },
+  { label: "SHA-256", value: { hex: props.certificate.fingerprints.sha256 } },
 ]);
 
 const targets = computed(() =>
@@ -113,18 +114,16 @@ const targets = computed(() =>
 
 const uniqueIds = computed(() => {
   const { issuerUniqueID, subjectUniqueID } = tbs.value;
-  return [
+  return rows(
     issuerUniqueID !== undefined && {
       label: t("details.certificate.issuerUniqueId"),
-      value: issuerUniqueID.hex,
-      hex: true,
+      value: { hex: issuerUniqueID.hex },
     },
     subjectUniqueID !== undefined && {
       label: t("details.certificate.subjectUniqueId"),
-      value: subjectUniqueID.hex,
-      hex: true,
-    },
-  ].filter((row) => row !== false);
+      value: { hex: subjectUniqueID.hex },
+    }
+  );
 });
 </script>
 

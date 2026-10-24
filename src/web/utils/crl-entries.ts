@@ -1,7 +1,6 @@
 // The columns of a revoked-certificates row that come from its CRL entry extensions.
 import type { Extension } from "@/client/types";
-import { formatGeneralName } from "@/utils/x509";
-import type { GeneralNameLabel } from "@/utils/x509";
+import type { ExtensionContext } from "@/utils/extension-display";
 
 export interface EntryDetails {
   /** The CRLReason name (keyCompromise, ...); null without the extension. */
@@ -15,11 +14,7 @@ export interface EntryDetails {
 /** Reason, invalidity date and indirect issuer from the decoded CRL entry extensions. */
 export function describeEntry(
   extensions: readonly Extension[] | undefined,
-  ctx: {
-    nameLabel: GeneralNameLabel;
-    /** An ISO date-time for display. */
-    time: (iso: string) => string;
-  }
+  ctx: Pick<ExtensionContext, "name" | "time">
 ): EntryDetails {
   const info: EntryDetails = { reason: null, invalidityDate: null, issuer: null };
   for (const extension of extensions ?? []) {
@@ -29,7 +24,7 @@ export function describeEntry(
     } else if (parsed?.extensionType === "invalidityDate") {
       info.invalidityDate = ctx.time(parsed.date.iso);
     } else if (parsed?.extensionType === "certificateIssuer") {
-      info.issuer = parsed.names.map((name) => formatGeneralName(name, ctx.nameLabel)).join("; ");
+      info.issuer = parsed.names.map(ctx.name).join("; ");
     }
   }
   return info;
