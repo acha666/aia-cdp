@@ -10,16 +10,16 @@
 // main(argv, io) does all I/O through `io`, so tests inject fetch = app.request. Exit codes: 0
 // success, 1 the operation failed (or the service is not healthy), 2 usage error. Tokens are never
 // printed, and go over plain http:// only to a loopback host or with --allow-insecure-http.
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 import { parseArgs } from "node:util";
 import type { z } from "zod";
 import { checkConfigStatic } from "../core/admin.ts";
-import type { ConfigIssue } from "../core/admin.ts";
+import type { CertificateReference, ConfigIssue } from "../core/admin.ts";
 import { decodeJson } from "../core/catalog.ts";
 import type { HealthReport } from "../core/health.ts";
 import { isDerSequence, splitPemBlocks } from "../core/pki/pem.ts";
-import type { ImportedCertificate, PublishedCrl } from "../http/schemas.ts";
+import type { CrlHistory, ImportedCertificate, PublishedCrl } from "../http/schemas.ts";
 
 export interface CliIo {
   fetch: (url: string, init: RequestInit) => Promise<Response>;
@@ -28,6 +28,7 @@ export interface CliIo {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
   readFile: (path: string) => Promise<Uint8Array>;
+  writeFile: (path: string, bytes: Uint8Array) => Promise<void>;
 }
 
 export const USAGE = `Usage: aia [options] <command>
@@ -38,22 +39,33 @@ Commands:
   config show             Print the stored config.json
   config validate <file>  Check a configuration offline: rules V1-V3 and the static parts of
                           V4 / V6; the rest (V4-V9) needs the service and is checked on apply
-  config apply <file>     Validate, then replace config.json (If-Match: the ETag of a fresh GET;
-                          If-None-Match: * for the first configuration)
+  config apply <file>     Validate, then replace config.json as a whole (If-Match: the ETag of a
+                          fresh GET; If-None-Match: * for the first configuration). What is
+                          stored is overwritten, also changes you have not seen: the precondition
+                          only catches one made between this command's GET and PUT. Removing a
+                          target retires it: nothing serves it, its history stays
   new-target-id           Print a new target id (a random UUID)
   publish <file...>       Publish CRLs, DER or PEM, one upload per file: created, updated and
                           unchanged succeed; anything else (stale_crl, ...) fails that file
+  history <targetId>      List the CRL versions a target has published, newest first (also
+                          once the target is removed from config.json)
+  history <targetId> <sha256> --out <file>
+                          Write the DER of one of those versions to <file>
+  delete-certificate <id> Delete an imported certificate that nothing references (the
+                          verifier of a published CRL stays referenced)
   health                  Exit 0 only if the service reports healthy
 
 Options:
   --url <url>             Service base URL (default: $AIA_URL)
-  --token-file <file>     File holding the token of the command. import and config: the admin
-                          token (default: $AIA_ADMIN_TOKEN_FILE, else $AIA_ADMIN_TOKEN).
+  --token-file <file>     File holding the token of the command. import, config, history and
+                          delete-certificate: the admin token (default: $AIA_ADMIN_TOKEN_FILE,
+                          else $AIA_ADMIN_TOKEN).
                           publish: the upload token (default: $AIA_UPLOAD_TOKEN_FILE, else
                           $AIA_UPLOAD_TOKEN, else none: the service needs it only when set)
   --allow-insecure-http   Send the token over plain http:// to a host other than localhost,
                           127.0.0.0/8 or [::1] (refused otherwise: it would cross the network
                           in clear text)
+  --out <file>            history <targetId> <sha256>: where to write the DER
   --json                  Print results as JSON on stdout (errors stay text on stderr)
   -h, --help              Show this help
 
@@ -64,6 +76,7 @@ const OPTIONS = {
   url: { type: "string" },
   "token-file": { type: "string" },
   "allow-insecure-http": { type: "boolean" },
+  out: { type: "string" },
   json: { type: "boolean" },
   help: { type: "boolean", short: "h" },
 } as const;
@@ -87,6 +100,8 @@ interface Context {
   tokenFile: string | undefined;
   /** --allow-insecure-http: a token may go over http:// to any host. */
   allowInsecureHttp: boolean;
+  /** --out: only for history <targetId> <sha256>. */
+  out: string | undefined;
 }
 
 /** Runs one command line (without `node` and the script). Resolves to the exit code. */
@@ -114,6 +129,7 @@ export async function main(argv: readonly string[], io: CliIo): Promise<number> 
       url: values.url ?? io.env.AIA_URL,
       tokenFile: values["token-file"],
       allowInsecureHttp: values["allow-insecure-http"] === true,
+      out: values.out,
     };
     return await run(ctx, positionals);
   } catch (error) {
@@ -131,6 +147,9 @@ export async function main(argv: readonly string[], io: CliIo): Promise<number> 
 
 async function run(ctx: Context, positionals: string[]): Promise<number> {
   const [command, ...args] = positionals;
+  if (ctx.out !== undefined && (command !== "history" || args.length !== 2)) {
+    throw new UsageError("--out is only for history <targetId> <sha256>");
+  }
   switch (command) {
     case undefined:
       throw new UsageError("missing command");
@@ -165,6 +184,18 @@ async function run(ctx: Context, positionals: string[]): Promise<number> {
         throw new UsageError("publish needs at least one file");
       }
       return publishFiles(ctx, args);
+    case "history": {
+      const [targetId, sha256, ...rest] = args;
+      if (targetId === undefined || rest.length > 0) {
+        throw new UsageError("usage: aia history <targetId> [<sha256> --out <file>]");
+      }
+      return sha256 === undefined
+        ? listHistory(ctx, targetId)
+        : historyVersion(ctx, targetId, sha256);
+    }
+    case "delete-certificate":
+      expectArgs(args, 1, "delete-certificate <id>");
+      return deleteCertificate(ctx, args[0] ?? "");
     case "health":
       expectArgs(args, 0, "health");
       return health(ctx);
@@ -394,6 +425,15 @@ function describeHttp(error: HttpError): string {
   const reason = typeof details?.reason === "string" ? ` (${details.reason})` : "";
   const code = error.code === undefined ? "" : ` ${error.code}`;
   return `HTTP ${error.status}${code}${reason}: ${error.message}`;
+}
+
+/** The body of a success response as bytes; one that fails to arrive is a Failure. */
+async function readBody(res: Response, url: string): Promise<Uint8Array> {
+  try {
+    return new Uint8Array(await res.arrayBuffer());
+  } catch (error) {
+    throw new Failure(`cannot read the response from ${url}: ${reasonOf(error)}`);
+  }
 }
 
 /** The JSON body of a success response; a body that is not JSON is a Failure. */
@@ -744,6 +784,93 @@ async function configApply(ctx: Context, file: string): Promise<number> {
   throw new Failure(describeHttp(error));
 }
 
+// history, delete-certificate --------------------------------------------------------------------
+
+type History = z.infer<typeof CrlHistory>;
+
+function historyUrl(ctx: Context, targetId: string): string {
+  return `${serviceUrl(ctx)}/api/v1/admin/crls/${encodeURIComponent(targetId)}/history`;
+}
+
+async function listHistory(ctx: Context, targetId: string): Promise<number> {
+  const url = historyUrl(ctx, targetId);
+  const res = await send(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
+  if (!res.ok) {
+    throw new Failure(describeHttp(await httpError(res, url)));
+  }
+  const history = (await jsonOf(res, url)) as History;
+  if (ctx.json) {
+    printJson(ctx.io, history);
+    return 0;
+  }
+  const numbers = history.entries.map((entry) =>
+    entry.crlNumber === null ? "(no CRL Number)" : `#${entry.crlNumber}`
+  );
+  const width = Math.max(0, ...numbers.map((number) => number.length));
+  history.entries.forEach((entry, index) => {
+    const line = [
+      entry.thisUpdate,
+      (numbers[index] ?? "").padEnd(width),
+      entry.sha256.slice(0, 16),
+      `${entry.size} B`,
+      entry.current ? "current" : "",
+    ];
+    ctx.io.stdout(`${line.join("  ").trimEnd()}\n`);
+  });
+  const count = `${history.entries.length} version${history.entries.length === 1 ? "" : "s"}`;
+  const removed = history.configured ? "" : "; the target is not in config.json (retired)";
+  ctx.io.stdout(`${count}${removed}\n`);
+  return 0;
+}
+
+async function historyVersion(ctx: Context, targetId: string, sha256: string): Promise<number> {
+  const file = ctx.out;
+  if (file === undefined) {
+    throw new UsageError("history <targetId> <sha256> needs --out <file>");
+  }
+  const url = `${historyUrl(ctx, targetId)}/${encodeURIComponent(sha256)}`;
+  const res = await send(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
+  if (!res.ok) {
+    throw new Failure(describeHttp(await httpError(res, url)));
+  }
+  const der = await readBody(res, url);
+  try {
+    await ctx.io.writeFile(file, der);
+  } catch (error) {
+    throw new Failure(`cannot write ${file}: ${reasonOf(error)}`);
+  }
+  if (ctx.json) {
+    printJson(ctx.io, { file, size: der.byteLength });
+  } else {
+    ctx.io.stdout(`wrote ${file} (${der.byteLength} B)\n`);
+  }
+  return 0;
+}
+
+async function deleteCertificate(ctx: Context, id: string): Promise<number> {
+  const url = `${serviceUrl(ctx)}/api/v1/admin/certificates/${encodeURIComponent(id)}`;
+  const res = await send(ctx, url, { method: "DELETE", headers: await adminHeaders(ctx) });
+  if (res.status === 204) {
+    await readText(res, url);
+    if (ctx.json) {
+      printJson(ctx.io, { deleted: id });
+    } else {
+      ctx.io.stdout(`deleted ${id}\n`);
+    }
+    return 0;
+  }
+  const error = await httpError(res, url);
+  if (error.code === "referenced") {
+    const { references } = error.details as { references: CertificateReference[] };
+    const lines = references.map(
+      (reference) => `  ${reference.object} ${pathText(reference.path)}`
+    );
+    ctx.io.stderr(`aia: ${describeHttp(error)}\n${lines.join("\n")}\n`);
+    return 1;
+  }
+  throw new Failure(describeHttp(error));
+}
+
 // new-target-id, health --------------------------------------------------------------------------
 
 function newTargetId(ctx: Context): number {
@@ -788,6 +915,7 @@ export function processIo(): CliIo {
       process.stderr.write(text);
     },
     readFile: (path) => readFile(path),
+    writeFile: (path, bytes) => writeFile(path, bytes),
   };
 }
 

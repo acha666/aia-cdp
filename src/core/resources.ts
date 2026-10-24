@@ -66,7 +66,7 @@ function own<T>(record: Record<string, T>, key: string): T | undefined {
  * - A certificate path → catalog.certificates[id]; missing → inconsistent.
  * - A target path → config.targets[id] (missing → inconsistent) for the kind, and
  *   catalog.targets[id].current for the CRL: no catalog entry (never published) or a null current
- *   (retired) → not_found (plan §6).
+ *   → not_found (plan §6).
  */
 export function resolveDownload(
   config: Config | null,

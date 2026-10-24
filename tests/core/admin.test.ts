@@ -3,11 +3,13 @@ import {
   applyConfig,
   checkConfigState,
   checkConfigStatic,
+  deleteCertificate,
   validateConfig,
 } from "../../src/core/admin.ts";
 import type { ConfigCheck, ConfigIssue, ConfigPrecondition } from "../../src/core/admin.ts";
 import {
   CATALOG_KEY,
+  certificateBlobKey,
   CONFIG_KEY,
   encodeJson,
   InvalidStoredObjectError,
@@ -23,7 +25,8 @@ import { MINIMAL_CONFIG, putText } from "../helpers/app.ts";
 import { currentCrl, putCatalog } from "../helpers/catalog.ts";
 import { flakyStore, puts, recordingStore } from "../helpers/store.ts";
 
-// The config rules V1–V9 (validateConfig) and applyConfig, which writes only config.json.
+// The config rules V1–V9 (validateConfig), applyConfig, which writes only config.json, and
+// deleteCertificate.
 
 const IMPORTED = ["root-ca", "issuing-ca-1", "issuing-ca-2", "issuing-ca-1-renewed", "leaf-min"];
 
@@ -241,7 +244,7 @@ describe("config rules", () => {
     expect(validateConfig(split, { catalog })).toMatchObject({ ok: true });
   });
 
-  it("V8: a target with a current CRL is retired before it is removed", async () => {
+  it("a target with a current CRL may be removed: that retires it", async () => {
     const store = await storeWith();
     const { ids, config } = baseline();
     await apply(store, config);
@@ -249,13 +252,9 @@ describe("config rules", () => {
       ...(await catalogOf(store)),
       targets: {
         [ids.full]: { current: await currentCrl("crls/issuing-ca-1/full-01.der", ids.full) },
-        [ids.delta]: { current: null },
       },
     });
-    expect(rules(issuesOf(await apply(store, without(config, ids.full))))).toEqual([
-      ["V8", ["targets", ids.full]],
-    ]);
-    const retired = without(config, ids.delta);
+    const retired = without(config, ids.full);
     expect(await apply(store, retired)).toMatchObject({ config: retired });
   });
 
@@ -335,6 +334,57 @@ describe("applyConfig", () => {
     await putText(base, CATALOG_KEY, '{"version":1}');
     const store = recordingStore(base);
     await expect(apply(store, baseline().config)).rejects.toBeInstanceOf(InvalidStoredObjectError);
+    expect(store.writes).toEqual([]);
+  });
+});
+
+describe("deleteCertificate", () => {
+  it("removes an unreferenced certificate and its blob; importing it again creates it", async () => {
+    const base = await storeWith();
+    await apply(base, baseline().config);
+    const store = recordingStore(base);
+    const leaf = id("leaf-min");
+    expect(await deleteCertificate({ store }, leaf)).toEqual({ deleted: true });
+    expect((await catalogOf(base)).certificates[leaf]).toBeUndefined();
+    expect(store.writes.map((write) => [write.op, write.key])).toEqual([
+      ["put", CATALOG_KEY],
+      ["delete", certificateBlobKey(leaf)],
+    ]);
+    expect(await deleteCertificate({ store }, leaf)).toEqual({ error: "not_found" });
+    const again = await importCertificate({ store, now: () => NOW }, fixture(cert("leaf-min").der));
+    expect(again).toMatchObject({ outcome: "created" });
+  });
+
+  it("refuses a referenced certificate, naming every reference, and writes nothing", async () => {
+    const base = await storeWith();
+    const { ids, config } = baseline();
+    await apply(base, config);
+    // issuing-ca-2 verified the current CRL of a target that is no longer in config.json.
+    const removed = crypto.randomUUID();
+    await putCatalog(base, {
+      ...(await catalogOf(base)),
+      targets: {
+        [removed]: { current: await currentCrl("crls/issuing-ca-2/full-01.der", removed) },
+      },
+    });
+    const store = recordingStore(base);
+    expect(await deleteCertificate({ store }, id("issuing-ca-1"))).toEqual({
+      error: "referenced",
+      details: {
+        references: [
+          { object: "config.json", path: ["certificates", id("issuing-ca-1")] },
+          { object: "config.json", path: ["targets", ids.full, "issuer"] },
+          { object: "config.json", path: ["targets", ids.delta, "issuer"] },
+          { object: "config.json", path: ["paths", "/ca/issuing-ca-1.crt", "certificate"] },
+        ],
+      },
+    });
+    expect(await deleteCertificate({ store }, id("issuing-ca-2"))).toEqual({
+      error: "referenced",
+      details: {
+        references: [{ object: "catalog.json", path: ["targets", removed, "current", "verifier"] }],
+      },
+    });
     expect(store.writes).toEqual([]);
   });
 });

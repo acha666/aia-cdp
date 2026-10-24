@@ -233,7 +233,7 @@ describe("text/plain 404 and 405", () => {
     ["the prefix with a slash", "/ca/"],
     ["/crl alone", "/crl"],
     ["a target that was never published", P.unpublished],
-    ["a retired target (current null)", `${P.retired}.pem`],
+    ["a target whose current is null", `${P.nullCurrent}.pem`],
   ])("%s: %s, never the ui, never 304", async (_, path) => {
     const { request } = await setup({ failGet: BLOBS });
     for (const method of ["GET", "HEAD"]) {

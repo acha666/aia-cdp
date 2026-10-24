@@ -1,12 +1,14 @@
-// Configuration rules and apply (plan §5.2).
+// Configuration rules and apply (plan §5.2), and certificate deletion.
 //
 // The rules V1–V9 come in three layers, exported separately:
 // - static (V1–V3, V4 / V6 static parts): the document alone. The CLI's `config validate` runs it
 //   offline.
 // - state (V4 / V6 catalog parts, V5): the document against catalog.json. Health runs static +
 //   state.
-// - migration (V7–V9): the document against the current config.json and catalog.json, at apply
-//   time only.
+// - migration (V7, V9): the document against the current config.json, at apply time only.
+//
+// The numbering skips V8: a target is retired by removing it from config.json, whatever its catalog
+// entry holds (see checkConfigMigration).
 //
 // There is no rebind ledger: V7 compares with the current config only, so a `/ca/` path removed by
 // one apply and re-added for another certificate by a later one is not detected. Certificate
@@ -20,13 +22,14 @@ import {
   encodeJson,
   JSON_CONTENT_TYPE,
   readCatalog,
+  updateState,
 } from "./catalog.ts";
-import type { Catalog, Config, CrlKind } from "./catalog.ts";
+import type { Catalog, Config, CrlKind, State } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import type { ObjectStore } from "./store.ts";
 
 /** `rule` of a config_invalid issue (the HTTP schema enumerates it). */
-export const CONFIG_RULES = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9"] as const;
+export const CONFIG_RULES = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "V9"] as const;
 
 export type ConfigRule = (typeof CONFIG_RULES)[number];
 
@@ -232,56 +235,47 @@ export function checkConfigState(config: Config, catalog: Catalog): ConfigIssue[
 /**
  * V7 (a `/ca/` path in both the current and the new config keeps its certificate) and V9 (a target
  * id in both keeps its issuer and kind: a target's current CRL and its whole history are verified
- * by one certificate) compare with `current`, and are skipped without one. V8 (a target with a
- * current CRL stays in the config until it is retired) needs only the catalog.
+ * by one certificate) compare with `current`, and are skipped without one.
+ *
+ * A target may be removed whatever the catalog holds for it: that retires it. Downloads, lists and
+ * uploads only look at config.json's targets, so nothing serves it any more and its CRLs get
+ * target_not_configured; the catalog keeps its last current as history and as the reference that
+ * protects its verifier from deletion. Adding the same id back serves that current again, so a
+ * target that publishes again gets a new id (`aia new-target-id`).
  */
-export function checkConfigMigration(
-  config: Config,
-  catalog: Catalog,
-  current: Config | undefined
-): ConfigIssue[] {
-  const issues: ConfigIssue[] = [];
-  if (current !== undefined) {
-    for (const [path, entry] of Object.entries(config.paths)) {
-      // Own properties only: a path key is any string until V2 has looked at it.
-      const before = Object.hasOwn(current.paths, path) ? current.paths[path] : undefined;
-      if (
-        path.startsWith("/ca/") &&
-        "certificate" in entry &&
-        before !== undefined &&
-        "certificate" in before &&
-        before.certificate !== entry.certificate
-      ) {
-        issues.push({
-          path: ["paths", path, "certificate"],
-          rule: "V7",
-          message:
-            `${path} serves certificate ${before.certificate}, which clients cache as immutable ` +
-            "for a year: publish another certificate under a new path",
-        });
-      }
-    }
+export function checkConfigMigration(config: Config, current: Config | undefined): ConfigIssue[] {
+  if (current === undefined) {
+    return [];
   }
-  for (const [id, target] of Object.entries(catalog.targets)) {
-    if (target.current !== null && config.targets[id] === undefined) {
+  const issues: ConfigIssue[] = [];
+  for (const [path, entry] of Object.entries(config.paths)) {
+    // Own properties only: a path key is any string until V2 has looked at it.
+    const before = Object.hasOwn(current.paths, path) ? current.paths[path] : undefined;
+    if (
+      path.startsWith("/ca/") &&
+      "certificate" in entry &&
+      before !== undefined &&
+      "certificate" in before &&
+      before.certificate !== entry.certificate
+    ) {
       issues.push({
-        path: ["targets", id],
-        rule: "V8",
-        message: `Target ${id} has a current CRL: retire it before removing the target`,
+        path: ["paths", path, "certificate"],
+        rule: "V7",
+        message:
+          `${path} serves certificate ${before.certificate}, which clients cache as immutable ` +
+          "for a year: publish another certificate under a new path",
       });
     }
   }
-  if (current !== undefined) {
-    for (const [id, target] of Object.entries(config.targets)) {
-      const before = current.targets[id];
-      for (const field of ["issuer", "kind"] as const) {
-        if (before !== undefined && before[field] !== target[field]) {
-          issues.push({
-            path: ["targets", id, field],
-            rule: "V9",
-            message: `Target ${id} has ${field} ${before[field]}: use a new target id for another ${field}`,
-          });
-        }
+  for (const [id, target] of Object.entries(config.targets)) {
+    const before = current.targets[id];
+    for (const field of ["issuer", "kind"] as const) {
+      if (before !== undefined && before[field] !== target[field]) {
+        issues.push({
+          path: ["targets", id, field],
+          rule: "V9",
+          message: `Target ${id} has ${field} ${before[field]}: use a new target id for another ${field}`,
+        });
       }
     }
   }
@@ -305,7 +299,7 @@ export function validateConfig(value: unknown, context: ValidationContext): Conf
   const all = byRule([
     ...issues,
     ...checkConfigState(config, context.catalog),
-    ...checkConfigMigration(config, context.catalog, context.current),
+    ...checkConfigMigration(config, context.current),
   ]);
   return all.length === 0 ? { ok: true, config } : { ok: false, issues: all };
 }
@@ -344,7 +338,7 @@ function parseCurrent(bytes: Uint8Array): Config | undefined {
  * here, then writes the canonical bytes conditionally on the store ETag that was read
  * (`ifNoneMatch: "*"` for the first config). A lost write is precondition_failed, not retried.
  *
- * Only config.json is written. The catalog is not re-read before the write: a publish, retire or
+ * Only config.json is written. The catalog is not re-read before the write: a publish or a
  * certificate deletion in between is the accepted cross-object window (one operator at a time).
  */
 export async function applyConfig(
@@ -381,4 +375,91 @@ export async function applyConfig(
     return { error: "precondition_failed" };
   }
   return { config: checked.config, sha256: await sha256Hex(bytes) };
+}
+
+// Certificate deletion ---------------------------------------------------------------------------
+
+/** Where a certificate is referenced: the object and the keys from its root, as in ConfigIssue. */
+export interface CertificateReference {
+  object: "config.json" | "catalog.json";
+  path: string[];
+}
+
+export type DeleteCertificateResult =
+  | { deleted: true }
+  | { error: "not_found" }
+  | { error: "referenced"; details: { references: CertificateReference[] } }
+  | { error: "concurrent_update" };
+
+/**
+ * Every reference to certificate `id`: config.json's certificates, target issuers and paths, and
+ * the verifier of any current CRL in the catalog, also of a target removed from config.json. A
+ * target's history is verified by the certificate that verified its current (V9), so that
+ * reference protects the history too.
+ */
+function referencesOf(state: State, id: string): CertificateReference[] {
+  const references: CertificateReference[] = [];
+  const config = state.config;
+  if (config !== null) {
+    if (config.certificates[id] !== undefined) {
+      references.push({ object: "config.json", path: ["certificates", id] });
+    }
+    for (const [targetId, target] of Object.entries(config.targets)) {
+      if (target.issuer === id) {
+        references.push({ object: "config.json", path: ["targets", targetId, "issuer"] });
+      }
+    }
+    for (const [path, entry] of Object.entries(config.paths)) {
+      if ("certificate" in entry && entry.certificate === id) {
+        references.push({ object: "config.json", path: ["paths", path, "certificate"] });
+      }
+    }
+  }
+  for (const [targetId, target] of Object.entries(state.catalog.targets)) {
+    if (target.current?.verifier === id) {
+      references.push({
+        object: "catalog.json",
+        path: ["targets", targetId, "current", "verifier"],
+      });
+    }
+  }
+  return references;
+}
+
+/**
+ * Removes an unreferenced certificate (`id`, the SHA-256 of its DER) from the catalog, then deletes
+ * its blob. A certificate that verified a published CRL stays referenced by it for good. The
+ * catalog write is conditional and retried (updateState); config.json is not written, and an apply
+ * that adds a reference in between is the accepted cross-object window (one operator at a time). A
+ * crash between the two writes leaves an unreferenced blob, which a later import of the same
+ * certificate writes again.
+ */
+export async function deleteCertificate(
+  deps: { store: ObjectStore; sleep?: (ms: number) => Promise<void> },
+  id: string
+): Promise<DeleteCertificateResult> {
+  const outcome = await updateState<DeleteCertificateResult | { key: string }>(
+    deps.store,
+    (state) => {
+      const entry = state.catalog.certificates[id];
+      if (entry === undefined) {
+        return { result: { error: "not_found" } };
+      }
+      const references = referencesOf(state, id);
+      if (references.length > 0) {
+        return { result: { error: "referenced", details: { references } } };
+      }
+      const { [id]: _deleted, ...certificates } = state.catalog.certificates;
+      return { next: { ...state.catalog, certificates }, result: { key: entry.key } };
+    },
+    deps.sleep
+  );
+  if ("error" in outcome) {
+    return outcome;
+  }
+  if (!("key" in outcome.result)) {
+    return outcome.result;
+  }
+  await deps.store.delete(outcome.result.key);
+  return { deleted: true };
 }
