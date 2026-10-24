@@ -52,9 +52,10 @@ describe("CrlUploadCard", () => {
     await submit(card);
 
     expect(posts()).toHaveLength(1);
-    const body = posts()[0]!.body;
+    const { body, headers } = posts()[0]!;
     expect(body).toBeInstanceOf(File);
     expect(await (body as File).text()).toBe(PEM);
+    expect(new Headers(headers).get("Content-Type")).toBe("application/octet-stream");
   });
 
   it("sends a dropped file as it is, the first of several", async () => {

@@ -7,8 +7,8 @@ import { QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/vu
 import { toValue } from "vue";
 import type { MaybeRefOrGetter } from "vue";
 import { api } from "./api";
-import { ApiError, apiFetch, unwrap } from "./errors";
-import type { CrlTargetList, PublishedCrl } from "./types";
+import { ApiError, unwrap } from "./errors";
+import type { CrlTargetList } from "./types";
 
 const v1 = api.api.v1;
 
@@ -105,24 +105,22 @@ export function cachedTargetLabel(client: QueryClient, targetId: string): string
 }
 
 /**
- * POST /api/v1/crls with the file as the raw body (the server tells PEM from DER by the bytes),
- * through apiFetch and unwrap like the hc client's calls; the token, when given, goes in this
+ * POST /api/v1/crls with the file as the raw body (the server tells PEM from DER by the bytes):
+ * the route's body is not JSON, so hc takes it as `init.body`. The token, when given, goes in this
  * request's headers only. A success refreshes every query: the data is small, and lists, details
  * and stats all change.
  */
 export function useUploadCrl() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async ({ file, token }: UploadCrlInput): Promise<PublishedCrl> =>
+    mutationFn: async ({ file, token }: UploadCrlInput) =>
       unwrap(
-        await apiFetch("/api/v1/crls", {
-          method: "POST",
-          cache: "no-store",
+        await v1.crls.$post(undefined, {
           headers: {
             "Content-Type": "application/octet-stream",
             ...(token === "" ? {} : { Authorization: `Bearer ${token}` }),
           },
-          body: file,
+          init: { body: file },
         })
       ),
     onSuccess: () => {

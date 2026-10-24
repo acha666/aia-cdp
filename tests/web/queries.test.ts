@@ -1,6 +1,6 @@
-// The query layer against a stubbed fetch: the upload's request and the list refresh after it (a
-// list request sent before an upload must not overwrite the refresh that follows it), and the
-// retry rule.
+// The query layer against a stubbed fetch: the list refresh after an upload (a list request sent
+// before an upload must not overwrite the refresh that follows it), and the retry rule. What the
+// upload sends is in upload-card.test.ts.
 import { VueQueryPlugin } from "@tanstack/vue-query";
 import { flushPromises, mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
@@ -72,23 +72,6 @@ describe("useUploadCrl", () => {
       "POST /api/v1/crls",
       "GET /api/v1/crls",
     ]);
-  });
-
-  it("sends the file as the body, the token as a bearer header only when given", async () => {
-    const api = stubApi({
-      "POST /api/v1/crls": () => Response.json(publishedCrl("unchanged")),
-    });
-    const upload = harness(() => useUploadCrl());
-
-    await upload.mutateAsync({ file: FILE, token: "" });
-    await upload.mutateAsync({ file: FILE, token: "s3cret" });
-
-    const posts = api.fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
-    const [withoutToken, withToken] = posts.map(([, init]) => init!);
-    expect(withoutToken!.body).toBe(FILE);
-    expect(new Headers(withoutToken!.headers).get("Content-Type")).toBe("application/octet-stream");
-    expect(new Headers(withoutToken!.headers).has("Authorization")).toBe(false);
-    expect(new Headers(withToken!.headers).get("Authorization")).toBe("Bearer s3cret");
   });
 });
 

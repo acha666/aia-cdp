@@ -590,7 +590,7 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   expired + unknown 的目标数，客户端按徽标的同一时钟与规则算；`/api/v1/stats` 不含时间字段）；证书表（显示名 = 标签 ?? 主体 CN、
   签发者、有效期与剩余时间、状态、DER / PEM 下载，按显示名排序）；CRL 目标表（标签与签发者、类别徽标（证书蓝、full 紫、delta 绿）、
   CRL 号、thisUpdate – nextUpdate、吊销数、状态、下载；未发布显示"未发布"、吊销数 "—"；按标签排序，同名 full 在前）；上传卡片
-  （拖放、选择文件或粘贴 PEM，都用 `fetch` 把文件作为原始请求体发送，`Content-Type: application/octet-stream`，服务端按字节识别；created / updated / unchanged 是三句成功文案，附 CRL 号与下载路径；
+  （拖放、选择文件或粘贴 PEM，都经 hc 的 `$post` 把文件作为原始请求体（`init.body`）发送，`Content-Type: application/octet-stream`，服务端按字节识别；created / updated / unchanged 是三句成功文案，附 CRL 号与下载路径；
   错误按 `error.code` 映射 i18n，带 `details.reason` 时附原因，toast + 行内 Alert；可选上传令牌只存内存，`unauthorized` 时自动展开）。
   骨架屏只在首次加载显示。手机宽度（`sm` 以下）两张表只显示名称 / 标签、类别与状态，其余列在详情页。
 - 状态规则（徽标、相对时间与"需关注"共用一个每分钟一跳的 `useNow` 时钟；owner 确认，附录 C 切片 5b 第 2 项）：
