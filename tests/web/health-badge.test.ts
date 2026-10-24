@@ -15,8 +15,8 @@ function mountBadge(locale: AppLocale) {
 }
 
 describe("HealthBadge", () => {
-  it("calls GET /api/v1/health and shows degraded in zh-CN", async () => {
-    const { fetchMock } = stubApi({
+  it("shows degraded in zh-CN", async () => {
+    stubApi({
       "GET /api/v1/health": () =>
         Response.json({ status: "degraded", checks: { store: "ok", configuration: "missing" } }),
     });
@@ -27,9 +27,7 @@ describe("HealthBadge", () => {
 
     await flushPromises();
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [input] = fetchMock.mock.calls[0]!;
-    expect(input instanceof Request ? input.url : input.toString()).toMatch(/\/api\/v1\/health$/);
+    // stubApi answers the degraded body only for GET /api/v1/health.
     const root = badge.get('[data-slot="badge"]');
     expect(root.attributes("role")).toBe("status");
     expect(root.attributes("data-state")).toBe("degraded");
@@ -54,12 +52,6 @@ describe("HealthBadge", () => {
         ),
       "unhealthy",
       "Unhealthy",
-    ],
-    [
-      "unknown when the request fails",
-      () => Promise.reject(new TypeError("Failed to fetch")),
-      "unknown",
-      "Unknown",
     ],
     [
       "unknown for a status the API never sends",

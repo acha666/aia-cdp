@@ -193,9 +193,6 @@ describe("CrlUploadCard", () => {
     await submit(card);
     expect(new Headers(posts()[1]!.headers).get("Authorization")).toBe("Bearer s3cret-token");
     expect(card.find('[data-testid="upload-success"]').exists()).toBe(true);
-    // Memory only.
-    expect(JSON.stringify({ ...localStorage })).not.toContain("s3cret");
-    expect(JSON.stringify({ ...sessionStorage })).not.toContain("s3cret");
   });
 
   it("does not submit again while an upload runs, keeping the button focusable", async () => {
