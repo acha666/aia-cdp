@@ -24,7 +24,6 @@ import type {
   Time,
 } from "@/client/types";
 import { createAppI18n } from "@/i18n";
-import type { AppLocale } from "@/i18n";
 import { createAppRouter } from "@/router";
 
 /** manifest.now: the clock of every test that depends on one. */
@@ -399,15 +398,15 @@ export function testQueryClient(): QueryClient {
 }
 
 /**
- * The whole app at `path` (memory history) with testQueryClient(); resolves once the lazy route
- * component is loaded and the first answers are rendered.
+ * The whole app at `path` (memory history, en) with testQueryClient(); resolves once the lazy
+ * route component is loaded and the first answers are rendered.
  */
-export async function mountApp(path: string, locale: AppLocale = "en") {
+export async function mountApp(path: string) {
   const router = createAppRouter(createMemoryHistory());
   await router.push(path);
   const queryClient = testQueryClient();
   const wrapper = mount(App, {
-    global: { plugins: [router, createAppI18n(locale), [VueQueryPlugin, { queryClient }]] },
+    global: { plugins: [router, createAppI18n("en"), [VueQueryPlugin, { queryClient }]] },
   });
   await flushPromises();
   return { router, wrapper, queryClient };

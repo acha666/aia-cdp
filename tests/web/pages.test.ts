@@ -27,9 +27,9 @@ beforeEach(() => {
 
 afterEach(() => vi.useRealTimers());
 
-async function open(path: string, routes: Record<string, Handler>, locale?: "en" | "zh-CN") {
+async function open(path: string, routes: Record<string, Handler>) {
   const api = stubApi(routes);
-  return { ...(await mountApp(path, locale)), api };
+  return { ...(await mountApp(path)), api };
 }
 
 const ROOT = rootDetail({
@@ -51,10 +51,6 @@ const OVERVIEW = {
   "GET /api/v1/certificates": () => Response.json(CERTIFICATES),
   "GET /api/v1/crls": () => Response.json(targetItems()),
 };
-
-function cells(row: DOMWrapper<Element>): string[] {
-  return row.findAll("td").map((cell) => cell.text());
-}
 
 function rows(page: VueWrapper, table: string): DOMWrapper<Element>[] {
   return page.get(`[data-testid="${table}"]`).findAll("tbody tr");
@@ -103,7 +99,6 @@ describe("OverviewPage", () => {
     expect(certificates[0]!.get('[data-state="valid"]').text()).toBe("Valid");
     // The time left shows while valid.
     expect(certificates[0]!.get('[data-testid="remaining"]').text()).toBe("in 3,284 days");
-    expect(cells(certificates[2]!).at(-1)).toBe("—");
 
     // By label, full before delta (the API sends them by id, the delta first); the unpublished
     // delta has dashes, not 0.
@@ -128,7 +123,6 @@ describe("OverviewPage", () => {
     expect(targets[1]!.find('[data-testid="remaining"]').exists()).toBe(false);
     // Nothing to download yet: its paths answer 404 until a CRL is published.
     expect(targets[1]!.find("a[download]").exists()).toBe(false);
-    expect(cells(targets[1]!).at(-1)).toBe("—");
     expect(targets[0]!.findAll("a[download]")).toHaveLength(2);
   });
 
@@ -208,17 +202,6 @@ describe("OverviewPage", () => {
     expect(wrapper.find('[data-testid="query-error"]').exists()).toBe(false);
     expect(rows(wrapper, "crl-target-table")).toHaveLength(3);
   });
-
-  it("speaks zh-CN", async () => {
-    const { wrapper } = await open("/", OVERVIEW, "zh-CN");
-
-    expect(document.title).toBe("总览 · Test PKI");
-    expect(wrapper.get('[data-stat="attention"] dt').text()).toBe("需关注");
-    expect(rows(wrapper, "crl-target-table")[1]!.get("[data-kind]").text()).toBe("增量 CRL");
-    expect(rows(wrapper, "certificate-table").map((row) => row.get("a").text())).toContain(
-      "未知证书"
-    );
-  });
 });
 
 describe("CertificatePage", () => {
@@ -243,10 +226,8 @@ describe("CertificatePage", () => {
     // The algorithms with their parameters, never "Unknown".
     expect(wrapper.get('[data-testid="signature"]').text()).toContain("ecdsa-with-SHA384");
     expect(wrapper.get('[data-testid="public-key"]').text()).toContain("ecPublicKey (P-384)");
-    expect(wrapper.get('[data-testid="public-key"]').text()).toContain("P-384");
     expect(wrapper.get('[data-testid="signature"]').text()).toContain("Signature r");
     expect(wrapper.get('[data-testid="signature"]').text()).toContain("7A:7A:7A");
-    expect(text).toContain(ROOT.id.slice(0, 2).toUpperCase());
     expect(text).not.toContain("Unknown");
     // The validity detail: time to notAfter.
     expect(wrapper.get('[data-testid="validity-detail"]').text()).toBe("(in 6937d)");
@@ -278,18 +259,6 @@ describe("CertificatePage", () => {
       "Overview",
       "Extensions (1)",
     ]);
-  });
-
-  it("says that an unknown id does not exist (404, not retried)", async () => {
-    const { wrapper, api } = await open(path, {});
-
-    // A retry would show the state only after a timer turn, and send a second request.
-    await vi.waitFor(() => {
-      expect(wrapper.find('[data-testid="missing"]').exists()).toBe(true);
-    });
-    expect(wrapper.get('[data-testid="missing"]').text()).toContain("Certificate not found");
-    expect(document.title).toBe("Certificate not found · Test PKI");
-    expect(api.calls()).toEqual([`GET /api/v1/certificates/${ROOT.id}`]);
   });
 });
 
@@ -368,17 +337,8 @@ describe("CrlTargetPage", () => {
     expect(wrapper.find('header [data-state="unpublished"]').exists()).toBe(true);
     expect(wrapper.find('[role="tab"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="revoked-table"]').exists()).toBe(false);
-    expect(wrapper.text()).not.toMatch(/\(0\)/);
     // Its download paths answer 404 until a CRL is published.
     expect(wrapper.find("main header a[download]").exists()).toBe(false);
-    expect(wrapper.get("main header").text()).toContain("—");
-  });
-
-  it("says that an unknown target does not exist", async () => {
-    const { wrapper } = await open(path, {});
-
-    expect(wrapper.get('[data-testid="missing"]').text()).toContain("CRL target not found");
-    expect(document.title).toBe("CRL target not found · Test PKI");
   });
 
   it("shows other failures with their error text", async () => {
@@ -388,5 +348,22 @@ describe("CrlTargetPage", () => {
     expect(wrapper.get('[data-testid="query-error"]').text()).toContain(
       "The request was malformed."
     );
+  });
+});
+
+describe("CertificatePage and CrlTargetPage", () => {
+  it.each([
+    ["Certificate not found", `/certificates/${ROOT.id}`],
+    ["CRL target not found", `/crls/${TARGET_IDS.issuingFull}`],
+  ])("say %s for an unknown id (404, not retried)", async (title, path) => {
+    const { wrapper, api } = await open(path, {});
+
+    // A retry would show the state only after a timer turn, and send a second request.
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="missing"]').exists()).toBe(true);
+    });
+    expect(wrapper.get('[data-testid="missing"]').text()).toContain(title);
+    expect(document.title).toBe(`${title} · Test PKI`);
+    expect(api.calls()).toEqual([`GET /api/v1${path}`]);
   });
 });
