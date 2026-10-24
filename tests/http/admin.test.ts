@@ -11,8 +11,7 @@ import { cert, crlEntry, fixture, fixtureText, NOW } from "../fixtures/pki.ts";
 import { MINIMAL_CONFIG, putText, testDeps } from "../helpers/app.ts";
 import type { TestOverrides } from "../helpers/app.ts";
 import { certificateEntry } from "../helpers/catalog.ts";
-import { errorOf } from "../helpers/reads.ts";
-import { publishFile, setupPublish } from "../helpers/publish.ts";
+import { errorOf, readService } from "../helpers/reads.ts";
 import { flakyStore, opaqueEtagStore } from "../helpers/store.ts";
 
 const TOKEN = "admin-s3cret-token";
@@ -292,8 +291,7 @@ describe("PUT /api/v1/admin/config", () => {
 
 describe("DELETE /api/v1/admin/certificates/{id}", () => {
   it("answers 204, then 404; a referenced certificate is 409", async () => {
-    const { app, deps } = setup();
-    await setupPublish(deps.store);
+    const { app } = await readService({ overrides: { settings: { adminToken: TOKEN } } });
     await post(app, der("leaf-min"), "application/pkix-cert");
     const leaf = cert("leaf-min").sha256;
     const del = (id: string) =>
@@ -315,12 +313,11 @@ describe("GET /api/v1/admin/crls/{targetId}/history", () => {
   const FULL_02 = "crls/issuing-ca-1/full-02.der";
 
   async function withHistory() {
-    const { app, deps } = setup();
-    const setupResult = await setupPublish(deps.store);
-    for (const file of [FULL_01, FULL_02]) {
-      await publishFile(deps.store, file);
-    }
-    return { app, targetId: setupResult.target("issuing-ca-1", "full") };
+    const service = await readService({
+      publish: [FULL_01, FULL_02],
+      overrides: { settings: { adminToken: TOKEN } },
+    });
+    return { app: service.app, targetId: service.setup.target("issuing-ca-1", "full") };
   }
 
   it("lists the versions, and serves one as an attachment", async () => {
