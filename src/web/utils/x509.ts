@@ -9,7 +9,8 @@ import type {
 import type { I18nText } from "@/i18n";
 
 /**
- * "CN=x" with the attribute's short name (or OID); a value that is no string is "#hex" (RFC 4514).
+ * "commonName=x" with the attribute type's name (or OID), unescaped; a value that is no string is
+ * "#hex". Not core's RFC 4514 text: the API names an attribute type only by its long name.
  */
 export function formatAttribute(attribute: AttributeTypeAndValue): string {
   const key = attribute.type.name ?? attribute.type.oid;
