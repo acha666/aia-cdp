@@ -51,6 +51,16 @@ export function asciiOf(view: Uint8Array): string {
   return text;
 }
 
+/** The text of a string-typed block (asn1js keeps it in valueBlock.value); undefined otherwise. */
+export function stringOf(block: unknown): string | undefined {
+  // asn1js derives UTCTime and GeneralizedTime from VisibleString, with an empty value.
+  if (!(block instanceof BaseBlock) || block instanceof UTCTime) {
+    return undefined;
+  }
+  const value: unknown = (block.valueBlock as { value?: unknown }).value;
+  return typeof value === "string" ? value : undefined;
+}
+
 /**
  * The UTC date of these fields. Not Date.UTC: it reads the years 0–99 as 1900–1999 (a
  * GeneralizedTime can hold 0000–0099; 1900 is no leap year, 0000 is).
@@ -280,9 +290,9 @@ function primitiveText(block: BaseBlock): string | undefined {
   if (block instanceof OctetString) {
     return clip(toUpperHex(block.valueBlock.valueHexView));
   }
-  const value: unknown = (block.valueBlock as { value?: unknown }).value;
-  if (typeof value === "string") {
-    return clip(value);
+  const text = stringOf(block);
+  if (text !== undefined) {
+    return clip(text);
   }
   const view = (block.valueBlock as { valueHexView?: Uint8Array }).valueHexView;
   return clip(toUpperHex(view ?? block.toBER(false)));

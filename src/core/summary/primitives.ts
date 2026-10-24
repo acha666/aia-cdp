@@ -11,11 +11,10 @@ import {
   ObjectIdentifier,
   Sequence,
   Set as Asn1Set,
-  UTCTime,
 } from "asn1js";
 import type { BitString as Asn1BitString } from "asn1js";
 import * as pkijs from "pkijs";
-import { blockHex, formatGeneralizedTime, integerNumber } from "../pki/asn1.ts";
+import { blockHex, formatGeneralizedTime, integerNumber, stringOf } from "../pki/asn1.ts";
 import {
   OID_DICTIONARY,
   KEY_ALG_NAMES,
@@ -50,16 +49,6 @@ import type {
  */
 function isBlock(value: unknown): value is BaseBlock {
   return value instanceof BaseBlock;
-}
-
-/** The text of a string-typed block (asn1js keeps it in valueBlock.value); undefined otherwise. */
-export function stringOf(block: unknown): string | undefined {
-  // asn1js derives UTCTime and GeneralizedTime from VisibleString, with an empty value.
-  if (!(block instanceof BaseBlock) || block instanceof UTCTime) {
-    return undefined;
-  }
-  const value: unknown = (block.valueBlock as { value?: unknown }).value;
-  return typeof value === "string" ? value : undefined;
 }
 
 export function buildVersion(version: number | undefined): X509Version {

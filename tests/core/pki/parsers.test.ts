@@ -3,14 +3,13 @@ import * as pkijs from "pkijs";
 import { describe, expect, it } from "vitest";
 import {
   getAuthorityKeyIdHex,
-  getCommonName,
   getCRLInteger,
   parseCertificate,
   parseCRL,
   parseCrlHeader,
 } from "../../../src/core/pki/parsers.ts";
 import { fixture } from "../../fixtures/pki.ts";
-import { attribute, berVariants, extension, nameOf, pkiError } from "../../helpers/pki.ts";
+import { berVariants, extension, pkiError } from "../../helpers/pki.ts";
 
 const ROOT = "certs/root-ca.der";
 
@@ -64,20 +63,7 @@ describe("parseCertificate / parseCRL", () => {
   });
 });
 
-describe("names and key identifiers", () => {
-  it("takes the first CN in RDN order, and none whose value is not a string", () => {
-    const name = nameOf(
-      [attribute("2.5.4.10", new asn1.Utf8String({ value: "Example" }))],
-      [attribute("2.5.4.3", new asn1.BmpString({ value: "First" }))],
-      [attribute("2.5.4.3", new asn1.Utf8String({ value: "Second" }))]
-    );
-    expect(getCommonName(name)).toBe("First");
-    const integer = nameOf([attribute("2.5.4.3", new asn1.Integer({ value: 7 }))]);
-    expect(getCommonName(integer)).toBeUndefined();
-    const withoutCn = nameOf([attribute("2.5.4.10", new asn1.Utf8String({ value: "Example" }))]);
-    expect(getCommonName(withoutCn)).toBeUndefined();
-  });
-
+describe("key identifiers", () => {
   it("reads the AKI keyIdentifier as lowercase hex, undefined without one, and throws on a malformed one", () => {
     const issuer = [new pkijs.GeneralName({ type: 6, value: "https://ca.example/issuer" })];
     const serial = new asn1.Integer({ value: 17 });

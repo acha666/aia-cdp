@@ -233,13 +233,6 @@ export function parseCrlHeader(der: Uint8Array): ReceivedCrl {
   return crl;
 }
 
-/** The first CN in RDN order; undefined when absent or when its value is not a string type. */
-export function getCommonName(name: pkijs.RelativeDistinguishedNames): string | undefined {
-  const attribute = name.typesAndValues.find((value) => value.type === "2.5.4.3");
-  const value: unknown = attribute?.value.valueBlock.value;
-  return typeof value === "string" ? value : undefined;
-}
-
 /**
  * The Subject Key Identifier, lowercase hex; undefined without the extension. Throws when its value
  * is not exactly one primitive OCTET STRING.

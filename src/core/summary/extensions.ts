@@ -56,7 +56,7 @@ import {
   readOid,
   sequenceOf,
 } from "../pki/der.ts";
-import { blockHex, displayText, dumpAsn1, readStrictTime } from "../pki/asn1.ts";
+import { blockHex, displayText, dumpAsn1, readStrictTime, stringOf } from "../pki/asn1.ts";
 import { messageOf } from "../pki/errors.ts";
 import { toHex, toUpperHex } from "../digest.ts";
 import type {
@@ -73,7 +73,7 @@ import type {
   Time,
   UserNotice,
 } from "./schemas.ts";
-import { buildObjectIdentifier, buildName, stringOf } from "./primitives.ts";
+import { buildObjectIdentifier, buildName } from "./primitives.ts";
 
 export function buildExtensions(extensions: pkijs.Extension[] | undefined): Extensions | undefined {
   if (!extensions?.length) {

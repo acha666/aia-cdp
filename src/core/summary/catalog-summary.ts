@@ -1,14 +1,14 @@
 // Catalog summaries (plan §5.3). A summary is always built whole and replaces the previous one (no
 // merge, no summary version), so there is one implementation of each summary.
-import type { Certificate, CertificateRevocationList } from "pkijs";
+import type { Certificate, CertificateRevocationList, RelativeDistinguishedNames } from "pkijs";
 import type { z } from "zod";
 import type { CertificateSummarySchema, CrlSummarySchema } from "../catalog.ts";
 import { sha1Hex, toUpperHex } from "../digest.ts";
+import { stringOf } from "../pki/asn1.ts";
 import { PkiParseError } from "../pki/errors.ts";
 import type { PkiKind } from "../pki/errors.ts";
 import {
   getAuthorityKeyIdHex,
-  getCommonName,
   getCRLInteger,
   getNextCRLPublish,
   getSKIHex,
@@ -27,6 +27,16 @@ export function readExtension<T>(kind: PkiKind, name: string, read: () => T): T 
       cause: error,
     });
   }
+}
+
+/** The first CN with a string value, the rule of the detail's Name.commonName; else null. */
+function commonName(name: RelativeDistinguishedNames): string | null {
+  return (
+    name.typesAndValues
+      .filter((attribute) => attribute.type === "2.5.4.3")
+      .map((attribute) => stringOf(attribute.value))
+      .find((text) => text !== undefined) ?? null
+  );
 }
 
 // A malformed SKI / AKI rejects the certificate, never skipped silently. An empty key id is
@@ -49,8 +59,8 @@ export async function buildCertificateSummary(
   der: Uint8Array
 ): Promise<CertificateSummary> {
   return {
-    subjectCN: getCommonName(cert.subject) ?? null,
-    issuerCN: getCommonName(cert.issuer) ?? null,
+    subjectCN: commonName(cert.subject),
+    issuerCN: commonName(cert.issuer),
     serialNumber: toUpperHex(cert.serialNumber.valueBlock.valueHexView),
     notBefore: cert.notBefore.value.toISOString(),
     notAfter: cert.notAfter.value.toISOString(),
