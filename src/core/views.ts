@@ -12,7 +12,7 @@
 // its generic 500: never a 404, an empty list or a partial 200.
 import type { BitString } from "asn1js";
 import type * as pkijs from "pkijs";
-import type { Catalog, CatalogCertificate, Config } from "./catalog.ts";
+import type { Catalog, CatalogCertificate, Config, ConfigTarget } from "./catalog.ts";
 import { SIGNATURE_ALG_NAMES } from "./pki/constants.ts";
 import { parseCertificate, parseCRL } from "./pki/parsers.ts";
 import { downloadPaths } from "./resources.ts";
@@ -29,9 +29,9 @@ import type { AlgorithmIdentifier, SignatureValue } from "./summary/schemas.ts";
 
 // Helpers -----------------------------------------------------------------------------------------
 
-/** Keys in code-unit order. */
-function sortedKeys(record: Record<string, unknown>): string[] {
-  return Object.keys(record).sort();
+/** The entries of a record in key order (code units; keys are unique). */
+function sortedEntries<T>(record: Record<string, T>): [string, T][] {
+  return Object.entries(record).sort(([a], [b]) => (a < b ? -1 : 1));
 }
 
 /**
@@ -66,10 +66,9 @@ function signature(signed: {
 // Certificates ------------------------------------------------------------------------------------
 
 function certificateItem(config: Config, id: string, entry: CatalogCertificate) {
-  const targets = sortedKeys(config.targets).flatMap((targetId) => {
-    const target = config.targets[targetId];
-    return target?.issuer === id ? [{ targetId, kind: target.kind, label: target.label }] : [];
-  });
+  const targets = sortedEntries(config.targets)
+    .filter(([, target]) => target.issuer === id)
+    .map(([targetId, { kind, label }]) => ({ targetId, kind, label }));
   return {
     id,
     label: config.certificates[id]?.label ?? null,
@@ -83,10 +82,9 @@ function certificateItem(config: Config, id: string, entry: CatalogCertificate) 
 
 /** GET /api/v1/certificates: one item per catalog certificate, in id order. */
 export function certificateList(config: Config, catalog: Catalog) {
-  return sortedKeys(catalog.certificates).flatMap((id) => {
-    const entry = catalog.certificates[id];
-    return entry === undefined ? [] : [certificateItem(config, id, entry)];
-  });
+  return sortedEntries(catalog.certificates).map(([id, entry]) =>
+    certificateItem(config, id, entry)
+  );
 }
 
 /**
@@ -117,11 +115,7 @@ export async function certificateDetail(
 
 // CRL targets -------------------------------------------------------------------------------------
 
-function crlTargetItem(config: Config, catalog: Catalog, targetId: string) {
-  const target = config.targets[targetId];
-  if (target === undefined) {
-    return undefined;
-  }
+function crlTargetItem(config: Config, catalog: Catalog, targetId: string, target: ConfigTarget) {
   const issuer = catalog.certificates[target.issuer];
   if (issuer === undefined) {
     throw new Error(
@@ -156,8 +150,8 @@ function crlTargetItem(config: Config, catalog: Catalog, targetId: string) {
  * target config.json no longer defines is not listed (no kind, no paths).
  */
 export function crlTargetList(config: Config, catalog: Catalog) {
-  return sortedKeys(config.targets).flatMap(
-    (targetId) => crlTargetItem(config, catalog, targetId) ?? []
+  return sortedEntries(config.targets).map(([targetId, target]) =>
+    crlTargetItem(config, catalog, targetId, target)
   );
 }
 
@@ -173,10 +167,11 @@ export async function crlTargetDetail(
   catalog: Catalog,
   targetId: string
 ) {
-  const item = crlTargetItem(config, catalog, targetId);
-  if (item === undefined) {
+  const target = config.targets[targetId];
+  if (target === undefined) {
     return undefined;
   }
+  const item = crlTargetItem(config, catalog, targetId, target);
   const current = catalog.targets[targetId]?.current ?? null;
   if (item.current === null || current === null) {
     return { ...item, current: null };
