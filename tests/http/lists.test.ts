@@ -41,7 +41,7 @@ describe("the lists", () => {
 
     const { certificates, targets } = await lists(svc.app);
     expect(certificates.map((item) => item.id)).toEqual(Object.keys(catalog.certificates).sort());
-    expect(targets.map((item) => item.targetId)).toEqual(Object.keys(config!.targets).sort());
+    expect(targets.map((item) => item.targetId)).toEqual(Object.keys(config.targets).sort());
     // One current per published target: the last version of each.
     expect(targets.filter((item) => item.current !== null)).toHaveLength(3);
   });
