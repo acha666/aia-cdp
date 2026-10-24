@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 import type { Extension } from "@/client/types";
 import { Accordion } from "@/components/ui/accordion";
 import ExtensionView from "@/components/x509/ExtensionView.vue";
 
 // Extensions, critical ones first, then by name (or OID), sorting a copy so the query data is
-// never reordered. Any number of items can be open at once.
+// never reordered. Any number of items can be open at once. An empty list reads "No extensions.".
 const props = defineProps<{ extensions: readonly Extension[] }>();
+
+const { t } = useI18n();
 
 const label = (extension: Extension) => extension.extnID.name ?? extension.extnID.oid;
 
@@ -39,4 +42,5 @@ const items = computed(() => {
       :value="item.value"
     />
   </Accordion>
+  <p v-else class="text-sm text-muted-foreground">{{ t("details.noExtensions") }}</p>
 </template>

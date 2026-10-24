@@ -78,9 +78,6 @@ const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
           <!-- The extensions' accordion headings are h3. -->
           <h2 class="sr-only">{{ t("details.certificate.extensions") }}</h2>
           <ExtensionList :extensions="extensions" />
-          <p v-if="extensions.length === 0" class="text-sm text-muted-foreground">
-            {{ t("details.noExtensions") }}
-          </p>
         </TabsContent>
         <TabsContent v-if="pemPath" value="raw" :class="PANEL">
           <PemText :path="pemPath" />
