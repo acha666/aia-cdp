@@ -4,11 +4,11 @@
 // certificate the target names, the CRL extension policy (crl-policy.ts) has already run, and PKIjs
 // only does the cryptography, on the engine it installs from globalThis.crypto by itself (the
 // engine is never replaced).
-import { Any, fromBER, Null, ObjectIdentifier, Sequence } from "asn1js";
+import { Any, Null, ObjectIdentifier, Sequence } from "asn1js";
+import type { BaseBlock } from "asn1js";
 import * as pkijs from "pkijs";
-import { assertWellFormed } from "./asn1.ts";
 import { CURVE_NAMES, HASH_ALG_NAMES, KEY_ALG_NAMES, SIGNATURE_ALG_NAMES } from "./constants.ts";
-import { INTEGER, contents, hasTag } from "./der.ts";
+import { DerReader, INTEGER, contents, readDer } from "./der.ts";
 import { toDigestInput } from "../digest.ts";
 
 export type SignatureCheck =
@@ -19,7 +19,7 @@ export type SignatureCheck =
       /** The CRL's signature algorithm: its SIGNATURE_ALG_NAMES name, else the OID. */
       algorithm: string;
       /** Why, for the log only (it may hold exception text). */
-      detail?: string;
+      detail: string;
     };
 
 type Scheme = "pkcs1" | "pss" | "ecdsa";
@@ -76,14 +76,19 @@ function absentOrNull(params: unknown): boolean {
 
 /**
  * RSASSA-PSS-params (RFC 4055 §3.1) whose hash is allowed (absent: the RFC default, SHA-1). The
- * other fields are signed with the TBS, so only the CA can get them wrong. Throws when the
- * parameters do not decode.
+ * other fields are signed with the TBS, so only the CA can get them wrong. Parameters that PKIjs
+ * cannot decode are a problem too.
  */
 function pssProblem(params: unknown): string | undefined {
   if (!(params instanceof Sequence)) {
     return "RSASSA-PSS without RSASSA-PSS-params";
   }
-  const hash = new pkijs.RSASSAPSSParams({ schema: params }).hashAlgorithm;
+  let hash: pkijs.AlgorithmIdentifier;
+  try {
+    hash = new pkijs.RSASSAPSSParams({ schema: params }).hashAlgorithm;
+  } catch (error) {
+    return `Undecodable RSASSA-PSS-params: ${error instanceof Error ? error.message : String(error)}`;
+  }
   if (!PSS_HASHES.has(hash.algorithmId) || !absentOrNull(hash.algorithmParams)) {
     return `RSASSA-PSS with the hash ${name(HASH_ALG_NAMES, hash.algorithmId)}`;
   }
@@ -97,19 +102,14 @@ function pssProblem(params: unknown): string | undefined {
  * so without this one signature would verify under several encodings, which OpenSSL refuses too.
  */
 function ecdsaSignatureProblem(signature: Uint8Array, orderLength: number): string | undefined {
-  const parsed = fromBER(signature);
-  if (parsed.offset !== signature.byteLength) {
-    return "The ECDSA signature is not one DER value";
-  }
+  let parts: BaseBlock[];
   try {
-    assertWellFormed(parsed.result);
+    const value = new DerReader(readDer(signature));
+    parts = [value.read(INTEGER), value.read(INTEGER)];
+    value.end();
   } catch (error) {
-    return `The ECDSA signature is not DER: ${error instanceof Error ? error.message : String(error)}`;
-  }
-  const parts = parsed.result instanceof Sequence ? parsed.result.valueBlock.value : [];
-  // Tag 2: asn1js decodes ENUMERATED into a subclass of its Integer.
-  if (parts.length !== 2 || !parts.every((part) => hasTag(part, INTEGER))) {
-    return "The ECDSA signature is not SEQUENCE { r INTEGER, s INTEGER }";
+    const message = error instanceof Error ? error.message : String(error);
+    return `The ECDSA signature is not DER SEQUENCE { r INTEGER, s INTEGER }: ${message}`;
   }
   for (const part of parts) {
     const value = contents(part);
@@ -194,16 +194,7 @@ export async function verifyCrlSignature(
 ): Promise<SignatureCheck> {
   const algorithm =
     SIGNATURE_ALG_NAMES[crl.signatureAlgorithm.algorithmId] ?? crl.signatureAlgorithm.algorithmId;
-  let refusal: Refusal | undefined;
-  try {
-    refusal = admit(crl, issuerSpki);
-  } catch (error) {
-    // RSASSA-PSS-params PKIjs could not decode.
-    refusal = {
-      reason: "unsupported_algorithm",
-      detail: `Undecodable parameters: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
+  const refusal = admit(crl, issuerSpki);
   if (refusal !== undefined) {
     return { ok: false, algorithm, ...refusal };
   }

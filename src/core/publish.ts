@@ -436,7 +436,7 @@ async function publish(
 
     const check = await verifyWithIssuer(deps.store, state, issuer, crl);
     if (!check.ok) {
-      trace.detail = `${check.algorithm}: ${check.detail ?? check.reason}`;
+      trace.detail = `${check.algorithm}: ${check.detail}`;
       return { result: { error: check.reason, details: { algorithm: check.algorithm } } };
     }
 
