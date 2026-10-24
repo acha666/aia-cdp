@@ -22,25 +22,14 @@ import type { CrlFields } from "./summary/catalog-summary.ts";
 
 // Freshness ---------------------------------------------------------------------------------------
 
-/** What compareFreshness reads of a CRL: the catalog `current` record has this shape. */
-export interface FreshnessInput {
-  sha256: string;
-  summary: Pick<CrlSummary, "crlNumber" | "thisUpdate">;
-}
-
-/** created / updated publish; the other four end the upload without a write. */
-export type Freshness =
-  "created" | "unchanged" | "updated" | "stale_crl" | "conflict" | "non_orderable";
-
 /**
- * Whether `incoming` may replace the target's `current` CRL, from the catalog summaries alone,
- * never the current DER:
+ * Whether `incoming` may replace the target's current CRL, from the catalog summaries alone, never
+ * the current DER (bytes that are the current CRL were answered unchanged before, by
+ * alreadyCurrent):
  *
- * 0. no current → created;
- * 1. same sha256 → unchanged;
- * 2. a CRL Number on exactly one side → non_orderable;
- * 3. numbers on both sides: higher → updated, lower → stale_crl, equal → row 4;
- * 4. equal numbers or none on either side, by thisUpdate: later → updated, the same instant →
+ * 1. a CRL Number on exactly one side → non_orderable;
+ * 2. numbers on both sides: higher → updated, lower → stale_crl, equal → row 3;
+ * 3. equal numbers or none on either side, by thisUpdate: later → updated, the same instant →
  *    conflict (other bytes for the same CRL), earlier → stale_crl.
  *
  * Numbers compare as BigInt and times as epoch milliseconds, never as strings (a time with and one
@@ -49,17 +38,11 @@ export type Freshness =
  * The inputs are in the catalog format: decimal numbers and ISO 8601 times.
  */
 export function compareFreshness(
-  current: FreshnessInput | null | undefined,
-  incoming: FreshnessInput
-): Freshness {
-  if (current === null || current === undefined) {
-    return "created";
-  }
-  if (current.sha256 === incoming.sha256) {
-    return "unchanged";
-  }
-  const before = current.summary.crlNumber;
-  const after = incoming.summary.crlNumber;
+  current: Pick<CrlSummary, "crlNumber" | "thisUpdate">,
+  incoming: Pick<CrlSummary, "crlNumber" | "thisUpdate">
+): "updated" | "stale_crl" | "conflict" | "non_orderable" {
+  const before = current.crlNumber;
+  const after = incoming.crlNumber;
   if ((before === null) !== (after === null)) {
     return "non_orderable";
   }
@@ -69,7 +52,7 @@ export function compareFreshness(
       return order > 0n ? "updated" : "stale_crl";
     }
   }
-  const order = Date.parse(incoming.summary.thisUpdate) - Date.parse(current.summary.thisUpdate);
+  const order = Date.parse(incoming.thisUpdate) - Date.parse(current.thisUpdate);
   if (order === 0) {
     return "conflict";
   }
@@ -375,18 +358,14 @@ async function publish(
     const entry = state.catalog.targets[targetId];
     const current = entry?.current ?? null;
     const downloads = downloadPaths(state.config, { target: targetId });
-    const freshness = compareFreshness(current, { sha256, summary: fields });
     if (current !== null) {
-      switch (freshness) {
-        case "stale_crl":
-        case "conflict":
-        case "non_orderable": {
-          const version = currentVersion(current);
-          trace.detail =
-            `${freshness} against the current CRL ${version.crlNumber ?? "without a number"} ` +
-            `of ${version.thisUpdate}`;
-          return { result: { error: freshness, details: { current: version } } };
-        }
+      const freshness = compareFreshness(current.summary, fields);
+      if (freshness !== "updated") {
+        const version = currentVersion(current);
+        trace.detail =
+          `${freshness} against the current CRL ${version.crlNumber ?? "without a number"} ` +
+          `of ${version.thisUpdate}`;
+        return { result: { error: freshness, details: { current: version } } };
       }
     }
 
