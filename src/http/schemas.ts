@@ -465,7 +465,7 @@ export const Stats = z
   .openapi("Stats");
 
 // Admin: history and certificate deletion ----------------------------------------------------------
-// The bodies of src/core/history.ts and src/core/admin.ts deleteCertificate.
+// The bodies of src/core/history.ts and src/core/certificates.ts deleteCertificate.
 
 /** One version of a target's history. */
 export const CrlHistoryEntry = z

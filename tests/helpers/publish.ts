@@ -4,7 +4,7 @@
 import { applyConfig } from "../../src/core/admin.ts";
 import { CATALOG_KEY, ConfigSchema, emptyConfig } from "../../src/core/catalog.ts";
 import type { Config, CrlKind } from "../../src/core/catalog.ts";
-import { importCertificate } from "../../src/core/import.ts";
+import { importCertificate } from "../../src/core/certificates.ts";
 import { publishCrl } from "../../src/core/publish.ts";
 import type { PublishLogRecord, PublishResult } from "../../src/core/publish.ts";
 import type { ObjectStore } from "../../src/core/store.ts";

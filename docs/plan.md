@@ -102,9 +102,9 @@ aia-cdp/
       store.ts         ObjectStore 端口
       catalog.ts       catalog.json / config.json 的 schema、读取、条件写与重试
       resources.ts     路径表解析、下载策略
-      import.ts        importCertificate(deps, bytes)
+      certificates.ts  importCertificate(deps, bytes) / deleteCertificate
       publish.ts       publishCrl(deps, bytes)（入口取一次 deps.now()）
-      admin.ts         validateConfig / applyConfig / deleteCertificate
+      admin.ts         validateConfig / applyConfig
       history.ts       CRL 版本名与键（crlBlobKey / crlHistoryKey）、listHistory / getHistoryBlob
     http/
       app.ts           createApp(deps) → OpenAPIHono；中间件与挂载顺序

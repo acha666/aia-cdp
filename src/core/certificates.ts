@@ -1,8 +1,8 @@
-// Certificate import (plan §5.5).
+// Certificate import and deletion (plan §5.5).
 // There is one commit point, the catalog write: no companion objects, no edge cache. Importing does
 // not authorize anything: a certificate only becomes an issuer once a config target names it.
 import { certificateBlobKey, readCatalog, updateState } from "./catalog.ts";
-import type { CatalogCertificate, CertificateSummary } from "./catalog.ts";
+import type { CatalogCertificate, CertificateSummary, State } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { PkiParseError } from "./pki/errors.ts";
 import type { PkiParseReason } from "./pki/errors.ts";
@@ -10,6 +10,8 @@ import { parseCertificate, sameSignatureAlgorithms } from "./pki/parsers.ts";
 import { toDer } from "./pki/pem.ts";
 import type { ObjectStore } from "./store.ts";
 import { buildCertificateSummary } from "./summary/catalog-summary.ts";
+
+// Import ------------------------------------------------------------------------------------------
 
 export interface ImportDeps {
   store: ObjectStore;
@@ -104,4 +106,91 @@ export async function importCertificate(
     return { error: update.error, id };
   }
   return { ...update.result, id };
+}
+
+// Deletion ----------------------------------------------------------------------------------------
+
+/** Where a certificate is referenced: the object and the keys from its root, as in ConfigIssue. */
+export interface CertificateReference {
+  object: "config.json" | "catalog.json";
+  path: string[];
+}
+
+export type DeleteCertificateResult =
+  | { deleted: true }
+  | { error: "not_found" }
+  | { error: "referenced"; details: { references: CertificateReference[] } }
+  | { error: "concurrent_update" };
+
+/**
+ * Every reference to certificate `id`: config.json's certificates, target issuers and paths, and
+ * the verifier of any current CRL in the catalog, also of a target removed from config.json. A
+ * target's history is verified by the certificate that verified its current (V9), so that
+ * reference protects the history too, unless the target's id was removed and added back with
+ * another issuer (checkConfigMigration).
+ */
+function referencesOf(state: State, id: string): CertificateReference[] {
+  const references: CertificateReference[] = [];
+  const { config } = state;
+  if (config.certificates[id] !== undefined) {
+    references.push({ object: "config.json", path: ["certificates", id] });
+  }
+  for (const [targetId, target] of Object.entries(config.targets)) {
+    if (target.issuer === id) {
+      references.push({ object: "config.json", path: ["targets", targetId, "issuer"] });
+    }
+  }
+  for (const [path, entry] of Object.entries(config.paths)) {
+    if ("certificate" in entry && entry.certificate === id) {
+      references.push({ object: "config.json", path: ["paths", path, "certificate"] });
+    }
+  }
+  for (const [targetId, target] of Object.entries(state.catalog.targets)) {
+    if (target.current?.verifier === id) {
+      references.push({
+        object: "catalog.json",
+        path: ["targets", targetId, "current", "verifier"],
+      });
+    }
+  }
+  return references;
+}
+
+/**
+ * Removes an unreferenced certificate (`id`, the SHA-256 of its DER) from the catalog, then deletes
+ * its blob. The verifier of a target's current CRL stays referenced, also once the target is
+ * removed from config.json. The
+ * catalog write is conditional and retried (updateState); config.json is not written, and an apply
+ * that adds a reference in between is the accepted cross-object window (one operator at a time). A
+ * crash between the two writes leaves an unreferenced blob, which a later import of the same
+ * certificate writes again.
+ */
+export async function deleteCertificate(
+  deps: { store: ObjectStore; sleep?: (ms: number) => Promise<void> },
+  id: string
+): Promise<DeleteCertificateResult> {
+  const outcome = await updateState<DeleteCertificateResult | { key: string }>(
+    deps.store,
+    (state) => {
+      const entry = state.catalog.certificates[id];
+      if (entry === undefined) {
+        return { result: { error: "not_found" } };
+      }
+      const references = referencesOf(state, id);
+      if (references.length > 0) {
+        return { result: { error: "referenced", details: { references } } };
+      }
+      const { [id]: _deleted, ...certificates } = state.catalog.certificates;
+      return { next: { ...state.catalog, certificates }, result: { key: entry.key } };
+    },
+    deps.sleep
+  );
+  if ("error" in outcome) {
+    return outcome;
+  }
+  if (!("key" in outcome.result)) {
+    return outcome.result;
+  }
+  await deps.store.delete(outcome.result.key);
+  return { deleted: true };
 }

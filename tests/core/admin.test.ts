@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  applyConfig,
-  checkConfigState,
-  checkConfigStatic,
-  deleteCertificate,
-  validateConfig,
-} from "../../src/core/admin.ts";
+import { applyConfig, checkConfigStatic, validateConfig } from "../../src/core/admin.ts";
 import type { ConfigCheck, ConfigIssue, ConfigPrecondition } from "../../src/core/admin.ts";
 import {
   CATALOG_KEY,
@@ -16,8 +10,8 @@ import {
   readCatalog,
 } from "../../src/core/catalog.ts";
 import type { Catalog, Config } from "../../src/core/catalog.ts";
+import { deleteCertificate, importCertificate } from "../../src/core/certificates.ts";
 import { sha256Hex } from "../../src/core/digest.ts";
-import { importCertificate } from "../../src/core/import.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { cert, fixture, NOW } from "../fixtures/pki.ts";
@@ -208,7 +202,7 @@ describe("config rules", () => {
       ...config,
       targets: { ...config.targets, [leaf]: target("leaf-min", "full") },
     };
-    expect(rules(checkConfigState(withLeaf, catalog))).toEqual([
+    expect(rules(validateConfig(withLeaf, { catalog }))).toEqual([
       ["V5", ["targets", leaf, "issuer"]],
     ]);
   });

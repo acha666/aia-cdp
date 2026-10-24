@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CATALOG_KEY, certificateBlobKey, readCatalog } from "../../src/core/catalog.ts";
-import { importCertificate } from "../../src/core/import.ts";
+import { importCertificate } from "../../src/core/certificates.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { cert, fixture, NOW } from "../fixtures/pki.ts";
