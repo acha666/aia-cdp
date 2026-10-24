@@ -20,7 +20,8 @@ export interface ImportDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
-export interface ImportedCertificate {
+/** created added the catalog entry; unchanged found the id already imported and wrote nothing. */
+export interface ImportSuccess {
   outcome: "created" | "unchanged";
   /** SHA-256 of the DER. */
   id: string;
@@ -28,7 +29,7 @@ export interface ImportedCertificate {
 }
 
 export type ImportResult =
-  | ImportedCertificate
+  | ImportSuccess
   | { error: "invalid_certificate"; details: { reason: PkiParseReason } }
   | { error: "concurrent_update"; id: string };
 
@@ -88,7 +89,7 @@ export async function importCertificate(
     importedAt: now.toISOString(),
     summary,
   };
-  const update = await updateState<Omit<ImportedCertificate, "id">>(
+  const update = await updateState<Omit<ImportSuccess, "id">>(
     deps.store,
     ({ catalog: current }) => {
       const raced = current.certificates[id];

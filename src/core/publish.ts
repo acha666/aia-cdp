@@ -91,7 +91,7 @@ export interface PublishLogRecord extends Trace {
   level: "info" | "warn" | "error";
   msg: "publish";
   /** created / updated / unchanged; on a failure `reason` instead. */
-  outcome?: PublishedCrl["outcome"];
+  outcome?: PublishSuccess["outcome"];
   /** The error code, or `internal` when publishCrl threw. */
   reason?: PublishErrorCode | "internal";
   ms: number;
@@ -107,7 +107,7 @@ export interface PublishDeps {
 }
 
 /** created / updated wrote `current`; unchanged found the same bytes current and wrote nothing. */
-export interface PublishedCrl {
+export interface PublishSuccess {
   outcome: "created" | "updated" | "unchanged";
   targetId: string;
   kind: CrlKind;
@@ -151,7 +151,7 @@ export type PublishFailure =
 
 export type PublishErrorCode = PublishFailure["error"];
 
-export type PublishResult = PublishedCrl | PublishFailure;
+export type PublishResult = PublishSuccess | PublishFailure;
 
 /**
  * A failure of the upload, thrown out of the attempt (which ends updateState without a write);
@@ -219,7 +219,7 @@ async function checkWhole(der: Uint8Array): Promise<CrlSummary> {
  * The configured target whose current CRL has the digest `sha256`, as an unchanged result: these
  * bytes are answered without being parsed.
  */
-function alreadyCurrent(state: State, sha256: string): PublishedCrl | undefined {
+function alreadyCurrent(state: State, sha256: string): PublishSuccess | undefined {
   for (const [targetId, target] of Object.entries(state.config.targets)) {
     const current = state.catalog.targets[targetId]?.current;
     if (current?.sha256 === sha256) {
@@ -332,7 +332,7 @@ async function publish(
       written.add(key);
     }
   };
-  const attempt = async (state: State): Promise<CatalogMutation<PublishedCrl>> => {
+  const attempt = async (state: State): Promise<CatalogMutation<PublishSuccess>> => {
     trace.attempts++;
     // What an earlier attempt learned does not describe this one: fields the call does not know
     // at its end are left out.
