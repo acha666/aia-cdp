@@ -295,7 +295,13 @@ const DUMP_LIMITS = { maxLines: 200, maxDepth: 12 };
  * the bytes are not decodable, so callers fall back to raw hex.
  */
 export function dumpAsn1(bytes: Uint8Array | ArrayBuffer): Asn1Line[] | undefined {
-  const parsed = fromBER(bytes);
+  let parsed: ReturnType<typeof fromBER>;
+  try {
+    parsed = fromBER(bytes);
+  } catch {
+    // asn1js throws instead of reporting some malformed values (a GeneralizedTime string).
+    return undefined;
+  }
   if (parsed.offset === -1 || parsed.result.error !== "") {
     return undefined;
   }
