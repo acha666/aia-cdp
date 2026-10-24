@@ -7,6 +7,7 @@ import {
   getCRLInteger,
   parseCertificate,
   parseCRL,
+  parseCrlHeader,
 } from "../../../src/core/pki/parsers.ts";
 import { fixture } from "../../fixtures/pki.ts";
 import { attribute, berVariants, extension, nameOf, pkiError } from "../../helpers/pki.ts";
@@ -14,15 +15,24 @@ import { attribute, berVariants, extension, nameOf, pkiError } from "../../helpe
 const ROOT = "certs/root-ca.der";
 
 describe("parseCertificate / parseCRL", () => {
-  it("rejects undecodable DER, trailing bytes and a value of the wrong type", () => {
+  it("rejects undecodable DER, trailing bytes, a bad time and a value of the wrong type", () => {
+    // parseCrlHeader (the upload path) splits the TLVs with its own checks before it decodes.
     for (const [kind, parse] of [
       ["certificate", parseCertificate],
       ["crl", parseCRL],
+      ["crl", parseCrlHeader],
     ] as const) {
       expect(() => parse(fixture("invalid/truncated.der"))).toThrow(pkiError(kind, "der"));
-      const der = fixture(kind === "crl" ? "crls/root-ca/full-01.der" : ROOT);
-      expect(() => parse(Uint8Array.from([...der, 0]))).toThrow(pkiError(kind, "trailing_bytes"));
+      const trailing =
+        kind === "crl"
+          ? fixture("invalid/trailing-byte.der")
+          : Uint8Array.from([...fixture(ROOT), 0]);
+      expect(() => parse(trailing)).toThrow(pkiError(kind, "trailing_bytes"));
     }
+    // thisUpdate is a UTCTime without seconds; the signature is valid.
+    expect(() => parseCRL(fixture("crls/issuing-ca-1/full-bad-time.der"))).toThrow(
+      pkiError("crl", "time")
+    );
     expect(() => parseCRL(fixture("invalid/certificate.der"))).toThrow(
       pkiError("crl", "structure")
     );

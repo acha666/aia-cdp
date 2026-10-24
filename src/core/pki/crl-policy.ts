@@ -11,7 +11,7 @@ import { sameSignatureAlgorithms } from "./parsers.ts";
 import type { ReceivedCrl } from "./parsers.ts";
 
 /** How far thisUpdate may lie ahead of the clock: exactly five minutes is still accepted. */
-export const MAX_CLOCK_SKEW_MS = 300_000;
+const MAX_CLOCK_SKEW_MS = 300_000;
 
 /**
  * CRL extensions the service recognizes, accepted whether or not they are marked critical:

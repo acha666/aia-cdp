@@ -6,9 +6,6 @@ import {
   formatGeneralizedTime,
   readStrictTime,
 } from "../../../src/core/pki/asn1.ts";
-import { parseCRL } from "../../../src/core/pki/parsers.ts";
-import { fixture } from "../../fixtures/pki.ts";
-import { pkiError } from "../../helpers/pki.ts";
 
 /** Octets from hex pairs separated by spaces. */
 const bytes = (hex: string) => Uint8Array.fromHex(hex.replaceAll(" ", ""));
@@ -47,12 +44,6 @@ describe("strict RFC 5280 times", () => {
     [24, "20260508000000.5Z"],
   ])("rejects the %s time %j instead of inventing a date", (tag, raw) => {
     expect(() => readStrictTime(decodedTime(tag, raw))).toThrow(Asn1TimeError);
-  });
-
-  it("rejects crls/issuing-ca-1/full-bad-time.der (UTCTime without seconds, valid signature)", () => {
-    expect(() => parseCRL(fixture("crls/issuing-ca-1/full-bad-time.der"))).toThrow(
-      pkiError("crl", "time")
-    );
   });
 });
 

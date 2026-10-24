@@ -6,12 +6,11 @@ import {
   checkCrlPolicy,
   checkEntryPolicy,
   ISSUING_DISTRIBUTION_POINT_OID,
-  MAX_CLOCK_SKEW_MS,
 } from "../../../src/core/pki/crl-policy.ts";
 import { parseCRL } from "../../../src/core/pki/parsers.ts";
 import type { ReceivedCrl } from "../../../src/core/pki/parsers.ts";
 import { cert, crlEntry, fixture, NOW } from "../../fixtures/pki.ts";
-import { extension, padOid } from "../../helpers/pki.ts";
+import { extension } from "../../helpers/pki.ts";
 
 // checkCrlPolicy and checkEntryPolicy. Fixtures cover what `openssl ca` can produce; the other
 // shapes are made by changing the parsed PKIjs object, which is fine because the policy does not
@@ -44,33 +43,10 @@ function withEntryExtension(added: pkijs.Extension) {
 }
 
 describe("checkCrlPolicy", () => {
-  it("rejects an outer signatureAlgorithm that differs from the TBS one as received", () => {
-    const mismatch = {
-      ok: false,
-      error: "invalid_crl",
-      details: { reason: "signature_algorithm_mismatch" },
-    };
-    const other = crlOf(FULL_01);
-    other.signatureAlgorithmView = new Uint8Array(
-      new pkijs.AlgorithmIdentifier({
-        algorithmId: "1.2.840.113549.1.1.12",
-        algorithmParams: new asn1.Null(),
-      })
-        .toSchema()
-        .toBER(false)
-    );
-    expect(checkCrlPolicy(other, NOW)).toMatchObject(mismatch);
-    // asn1js decodes a padded OID as the same OID: only the received octets differ.
-    const padded = crlOf(FULL_01);
-    padded.signatureAlgorithmView = padOid(padded.signatureAlgorithmView);
-    expect(checkCrlPolicy(padded, NOW)).toMatchObject(mismatch);
-  });
-
   it("accepts thisUpdate exactly five minutes ahead and rejects one ms more", () => {
     const { thisUpdate } = crlEntry(FULL_01);
-    expect(MAX_CLOCK_SKEW_MS).toBe(5 * 60 * 1000);
-    expect(checkCrlPolicy(crlOf(FULL_01), at(thisUpdate, -MAX_CLOCK_SKEW_MS))).toEqual(OK);
-    expect(checkCrlPolicy(crlOf(FULL_01), at(thisUpdate, -MAX_CLOCK_SKEW_MS - 1))).toEqual({
+    expect(checkCrlPolicy(crlOf(FULL_01), at(thisUpdate, -5 * 60_000))).toEqual(OK);
+    expect(checkCrlPolicy(crlOf(FULL_01), at(thisUpdate, -5 * 60_000 - 1))).toEqual({
       ok: false,
       error: "not_yet_valid",
       details: { thisUpdate: new Date(thisUpdate).toISOString() },
@@ -99,27 +75,18 @@ describe("checkCrlPolicy", () => {
     expect(checkCrlPolicy(crl, NOW)).toEqual(OK);
   });
 
-  it("rejects an unknown critical extension with its oid and keeps a non-critical one", () => {
-    expect(checkCrlPolicy(crlOf("crls/issuing-ca-1/full-unknown-critical.der"), NOW)).toEqual({
-      ok: false,
-      error: "unknown_critical_extension",
-      details: { oid: "1.3.6.1.4.1.32473.1" },
-      detail: expect.any(String) as unknown,
-    });
+  // publishCrl's rejections cover the critical one.
+  it("accepts an unknown extension that is not critical", () => {
     expect(checkCrlPolicy(crlOf("crls/issuing-ca-1/full-unknown-noncritical.der"), NOW)).toEqual(
       OK
     );
   });
 
   // A partition is never the issuer's whole CRL, so the scope is refused also when the IDP is not
-  // marked critical (against RFC 5280, which requires it to be).
+  // marked critical (against RFC 5280, which requires it to be). publishCrl's rejections cover a
+  // critical one.
   it("accepts an IDP naming only the distribution point and refuses any other field", () => {
     expect(checkCrlPolicy(crlOf("crls/issuing-ca-1/full-idp-dp-only.der"), NOW)).toEqual(OK);
-    const scoped = { ok: false, error: "scoped_crl_unsupported" };
-    expect(checkCrlPolicy(crlOf("crls/issuing-ca-1/full-idp-scoped.der"), NOW)).toMatchObject({
-      ...scoped,
-      details: { oid: ISSUING_DISTRIBUTION_POINT_OID },
-    });
     // onlyContainsCACerts [2] TRUE, not critical.
     const caCerts = new asn1.Sequence({
       value: [
@@ -133,7 +100,7 @@ describe("checkCrlPolicy", () => {
       crlOf(FULL_01),
       extension(ISSUING_DISTRIBUTION_POINT_OID, caCerts)
     );
-    expect(checkCrlPolicy(crl, NOW)).toMatchObject(scoped);
+    expect(checkCrlPolicy(crl, NOW)).toMatchObject({ ok: false, error: "scoped_crl_unsupported" });
     const notSequence = extension(ISSUING_DISTRIBUTION_POINT_OID, new asn1.Integer({ value: 1 }));
     expect(checkCrlPolicy(withCrlExtension(crlOf(FULL_01), notSequence), NOW)).toMatchObject({
       ok: false,

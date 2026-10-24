@@ -127,10 +127,9 @@ describe("publishCrl: rejections", () => {
   const rogueKeyId = getSKIHex(parseCertificate(fixture(cert("rogue-ca").der)));
   const future = "crls/issuing-ca-1/full-future.der";
 
+  // One row per error code and details shape: the parser and policy tests own the reasons.
   it.each<[string, PublishErrorCode, object]>([
     ["invalid/garbage.txt", "invalid_crl", { reason: "der" }],
-    ["invalid/trailing-byte.der", "invalid_crl", { reason: "trailing_bytes" }],
-    ["crls/issuing-ca-1/full-bad-time.der", "invalid_crl", { reason: "time" }],
     [future, "not_yet_valid", { thisUpdate: iso(crlEntry(future).thisUpdate) }],
     [
       "crls/issuing-ca-1/full-unknown-critical.der",
