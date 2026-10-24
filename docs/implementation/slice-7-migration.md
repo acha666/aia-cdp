@@ -6,7 +6,7 @@
 
 - `scripts/migrate-from-v2.ts`（入口，`parseArgs` 子命令 `inventory` / `plan` / `apply` / `verify`）与 `scripts/migrate-v2/*.ts`（纯逻辑，可单测）；复用 `src/core/pki` 解析验签与 `src/cli` 的 HTTP 客户端函数。
 - 仅迁移期存在的 `POST /api/v1/admin/crls/{targetId}/history`（切换后删除）。
-- 非生产演练记录、生产切换（含 AD CS 助手替换与令牌）、`docs/operations.md` 迁移与回滚章的实测版（骨架见切片 6）。
+- 非生产演练记录、生产切换（含 AD CS 助手替换与令牌）、`docs/operations.md` 迁移与回滚章。
 
 前提（C9）：历史迁移是**尽力而为**——线上归档是 Gen A/B，无摘要、同名覆盖，Gen C 从未部署；迁移脚本是 HTTP 客户端 + 本地解析验签，盘点通道见 owner 确认 1。
 
@@ -18,7 +18,7 @@
 - 切片 3：下载路由（步骤 7 逐条比对）。
 - 切片 4：`checkCrlPolicy`、`src/core/pki/verify.ts`（`verifyWithPublicKey`，B21）、`crlBlobKey`（步骤 2）、history 标记（步骤 6，C8）、`POST /api/v1/crls`、改写的 `scripts/adcs-crl-uploader.ps1`（含 `-UploadTokenFile`）。
 - 切片 5a：扩展解析器（读 AIA、CDP、Freshest CRL、CRL Self CDP `.21.14` 里的 URL）与证书 / CRL 详情路由。
-- 切片 6：history 列表路由、`docs/operations.md` 迁移与回滚章骨架。
+- 切片 6：history 列表与下载路由（plan §7.2）。
 - 旧桶实名：用 `wrangler r2 bucket list` 查到并记录（按 wrangler 自动置备的命名规则推测为 `aia-cdp-worker-store`，未核实）。
 - 一台入域 Windows 机器（CryptoAPI 冒烟）；CA 主机 Task Scheduler 的操作权限。
 
@@ -65,7 +65,7 @@
      形状，即 `current` 记录的字段，另加 `importedAt`）：两者都已存在返回 200 `unchanged`，否则 201 `created`。**不读写 catalog 的 current**，
      除上一条外不做新鲜度判断。
    - 路由进 OpenAPI，漂移检查照常。不加额外开关，暴露窗口靠步骤 11 删除收口。
-   - 导入的版本从来不是 current，靠标记出现在 history 列表里（切片 6 步骤 4）；没有标记的孤儿 blob 仍不出现。
+   - 导入的版本从来不是 current，靠标记出现在 history 列表里（plan §5.3）；没有标记的孤儿 blob 仍不出现。
 6. **应用**：`apply --plan plan.json --target <新服务 URL>`，令牌读 `AIA_ADMIN_TOKEN(_FILE)` 与 `AIA_UPLOAD_TOKEN(_FILE)`。
    - 前置检查：新服务 `GET /api/v1/health` 的 `checks.configuration` 为 `missing`，或现有 config 与 plan 一致（重跑）。
    - 顺序：逐张 `POST /api/v1/admin/certificates` → `PUT /api/v1/admin/config`（首次带 `If-None-Match: *`，重跑带 `If-Match`）→ 每个 current 一次 `POST /api/v1/crls`（首次期望 `created`，重跑为 `unchanged` 或 `updated`）→ 按步骤 4 的顺序逐条 `POST …/history`。

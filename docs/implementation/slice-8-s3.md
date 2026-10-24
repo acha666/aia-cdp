@@ -1,4 +1,6 @@
-# 切片 8：S3（按需）
+# 切片 8：S3（远期计划）
+
+状态：远期计划（2026-10-24，plan 决策 17），不在当前范围。
 
 ## 目标与范围
 
@@ -35,7 +37,7 @@
    - 两条既有用例兼作探针：`ifNoneMatch` 撞上已存在的键、过期的 `ifMatch` 都必须失败；服务端若忽略条件头，套件即失败。
    - `pnpm run ci:s3`：`docker run -d --rm -p 9000:9000 -e MINIO_ROOT_USER=… -e MINIO_ROOT_PASSWORD=… minio/minio:<固定标签> server /data` → `tests/storage/s3.test.ts` 的 `beforeAll` 用 `CreateBucketCommand` 建桶（不依赖 `mc`）→ `AIA_TEST_S3=1 pnpm exec vitest run tests/storage/s3.test.ts` → 停容器。
    - `.github/workflows/ci.yml` 加可选的 `s3` 任务，只调用 `pnpm run ci:s3`（D3）。
-7. 多实例与 §5.6 备忘：写路径（publish、import、applyConfig、retire、delete）一律直读 `config.json` / `catalog.json`，不经备忘，否则实例 B 拿着过期的 catalog 会把旧 CRL 判成 `unchanged` 而不是 `stale_crl`。读路径允许最多 TTL 的陈旧，下载缓存本身就有 60–3600 s。备忘目前关闭（plan §5.6），本步不改代码；以后打开时写路径仍直读。
+7. 多实例与 §5.6 备忘：写路径（publish、import、applyConfig、deleteCertificate）一律直读 `config.json` / `catalog.json`，不经备忘，否则实例 B 拿着过期的 catalog 会把旧 CRL 判成 `unchanged` 而不是 `stale_crl`。读路径允许最多 TTL 的陈旧，下载缓存本身就有 60–3600 s。备忘目前关闭（plan §5.6），本步不改代码；以后打开时写路径仍直读。
 8. `docs/operations.md` 多实例章：只有 `s3` 支持多实例，fs 仍是一个进程一个目录；生产 S3 端点上线前，必须在该端点上跑通 `AIA_TEST_S3=1` 的一致性套件（MinIO 通过不代表 AWS S3 或 R2-S3 也行）；写明备忘的陈旧窗口；凭据走 `_FILE`。
 
 ## 测试

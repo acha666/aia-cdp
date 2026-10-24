@@ -10,14 +10,15 @@ X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloud
   `AIA_MAX_UPLOAD_BYTES`（默认 1 MiB）；设了 `AIA_UPLOAD_TOKEN` 就要令牌。与目标当前 CRL 相同的字节直接回答 unchanged，
   其余先只解码不含吊销条目的部分并验签，通过后才完整解码。CLI 是 `aia publish`；Windows AD CS 助手是
   `scripts/adcs-crl-uploader.ps1`，安装与计划任务见 [docs/operations.md](docs/operations.md)。
-- 管理：导入 CA 证书、写入与校验配置（`/api/v1/admin/*`，需要 `AIA_ADMIN_TOKEN`），CLI 是 `aia import` / `aia config`。
+- 管理：导入与删除 CA 证书（被引用的证书不可删）、写入与校验配置（从配置删除目标即退役）、列出与下载 CRL 目标的历史
+  （`/api/v1/admin/*`，需要 `AIA_ADMIN_TOKEN`），CLI 是 `aia import` / `aia config` / `aia history` / `aia delete-certificate`。
 - 公开只读 API：`GET /api/v1/certificates`、`/certificates/{id}`、`/crls`、`/crls/{targetId}`、`/stats`、`/health`；
   OpenAPI 文档在 [docs/openapi.json](docs/openapi.json)（`pnpm run openapi` 重新生成）。
 - Web UI：总览（统计与"需关注"、证书表、CRL 目标表、CRL 上传）、证书与 CRL 目标详情（X.509 扩展、吊销列表、PEM），
   `en` / `zh-CN`，亮 / 暗主题跟随系统。
 
 - [docs/plan.md](docs/plan.md)：设计文档（决策、存储模型、领域规则、API、切片划分）。
-- [docs/implementation/](docs/implementation/README.md)：实施总则（决策、完成定义、通用约定）与未完成的切片 6–8；与 plan.md
+- [docs/implementation/](docs/implementation/README.md)：实施总则（决策、完成定义、通用约定）与未完成的切片 7、8；与 plan.md
   冲突时以它为准。
 
 ## 开发环境
@@ -55,7 +56,7 @@ pnpm run ci:docker
   在尚无配置时应用一份示例配置，再给除 issuing-ca-2 的 delta 外的每个目标发布一个 CRL；可重复执行（再跑全部 unchanged，已有配置不动）。
   `pnpm run reset:dev` 删除本地数据（`.wrangler/state`、`.data`）。
 
-CLI：`pnpm aia <命令>`（镜像内为 `node dist/server/cli/aia.js <命令>`），读 `AIA_URL` 与当前命令的令牌：import / config 用
+CLI：`pnpm aia <命令>`（镜像内为 `node dist/server/cli/aia.js <命令>`），读 `AIA_URL` 与当前命令的令牌：import、config、history、delete-certificate 用
 `AIA_ADMIN_TOKEN_FILE` / `AIA_ADMIN_TOKEN`，`publish <file...>` 用 `AIA_UPLOAD_TOKEN_FILE` / `AIA_UPLOAD_TOKEN`（服务端未设上传令牌时可不给）；
 `--token-file` 优先于两个变量。令牌只经 `https://` 发送，经 `http://` 只发往 `localhost`、`127.0.0.0/8` 与 `[::1]`；其他主机要加
 `--allow-insecure-http`，否则是用法错误、不发请求。退出码 0 成功、1 失败、2 用法错误；`pnpm aia --help` 列出子命令。`pnpm aia config validate docs/config.example.json` 离线校验示例配置（不需要服务与令牌）。

@@ -1,15 +1,14 @@
 # aia-cdp 实施计划：总则与索引
 
-状态：切片 1–5b 已完成（切片 1 = `main` 的 `0b391cc`；切片 2、3、4、5a、5b 见 `main` 上的 `Merge slice/2-catalog-import`、`Merge slice/3-downloads`、`Merge slice/4-publish`、`Merge slice/5a-api`、`Merge slice/5b-ui`；
-它们的切片文件已删除，见 git 历史），下一个是切片 6。owner 决策 D1–D12 已定，B1–B22 是规划默认值、可推翻（§0）；各切片未决事项列在
+状态：切片 1–6 已完成（切片 1 = `main` 的 `0b391cc`；切片 2、3、4、5a、5b 见 `main` 上的 `Merge slice/2-catalog-import`、`Merge slice/3-downloads`、`Merge slice/4-publish`、`Merge slice/5a-api`、`Merge slice/5b-ui`，
+切片 6 见切片 6 的 PR；它们的切片文件已删除，见 git 历史）。余下切片 7（迁移）；切片 8（S3）是远期计划（plan 决策 17）。owner 决策 D1–D12 已定，B1–B22 是规划默认值、可推翻（§0）；各切片未决事项列在
 该切片的"开工前需 owner 确认"，汇总见附录 C。设计文档是 `docs/plan.md`；二者冲突时以本目录为准，并在同一分支回写 plan.md。
 
 | 文件 | 内容 |
 | --- | --- |
 | `README.md`（本文，"总则"） | §0 决策与默认值；§1 顺序、分支与完成定义；§2 跨切片的通用约定 |
-| `slice-6-admin-docs.md` | 切片 6：管理补全与文档 |
 | `slice-7-migration.md` | 切片 7：迁移 |
-| `slice-8-s3.md` | 切片 8：S3（按需） |
+| `slice-8-s3.md` | 切片 8：S3（远期计划） |
 | `appendix-a-migration-inventory.md` | 附录 A：旧仓库逐文件的迁移处置 |
 | `appendix-c-owner-questions.md` | 附录 C：待 owner 确认汇总 |
 | `appendix-d-fixture-matrix.md` | 附录 D：夹具用例矩阵 |
@@ -78,14 +77,14 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | 4 | `slice/4-publish` | 发布与 AD CS 助手（已完成） | 1–3 |
 | 5a | `slice/5a-api` | API 与客户端（已完成） | 1–4 |
 | 5b | `slice/5b-ui` | UI（已完成） | 1、4、5a |
-| 6 | `slice/6-admin-docs` | 管理补全与文档（`slice-6-admin-docs.md`） | 1–5b |
+| 6 | `slice/6-admin-docs` | 管理补全（已完成） | 1–5b |
 | 7 | `slice/7-migration`，收尾 `slice/7-cleanup` | 迁移（`slice-7-migration.md`） | 1–6 |
-| 8 | `slice/8-s3` | S3，按需（`slice-8-s3.md`） | 1、2、5a、6；owner 确认要做 |
+| 8 | `slice/8-s3` | S3，远期计划（`slice-8-s3.md`） | 1、2、5a、6；owner 确认要做 |
 
 ```text
 1 ──► 2 ──► 3 ──► 4 ──► 5a ──► 5b ──► 6 ──► 7 ──► 7-cleanup
                                        │
-                                       └──► 8（按需，与 7 无先后）
+                                       └──► 8（远期，与 7 无先后）
 ```
 
 严格串行：每个切片都改 `src/http/app.ts`、`src/http/errors.ts`、`docs/openapi.json` 或 `package.json` 的脚本，从最新 `main` 切分支，
@@ -205,7 +204,7 @@ D8：批次 1 = 本目录（当时为单文件 `docs/implementation.md`）+ plan
   `{ data }`。异常文本与栈只进日志；未预期错误一律 500 `internal` + 固定文案。
 - `details.reason` 词表：`invalid_certificate` / `invalid_crl` 用 `der`、`trailing_bytes`、`time`、`structure`、`extension_value`、
   `pem_label`、`pem_blocks`、`pem_base64`、`signature_algorithm_mismatch`（外层与 TBS 签名算法收到的字节不同）；`issuer_not_found` 另有
-  `missing_aki`。新增取值同步 `docs/api.md` 的码表。
+  `missing_aki`。
 - 头：API JSON（含错误）`Cache-Control: no-store`；`/api/v1/openapi.json` `public, max-age=300`。HTTP `ETag` 永远来自内容 sha256
   （下载 DER `"<sha256>"`、PEM `"<sha256>-pem"`，管理 config `"<sha256(存储字节)>"`）；store ETag 只回传给同一适配器，绝不外露（B14）。
 - 保留前缀与 UI 兜底的完整规则见 plan §4.4：`/api/*` 未命中 → JSON 404 `not_found`；`/ca/`、`/crl/`、`/dcrl/` 下未命中 → `text/plain` 404

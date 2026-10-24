@@ -1,6 +1,6 @@
 # aia-cdp：新项目规划（2026-10-17）
 
-状态：设计文档，2026-10-17 定稿，之后按 owner 决策与评审修订（经过见 git 历史）。切片 1–5b 已完成（见 `main` 的合并提交），下一个是切片 6。
+状态：设计文档，2026-10-17 定稿，之后按 owner 决策与评审修订（经过见 git 历史）。切片 1–6 已完成（见 `main` 的合并提交）；余下切片 7（迁移），切片 8（S3）列为远期计划。
 分步实施计划（每个未完成切片的步骤、测试、可执行的出口条件、待 owner 确认项）在 `docs/implementation/`；本文与之冲突时以后者为准，规则由各切片的
 "文档同步"步骤写回本文。业务规则在 §6 一次列全。
 
@@ -24,6 +24,7 @@
 | 14  | 迁移源     | 2026-10-18：`~/aia-cdp/worker-aia-cdp` 本地分支 `parsing-2026-10-18` 的提交 `5b570aa`；只有附录 A 与切片 7 还引用它（`worker-aia-cdp@5b570aa:<path>`） |
 | 15  | 检查与 devcontainer | 2026-10-23：检查只用常规的一套（§10）：`wrangler types` + worker / node 两套 `tsc` 与 web 的 `vue-tsc`、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、vitest、构建、OpenAPI 深等；撤回 2026-10-19 加的边界护栏（ESLint 分层规则、`typecheck:boundary`、Worker 包的 `"node:` 断言）。切片 1 建 devcontainer（Node 26 镜像、PowerShell feature、非 root、无 `act`） |
 | 16  | 切片 2 两项 | 2026-10-19：不记证书路径改绑账本——V7 只与当前 config 比对，"先删再加"不拦截、由操作员负责，`applyConfig` 只写 `config.json`（§5.2）；`PUT /api/v1/admin/config` 缺可用前置条件回 428 `precondition_required`，不用 400（§7.2、§7.3） |
+| 17  | 切片 6 | 2026-10-24：退役 = 从 `config.json` 删除目标，取消规则 V8，没有 retire 路由、命令与 catalog 字段（§5.2、§6）；证书删除保护：被 config 引用或作为任一目标 current 的 `verifier` 的证书不可删，不做删除后的复核与补偿（§5.5）；历史可列可下载（§7.2）；不写 `docs/api.md`、不补 operations.md 的部署等章节；S3（切片 8）列为远期计划 |
 
 决策 5、8–16 即 implementation 总则 §0 的 D1–D12（5 = D1，9 = D2，10 = D3，14 = D4，11 = D5，12 = D6，13 = D7，8 = D8，15 = D9 + D10，16 = D11 + D12）。
 
@@ -38,14 +39,14 @@
   共用一个 `createApp(deps)`，两个入口文件各十几行。
 - 公开分发 CA 证书与 CRL（AIA/CDP）。公开 URL 由操作员配置，DER 是唯一权威，PEM 读取时派生。
 - AD CS 上传 CRL 后自动验签、比较新鲜度并发布，返回 created / updated / unchanged 三种结果。
-- 导入证书、替换配置、退役目标、查看历史都走带令牌的 HTTP 管理接口，CLI 包装这些接口。
+- 导入与删除证书、替换配置（删除目标即退役）、查看与下载历史都走带令牌的 HTTP 管理接口，CLI 包装这些接口。
 - Web UI 浏览证书与 CRL 目标（总览 + 详情页）、上传 CRL。
 
 非目标（明确不做）：
 
 - 证书签发、私钥管理、证书链验证。
 - 数据库、队列、后台任务、边缘缓存、插件系统、分页与游标（资源数以十计）。
-- 对象自定义元数据；多个服务进程共享一个 fs 数据目录（多实例走 S3，后续切片）。
+- 对象自定义元数据；多个服务进程共享一个 fs 数据目录（多实例走 S3，远期计划）。
 - CORS；公开 API 暴露 CRL 历史；full 与 delta CRL 的合并或相互校验。
 - 运行时注入 `SITE_NAME`；HTTP 管理 UI（首发只有 CLI）。
 
@@ -103,7 +104,8 @@ aia-cdp/
       resources.ts     路径表解析、下载策略
       import.ts        importCertificate(deps, bytes)
       publish.ts       publishCrl(deps, bytes)（入口取一次 deps.now()）
-      admin.ts         validateConfig / applyConfig / retireTarget / deleteCertificate / listHistory
+      admin.ts         validateConfig / applyConfig / deleteCertificate
+      history.ts       listHistory / getHistoryBlob
     http/
       app.ts           createApp(deps) → OpenAPIHono；中间件与挂载顺序
       routes/          health.ts  certificates.ts  crls.ts  stats.ts  admin.ts  downloads.ts
@@ -127,7 +129,7 @@ aia-cdp/
     fixtures/          generate-test-data.sh  pki.ts；产物 pki/ 入库
   scripts/             adcs-crl-uploader.ps1  generate-openapi.ts  seed-dev.ts
                        smoke.sh  worker-smoke.ts  docker-smoke.sh（切片 7 加 migrate-from-v2.ts）
-  docs/                plan.md（本文）  implementation/（总则、未完成的切片、附录）  api.md（切片 6）  operations.md  openapi.json
+  docs/                plan.md（本文）  implementation/（总则、未完成的切片、附录）  operations.md  openapi.json
   dist/                web/（vite build） server/（tsc -p tsconfig.build.json） worker/（dry-run）；不入库
 ```
 
@@ -245,7 +247,7 @@ config.json                                          操作员拥有；管理接
 catalog.json                                         服务拥有；导入与发布条件写
 blobs/certificates/<sha256>.der                      不可变
 blobs/crls/<targetId>/<YYYYMMDDHHMMSSZ>-<crlNumber|none>-<sha256>.der   不可变；当前与历史共用
-history/<targetId>/<与 blob 同名>.json                不可变；历史标记（被取代或退役的 current、切片 7 导入的旧版本）
+history/<targetId>/<与 blob 同名>.json                不可变；历史标记（被取代的 current、切片 7 导入的旧版本）
 ```
 
 CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段是十进制 CRL 号、无号时为 `none`；键只由 `crlBlobKey()`
@@ -285,7 +287,9 @@ CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段
   证书。只与当前 config 比对，"先删再加"的两步改绑不检测，由操作员负责；更换 CA 证书用新路径。
 - 已有目标不能改 `issuer` 或 `kind`；换签发者或种类用新 UUID（目标的 current 与全部 history 因此由同一张证书验证，删除保护覆盖历史，
   新鲜度不跨签发者比较；规则 V9，`src/core/admin.ts`）。
-- 删除目标前，该目标的 `current` 必须已被 retire 清空；被目标或路径引用的证书不能删除。
+- 目标可以随时从 config 删除，删除即退役（原规则 V8 已取消，编号保留空缺）：下载、列表与上传都只认 config 里的目标，catalog 保留它
+  最后的 current，作为历史与证书删除保护的依据。同一 UUID 加回 config 会重新提供删除前的 current，所以恢复发布用新 UUID。
+- 被 config 引用（`certificates`、目标的 `issuer`、路径）或作为任一目标 current 的 `verifier` 的证书不能删除（§7.2）。
 
 ### 5.3 `catalog.json`（服务）
 
@@ -315,16 +319,17 @@ CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段
 ```
 
 catalog 只存当前指针，大小与资源数成正比，不随发布次数增长。历史 = `history/<uuid>/` 下的标记
-（被取代或退役的 current 原样记录，或切片 7 导入的旧版本；键名与 blob 同名，自带 `thisUpdate`、CRL 号与摘要）∪ catalog 的 `current`；
+（被取代的 current 原样记录，或切片 7 导入的旧版本；键名与 blob 同名，自带 `thisUpdate`、CRL 号与摘要）∪ catalog 的 `current`；
 `blobs/crls/<uuid>/` 下没有标记的孤儿 blob（发布竞争失败或崩溃留下）不算历史。管理接口各 `list` 一次两个前缀即可列出，
-不逐个读对象。发布写的标记体是被取代的 `current` 记录原样，不带时间（退役写同样的形状，切片 7 的导入另带 `importedAt`）；发布写了
+不逐个读对象。发布写的标记体是被取代的 `current` 记录原样，不带时间（切片 7 的导入另带 `importedAt`）；发布写了
 标记而 catalog 写输掉时，被标记的版本仍是 current，列历史时按版本名把标记与 current 合并成一条。标记不记取代时间：create-only 的
 标记可能来自最终 `concurrent_update` 的调用，那时写下的时间之后永远改不掉；某版本被取代的时间就是取代它的那一版的 `publishedAt`。
+目标从 config 删除后，catalog 里它的 current 仍在，历史照常列出与下载，只是没有条目标为 current（`src/core/history.ts`）。
 
 格式（`src/core/catalog.ts`）：证书 id、`sha1`、key id 小写 hex（key id 与 CN 缺失为 `null`），target id
 小写 UUID；`serialNumber` 大写 hex，保留 INTEGER 内容字节的前导 `00`；时间为 `toISOString()`（含 `.000Z`）；
 CRL 号十进制字符串、按 BigInt 比较；`revokedCount` 是非空整数（发布时总能解析）；`nextPublish` 取 AD CS Next CRL
-Publish（`1.3.6.1.4.1.311.21.4`），缺失或读不出一个 RFC 5280 时间为 `null`（它只影响 UI 的状态，不拒绝 CRL）。拟新增、开工前需 owner 确认的字段：`targets[id].retired`（退役终态，切片 6 第 1 项）。
+Publish（`1.3.6.1.4.1.311.21.4`），缺失或读不出一个 RFC 5280 时间为 `null`（它只影响 UI 的状态，不拒绝 CRL）。
 
 ### 5.4 端口与适配器
 
@@ -390,8 +395,10 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 的限制只落在 `catalog.json` 上：超限报错不是前置条件失败，服务端不重试（500），AD CS 助手顺序上传并按 `-UploadIntervalMs` 间隔。
 
 config 与 catalog 是两个对象，catalog 的条件写不覆盖 config。每次尝试都重读两者再解析目标，剩下的窗口是发布读到 config 之后、
-catalog 写成功之前目标被删（`config apply`）：catalog 会留下 config 里已没有的目标的 current（无路径引用、不可下载；切片 6 的 retire
-允许清理这种残留）。不为此加跨对象锁：管理操作（导入、改配置、退役、删除）单人串行，删目标前先停该 CA 的发布任务（切片 6 手册）。
+catalog 写成功之前目标被删（`config apply`）：catalog 会留下 config 里已没有的目标的 current（无路径引用、不可下载，与删除目标后
+的状态相同）。删除证书在 catalog 的同一次条件写里检查引用（config 与 catalog 的 `verifier`），与发布的竞争由这次条件写排除；与
+`config apply` 交错（apply 读到证书仍在，随后证书被删）不复核也不补偿。不为这些加跨对象锁：管理操作（导入、改配置、删除证书）单人
+串行，删目标前先停该 CA 的发布任务。
 
 `importCertificate` 同理：解析、生成完整摘要、写 blob、条件更新 catalog；重复导入 `unchanged`。
 `applyConfig` 校验 §5.2 规则后用 `ifMatch` 替换 `config.json`，首次用 `ifNoneMatch: "*"`；只写 `config.json`，不写 catalog，
@@ -458,8 +465,8 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
   `X-Frame-Options: SAMEORIGIN`、`Cross-Origin-Resource-Policy: same-origin` 等）落在全部响应上。不发 HSTS：应用不知道自己是否
   在 TLS 之后，AIA/CDP 下载按设计走明文 HTTP，HSTS 留给 Cloudflare / 反向代理决定。另加 UI 的 `Content-Security-Policy`（§8），
   同样落在全部响应上，对 JSON 与下载没有作用。
-- 退役：删路径即 404；`retire` 清空目标 current（先写其 history 标记）并保留历史 blob；被引用的证书不可删除。
-  默认退役是终态，该 UUID 不再接受上传，恢复发布用新 UUID（implementation 切片 6 开工前需 owner 确认第 1 项）。
+- 退役：从 config 删除目标与它的路径。路径 404，列表与详情不再有它，上传按 `target_not_configured` 拒绝；历史 blob 与标记保留，
+  仍可经管理接口列出与下载。恢复发布用新 UUID（§5.2）。验证过已发布 CRL 的签发者证书永久不可删除（§5.2）。
 - 上传安全：`bodyLimit` 永远开；可选 `AIA_UPLOAD_TOKEN`；未验签的字节不完整解码（§5.5）。工具本身不做限速，限速交给前面的平台
   （Cloudflare、反向代理），文档写明。
 
@@ -508,12 +515,11 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
 | 方法与路径                                            | 用途                                            | 状态                        |
 | ----------------------------------------------------- | ----------------------------------------------- | --------------------------- |
 | `POST /api/v1/admin/certificates`                     | 导入证书（PEM/DER，原始请求体）                   | 201 created / 200 unchanged / 422 |
-| `DELETE /api/v1/admin/certificates/{id}`              | 删除未被引用的证书（blob 一并删除）              | 204 / 409 `referenced`      |
+| `DELETE /api/v1/admin/certificates/{id}`              | 删除未被引用的证书（blob 一并删除）；引用来源见 §5.2，列在 `details.references`（`{ object, path }`） | 204 / 404 / 409 `referenced` 或 `concurrent_update` |
 | `GET /api/v1/admin/config`                            | 当前 `config.json` 与 `ETag`                     | 200 / 404（尚未配置）       |
 | `PUT /api/v1/admin/config`                            | 整体替换；`If-Match` 与首次的 `If-None-Match: *` 恰好一个；请求体不合 schema 直接 422（V1），不先查前置条件 | 200 / 412 / 422 `config_invalid` / 428 `precondition_required`（缺可用前置条件） |
-| `GET /api/v1/admin/crls/{targetId}/history`           | 历史条目（history 标记 ∪ current，§5.3；thisUpdate、CRL 号、sha256、size、是否 current） | 200                         |
-| `GET /api/v1/admin/crls/{targetId}/history/{sha256}`  | 下载历史 DER                                     | 200 / 404                   |
-| `POST /api/v1/admin/crls/{targetId}/retire`           | 清空 current，历史保留                           | 200                         |
+| `GET /api/v1/admin/crls/{targetId}/history`           | `{ targetId, configured, entries }`：历史条目（history 标记 ∪ current，§5.3；thisUpdate、CRL 号、sha256、size、是否 current），新的在前；已从 config 删除的目标 `configured: false` | 200 / 404（不在 config 且没有历史） |
+| `GET /api/v1/admin/crls/{targetId}/history/{sha256}`  | 下载一条历史的 DER（`application/pkix-crl`，`attachment; filename="<sha256>.crl"`，原样返回，不重算摘要） | 200 / 404                   |
 
 未设置 `AIA_ADMIN_TOKEN` 时全部管理路由返回 503 `admin_disabled`（先于鉴权与读体）。令牌比较用 Hono
 `bearerAuth`（常量时间）：令牌缺失或错误 → 401 + `WWW-Authenticate`；`Authorization` 头畸形时 `bearerAuth` 回 400，统一包成
@@ -554,9 +560,9 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
 `import <file...>`、`config show | validate <file> | apply <file>`、`new-target-id`（打印
 `crypto.randomUUID()`：目标 UUID 由工具分配，没有建目标接口）、`publish <file...>`
 （走公开上传路由，逐个文件发原始体，`Content-Type: application/octet-stream`，服务端按字节识别；created / updated / unchanged
-之外都算该文件失败）、`history <targetId>`、`retire <targetId>`、
-`delete-certificate <id>`、`health`。`config validate` 离线只跑静态规则（V1–V3、V4 / V6 的静态部分，
-与服务端共用 `checkConfigStatic`），不连服务、不要令牌；状态与迁移规则（V4–V9 其余部分）由服务端在
+之外都算该文件失败）、`history <targetId>`（列历史）、`history <targetId> <sha256> --out <file>`（把一条历史的 DER 写进文件）、
+`delete-certificate <id>`（被引用时逐行列出引用来源，退出 1）、`health`。`config validate` 离线只跑静态规则（V1–V3、V4 / V6 的静态部分，
+与服务端共用 `checkConfigStatic`），不连服务、不要令牌；状态与迁移规则（V4–V7、V9 的其余部分）由服务端在
 apply 时判定，以服务端为准。参数解析用 `parseArgs`，输出为每个文件（块）一行加汇总行，或 `--json`；退出码 0 成功、1 失败（或服务
 不健康）、2 用法错误。
 
@@ -594,8 +600,8 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   （`current: null`）只有页头与"未发布"，不显示 0 或"未知"；API 404 显示"不存在"。扩展是 Accordion（关键在前）：每个解析结果按类型
   映射为若干区段（`src/web/utils/extension-display.ts`；分发点、策略、SCT 这类重复元素各占一段），每段是一张标签 / 值表，值只有文本、
   十六进制、等宽行、标签四种，各由 `ValueView` 用一种样式画出，概览页的表也用它；未识别或解码失败显示解析错误、ASN.1 结构 dump
-  与原始 hex。吊销列表：序列号、吊销时间、原因、失效起始、间接签发者；表头吸顶，超过 200 行按 200 行一页 `slice()` 分页，0 条显示空状态
-  （不用 `@tanstack/vue-table`）。
+  与原始 hex。吊销列表：序列号、吊销时间、原因、失效起始、间接签发者；有条目扩展的行可展开，用同一个扩展 Accordion 列出全部条目扩展
+  （保留指令、关键标记、未解码的扩展）；表头吸顶，超过 200 行按 200 行一页 `slice()` 分页，0 条显示空状态（不用 `@tanstack/vue-table`）。
 - 客户端：`const api = hc<AppType>("", { init: { cache: "no-store" }, fetch: apiFetch })`，vue-query 的 `queryFn` 写
   `unwrap(await api…$get(…))`：2xx 返回 hc 推断类型的体，否则抛 `ApiError { code, message, status, details }`（v1 信封的码；非 JSON 或
   非信封为 `invalid_response`；拿不到响应为 `network`、`status: 0`，由 `apiFetch` 产出）；响应体类型与 core 的 X.509 类型从
@@ -672,8 +678,8 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 ## 11. 实施切片
 
 每个切片一个分支 `slice/<n>-<name>`，从最新 `main` 切出，评审后本地 `git merge --no-ff` 合入 `main` 再推送；不部署（生产部署只在切片 7）；
-严格串行（决策 10、11）。未完成切片（6、7、8）的步骤、测试、可在本机执行的出口条件与"开工前需 owner 确认"见 `docs/implementation/` 下的切片文件，
-完成定义见总则 §1.3；下表的出口条件只是摘要，以切片文件为准。切片 1–5b 已完成，它们的切片文件已删除（见 git 历史）。
+严格串行（决策 10、11）。未完成切片（7、8）的步骤、测试、可在本机执行的出口条件与"开工前需 owner 确认"见 `docs/implementation/` 下的切片文件，
+完成定义见总则 §1.3；下表的出口条件只是摘要，以切片文件为准。切片 1–6 已完成，它们的切片文件已删除（见 git 历史）。
 
 | 切片 | 内容                                                                                                              | 出口条件                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -683,9 +689,9 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 | 4 发布 | `publishCrl`、history 标记、上传路由、三种结果与拒绝原因、`bodyLimit`/`bearerAuth`、发布日志、`aia publish`、AD CS 助手重写 | 已完成 |
 | 5a API 与客户端 | 列表 / 详情 / 统计路由、OpenAPI 补全、`hc` 类型导出、PKI 摘要构建器（41 种扩展的解析，回归用合成 AD CS 风格夹具，决策 13） | 已完成 |
 | 5b UI | §8 的路由、组件库、vue-query、总览与详情页、上传、zh-CN、CSP；`shadcn-vue init` 在切片 1 已完成 | 已完成 |
-| 6 管理补全与文档 | history / retire / delete 路由与 CLI、README、`docs/api.md`、`docs/operations.md`（含迁移与回滚手册）     | 每个职责只有一个实现；`pnpm verify` 与四个 `pnpm run ci:*` 本机全绿（implementation 切片 6） |
+| 6 管理补全 | 历史列表与下载、证书删除的路由与 CLI；退役改为从 config 删除目标（取消 V8）；UI 展示吊销条目的全部扩展。README 重写、`docs/api.md` 与 operations.md 的其余章节按决策 17 不做 | 已完成 |
 | 7 迁移 | `scripts/migrate-from-v2.ts`、临时历史导入路由、在非生产环境演练、生产切换（含替换 AD CS 助手）、`slice/7-cleanup` 删临时路由 | 路径表每条 URL 返回与旧 URL 相同的 DER 摘要（或 `advanced`）；旧对象未删；CryptoAPI 冒烟通过；回滚手册验证过（implementation 切片 7） |
-| 8 S3（按需） | `storage/s3.ts`（`@aws-sdk/client-s3`，`IfMatch` / `IfNoneMatch`）、`pnpm run ci:s3`（MinIO）与可选 CI 任务、多实例部署说明；owner 确认要做才开工 | 一致性测试对 MinIO 绿（implementation 切片 8）                                               |
+| 8 S3（远期） | `storage/s3.ts`（`@aws-sdk/client-s3`，`IfMatch` / `IfNoneMatch`）、`pnpm run ci:s3`（MinIO）与可选 CI 任务、多实例部署说明；远期计划（决策 17），owner 确认要做才开工 | 一致性测试对 MinIO 绿（implementation 切片 8）                                               |
 
 ## 12. 从现有部署迁移
 
