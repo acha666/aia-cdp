@@ -33,6 +33,10 @@ export const PKI_PARSE_REASONS = [
 
 export type PkiParseReason = (typeof PKI_PARSE_REASONS)[number];
 
+/** The message of a thrown value for a log or parse error text: Error.message, else String(). */
+export const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 export class PkiParseError extends Error {
   override name = "PkiParseError";
   readonly kind: PkiKind;

@@ -3,7 +3,7 @@ import type { BaseBlock } from "asn1js";
 import * as pkijs from "pkijs";
 import { Asn1TimeError, assertWellFormed, readStrictTime } from "./asn1.ts";
 import { DerReader, INTEGER, SEQUENCE, context, readInteger } from "./der.ts";
-import { PkiParseError } from "./errors.ts";
+import { messageOf, PkiParseError } from "./errors.ts";
 import type { PkiKind } from "./errors.ts";
 import {
   readAuthorityKeyId,
@@ -46,7 +46,7 @@ function decodeDer(
     throw new PkiParseError(
       kind,
       error instanceof Asn1TimeError ? "time" : "der",
-      `Bad ${label} DER: ${error instanceof Error ? error.message : String(error)}`,
+      `Bad ${label} DER: ${messageOf(error)}`,
       { cause: error }
     );
   }
@@ -128,7 +128,7 @@ function construct<T extends pkijs.Certificate | pkijs.CertificateRevocationList
     throw new PkiParseError(
       kind,
       "structure",
-      `Bad ${LABELS[kind]} structure: ${error instanceof Error ? error.message : String(error)}`,
+      `Bad ${LABELS[kind]} structure: ${messageOf(error)}`,
       { cause: error }
     );
   }

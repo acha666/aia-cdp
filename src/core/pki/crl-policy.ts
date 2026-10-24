@@ -5,6 +5,7 @@
 import type { CertificateRevocationList, Extension } from "pkijs";
 import { toHex } from "../digest.ts";
 import { SEQUENCE, context, hasTag, sequenceOf } from "./der.ts";
+import { messageOf } from "./errors.ts";
 import { readExtensionSchema } from "./extensions.ts";
 import { sameSignatureAlgorithms } from "./parsers.ts";
 import type { ReceivedCrl } from "./parsers.ts";
@@ -135,12 +136,11 @@ export function checkCrlPolicy(crl: ReceivedCrl, now: Date): CrlPolicyResult {
       try {
         scoped = limitsScope(extension);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
         return {
           ok: false,
           error: "invalid_crl",
           details: { reason: "extension_value" },
-          detail: `Invalid Issuing Distribution Point: ${message}`,
+          detail: `Invalid Issuing Distribution Point: ${messageOf(error)}`,
         };
       }
       if (scoped) {

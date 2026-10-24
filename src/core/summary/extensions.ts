@@ -57,6 +57,7 @@ import {
   sequenceOf,
 } from "../pki/der.ts";
 import { blockHex, displayText, dumpAsn1, readStrictTime } from "../pki/asn1.ts";
+import { messageOf } from "../pki/errors.ts";
 import { toHex } from "../digest.ts";
 import type {
   AccessDescription,
@@ -97,7 +98,7 @@ export function buildExtension(ext: pkijs.Extension): Extension {
     }
   } catch (error) {
     result.parseStatus = "error";
-    result.parseError = error instanceof Error ? error.message : String(error);
+    result.parseError = messageOf(error);
   }
   if (result.parseStatus !== "parsed") {
     // Give readers a structural view even when no dedicated decoder exists.

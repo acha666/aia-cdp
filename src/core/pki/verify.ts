@@ -9,6 +9,7 @@ import type { BaseBlock } from "asn1js";
 import * as pkijs from "pkijs";
 import { CURVE_NAMES, HASH_ALG_NAMES, KEY_ALG_NAMES, SIGNATURE_ALG_NAMES } from "./constants.ts";
 import { DerReader, INTEGER, contents, readDer } from "./der.ts";
+import { messageOf } from "./errors.ts";
 import { toDigestInput } from "../digest.ts";
 
 export type SignatureCheck =
@@ -87,7 +88,7 @@ function pssProblem(params: unknown): string | undefined {
   try {
     hash = new pkijs.RSASSAPSSParams({ schema: params }).hashAlgorithm;
   } catch (error) {
-    return `Undecodable RSASSA-PSS-params: ${error instanceof Error ? error.message : String(error)}`;
+    return `Undecodable RSASSA-PSS-params: ${messageOf(error)}`;
   }
   if (!PSS_HASHES.has(hash.algorithmId) || !absentOrNull(hash.algorithmParams)) {
     return `RSASSA-PSS with the hash ${name(HASH_ALG_NAMES, hash.algorithmId)}`;
@@ -108,8 +109,7 @@ function ecdsaSignatureProblem(signature: Uint8Array, orderLength: number): stri
     parts = [value.read(INTEGER), value.read(INTEGER)];
     value.end();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return `The ECDSA signature is not DER SEQUENCE { r INTEGER, s INTEGER }: ${message}`;
+    return `The ECDSA signature is not DER SEQUENCE { r INTEGER, s INTEGER }: ${messageOf(error)}`;
   }
   for (const part of parts) {
     const value = contents(part);
@@ -220,7 +220,7 @@ export async function verifyCrlSignature(
       ok: false,
       reason: "invalid_signature",
       algorithm,
-      detail: error instanceof Error ? error.message : String(error),
+      detail: messageOf(error),
     };
   }
 }
