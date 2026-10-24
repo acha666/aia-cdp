@@ -212,19 +212,25 @@ export type SubjectPublicKeyInfo = z.infer<typeof SubjectPublicKeyInfoSchema>;
 // General Name Schema
 // =============================================================================
 
+/**
+ * The GeneralName CHOICE alternatives in tag order: [n] is GENERAL_NAME_TYPES[n] (RFC 5280
+ * §4.2.1.6). names.ts decodes the tag by this index, so the order is not free.
+ */
+export const GENERAL_NAME_TYPES = [
+  "otherName",
+  "rfc822Name",
+  "dNSName",
+  "x400Address",
+  "directoryName",
+  "ediPartyName",
+  "uniformResourceIdentifier",
+  "iPAddress",
+  "registeredID",
+] as const;
+
 export const GeneralNameSchema = z
   .object({
-    type: z.enum([
-      "otherName",
-      "rfc822Name",
-      "dNSName",
-      "x400Address",
-      "directoryName",
-      "ediPartyName",
-      "uniformResourceIdentifier",
-      "iPAddress",
-      "registeredID",
-    ]),
+    type: z.enum(GENERAL_NAME_TYPES),
     value: z.string(),
     typeOid: z.string().optional().describe("otherName type-id"),
     typeName: z.string().optional().describe("Known name for otherName type-id"),

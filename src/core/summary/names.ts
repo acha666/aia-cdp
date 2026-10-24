@@ -28,6 +28,7 @@ import type {
   Name,
   RelativeDistinguishedName,
 } from "./schemas.ts";
+import { GENERAL_NAME_TYPES } from "./schemas.ts";
 import { buildObjectIdentifier, isBlock } from "./primitives.ts";
 
 // =============================================================================
@@ -134,18 +135,6 @@ function formatGuid(bytes: Uint8Array): string {
   const hex = toHex(bytes);
   return `${le(0, 4)}-${le(4, 6)}-${le(6, 8)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
-
-const GENERAL_NAME_TYPES: Record<number, GeneralName["type"]> = {
-  0: "otherName",
-  1: "rfc822Name",
-  2: "dNSName",
-  3: "x400Address",
-  4: "directoryName",
-  5: "ediPartyName",
-  6: "uniformResourceIdentifier",
-  7: "iPAddress",
-  8: "registeredID",
-};
 
 /** OtherName ::= SEQUENCE { type-id OBJECT IDENTIFIER, value [0] EXPLICIT ANY }, under [0]. */
 export function readOtherNameParts(block: BaseBlock): { typeOid: string; inner: BaseBlock } {
