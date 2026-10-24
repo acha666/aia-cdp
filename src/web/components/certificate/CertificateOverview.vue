@@ -8,7 +8,6 @@ import KindBadge from "@/components/KindBadge.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
 import NameDetails from "@/components/x509/NameDetails.vue";
 import { useClock } from "@/composables/useClock";
-import { useDateText } from "@/composables/useDateText";
 import { formatDate, relativeTime } from "@/utils/dates";
 import { compareTargets } from "@/utils/labels";
 import { computeCertificateStatus } from "@/utils/status";
@@ -17,15 +16,13 @@ import { formatAlgorithm } from "@/utils/x509";
 
 // The overview tab of a certificate: subject and issuer, validity (status with the detailed time
 // to its next boundary), serial number, public key summary, the signature algorithm with its
-// parameters (the detail carries every part, so nothing reads "Unknown"), the ECDSA / DSA (r, s)
-// values, fingerprints, unique identifiers when present, and the CRL targets this certificate
-// issues for, in the overview table's order.
+// parameters, the ECDSA / DSA (r, s) values, fingerprints, unique identifiers when present, and
+// the CRL targets this certificate issues for, in the overview table's order.
 const props = defineProps<{ certificate: CertificateDetail }>();
 
-const { t, locale } = useI18n();
+const i18n = useI18n();
+const { t, locale } = i18n;
 const now = useClock();
-const dateText = useDateText();
-const salt = (length: number) => t("algorithm.salt", { length });
 
 const tbs = computed(() => props.certificate.tbsCertificate);
 
@@ -38,16 +35,16 @@ const validity = computed(() => {
     items: [
       {
         label: t("details.certificate.notBefore"),
-        value: formatDate(notBefore.iso, dateText),
+        value: formatDate(notBefore.iso, i18n),
       },
       {
         label: t("details.certificate.notAfter"),
-        value: formatDate(notAfter.iso, dateText),
+        value: formatDate(notAfter.iso, i18n),
       },
       { label: t("details.certificate.status"), value: state },
     ],
     state,
-    detail: state === "unknown" ? null : relativeTime(boundary, nowMs, dateText, true),
+    detail: state === "unknown" ? null : relativeTime(boundary, nowMs, i18n, true),
   };
 });
 
@@ -56,7 +53,7 @@ const general = computed(() => [
   { label: t("details.certificate.serialNumber"), value: { hex: tbs.value.serialNumber.hex } },
   {
     label: t("details.certificate.imported"),
-    value: formatDate(props.certificate.importedAt, dateText),
+    value: formatDate(props.certificate.importedAt, i18n),
   },
   {
     label: t("details.certificate.size"),
@@ -71,7 +68,7 @@ const publicKey = computed(() => {
   return rows(
     {
       label: t("details.certificate.publicKeyAlgorithm"),
-      value: formatAlgorithm(spki.algorithm, salt) ?? t("common.unknown"),
+      value: formatAlgorithm(spki.algorithm, i18n),
     },
     key.type === "rsa" && {
       label: t("details.certificate.keySize"),
@@ -92,7 +89,7 @@ const signature = computed(() => {
   return [
     {
       label: t("details.certificate.signatureAlgorithm"),
-      value: formatAlgorithm(signatureAlgorithm, salt) ?? t("common.unknown"),
+      value: formatAlgorithm(signatureAlgorithm, i18n),
     },
     ...(parsed
       ? [

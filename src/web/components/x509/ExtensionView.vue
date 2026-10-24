@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import Asn1Dump from "@/components/x509/Asn1Dump.vue";
-import { useExtensionContext } from "@/composables/useExtensionContext";
 import { describeExtension } from "@/utils/extension-display";
 
 // One extension as an accordion item (inside ExtensionList's Accordion). The header names it
@@ -21,12 +20,12 @@ import { describeExtension } from "@/utils/extension-display";
 // ASN.1 dump and the raw value.
 const props = defineProps<{ extension: Extension; value: string }>();
 
-const { t } = useI18n();
-const ctx = useExtensionContext();
+const i18n = useI18n();
+const { t } = i18n;
 
 const sections = computed(() => {
   const { parseStatus, parsed } = props.extension;
-  return parseStatus === "parsed" && parsed !== undefined ? describeExtension(parsed, ctx) : null;
+  return parseStatus === "parsed" && parsed !== undefined ? describeExtension(parsed, i18n) : null;
 });
 /** The header's parse status; a decoded value of a type this build cannot render is unsupported. */
 const status = computed(() =>

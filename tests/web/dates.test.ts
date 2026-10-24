@@ -2,18 +2,10 @@
 // Date and Intl at once); the clock is always passed in.
 import { describe, expect, it, vi } from "vitest";
 import { createAppI18n } from "@/i18n";
-import type { AppLocale } from "@/i18n";
-import type { DateText } from "@/utils/dates";
 import { formatDate, relativeTime } from "@/utils/dates";
 
-/** What useDateText returns, from the app's own messages. */
-function dateText(locale: AppLocale): DateText {
-  const { t } = createAppI18n(locale).global;
-  return { locale, t: (key, named) => (named === undefined ? t(key) : t(key, named)) };
-}
-
-const en = dateText("en");
-const zh = dateText("zh-CN");
+const en = createAppI18n("en").global;
+const zh = createAppI18n("zh-CN").global;
 
 const ISO = "2026-01-04T00:05:07Z";
 const MINUTE = 60;

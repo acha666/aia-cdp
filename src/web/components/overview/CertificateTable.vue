@@ -18,7 +18,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useClock } from "@/composables/useClock";
-import { useDateText } from "@/composables/useDateText";
 import { formatDate, relativeTime } from "@/utils/dates";
 import { certificateName } from "@/utils/labels";
 import { computeCertificateStatus } from "@/utils/status";
@@ -35,8 +34,8 @@ const SECONDARY = "hidden sm:table-cell";
 /** The cell classes of a skeleton row, column by column. */
 const SKELETON = ["", SECONDARY, SECONDARY, "", SECONDARY];
 const now = useClock();
-const dateText = useDateText();
-const { t, locale } = useI18n();
+const i18n = useI18n();
+const { t, locale } = i18n;
 
 const rows = computed(() => {
   const nowMs = now.value.getTime();
@@ -51,13 +50,11 @@ const rows = computed(() => {
         // The CN under a label, when they differ.
         subjectCN: certificate.label !== null && subjectCN !== certificate.label ? subjectCN : null,
         issuer: issuerCN ?? t("common.unknown"),
-        from: formatDate(notBefore, dateText, { time: false, zone: false }),
-        until: formatDate(notAfter, dateText, { time: false }),
+        from: formatDate(notBefore, i18n, { time: false, zone: false }),
+        until: formatDate(notAfter, i18n, { time: false }),
         // Only while the certificate is valid (expiring is the last tenth of that).
         remaining:
-          state === "valid" || state === "expiring"
-            ? relativeTime(notAfter, nowMs, dateText)
-            : null,
+          state === "valid" || state === "expiring" ? relativeTime(notAfter, nowMs, i18n) : null,
         state,
         downloads: certificate.downloads,
       };

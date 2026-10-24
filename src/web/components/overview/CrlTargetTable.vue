@@ -19,7 +19,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useClock } from "@/composables/useClock";
-import { useDateText } from "@/composables/useDateText";
 import { formatDate, relativeTime } from "@/utils/dates";
 import { compareTargets, issuerName } from "@/utils/labels";
 import { computeTargetStatus } from "@/utils/status";
@@ -35,8 +34,8 @@ const SECONDARY = "hidden sm:table-cell";
 /** The cell classes of a skeleton row, column by column. */
 const SKELETON = ["", "", SECONDARY, SECONDARY, SECONDARY, "", SECONDARY];
 const now = useClock();
-const dateText = useDateText();
-const { t, locale } = useI18n();
+const i18n = useI18n();
+const { t, locale } = i18n;
 
 const rows = computed(() => {
   const nowMs = now.value.getTime();
@@ -52,10 +51,10 @@ const rows = computed(() => {
         issuer: issuerName(target.issuer) ?? t("common.unknown"),
         crlNumber: summary?.crlNumber ?? null,
         thisUpdate: summary
-          ? formatDate(summary.thisUpdate, dateText, { time: false, zone: false })
+          ? formatDate(summary.thisUpdate, i18n, { time: false, zone: false })
           : null,
-        nextUpdate: summary ? formatDate(summary.nextUpdate, dateText, { time: false }) : null,
-        remaining: state === "current" ? relativeTime(summary?.nextUpdate, nowMs, dateText) : null,
+        nextUpdate: summary ? formatDate(summary.nextUpdate, i18n, { time: false }) : null,
+        remaining: state === "current" ? relativeTime(summary?.nextUpdate, nowMs, i18n) : null,
         revoked: summary === null ? null : String(summary.revokedCount),
         state,
         downloads: target.current === null ? [] : target.downloads,

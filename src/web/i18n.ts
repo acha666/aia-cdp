@@ -20,6 +20,18 @@ export const LOCALE_STORAGE_KEY = "locale-preference";
 // en is the reference schema: a key missing from zh-CN is a type error.
 type MessageSchema = typeof en;
 
+/**
+ * What the display helpers in utils/ take from vue-i18n: a component's useI18n(), or
+ * createAppI18n().global in a test. Members are function-typed properties, so `{ t, te }` can be
+ * destructured.
+ */
+export interface I18nText {
+  /** The message locale, also used for Intl. */
+  readonly locale: { readonly value: string };
+  readonly t: (key: string, named?: Record<string, unknown>) => string;
+  readonly te: (key: string) => boolean;
+}
+
 /** A language tag as a UI language: `zh*` → zh-CN, `en*` → en; else null. */
 export function normalizeLocale(tag: string): AppLocale | null {
   const primary = tag.trim().toLowerCase().split(/[-_]/)[0];

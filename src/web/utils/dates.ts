@@ -1,14 +1,9 @@
-// Dates and relative times for display. vue-i18n comes in as a DateText argument (useDateText in
-// components) and the clock as nowMs (from useClock) for the relative times. Hours use hourCycle
+// Dates and relative times for display. vue-i18n comes in as an argument (the component's
+// useI18n(); its locale is read at call time, so a computed that formats re-runs on a language
+// change) and the clock as nowMs (from useClock) for the relative times. Hours use hourCycle
 // "h23": hour12: false renders five past midnight as 24:05 in some engines. Times show in the
 // browser's time zone, labelled with its offset.
-
-/** What the formatters need from vue-i18n. */
-export interface DateText {
-  /** The message locale, also used for Intl. */
-  readonly locale: string;
-  readonly t: (key: string, named?: Record<string, unknown>) => string;
-}
+import type { I18nText } from "@/i18n";
 
 const DAY_S = 24 * 60 * 60;
 const DATE_OPTIONS: Intl.DateTimeFormatOptions = {
@@ -45,19 +40,19 @@ function formatTimezoneOffset(date: Date): string {
  */
 export function formatDate(
   iso: string | null | undefined,
-  text: DateText,
+  i18n: Pick<I18nText, "locale" | "t">,
   { time = true, zone = true } = {}
 ): string {
   if (!iso) {
-    return text.t("common.notAvailable");
+    return i18n.t("common.notAvailable");
   }
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) {
     return iso;
   }
   return [
-    new Intl.DateTimeFormat(text.locale, DATE_OPTIONS).format(date),
-    time ? new Intl.DateTimeFormat(text.locale, TIME_OPTIONS).format(date) : "",
+    new Intl.DateTimeFormat(i18n.locale.value, DATE_OPTIONS).format(date),
+    time ? new Intl.DateTimeFormat(i18n.locale.value, TIME_OPTIONS).format(date) : "",
     zone ? `(${formatTimezoneOffset(date)})` : "",
   ]
     .filter(Boolean)
@@ -73,7 +68,7 @@ export function formatDate(
 export function relativeTime(
   iso: string | null | undefined,
   nowMs: number,
-  text: DateText,
+  i18n: Pick<I18nText, "locale" | "t">,
   detailed = false
 ): string {
   const seconds = Math.floor((Date.parse(iso ?? "") - nowMs) / 1000);
@@ -83,10 +78,10 @@ export function relativeTime(
   const abs = Math.abs(seconds);
   if (!detailed && abs >= DAY_S) {
     const days = Math.sign(seconds) * Math.round(abs / DAY_S);
-    return new Intl.RelativeTimeFormat(text.locale).format(days, "day");
+    return new Intl.RelativeTimeFormat(i18n.locale.value).format(days, "day");
   }
   if (!detailed && seconds === 0) {
-    return text.t("dates.now");
+    return i18n.t("dates.now");
   }
   const total = Math.max(1, Math.round(abs / 60));
   const days = detailed ? Math.floor(total / (24 * 60)) : 0;
@@ -97,7 +92,7 @@ export function relativeTime(
   ] as const;
   const value = units
     .filter(([count]) => count > 0)
-    .map(([count, unit]) => `${String(count)}${text.t(`dates.short.${unit}`)}`)
+    .map(([count, unit]) => `${String(count)}${i18n.t(`dates.short.${unit}`)}`)
     .join(" ");
-  return text.t(seconds >= 0 ? "dates.in" : "dates.ago", { value });
+  return i18n.t(seconds >= 0 ? "dates.in" : "dates.ago", { value });
 }

@@ -4,12 +4,7 @@
 // without a message as it is. vue-i18n's te() tells whether a message exists;
 // tests/web/locales.test.ts checks that every code and reason the server sends has one.
 import { ApiError } from "@/client/errors";
-
-/** What these helpers need from vue-i18n (useI18n() has both). */
-interface Messages {
-  t: (key: string, named?: Record<string, unknown>) => string;
-  te: (key: string) => boolean;
-}
+import type { I18nText } from "@/i18n";
 
 /** The code of a failure: ApiError's code, else the error's name. */
 export function errorCode(error: unknown): string {
@@ -20,14 +15,14 @@ export function errorCode(error: unknown): string {
 }
 
 /** The message of `error` in the UI language. */
-export function errorMessage(error: unknown, { t, te }: Messages): string {
+export function errorMessage(error: unknown, { t, te }: Pick<I18nText, "t" | "te">): string {
   const code = errorCode(error);
   const key = `errors.${code}`;
   return t(te(key) ? key : "errors.unknown", { code });
 }
 
 /** The `details.reason` of a failure in the UI language; null without one. */
-export function errorReason(error: unknown, { t, te }: Messages): string | null {
+export function errorReason(error: unknown, { t, te }: Pick<I18nText, "t" | "te">): string | null {
   if (!(error instanceof ApiError)) {
     return null;
   }

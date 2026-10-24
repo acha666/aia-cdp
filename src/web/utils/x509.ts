@@ -1,11 +1,12 @@
 // One-line texts for X.509 name attributes, algorithms and general names; the "salt" of RSASSA-PSS
-// parameters comes from i18n.
+// parameters and the general-name type labels come from i18n.
 import type {
   AlgorithmIdentifier,
   AttributeTypeAndValue,
   GeneralName,
   ObjectIdentifier,
 } from "@/client/types";
+import type { I18nText } from "@/i18n";
 
 /**
  * "CN=x" with the attribute's short name (or OID); a value that is no string is "#hex" (RFC 4514).
@@ -20,17 +21,8 @@ function oidLabel(oid: ObjectIdentifier): string {
   return oid.name ?? oid.oid;
 }
 
-/** The salt length of RSASSA-PSS parameters, as the UI language writes it ("salt 32"). */
-export type SaltLabel = (length: number) => string;
-
 /** Algorithm name followed by decoded parameters, e.g. "RSASSA-PSS (SHA-256, MGF1/SHA-256, salt 32)". */
-export function formatAlgorithm(
-  algorithm: AlgorithmIdentifier | null | undefined,
-  salt: SaltLabel
-): string | null {
-  if (algorithm === null || algorithm === undefined) {
-    return null;
-  }
+export function formatAlgorithm(algorithm: AlgorithmIdentifier, i18n: Pick<I18nText, "t">): string {
   const base = oidLabel(algorithm.algorithm);
   const parsed = algorithm.parameters?.parsed;
   if (parsed === undefined) {
@@ -45,20 +37,19 @@ export function formatAlgorithm(
       const mask = parsed.maskGenHashAlgorithm
         ? `${oidLabel(parsed.maskGenAlgorithm)}/${oidLabel(parsed.maskGenHashAlgorithm)}`
         : oidLabel(parsed.maskGenAlgorithm);
-      return `${base} (${oidLabel(parsed.hashAlgorithm)}, ${mask}, ${salt(parsed.saltLength)})`;
+      const salt = i18n.t("algorithm.salt", { length: parsed.saltLength });
+      return `${base} (${oidLabel(parsed.hashAlgorithm)}, ${mask}, ${salt})`;
     }
   }
 }
 
-/** The UI's short label of a general name type ("DNS", "URI", ...). */
-export type GeneralNameLabel = (type: GeneralName["type"]) => string;
-
-/** "DNS: host" style text; otherName types show their known name or type OID. */
-export function formatGeneralName(name: GeneralName, label: GeneralNameLabel): string {
-  const prefix =
-    name.type === "otherName"
-      ? (name.typeName ?? name.typeOid ?? label(name.type))
-      : label(name.type);
+/**
+ * "DNS: host" style text, after the UI's short label of the type (extension.generalName.*);
+ * otherName types show their known name or type OID.
+ */
+export function formatGeneralName(name: GeneralName, i18n: Pick<I18nText, "t">): string {
+  const label = i18n.t(`extension.generalName.${name.type}`);
+  const prefix = name.type === "otherName" ? (name.typeName ?? name.typeOid ?? label) : label;
   const value = name.value || (name.rawHex ?? "");
   return `${prefix}: ${value}`;
 }

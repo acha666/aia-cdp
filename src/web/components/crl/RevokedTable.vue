@@ -6,8 +6,8 @@ import type { RevokedCertificates } from "@/client/types";
 import { Button } from "@/components/ui/button";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import ExtensionList from "@/components/x509/ExtensionList.vue";
-import { useExtensionContext } from "@/composables/useExtensionContext";
 import { describeEntry } from "@/utils/crl-entries";
+import { formatDate } from "@/utils/dates";
 
 // The revoked certificates of a target's current CRL (plan §8): serial number, revocation date,
 // reason, invalidity date and indirect issuer; an empty list says so. The API sends every entry (a
@@ -20,8 +20,8 @@ const props = defineProps<{ revoked: RevokedCertificates }>();
 
 const PAGE_SIZE = 200;
 
-const { t } = useI18n();
-const ctx = useExtensionContext();
+const i18n = useI18n();
+const { t } = i18n;
 const page = ref(0);
 /** The keys of the expanded rows; a row stays expanded across page changes. */
 const expanded = ref(new Set<number>());
@@ -51,9 +51,9 @@ const rows = computed(() =>
   props.revoked.items.slice(first.value, last.value).map((entry, index) => ({
     key: first.value + index,
     serial: entry.userCertificate.hex,
-    revoked: ctx.time(entry.revocationDate.iso),
+    revoked: formatDate(entry.revocationDate.iso, i18n),
     extensions: entry.crlEntryExtensions?.items ?? [],
-    ...describeEntry(entry.crlEntryExtensions?.items, ctx),
+    ...describeEntry(entry.crlEntryExtensions?.items, i18n),
   }))
 );
 </script>

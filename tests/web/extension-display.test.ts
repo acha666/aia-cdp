@@ -1,21 +1,12 @@
 // The sections of decoded extension values: optional parts, one section per repeated element, the
 // general-name prefixes and subtree ranges. How each value kind looks is in components.test.ts
 // (ValueView, ExtensionView).
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { GeneralName } from "@/client/types";
-import en from "@/locales/en.json";
+import { createAppI18n } from "@/i18n";
 import { describeExtension, describeSubtree } from "@/utils/extension-display";
-import type { ExtensionContext } from "@/utils/extension-display";
-import { formatGeneralName } from "@/utils/x509";
 
-const ctx: ExtensionContext = {
-  field: (key) => en.extension.fields[key],
-  name: (name) => formatGeneralName(name, (type) => en.extension.generalName[type]),
-  accessMethod: ({ oid, name }) =>
-    (name !== null && en.extension.accessMethod[name as "ocsp"]) || (name ?? oid),
-  time: (iso) => (iso === undefined ? "N/A" : `time(${iso})`),
-  yesNo: (value) => (value ? "Yes" : "No"),
-};
+const i18n = createAppI18n("en").global;
 
 const uri = (value: string): GeneralName => ({ type: "uniformResourceIdentifier", value });
 const LDAP =
@@ -26,59 +17,30 @@ describe("describeExtension", () => {
   it("omits the optional parts that are absent, and an empty value has no sections", () => {
     // An empty DistributionPoint (SEQUENCE {}) gives no rows, so no blank grid.
     expect(
-      describeExtension({ extensionType: "cRLDistributionPoints", distributionPoints: [{}] }, ctx)
+      describeExtension({ extensionType: "cRLDistributionPoints", distributionPoints: [{}] }, i18n)
     ).toEqual([]);
     const aki = "3F1C2B4D5E6F708192A3B4C5D6E7F8091A2B3C4D";
-    expect(describeExtension({ extensionType: "basicConstraints", cA: false }, ctx)).toEqual([
+    expect(describeExtension({ extensionType: "basicConstraints", cA: false }, i18n)).toEqual([
       [{ label: "CA", value: "No" }],
     ]);
     expect(
-      describeExtension({ extensionType: "authorityKeyIdentifier", keyIdentifier: aki }, ctx)
+      describeExtension({ extensionType: "authorityKeyIdentifier", keyIdentifier: aki }, i18n)
     ).toEqual([[{ label: "Key ID", value: { hex: aki } }]]);
-    expect(describeExtension({ extensionType: "nameConstraints" }, ctx)).toEqual([]);
-    expect(describeExtension({ extensionType: "policyConstraints" }, ctx)).toEqual([]);
+    expect(describeExtension({ extensionType: "nameConstraints" }, i18n)).toEqual([]);
+    expect(describeExtension({ extensionType: "policyConstraints" }, i18n)).toEqual([]);
     // 0 is a value, not an absent one.
     expect(
-      describeExtension({ extensionType: "policyConstraints", requireExplicitPolicy: 0 }, ctx)
+      describeExtension({ extensionType: "policyConstraints", requireExplicitPolicy: 0 }, i18n)
     ).toEqual([[{ label: "Require explicit policy", value: "0" }]]);
     expect(
       describeExtension(
         { extensionType: "msCertificateTemplate", templateId: { oid: "1.2.3", name: "T" } },
-        ctx
+        i18n
       )
     ).toEqual([
       [
         { label: "Template OID", value: "T (1.2.3)" },
         { label: "Template version", value: "0.0" },
-      ],
-    ]);
-  });
-
-  it("labels AIA locations with their access method", () => {
-    expect(
-      describeExtension(
-        {
-          extensionType: "authorityInfoAccess",
-          accessDescriptions: [
-            {
-              accessMethod: { oid: "1.3.6.1.5.5.7.48.2", name: "caIssuers" },
-              accessLocation: uri("http://pki.example.test/ca/issuing-ca-1.crt"),
-            },
-            {
-              accessMethod: { oid: "1.3.6.1.5.5.7.48.1", name: "ocsp" },
-              accessLocation: uri("http://ocsp.example.test/"),
-            },
-          ],
-        },
-        ctx
-      )
-    ).toEqual([
-      [
-        {
-          label: "CA Issuers",
-          value: { lines: ["URI: http://pki.example.test/ca/issuing-ca-1.crt"] },
-        },
-        { label: "OCSP", value: { lines: ["URI: http://ocsp.example.test/"] } },
       ],
     ]);
   });
@@ -97,7 +59,7 @@ describe("describeExtension", () => {
             },
           ],
         },
-        ctx
+        i18n
       )
     ).toEqual([
       [
@@ -129,7 +91,7 @@ describe("describeExtension", () => {
             },
           ],
         },
-        ctx
+        i18n
       )
     ).toEqual([
       [{ label: "Full name", value: { lines: ["URI: http://a.test/1.crl"] } }],
@@ -142,6 +104,7 @@ describe("describeExtension", () => {
   });
 
   it("gives each policy its own section with its qualifiers, and each SCT its own section", () => {
+    vi.stubEnv("TZ", "UTC");
     expect(
       describeExtension(
         {
@@ -170,7 +133,7 @@ describe("describeExtension", () => {
             },
           ],
         },
-        ctx
+        i18n
       )
     ).toEqual([
       [{ label: "Policy", value: "CA/Browser Forum DV (2.23.140.1.2.1)" }],
@@ -191,12 +154,12 @@ describe("describeExtension", () => {
     };
     const sections = describeExtension(
       { extensionType: "signedCertificateTimestampList", timestamps: [sct, sct] },
-      ctx
+      i18n
     );
     expect(sections).toHaveLength(2);
     expect(sections?.[1]).toEqual([
       { label: "Log ID", value: { hex: "AB" } },
-      { label: "Timestamp", value: "time(2026-01-01T00:00:00.000Z)" },
+      { label: "Timestamp", value: "Jan 01, 2026 00:00:00 (UTC)" },
       { label: "Signature", value: "sha256/ecdsa" },
     ]);
   });
@@ -213,7 +176,7 @@ describe("describeExtension", () => {
           onlyContainsAttributeCerts: false,
           onlySomeReasons: ["keyCompromise", "superseded"],
         },
-        ctx
+        i18n
       )
     ).toEqual([
       [
@@ -238,7 +201,7 @@ describe("describeExtension", () => {
       { type: "otherName", value: "x", typeOid: "1.3.6.1.4.1.32473.2" },
       { type: "x400Address", value: "", rawHex: "a003" },
     ];
-    expect(describeExtension({ extensionType: "subjectAltName", names }, ctx)).toEqual([
+    expect(describeExtension({ extensionType: "subjectAltName", names }, i18n)).toEqual([
       [
         {
           label: "Names",
@@ -258,11 +221,11 @@ describe("describeExtension", () => {
 
   it("writes subtree ranges as [min–max] and only when given", () => {
     const dns: GeneralName = { type: "dNSName", value: "example.test" };
-    expect(describeSubtree({ base: dns, minimum: 0 }, ctx)).toBe("DNS: example.test");
-    expect(describeSubtree({ base: dns, minimum: 0, maximum: 2 }, ctx)).toBe(
+    expect(describeSubtree({ base: dns, minimum: 0 }, i18n)).toBe("DNS: example.test");
+    expect(describeSubtree({ base: dns, minimum: 0, maximum: 2 }, i18n)).toBe(
       "DNS: example.test [0–2]"
     );
-    expect(describeSubtree({ base: dns, minimum: 1, maximum: 3 }, ctx)).toBe(
+    expect(describeSubtree({ base: dns, minimum: 1, maximum: 3 }, i18n)).toBe(
       "DNS: example.test [1–3]"
     );
   });

@@ -16,7 +16,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ExtensionList from "@/components/x509/ExtensionList.vue";
 import NameDetails from "@/components/x509/NameDetails.vue";
 import { useClock } from "@/composables/useClock";
-import { useDateText } from "@/composables/useDateText";
 import { usePageTitle } from "@/composables/usePageTitle";
 import { formatDate, relativeTime } from "@/utils/dates";
 import { isNotFound } from "@/utils/errors";
@@ -32,9 +31,9 @@ import { formatAlgorithm } from "@/utils/x509";
 // `targetId` matched the router's pattern. Tabs and panels as on CertificatePage.
 const props = defineProps<{ targetId: string }>();
 
-const { t } = useI18n();
+const i18n = useI18n();
+const { t } = i18n;
 const now = useClock();
-const dateText = useDateText();
 const { data, isError, error, refetch } = useCrlTarget(() => props.targetId);
 
 const missing = computed(() => data.value === undefined && isNotFound(error.value));
@@ -49,8 +48,7 @@ const issuer = computed(() =>
 );
 const extensions = computed(() => current.value?.tbsCertList.crlExtensions?.items ?? []);
 
-const salt = (length: number) => t("algorithm.salt", { length });
-const time = (iso: string | null | undefined) => formatDate(iso, dateText);
+const time = (iso: string | null | undefined) => formatDate(iso, i18n);
 
 /** The overview of the current CRL, in sections; the issuer link and the status are in the header. */
 const overview = computed(() => {
@@ -81,7 +79,7 @@ const overview = computed(() => {
     cryptography: [
       {
         label: t("details.crl.signatureAlgorithm"),
-        value: formatAlgorithm(crl.signatureAlgorithm, salt) ?? t("common.unknown"),
+        value: formatAlgorithm(crl.signatureAlgorithm, i18n),
       },
     ],
     fingerprints: [
@@ -103,7 +101,7 @@ const statusDetail = computed(() => {
     return null;
   }
   const boundary = status.value === "not-yet-valid" ? summary.thisUpdate : summary.nextUpdate;
-  return relativeTime(boundary, now.value.getTime(), dateText, true) || null;
+  return relativeTime(boundary, now.value.getTime(), i18n, true) || null;
 });
 
 const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
