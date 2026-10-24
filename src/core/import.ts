@@ -26,12 +26,9 @@ export interface ImportedCertificate {
   entry: CatalogCertificate;
 }
 
-/** The details.reason of invalid_certificate (implementation §2.6). */
-export type InvalidCertificateReason = PkiParseReason | "signature_algorithm_mismatch";
-
 export type ImportResult =
   | ImportedCertificate
-  | { error: "invalid_certificate"; details: { reason: InvalidCertificateReason } }
+  | { error: "invalid_certificate"; details: { reason: PkiParseReason } }
   | { error: "concurrent_update"; id: string };
 
 /** The DER blob is written with this type (R2 keeps it as httpMetadata). */

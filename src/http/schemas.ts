@@ -93,7 +93,7 @@ export function rawBody(mediaTypes: readonly string[]) {
 const Timestamp = z.iso.datetime({ precision: 3 });
 
 /** Why an upload is not a certificate or CRL this service accepts. */
-const ParseReason = z.enum([...PKI_PARSE_REASONS, "signature_algorithm_mismatch"]);
+const ParseReason = z.enum(PKI_PARSE_REASONS);
 
 // Shared failures ---------------------------------------------------------------------------------
 

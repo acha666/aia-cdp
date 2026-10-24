@@ -53,8 +53,8 @@ describe("locales", () => {
   });
 
   it("have a reason message for every details.reason the server sends with an upload failure", () => {
-    // invalid_crl: the parse reasons and the signature check; issuer_not_found: missing_aki.
-    for (const reason of [...PKI_PARSE_REASONS, "signature_algorithm_mismatch", "missing_aki"]) {
+    // invalid_certificate / invalid_crl: PKI_PARSE_REASONS; issuer_not_found: missing_aki.
+    for (const reason of [...PKI_PARSE_REASONS, "missing_aki"]) {
       for (const messages of [EN, ZH]) {
         expect(messages.get(`upload.reasons.${reason}`), reason).toBeTruthy();
       }

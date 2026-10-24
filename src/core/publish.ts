@@ -214,10 +214,7 @@ export interface CurrentVersion {
  * 409 for stale_crl, conflict, non_orderable and concurrent_update and 422 for the others.
  */
 export type PublishFailure =
-  | {
-      error: "invalid_crl";
-      details: { reason: PkiParseReason | "signature_algorithm_mismatch" };
-    }
+  | { error: "invalid_crl"; details: { reason: PkiParseReason } }
   | { error: "not_yet_valid"; details: { thisUpdate: string } }
   | {
       error: "unknown_critical_extension" | "scoped_crl_unsupported";

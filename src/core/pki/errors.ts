@@ -26,6 +26,9 @@ export const PKI_PARSE_REASONS = [
   "pem_blocks",
   // The PEM body is not valid base64.
   "pem_base64",
+  // The outer signatureAlgorithm is not the TBS signature as received: import and the CRL policy
+  // answer it, no parser throws it.
+  "signature_algorithm_mismatch",
 ] as const;
 
 export type PkiParseReason = (typeof PKI_PARSE_REASONS)[number];
