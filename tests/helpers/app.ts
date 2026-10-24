@@ -1,5 +1,6 @@
 // Shared deps for HTTP tests: createApp(testDeps()).request(...) — no sockets.
 import type { ObjectStore } from "../../src/core/store.ts";
+import type { LogRecord } from "../../src/http/log.ts";
 import type { AppDeps, AppSettings } from "../../src/http/types.ts";
 import { parseSettings } from "../../src/runtime/settings.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
@@ -45,15 +46,9 @@ export function testDeps(overrides: TestOverrides = {}): TestDeps {
   };
 }
 
-export interface LogLine {
-  level: string;
-  msg: string;
-  [field: string]: unknown;
-}
-
 /** The JSON log lines (throws on a line that is not JSON). */
-export function logRecords(deps: Pick<TestDeps, "lines">): LogLine[] {
-  return deps.lines.map((line) => JSON.parse(line) as LogLine);
+export function logRecords(deps: Pick<TestDeps, "lines">): LogRecord[] {
+  return deps.lines.map((line) => JSON.parse(line) as LogRecord);
 }
 
 /** A store that delegates to `base` except for the overridden methods. */

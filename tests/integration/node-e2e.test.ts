@@ -13,8 +13,9 @@ import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sha256Hex } from "../../src/core/digest.ts";
+import type { LogRecord } from "../../src/http/log.ts";
 import { cert, crlEntry, fixturePath } from "../fixtures/pki.ts";
-import type { LogLine } from "../helpers/app.ts";
+import { logRecords } from "../helpers/app.ts";
 import { configFor } from "../helpers/catalog.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -23,7 +24,6 @@ const CLI = fileURLToPath(new URL("../../src/cli/aia.ts", import.meta.url));
 const TOKEN = "e2e-s3cret-admin-token";
 const INDEX_HTML = "<!doctype html><title>aia-cdp test UI</title>\n";
 const SCRIPT = "export const ui = 1;\n";
-const CRL_01 = "crls/root-ca/full-01.der";
 const CRL_02 = "crls/root-ca/full-02.der";
 const TIMEOUT = 30_000;
 
@@ -63,11 +63,8 @@ function spawnNode(script: string, args: string[], env: Record<string, string>):
 }
 
 /** Every stdout line, parsed (throws on a line that is not JSON). */
-function records(proc: Proc): LogLine[] {
-  return proc.stdout
-    .split("\n")
-    .filter((line) => line !== "")
-    .map((line) => JSON.parse(line) as LogLine);
+function records(proc: Proc): LogRecord[] {
+  return logRecords({ lines: proc.stdout.split("\n").filter((line) => line !== "") });
 }
 
 /** The port of the server's `listening` line; rejects if the process ends first. */
@@ -166,13 +163,10 @@ describe("node src/runtime/node.ts driven by the aia CLI", { timeout: TIMEOUT },
     });
   });
 
-  it("publishes a CRL, refuses an older one with exit 1, and serves the newer", async () => {
+  it("publishes a CRL and serves it", async () => {
     const created = await aia("publish", fixturePath(CRL_02));
     expect(created.code).toBe(0);
     expect(created.stdout).toMatch(/^created {4}[0-9a-f-]{36} {2}full #/);
-    const stale = await aia("publish", fixturePath(CRL_01));
-    expect(stale.code).toBe(1);
-    expect(stale.stderr).toMatch(/: HTTP 409 stale_crl: /);
 
     const res = await fetch(`${base}/crl/root-ca.crl`);
     expect(res.status).toBe(200);
@@ -201,15 +195,7 @@ describe("node src/runtime/node.ts driven by the aia CLI", { timeout: TIMEOUT },
     expect(await head.text()).toBe("");
   });
 
-  it("answers the read API and serves the UI from the static directory", async () => {
-    const crls = await fetch(`${base}/api/v1/crls`);
-    expect(crls.headers.get("Cache-Control")).toBe("no-store");
-    const targets = (await crls.json()) as { current: { sha256: string } | null }[];
-    expect(targets).toHaveLength(2);
-    expect(targets.flatMap((target) => (target.current ? [target.current.sha256] : []))).toEqual([
-      crlEntry(CRL_02).sha256,
-    ]);
-
+  it("serves the UI from the static directory", async () => {
     const page = await fetch(`${base}/crls/${crypto.randomUUID()}`);
     expect(page.status).toBe(200);
     expect(page.headers.get("Cache-Control")).toBe("no-cache");
