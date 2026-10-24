@@ -7,7 +7,7 @@
     "lib": ["ES2024"],
     "module": "NodeNext",
     "moduleDetection": "force",
-    // Relative imports carry a .ts extension: Node 24 runs the sources directly (type stripping)
+    // Relative imports carry a .ts extension: Node 26 runs the sources directly (type stripping)
     // and tsc -p tsconfig.build.json rewrites them to .js. Only erasable syntax (no enum,
     // namespace or constructor parameter properties) and explicit `import type`.
     "allowImportingTsExtensions": true,

@@ -1,15 +1,13 @@
 {
   "name": "aia-cdp",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:5-24-trixie",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:5-26-trixie",
   "features": {
     "ghcr.io/devcontainers/features/powershell:2": {}
   },
   "remoteUser": "node",
   "containerEnv": {
-    "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
     "WRANGLER_SEND_METRICS": "false"
   },
-  "postCreateCommand": "corepack enable --install-directory \"$(npm prefix -g)/bin\" pnpm",
   "forwardPorts": [5173, 8080, 8787],
   "portsAttributes": {
     "5173": { "label": "Vite dev server" },

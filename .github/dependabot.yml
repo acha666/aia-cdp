@@ -18,7 +18,7 @@ updates:
       # typescript-eslint 8.x supports TypeScript < 6.1.0 (implementation §2.3).
       - dependency-name: typescript
         versions: [">=6.1.0"]
-      # @types/node follows the Node major in .nvmrc / engines (Node 24).
+      # @types/node follows the Node major in .nvmrc / engines (Node 26).
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
 

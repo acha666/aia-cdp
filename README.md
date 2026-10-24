@@ -1,6 +1,6 @@
 # aia-cdp
 
-X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloudflare Workers + R2 或 Node 24 + 本地磁盘（Docker）。
+X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloudflare Workers + R2 或 Node 26 + 本地磁盘（Docker）。
 
 功能：
 
@@ -22,15 +22,16 @@ X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloud
 
 ## 开发环境
 
-- Node 24（`.nvmrc` = `24`，`engines.node` = `^24.11.0`，`engineStrict`）。本机工具链不在默认 PATH 上，每个 shell 先执行
-  `export PATH=$HOME/.local/opt/node-24/bin:$PATH COREPACK_ENABLE_DOWNLOAD_PROMPT=0`（后者让 corepack 下载 pnpm 时不停下来询问）。
-- pnpm 12：`package.json` 的 `devEngines.packageManager` 给出范围（`^12.15.0`），实际版本记在 `pnpm-lock.yaml`；经 corepack 使用
-  （`corepack enable pnpm`）。pnpm 默认不解析发布不满 1 天的版本（`minimumReleaseAge`）。
+- Node 26（`.nvmrc` = `26`，`engines.node` = `^26.0.0`，`engineStrict`）。本机工具链不在默认 PATH 上，每个 shell 先执行
+  `export PATH=$HOME/.local/opt/node-26/bin:$PATH`。
+- pnpm 12：`package.json` 的 `devEngines.packageManager` 给出范围（`^12.15.0`），实际版本记在 `pnpm-lock.yaml`。Node 25 起不带
+  corepack：在这份 Node 里装一次 `npm install -g pnpm@12`，之后 pnpm 自动切换到 lockfile 记录的版本。pnpm 默认不解析发布不满 1 天的
+  版本（`minimumReleaseAge`）。
 - bash：冒烟脚本用（`smoke:worker`、`ci:docker`）。OpenSSL ≥ 3.0（不是 LibreSSL）只在重新生成测试夹具时需要。
 - Docker Engine ≥ 25：`ci:docker` 与镜像构建用。
 - 远端 `github.com/acha666/aia-cdp`：每个切片在 `slice/<n>-<name>` 分支开发，本地合入 `main` 后推送；GitHub Actions 在推送 `main` 与 PR 时
   运行，每个任务只调用对应的 `pnpm run ci:<job>`，本机也能原样执行。
-- 也可以用 `.devcontainer/`（Node 24、Debian 13、OpenSSL ≥ 3.0、PowerShell，非 root）；进入后先 `pnpm install --frozen-lockfile`。
+- 也可以用 `.devcontainer/`（Node 26 与 pnpm、Debian 13、OpenSSL ≥ 3.0、PowerShell，非 root）；进入后先 `pnpm install --frozen-lockfile`。
 
 ## 常用命令
 

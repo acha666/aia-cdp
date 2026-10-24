@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1
-ARG NODE_VERSION=24
+ARG NODE_VERSION=26
 FROM node:${NODE_VERSION}-slim AS base
 WORKDIR /app
-RUN corepack enable pnpm
+# Node 25+ ships without corepack.
+RUN npm install -g pnpm@12
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-# Fetches pnpm (devEngines.packageManager) and its native binary once, for both install stages.
+# Switches once to the pnpm recorded in pnpm-lock.yaml, for both install stages.
 RUN pnpm --version
 
 FROM base AS prod-deps

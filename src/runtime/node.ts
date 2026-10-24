@@ -1,4 +1,4 @@
-// Node 24 entry (plan §4.2): FsStore on AIA_DATA_DIR, the built UI from AIA_STATIC_DIR.
+// Node 26 entry (plan §4.2): FsStore on AIA_DATA_DIR, the built UI from AIA_STATIC_DIR.
 // Production: node --enable-source-maps dist/server/runtime/node.js; development and tests run the
 // source directly: node src/runtime/node.ts (type stripping).
 import { constants, accessSync, readFileSync, statSync } from "node:fs";
@@ -13,9 +13,8 @@ import { parseSettings, resolveFileVariants } from "./settings.ts";
 
 /**
  * After SIGTERM / SIGINT: requests already running get this long, then every connection still
- * open is closed, including sockets that never sent a complete request (a preconnect, a load
- * balancer's TCP probe, a slow client), which server.close() alone waits for forever. Well
- * inside `docker stop`'s 10 s.
+ * open is closed, including a slow client stuck in a partial request, which server.close() alone
+ * waits for forever. Well inside `docker stop`'s 10 s.
  */
 const GRACE_MS = 2_000;
 

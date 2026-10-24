@@ -27,7 +27,7 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | # | 事项 | owner 决定 |
 | --- | --- | --- |
 | D1 | 前端（plan 决策 5） | Vue 3 + vue-router 5 + TanStack Query + shadcn-vue（Reka UI）+ Tailwind 4；不用 Pinia |
-| D2 | Node | Node 24 LTS（EOL 2028-04-30）全面取代 Node 22：`.nvmrc` = `24`、`engines.node` = `^24.11.0`、`engineStrict`、`@types/node` 24.x、Docker `ARG NODE_VERSION=24` 与 `node:24-slim`；本机工具链见总则 §2.4 |
+| D2 | Node | Node 26 LTS（EOL 2029-04-30；2026-10-24 取代 2026-10-18 定的 Node 24）：`.nvmrc` = `26`、`engines.node` = `^26.0.0`、`engineStrict`、`@types/node` 26.x、Docker `ARG NODE_VERSION=26` 与 `node:26-slim`；本机工具链见总则 §2.4 |
 | D3 | Git | `main` 放文档与已合入的切片；每个切片在 `slice/<n>-<name>` 上开发，评审后本地 `--no-ff` 合并再推送。2026-10-19 起有远端 `github.com/acha666/aia-cdp`（public）：GitHub Actions 在推送 `main` 与 PR 时跑四个 `pnpm run ci:<job>`，与本机执行等价；出口条件仍可全部在本机验证 |
 | D4 | 迁移源 | `~/aia-cdp/worker-aia-cdp` 本地分支 `parsing-2026-10-18` 的提交 `5b570aa`；只有附录 A 与切片 7 还引用它（`worker-aia-cdp@5b570aa:<path>`，§1.4） |
 | D5 | 切片 1 的存储 | ObjectStore 端口、memory / fs / r2 适配器与一致性套件在切片 1（原在切片 2），`/api/v1/health` 在切片 1 就做真实的 store / configuration 检查；切片 2 保留 catalog/config schema 与条件写重试、`importCertificate`、`applyConfig`、管理路由与 CLI 的 import / config |
@@ -35,7 +35,7 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | D7 | 测试数据 | 测试只用夹具脚本生成的合成 AD CS 风格夹具（fixtures spike 证明 CA Version / 模板名编码逐字节一致、扩展嵌套相同）；仓库里不放真实 PKI 的证书与 CRL |
 | D8 | 批次 1 | 本目录 + plan.md 修订 + 切片 1（已完成，见 §1.2） |
 | D9 | 检查（2026-10-23 撤回 2026-10-19 加的边界护栏：core / http 的 ESLint 分层规则、`typecheck:boundary` 与其 canary、Worker 包的 `"node:` 断言） | 只用常规的一套：`wrangler types` + worker / node 两套 `tsc` 与 web 的 `vue-tsc`、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、vitest、构建、OpenAPI 深等（plan §10）。剩余风险见总则 §2.2 |
-| D10 | devcontainer | 切片 1 建 `.devcontainer/devcontainer.json`：Node 24 镜像、PowerShell feature（AD CS 助手）、非 root `remoteUser`、不装 `act`、OpenSSL ≥ 3.0 可生成夹具；容器内 Docker 可选；不以 root 生成文件 |
+| D10 | devcontainer | 切片 1 建 `.devcontainer/devcontainer.json`：Node 26 镜像（自带 pnpm）、PowerShell feature（AD CS 助手）、非 root `remoteUser`、不装 `act`、OpenSSL ≥ 3.0 可生成夹具；容器内 Docker 可选；不以 root 生成文件 |
 | D11 | 证书路径改绑（推翻推荐的改绑账本 `catalog.certificatePaths`） | 不记账本：V7 只与当前 config 比对，直接改绑拒绝，"先删再加"两步改绑不拦截，由操作员负责（证书下载 `immutable` 缓存一年，换 CA 证书用新路径）；`applyConfig` 只写 `config.json`。落实：plan §5.2 |
 | D12 | `PUT /api/v1/admin/config` 缺可用前置条件（推翻推荐的 400 `bad_request`） | 428 + 新错误码 `precondition_required`：`If-Match` 与 `If-None-Match: *` 两者都缺、都有、或 `If-None-Match` 不是 `*`；不匹配仍是 412。落实：plan §7.2 / §7.3 |
 
@@ -60,7 +60,7 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | B15 | vitest 5 `projects` = node + web（happy-dom）；独立 `vitest.config.ts`；没有 `globalSetup`；HTTP 用 `createApp(...).request()` | `vitest.config.ts`、总则 §2.5 |
 | B16 | 夹具：`tests/fixtures/generate-test-data.sh` 不带参数，固定日期 / 序列号 / CRL 号，每次完整重写 `tests/fixtures/pki/`（含 `manifest.json`），产物入库（`.gitattributes` `tests/fixtures/pki/** -text`），生成需要 OpenSSL ≥ 3.0；测试从文件或 manifest 读值、`now` = `manifest.now`；`.gitattributes` `*.sh text eol=lf` | `tests/fixtures/`、总则 §2.5 |
 | B17 | ESLint 10 flat `eslint.config.ts`、typescript-eslint 8.72.0 projectService、eslint-plugin-vue、`consistent-type-imports` + `no-import-type-side-effects`、`--max-warnings 0`；`pnpm-workspace.yaml` 的 `engineStrict`、`saveExact`、`allowBuilds` 与 `publicHoistPattern`；Prettier 3 的 `.prettierrc.json`，生成组件每次 `add` 后重排 | `eslint.config.ts`、`pnpm-workspace.yaml`、`.prettierrc.json` |
-| B18 | Docker：base → prod-deps ∥ build → runtime（`node:24-slim`、uid 1000、`/data`、`NODE_ENV=production`、exec 形式 CMD、HEALTHCHECK）；`ARG VITE_SITE_NAME`；白名单 `.dockerignore`；浮动基础标签 | `Dockerfile` |
+| B18 | Docker：base → prod-deps ∥ build → runtime（`node:26-slim`、uid 1000、`/data`、`NODE_ENV=production`、exec 形式 CMD、HEALTHCHECK）；`ARG VITE_SITE_NAME`；白名单 `.dockerignore`；浮动基础标签 | `Dockerfile` |
 | B19 | `.github/workflows/ci.yml` 四个任务 check / test / worker / docker 各用 `pnpm/setup` 装 Node、pnpm 与依赖后调 `pnpm run ci:<job>`；`docker-publish.yml` 在推送 `main` 与 `v*.*.*` 标签时把镜像推到 `ghcr.io`；dependabot 管 npm、github-actions、docker；`pnpm verify` = check + test + build | `.github/workflows/`、`package.json` |
 | B20 | Web：Vite root `src/web`、`outDir` `dist/web`、`envDir` 仓库根；`shadcn-vue@2.8.2 init` 固定参数（不用 `--defaults`）；vue-router、vue-query、i18n `en` + `zh-CN`、主题、`VITE_SITE_NAME`、经 `hc<AppType>` 的客户端；客户端目录 `src/web/client/`；dev 代理键 `^/(?:api\|ca\|crl\|dcrl)/` | `vite.config.ts`、`src/web/` |
 | B21 | 验签不用 PKIjs `crl.verify()`，改为对收到的 TBS 字节调 `pkijs.getCrypto(true).verifyWithPublicKey(...)`，在 CRL 级检查之后、按算法白名单（EdDSA 按 OID → `unsupported_algorithm`）；不调 `pkijs.setEngine` | `src/core/pki/verify.ts` |
@@ -124,7 +124,7 @@ D8：批次 1 = 本目录（当时为单文件 `docs/implementation.md`）+ plan
 
 - 全仓 ESM（`"type": "module"`）。服务端代码（`src/core`、`src/http`、`src/storage`、`src/runtime`、`src/cli`、`scripts`、`tests` 中除
   `tests/web` 外）相对导入写 `.ts` 后缀、不用路径别名；`tsc -p tsconfig.build.json` 按 `rewriteRelativeImportExtensions` 改写为 `.js`，
-  开发与测试由 Node 24 直接运行 `.ts`（type stripping）。
+  开发与测试由 Node 26 直接运行 `.ts`（type stripping）。
 - 只用可擦除语法（`erasableSyntaxOnly`）：不写 enum、namespace、构造参数属性，私有状态用 `#field`；纯类型导入写 `import type`
   （`verbatimModuleSyntax`；ESLint `consistent-type-imports` 分开写 + `no-import-type-side-effects`）。
 - `src/web` 走 Bundler 解析，可用 `@/` 别名、导入不带后缀（shadcn-vue 生成代码如此）；web 对 `src/core`、`src/http`、`src/storage`、
@@ -156,7 +156,8 @@ D8：批次 1 = 本目录（当时为单文件 `docs/implementation.md`）+ plan
 
 - 依赖一律精确版本（`pnpm-workspace.yaml` 的 `saveExact`、`engineStrict`），提交 `pnpm-lock.yaml`；Docker、CI、全新克隆都用
   `pnpm install --frozen-lockfile`。
-- pnpm 由 `devEngines.packageManager`（`^12.15.0`）约束，corepack 与 `pnpm/setup` 都读它，实际版本记在 `pnpm-lock.yaml`；pnpm 默认
+- pnpm 由 `devEngines.packageManager`（`^12.15.0`）约束，实际版本记在 `pnpm-lock.yaml`：`pnpm/setup` 直接装它，其他途径装的 pnpm 12
+  自动切换到它（Node 25 起不带 corepack，Docker 与本机用 `npm install -g pnpm@12`）；pnpm 默认
   `minimumReleaseAge` 为 1 天，发布不满一天的版本不会被解析，lockfile 里有这种版本时安装失败。`typescript` 锁 `6.0.3`、`wrangler` 锁 `4.152.0`；dependabot 忽略
   `typescript` ≥ 6.1 与 `@types/node` 的 major 升级。`compatibility_date` 随 wrangler 一起升。
 - 版本见 `package.json`。`pkijs@4.0.0`、`asn1js@4.0.0` 是 dependencies（asn1js 是 pkijs 4 的 peer，两者一起升）；切片 8 加
@@ -178,8 +179,9 @@ D8：批次 1 = 本目录（当时为单文件 `docs/implementation.md`）+ plan
 - TypeScript 脚本直接 `node scripts/<名>.ts`；shell 脚本一律 `bash <脚本>`（owner 的交互 shell 是 zsh）；调用 wrangler CLI 的脚本（`types`、
   `dev:worker`、`ci:worker`）带 `WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true`（`wrangler types` / `dev` 不读 `send_metrics`），
   `worker-smoke.ts` 与 `r2.test.ts` 在进程内设。
-- Node 24 必须在 PATH 最前（否则命令会静默跑在主机自带的 Node 20 上、过不了引擎检查）；owner 本机：每个 shell 先
-  `export PATH=$HOME/.local/opt/node-24/bin:$PATH COREPACK_ENABLE_DOWNLOAD_PROMPT=0`。不以 root 在工作树里跑 pnpm、夹具脚本或容器。
+- Node 26 必须在 PATH 最前（否则命令会静默跑在主机自带的 Node 20 上、过不了引擎检查）；owner 本机：每个 shell 先
+  `export PATH=$HOME/.local/opt/node-26/bin:$PATH`，pnpm 用 `npm install -g pnpm@12` 装进这份 Node 一次。不以 root 在工作树里跑
+  pnpm、夹具脚本或容器。
 
 ### 2.5 测试布局与夹具（B15、B16、D7）
 

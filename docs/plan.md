@@ -16,13 +16,13 @@
 | 6   | 测试       | vitest                                                                                 |
 | 7   | API        | `/api/v1`；下载 URL（`/ca/*`、`/crl/*`、`/dcrl/*`）由路径表配置，已签发证书里写死的 URL 不变 |
 | 8   | 交付       | 2026-10-18：批次 1 = 实施计划（`docs/implementation/`）+ 本文修订 + 切片 1（已完成），之后每批一个切片 |
-| 9   | Node       | 2026-10-18：Node 24 LTS（EOL 2028-04-30）全面取代 Node 22：`.nvmrc` = `24`、`engines.node` = `^24.11.0` + `engineStrict`、`@types/node` 24.x、Docker `ARG NODE_VERSION=24` 与 `node:24-slim` |
+| 9   | Node       | 2026-10-18 定 Node 24 LTS 全面取代 Node 22；2026-10-24 改为 Node 26 LTS（EOL 2029-04-30）：`.nvmrc` = `26`、`engines.node` = `^26.0.0` + `engineStrict`、`@types/node` 26.x、Docker `ARG NODE_VERSION=26` 与 `node:26-slim`；Node 25 起不带 corepack，Docker 与本机用 `npm install -g pnpm@12` 引导 pnpm |
 | 10  | 版本库     | 2026-10-18：`main` 放文档与已合入的切片，每个切片在 `slice/<n>-<name>` 分支开发、评审后本地 `--no-ff` 合并；每个 CI 任务都是本地可跑的 `pnpm run ci:<job>`。2026-10-19 建远端 `github.com/acha666/aia-cdp`，合并后推送，GitHub Actions 跑同一组脚本 |
 | 11  | 切片 1 范围 | 2026-10-18：ObjectStore 端口、memory / fs / r2 适配器与一致性套件在切片 1（原在切片 2），`/api/v1/health` 在切片 1 就做真实的 store / configuration 检查 |
 | 12  | shadcn-vue 风格 | 2026-10-18：`--style nova`、base color `neutral`、图标库 lucide（`@lucide/vue`） |
 | 13  | 测试数据   | 2026-10-18：测试只用夹具脚本生成的合成 AD CS 风格夹具（fixtures spike 证明 CA Version / 模板名编码逐字节一致、扩展嵌套相同），仓库里不放真实 PKI 的证书与 CRL |
 | 14  | 迁移源     | 2026-10-18：`~/aia-cdp/worker-aia-cdp` 本地分支 `parsing-2026-10-18` 的提交 `5b570aa`；只有附录 A 与切片 7 还引用它（`worker-aia-cdp@5b570aa:<path>`） |
-| 15  | 检查与 devcontainer | 2026-10-23：检查只用常规的一套（§10）：`wrangler types` + worker / node 两套 `tsc` 与 web 的 `vue-tsc`、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、vitest、构建、OpenAPI 深等；撤回 2026-10-19 加的边界护栏（ESLint 分层规则、`typecheck:boundary`、Worker 包的 `"node:` 断言）。切片 1 建 devcontainer（Node 24 镜像、PowerShell feature、非 root、无 `act`） |
+| 15  | 检查与 devcontainer | 2026-10-23：检查只用常规的一套（§10）：`wrangler types` + worker / node 两套 `tsc` 与 web 的 `vue-tsc`、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、vitest、构建、OpenAPI 深等；撤回 2026-10-19 加的边界护栏（ESLint 分层规则、`typecheck:boundary`、Worker 包的 `"node:` 断言）。切片 1 建 devcontainer（Node 26 镜像、PowerShell feature、非 root、无 `act`） |
 | 16  | 切片 2 两项 | 2026-10-19：不记证书路径改绑账本——V7 只与当前 config 比对，"先删再加"不拦截、由操作员负责，`applyConfig` 只写 `config.json`（§5.2）；`PUT /api/v1/admin/config` 缺可用前置条件回 428 `precondition_required`，不用 400（§7.2、§7.3） |
 
 决策 5、8–16 即 implementation 总则 §0 的 D1–D12（5 = D1，9 = D2，10 = D3，14 = D4，11 = D5，12 = D6，13 = D7，8 = D8，15 = D9 + D10，16 = D11 + D12）。
@@ -34,7 +34,7 @@
 
 目标：
 
-- 一份代码，两种运行时：Cloudflare Workers + R2；Node 24 + 本地磁盘（Docker）。
+- 一份代码，两种运行时：Cloudflare Workers + R2；Node 26 + 本地磁盘（Docker）。
   共用一个 `createApp(deps)`，两个入口文件各十几行。
 - 公开分发 CA 证书与 CRL（AIA/CDP）。公开 URL 由操作员配置，DER 是唯一权威，PEM 读取时派生。
 - AD CS 上传 CRL 后自动验签、比较新鲜度并发布，返回 created / updated / unchanged 三种结果。
@@ -56,8 +56,8 @@
 
 | 领域          | 选型                                            | 版本                              | 说明                                                                                           |
 | ------------- | ----------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------- |
-| 运行时        | Node 24 LTS（固定）、Cloudflare Workers          | —                                 | `.nvmrc` = `24`、`engines.node` = `^24.11.0` + `pnpm-workspace.yaml` `engineStrict: true`（不符即安装失败）、`node:24-slim`（决策 9） |
-| 包管理        | pnpm 12（corepack）                              | ^12.15.0                          | 2026-10-23 起不精确锁定：`devEngines.packageManager` 给范围，实际版本记在 `pnpm-lock.yaml`，corepack 与 CI 的 `pnpm/setup` 都读它；`pnpm-workspace.yaml` 设 `engineStrict`、`saveExact`、`allowBuilds` 与 `publicHoistPattern`；默认 `minimumReleaseAge` 1 天 |
+| 运行时        | Node 26 LTS（固定）、Cloudflare Workers          | —                                 | `.nvmrc` = `26`、`engines.node` = `^26.0.0` + `pnpm-workspace.yaml` `engineStrict: true`（不符即安装失败）、`node:26-slim`（决策 9） |
+| 包管理        | pnpm 12                                         | ^12.15.0                          | 2026-10-23 起不精确锁定：`devEngines.packageManager` 给范围，实际版本记在 `pnpm-lock.yaml`：CI 的 `pnpm/setup` 直接装这个版本，其他途径装的 pnpm 12（`npm install -g pnpm@12`、devcontainer 镜像自带）自动切换到它；`pnpm-workspace.yaml` 设 `engineStrict`、`saveExact`、`allowBuilds` 与 `publicHoistPattern`；默认 `minimumReleaseAge` 1 天 |
 | HTTP          | `hono`                                          | 4.13.13                           | 路由、自动 HEAD、`methodNotAllowed`（`hono/method-not-allowed`，hono ≥ 4.13.0）、`bodyLimit`、`bearerAuth`、`secureHeaders`；下载的 ETag / 304 手写，不用 `hono/etag`（§6） |
 | Node 服务器   | `@hono/node-server`                             | 2.1.5                             | `serve()` + `serve-static`；替代手写 `node:http` 桥                                            |
 | 校验与 OpenAPI | `@hono/zod-openapi` + `zod`                    | 1.6.3 / 4.6.7                     | 路由声明即 schema，处理器返回值按状态码类型检查；OpenAPI 文档运行时从路由表生成，另写出提交的 `docs/openapi.json` 作漂移基线（§7.3） |
@@ -71,7 +71,7 @@
 | Cloudflare    | `wrangler`                                      | 4.152.0（精确锁定）               | `wrangler types` 生成绑定类型 `worker-configuration.d.ts`（不入库）；不装 `@cloudflare/workers-types`；`compatibility_date` 随 wrangler 一起升 |
 | CLI           | `node:util` `parseArgs` + `fetch`               | 内置                              | 零依赖                                                                                         |
 | 后续          | `@aws-sdk/client-s3`                            | 3.1152.0                          | S3 适配器切片，仅进 Node bundle                                                                |
-| 质量          | `typescript`；`eslint` + `@eslint/js` + `typescript-eslint` + `eslint-plugin-vue` + `vue-eslint-parser` + `jiti`；`prettier` | 6.0.3；10.13.0 / 10.0.1 / 8.72.0 / 10.11.1 / 10.4.1 / 2.7.0；3.9.10 | `typescript` 精确锁 6.0.3（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）；`jiti` 供 ESLint 10 加载 `eslint.config.ts`；`@types/node` 24.19.2 |
+| 质量          | `typescript`；`eslint` + `@eslint/js` + `typescript-eslint` + `eslint-plugin-vue` + `vue-eslint-parser` + `jiti`；`prettier` | 6.0.3；10.13.0 / 10.0.1 / 8.72.0 / 10.11.1 / 10.4.1 / 2.7.0；3.9.10 | `typescript` 精确锁 6.0.3（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）；`jiti` 供 ESLint 10 加载 `eslint.config.ts`；`@types/node` 26.6.5 |
 | 开发前置      | OpenSSL CLI、bash、Docker Engine                 | OpenSSL ≥ 3.0（不是 LibreSSL）、Docker ≥ 25 | 只在开发与 CI 用：OpenSSL 只在重新生成测试夹具时需要，bash 用于夹具生成与冒烟脚本（`smoke:worker`、`ci:docker`）（§10，`pnpm test` 两者都不需要），Docker 构建镜像（`HEALTHCHECK --start-interval` 需要 25）；运行时都不需要 |
 
 `dependencies` 只放 Node 运行时要的包（`hono`、`@hono/zod-openapi`、`zod`、`@hono/node-server`，切片 2 起加 `pkijs`、`asn1js`）；
@@ -184,17 +184,17 @@ aia-cdp/
   永远 400）；无效即在 stderr 打印原因、exit 1。`AIA_DATA_DIR` 须是可读写目录，否则 JSON 错误日志 + exit 1。
 - `serve({ fetch: app.fetch, port })`：`PORT` 显式传入（`@hono/node-server` 的默认是 3000），不传 hostname（`::` 双栈）；
   就绪日志一行 `listening`。`server.on("error")`（如端口被占用）→ JSON 日志 + exit 1；SIGTERM / SIGINT → `server.close()` 并立即关闭空闲连接，
-  2 s 宽限后关闭其余全部连接（含没发完请求的 preconnect、半截请求头，`close()` 会一直等它们）。
+  2 s 宽限后关闭其余全部连接（含请求头没发完的慢客户端，`close()` 会一直等它们）。
 - `AIA_STATIC_DIR` 不必存在：没有 UI 构建时 UI 路径都是纯文本 404，health 不受影响（`dev:node` 的 UI 由 Vite dev server 提供）。
 - 生产 `node --enable-source-maps dist/server/runtime/node.js`；开发与测试直接 `node src/runtime/node.ts`（type stripping）。
 
-Dockerfile（`ARG NODE_VERSION=24`，基础镜像浮动标签 `node:24-slim`，bookworm；digest 固定以后再定）：
+Dockerfile（`ARG NODE_VERSION=26`，基础镜像浮动标签 `node:26-slim`，trixie；digest 固定以后再定）：
 
-- 阶段 base：`corepack enable pnpm`，复制 `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml` 后 `pnpm --version`（按 `devEngines`
-  取 pnpm 及其原生二进制，两个安装阶段共用）；prod-deps：`pnpm install --store-dir /pnpm/store --prod --frozen-lockfile --ignore-scripts`
+- 阶段 base：`npm install -g pnpm@12`（Node 25 起不带 corepack），复制 `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml` 后
+  `pnpm --version`（切换到 `pnpm-lock.yaml` 记录的 pnpm，两个安装阶段共用）；prod-deps：`pnpm install --store-dir /pnpm/store --prod --frozen-lockfile --ignore-scripts`
   （store 缓存挂载；不写 `--store-dir` 时 pnpm 见挂载点在另一文件系统会改用 `/.pnpm-store`）；build：全量安装 + `vite build` +
-  `tsc -p tsconfig.build.json`。`engineStrict` 让 `NODE_VERSION=22` 的构建在安装阶段失败。
-- 阶段 runtime（`node:24-slim`）：`NODE_ENV=production`；只复制生产依赖、`dist/` 与 `package.json`（`"type": "module"` 需要它）；
+  `tsc -p tsconfig.build.json`。`engineStrict` 让 `NODE_VERSION=24` 的构建在安装阶段失败。
+- 阶段 runtime（`node:26-slim`）：`NODE_ENV=production`；只复制生产依赖、`dist/` 与 `package.json`（`"type": "module"` 需要它）；
   先建 `/data` 并 chown 给 `node`，再 `USER node`（uid 1000）与 `VOLUME /data`；`EXPOSE 8080`；
   exec 形式 `CMD ["node", "--enable-source-maps", "dist/server/runtime/node.js"]`；
   `HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --start-interval=2s --retries=3`，用 `node -e` 的

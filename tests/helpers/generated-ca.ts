@@ -7,6 +7,7 @@ import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
 import { applyConfig } from "../../src/core/admin.ts";
 import { ConfigSchema } from "../../src/core/catalog.ts";
+import { toDigestInput } from "../../src/core/digest.ts";
 import { importCertificate } from "../../src/core/import.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { NOW } from "../fixtures/pki.ts";
@@ -46,7 +47,7 @@ export async function generateCa(commonName = "Generated Test CA"): Promise<Gene
   const keyId = new Uint8Array(
     await crypto.subtle.digest(
       "SHA-1",
-      certificate.subjectPublicKeyInfo.subjectPublicKey.valueBlock.valueHexView
+      toDigestInput(certificate.subjectPublicKeyInfo.subjectPublicKey.valueBlock.valueHexView)
     )
   );
   certificate.extensions = [

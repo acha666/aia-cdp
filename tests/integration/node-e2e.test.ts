@@ -222,10 +222,11 @@ describe("node src/runtime/node.ts driven by the aia CLI", { timeout: TIMEOUT },
     expect(await missing.text()).toBe("Not Found");
   });
 
-  it("exits 0 on SIGTERM within 5 s although a socket never sent a request", async () => {
-    const idle = connect(port, "127.0.0.1");
-    idle.on("error", () => undefined);
-    await once(idle, "connect");
+  it("exits 0 on SIGTERM within 5 s although a socket never finished its request", async () => {
+    const slow = connect(port, "127.0.0.1");
+    slow.on("error", () => undefined);
+    await once(slow, "connect");
+    slow.write("GET / HTTP/1.1\r\nHost: x\r\n");
     const started = performance.now();
     server.child.kill("SIGTERM");
     expect(await server.closed).toBe(0);

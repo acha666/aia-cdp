@@ -1,4 +1,4 @@
-// Hex and WebCrypto digests (Workers, Node 24 and browsers). No imports: storage and the CLI use
+// Hex and WebCrypto digests (Workers, Node 26 and browsers). No imports: storage and the CLI use
 // them without loading asn1js or PKIjs.
 
 export const toHex = (input: ArrayBuffer | Uint8Array) =>
