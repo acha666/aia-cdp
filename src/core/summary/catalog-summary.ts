@@ -3,7 +3,7 @@
 import type { Certificate, CertificateRevocationList } from "pkijs";
 import type { z } from "zod";
 import type { CertificateSummarySchema, CrlSummarySchema } from "../catalog.ts";
-import { sha1Hex, toHex } from "../digest.ts";
+import { sha1Hex, toUpperHex } from "../digest.ts";
 import { PkiParseError } from "../pki/errors.ts";
 import type { PkiKind } from "../pki/errors.ts";
 import {
@@ -51,7 +51,7 @@ export async function buildCertificateSummary(
   return {
     subjectCN: getCommonName(cert.subject) ?? null,
     issuerCN: getCommonName(cert.issuer) ?? null,
-    serialNumber: toHex(cert.serialNumber.valueBlock.valueHexView).toUpperCase(),
+    serialNumber: toUpperHex(cert.serialNumber.valueBlock.valueHexView),
     notBefore: cert.notBefore.value.toISOString(),
     notAfter: cert.notAfter.value.toISOString(),
     subjectKeyId: readKeyId("Subject Key Identifier", () => getSKIHex(cert)),

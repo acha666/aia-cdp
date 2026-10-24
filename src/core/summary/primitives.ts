@@ -23,7 +23,7 @@ import {
   HASH_ALG_NAMES,
   MASK_GEN_ALG_NAMES,
 } from "../pki/constants.ts";
-import { sha1Hex, sha256Hex, toHex } from "../digest.ts";
+import { sha1Hex, sha256Hex, toHex, toUpperHex } from "../digest.ts";
 import type {
   X509Version,
   SerialNumber,
@@ -69,13 +69,13 @@ export function buildVersion(version: number | undefined): X509Version {
 }
 
 export function buildSerialNumber(integer: Integer): SerialNumber {
-  const hex = toHex(integer.valueBlock.valueHexView).toUpperCase();
+  const hex = toUpperHex(integer.valueBlock.valueHexView);
   return { hex, decimal: BigInt(`0x${hex}`).toString() };
 }
 
 function buildBitString(bitString: Asn1BitString): BitString {
   const { valueHexView: bytes, unusedBits } = bitString.valueBlock;
-  return { hex: toHex(bytes).toUpperCase(), bitLength: bytes.length * 8 - unusedBits, unusedBits };
+  return { hex: toUpperHex(bytes), bitLength: bytes.length * 8 - unusedBits, unusedBits };
 }
 
 /** Raw content of an implicitly tagged BIT STRING (first octet is the unused-bit count). */
@@ -88,7 +88,7 @@ export function buildBitStringFromContent(content: ArrayBuffer): BitString | und
   const unusedBits = first <= 7 ? first : 0;
   const body = bytes.subarray(1);
   return {
-    hex: toHex(body).toUpperCase(),
+    hex: toUpperHex(body),
     bitLength: body.length * 8 - unusedBits,
     unusedBits,
   };
@@ -111,7 +111,7 @@ function unsignedHex(integer: Integer): string {
     bytes.length > 1 && bytes[0] === 0 && ((bytes[1] ?? 0) & 0x80) !== 0
       ? bytes.subarray(1)
       : bytes;
-  return toHex(trimmed).toUpperCase();
+  return toUpperHex(trimmed);
 }
 
 /** Signature bits plus the (r, s) pair for DSA-style signatures when the DER sequence decodes. */
@@ -342,7 +342,7 @@ export async function buildSubjectPublicKeyInfo(
   } else if (algOid === "1.2.840.10045.2.1") {
     parsed = parseECPublicKey(spki);
   } else if (algOid === "1.3.101.112" || algOid === "1.3.101.113") {
-    const keyHex = toHex(spki.subjectPublicKey.valueBlock.valueHex).toUpperCase();
+    const keyHex = toUpperHex(spki.subjectPublicKey.valueBlock.valueHex);
     parsed = {
       type: algOid === "1.3.101.112" ? "ed25519" : "ed448",
       publicKey: { hex: keyHex },
@@ -387,9 +387,9 @@ function parseECPublicKey(spki: pkijs.PublicKeyInfo): ECPublicKey | undefined {
     type: "ec",
     curve: buildObjectIdentifier(curve?.id ?? key.namedCurve, CURVE_NAMES),
     point: {
-      hex: toHex(spki.subjectPublicKey.valueBlock.valueHexView).toUpperCase(),
-      x: toHex(key.x).toUpperCase(),
-      y: toHex(key.y).toUpperCase(),
+      hex: toUpperHex(spki.subjectPublicKey.valueBlock.valueHexView),
+      x: toUpperHex(key.x),
+      y: toUpperHex(key.y),
     },
     // P-521 coordinates occupy 66 bytes but the curve has 521 bits.
     keySize: curve?.id === "1.3.132.0.35" ? 521 : key.x.byteLength * 8,

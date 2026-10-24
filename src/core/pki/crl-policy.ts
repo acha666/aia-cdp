@@ -3,7 +3,7 @@
 // verified. The signature check bypasses PKIjs's own CRL check and with it PKIjs's list of critical
 // extensions: these tables are the only extension gate.
 import type { CertificateRevocationList, Extension } from "pkijs";
-import { toHex } from "../digest.ts";
+import { toHex, toUpperHex } from "../digest.ts";
 import { SEQUENCE, context, hasTag, sequenceOf } from "./der.ts";
 import { messageOf } from "./errors.ts";
 import { readExtensionSchema } from "./extensions.ts";
@@ -77,10 +77,6 @@ function limitsScope(extension: Extension): boolean {
   return sequenceOf(readExtensionSchema(extension), SEQUENCE, 0).some(
     (field) => !hasTag(field, context(0))
   );
-}
-
-function serialOf(serial: { valueBlock: { valueHexView: Uint8Array } }): string {
-  return toHex(serial.valueBlock.valueHexView).toUpperCase();
 }
 
 /**
@@ -180,7 +176,7 @@ export function checkEntryPolicy(crl: CertificateRevocationList): { ok: true } |
         continue;
       }
       if (oid === CERTIFICATE_ISSUER_OID) {
-        const serialNumber = serialOf(entry.userCertificate);
+        const serialNumber = toUpperHex(entry.userCertificate.valueBlock.valueHexView);
         return {
           ok: false,
           error: "scoped_crl_unsupported",
@@ -189,7 +185,7 @@ export function checkEntryPolicy(crl: CertificateRevocationList): { ok: true } |
         };
       }
       if (extension.critical) {
-        const serialNumber = serialOf(entry.userCertificate);
+        const serialNumber = toUpperHex(entry.userCertificate.valueBlock.valueHexView);
         return {
           ok: false,
           error: "unknown_critical_extension",

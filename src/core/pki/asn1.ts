@@ -16,7 +16,7 @@ import {
   fromBER,
 } from "asn1js";
 import { KNOWN_OID_NAMES } from "./constants.ts";
-import { toHex } from "../digest.ts";
+import { toUpperHex } from "../digest.ts";
 
 export type Asn1TimeType = "utcTime" | "generalizedTime";
 
@@ -274,18 +274,18 @@ function primitiveText(block: BaseBlock): string | undefined {
   }
   if (block instanceof BitString) {
     const unused = block.valueBlock.unusedBits;
-    const hex = toHex(block.valueBlock.valueHexView).toUpperCase();
+    const hex = toUpperHex(block.valueBlock.valueHexView);
     return clip(unused > 0 ? `${hex} (${unused} unused bits)` : hex);
   }
   if (block instanceof OctetString) {
-    return clip(toHex(block.valueBlock.valueHexView).toUpperCase());
+    return clip(toUpperHex(block.valueBlock.valueHexView));
   }
   const value: unknown = (block.valueBlock as { value?: unknown }).value;
   if (typeof value === "string") {
     return clip(value);
   }
   const view = (block.valueBlock as { valueHexView?: Uint8Array }).valueHexView;
-  return clip(toHex(view ?? new Uint8Array(block.toBER(false))).toUpperCase());
+  return clip(toUpperHex(view ?? block.toBER(false)));
 }
 
 const DUMP_LIMITS = { maxLines: 200, maxDepth: 12 };
@@ -328,7 +328,7 @@ export function dumpAsn1(bytes: Uint8Array | ArrayBuffer): Asn1Line[] | undefine
 
 /** Uppercase hex of the whole encoding of `block` (as asn1js re-encodes it). */
 export function blockHex(block: BaseBlock): string {
-  return toHex(block.toBER(false)).toUpperCase();
+  return toUpperHex(block.toBER(false));
 }
 
 /** Best-effort text for an arbitrary ASN.1 value (used for attribute values and qualifiers). */

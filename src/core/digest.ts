@@ -5,6 +5,9 @@
 export const toHex = (input: ArrayBuffer | Uint8Array) =>
   (input instanceof Uint8Array ? input : new Uint8Array(input)).toHex();
 
+/** Uppercase hex, as details and the catalog show serials and octets. */
+export const toUpperHex = (input: ArrayBuffer | Uint8Array) => toHex(input).toUpperCase();
+
 /**
  * Bytes for WebCrypto. TypeScript's DOM lib (the web program reaches core through hc<AppType>)
  * types its input as ArrayBufferView<ArrayBuffer>, so a Uint8Array<ArrayBufferLike> is rejected

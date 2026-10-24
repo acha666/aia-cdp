@@ -58,7 +58,7 @@ import {
 } from "../pki/der.ts";
 import { blockHex, displayText, dumpAsn1, readStrictTime } from "../pki/asn1.ts";
 import { messageOf } from "../pki/errors.ts";
-import { toHex } from "../digest.ts";
+import { toHex, toUpperHex } from "../digest.ts";
 import type {
   AccessDescription,
   DistributionPoint,
@@ -88,7 +88,7 @@ export function buildExtension(ext: pkijs.Extension): Extension {
   const result: Extension = {
     extnID: buildObjectIdentifier(ext.extnID, EXTENSION_NAMES),
     critical: ext.critical,
-    extnValue: { hex: hexOf(bytes), byteLength: bytes.length },
+    extnValue: { hex: toUpperHex(bytes), byteLength: bytes.length },
     parseStatus: "unsupported",
   };
   try {
@@ -115,9 +115,6 @@ function timeFromBlock(block: BaseBlock): Time {
   const strict = readStrictTime(block);
   return { iso: strict.date.toISOString(), type: strict.type, raw: strict.raw };
 }
-
-/** Uppercase hex, as the detail shows octets (key ids, hashes, serial numbers). */
-const hexOf = (bytes: ArrayBuffer | Uint8Array) => toHex(bytes).toUpperCase();
 
 /** The text of an element of an ASN.1 string type (DisplayText, DirectoryString); else throws. */
 function readText(block: BaseBlock): string {
@@ -227,7 +224,7 @@ function formatIpGeneralName(bytes: Uint8Array): { value: string; rawHex?: strin
       value: prefix === undefined ? `${address}/${formatIpAddress(mask)}` : `${address}/${prefix}`,
     };
   }
-  const hex = hexOf(bytes);
+  const hex = toUpperHex(bytes);
   return { value: hex, rawHex: hex };
 }
 
@@ -423,7 +420,7 @@ function checkSctFraming(list: Uint8Array): void {
 }
 
 function readSct(sct: pkijs.SignedCertificateTimestamp) {
-  const signature = hexOf(sct.signature);
+  const signature = toUpperHex(sct.signature);
   // version is typed number but is undefined when the data ended before it.
   const version: unknown = sct.version;
   if (typeof version !== "number" || sct.logID.byteLength !== 32 || signature === "") {
@@ -431,7 +428,7 @@ function readSct(sct: pkijs.SignedCertificateTimestamp) {
   }
   return {
     version,
-    logId: hexOf(sct.logID),
+    logId: toUpperHex(sct.logID),
     timestamp: sct.timestamp.toISOString(),
     hashAlgorithm: sct.hashAlgorithm,
     signatureAlgorithm: sct.signatureAlgorithm,
@@ -465,7 +462,7 @@ const EXTENSION_PARSERS = {
   // Subject Key Identifier (2.5.29.14)
   "2.5.29.14": (value): Parsed<"subjectKeyIdentifier"> => ({
     extensionType: "subjectKeyIdentifier",
-    keyIdentifier: hexOf(readSubjectKeyId(value)),
+    keyIdentifier: toUpperHex(readSubjectKeyId(value)),
   }),
 
   // Key Usage (2.5.29.15)
@@ -642,9 +639,9 @@ const EXTENSION_PARSERS = {
     const { keyIdentifier, names, serial } = readAuthorityKeyId(value);
     return {
       extensionType: "authorityKeyIdentifier",
-      keyIdentifier: keyIdentifier && hexOf(keyIdentifier),
+      keyIdentifier: keyIdentifier && toUpperHex(keyIdentifier),
       authorityCertIssuer: names?.map(readGeneralName),
-      authorityCertSerialNumber: serial && hexOf(serial),
+      authorityCertSerialNumber: serial && toUpperHex(serial),
     };
   },
 
@@ -784,7 +781,7 @@ const EXTENSION_PARSERS = {
   // Microsoft Previous CA Certificate Hash (1.3.6.1.4.1.311.21.2)
   "1.3.6.1.4.1.311.21.2": (value): Parsed<"msPreviousCaCertificateHash"> => ({
     extensionType: "msPreviousCaCertificateHash",
-    hash: hexOf(contents(expectTag(value, OCTET_STRING))),
+    hash: toUpperHex(contents(expectTag(value, OCTET_STRING))),
   }),
 
   // Microsoft CRL Virtual Base (1.3.6.1.4.1.311.21.3)
