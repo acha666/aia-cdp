@@ -2,9 +2,9 @@
 // CRL before the signature check (verify.ts), checkEntryPolicy on the whole CRL once the signature
 // verified. The signature check bypasses PKIjs's own CRL check and with it PKIjs's list of critical
 // extensions: these tables are the only extension gate.
-import { Sequence } from "asn1js";
 import type { CertificateRevocationList, Extension } from "pkijs";
 import { toHex } from "../digest.ts";
+import { SEQUENCE, context, hasTag, sequenceOf } from "./der.ts";
 import { readExtensionSchema } from "./extensions.ts";
 import { sameSignatureAlgorithms } from "./parsers.ts";
 import type { ReceivedCrl } from "./parsers.ts";
@@ -73,12 +73,8 @@ export type CrlPolicyResult =
  * §5.2.5: the others limit the scope of the CRL). Throws when the value is not a SEQUENCE.
  */
 function limitsScope(extension: Extension): boolean {
-  const value = readExtensionSchema(extension);
-  if (!(value instanceof Sequence)) {
-    throw new Error("Not a SEQUENCE");
-  }
-  return value.valueBlock.value.some(
-    ({ idBlock }) => idBlock.tagClass !== 3 || idBlock.tagNumber !== 0
+  return sequenceOf(readExtensionSchema(extension), SEQUENCE, 0).some(
+    (field) => !hasTag(field, context(0))
   );
 }
 
