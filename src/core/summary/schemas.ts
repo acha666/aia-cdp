@@ -1,7 +1,8 @@
 // X.509 projection schemas and their z.infer types (Name for NameSchema, …): what the detail
 // builders (primitives.ts, names.ts, extensions.ts, certificate.ts, crl.ts) return, and what the
-// certificate and CRL detail routes document. The CRL kind is not here: it comes from config (CrlKind in
-// ../catalog.ts).
+// certificate and CRL detail routes document. The CRL kind is not here: it comes from config
+// (CrlKind in ../catalog.ts). Only the schemas that src/http/schemas.ts composes are exported as
+// values (and GENERAL_NAME_TYPES); every other schema leaves this file as its type.
 //
 // There is no "unknown" extension variant (no parser produces one); fields the builders always
 // produce are required (SubjectPublicKeyInfo.parsed, ECPublicKey.point.x / y, TBSCertList.version);
@@ -18,26 +19,26 @@ import { z } from "zod";
 // X.509 Primitive Schemas
 // =============================================================================
 
-export const X509VersionSchema = z.object({
+const X509VersionSchema = z.object({
   raw: z.number(),
   display: z.enum(["v1", "v2", "v3"]),
 });
 export type X509Version = z.infer<typeof X509VersionSchema>;
 
-export const SerialNumberSchema = z.object({
+const SerialNumberSchema = z.object({
   hex: z.string(),
   decimal: z.string(),
 });
 export type SerialNumber = z.infer<typeof SerialNumberSchema>;
 
-export const BitStringSchema = z.object({
+const BitStringSchema = z.object({
   hex: z.string(),
   bitLength: z.number(),
   unusedBits: z.number(),
 });
 export type BitString = z.infer<typeof BitStringSchema>;
 
-export const ObjectIdentifierSchema = z.object({
+const ObjectIdentifierSchema = z.object({
   oid: z.string(),
   name: z.string().nullable(),
 });
@@ -48,7 +49,7 @@ export const SignatureValueSchema = BitStringSchema.extend({
 }).meta({ id: "SignatureValue" });
 export type SignatureValue = z.infer<typeof SignatureValueSchema>;
 
-export const AlgorithmParametersParsedSchema = z.discriminatedUnion("type", [
+const AlgorithmParametersParsedSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("null") }),
   z.object({ type: z.literal("objectIdentifier"), oid: ObjectIdentifierSchema }),
   z.object({
@@ -62,7 +63,7 @@ export const AlgorithmParametersParsedSchema = z.discriminatedUnion("type", [
 ]);
 export type AlgorithmParametersParsed = z.infer<typeof AlgorithmParametersParsedSchema>;
 
-export const AlgorithmParametersSchema = z.object({
+const AlgorithmParametersSchema = z.object({
   rawHex: z.string().describe("DER encoding of the parameters value"),
   parsed: AlgorithmParametersParsedSchema.optional(),
 });
@@ -76,7 +77,7 @@ export const AlgorithmIdentifierSchema = z
   .meta({ id: "AlgorithmIdentifier" });
 export type AlgorithmIdentifier = z.infer<typeof AlgorithmIdentifierSchema>;
 
-export const TimeSchema = z
+const TimeSchema = z
   .object({
     iso: z.string(),
     type: z.enum(["utcTime", "generalizedTime"]),
@@ -91,7 +92,7 @@ export type Time = z.infer<typeof TimeSchema>;
 
 // The lines of dumpAsn1 (Asn1Line in ../pki/asn1.ts). buildExtension assigns them to
 // Extension.asn1, so the compiler checks that they fit this schema.
-export const Asn1LineSchema = z.object({
+const Asn1LineSchema = z.object({
   depth: z.number(),
   tag: z.string(),
   length: z.number(),
@@ -103,7 +104,7 @@ export type Asn1Line = z.infer<typeof Asn1LineSchema>;
 // Distinguished Name Schemas
 // =============================================================================
 
-export const AttributeValueSchema = z.object({
+const AttributeValueSchema = z.object({
   string: z.string().nullable(),
   encoding: z.enum([
     "utf8String",
@@ -121,18 +122,18 @@ export const AttributeValueSchema = z.object({
 });
 export type AttributeValue = z.infer<typeof AttributeValueSchema>;
 
-export const AttributeTypeAndValueSchema = z.object({
+const AttributeTypeAndValueSchema = z.object({
   type: ObjectIdentifierSchema,
   value: AttributeValueSchema,
 });
 export type AttributeTypeAndValue = z.infer<typeof AttributeTypeAndValueSchema>;
 
-export const RelativeDistinguishedNameSchema = z.object({
+const RelativeDistinguishedNameSchema = z.object({
   attributes: z.array(AttributeTypeAndValueSchema),
 });
 export type RelativeDistinguishedName = z.infer<typeof RelativeDistinguishedNameSchema>;
 
-export const NameSchema = z
+const NameSchema = z
   .object({
     commonName: z.string().nullable(),
     organization: z.string().nullable(),
@@ -152,14 +153,14 @@ export type Name = z.infer<typeof NameSchema>;
 // Public Key Schemas
 // =============================================================================
 
-export const RSAPublicKeySchema = z.object({
+const RSAPublicKeySchema = z.object({
   type: z.literal("rsa"),
   modulus: z.object({ hex: z.string(), bitLength: z.number() }),
   publicExponent: z.number(),
 });
 export type RSAPublicKey = z.infer<typeof RSAPublicKeySchema>;
 
-export const ECPublicKeySchema = z.object({
+const ECPublicKeySchema = z.object({
   type: z.literal("ec"),
   curve: ObjectIdentifierSchema,
   point: z.object({
@@ -171,16 +172,16 @@ export const ECPublicKeySchema = z.object({
 });
 export type ECPublicKey = z.infer<typeof ECPublicKeySchema>;
 
-export const EdPublicKeySchema = z.object({
+const EdPublicKeySchema = z.object({
   type: z.enum(["ed25519", "ed448"]),
   publicKey: z.object({ hex: z.string() }),
 });
 
-export const UnknownPublicKeySchema = z.object({
+const UnknownPublicKeySchema = z.object({
   type: z.literal("unknown"),
 });
 
-export const PublicKeyParsedSchema = z.discriminatedUnion("type", [
+const PublicKeyParsedSchema = z.discriminatedUnion("type", [
   RSAPublicKeySchema,
   ECPublicKeySchema,
   EdPublicKeySchema,
@@ -193,7 +194,7 @@ export const FingerprintsSchema = z.object({
 });
 export type Fingerprints = z.infer<typeof FingerprintsSchema>;
 
-export const SubjectPublicKeyInfoSchema = z
+const SubjectPublicKeyInfoSchema = z
   .object({
     algorithm: AlgorithmIdentifierSchema,
     subjectPublicKey: BitStringSchema,
@@ -223,7 +224,7 @@ export const GENERAL_NAME_TYPES = [
   "registeredID",
 ] as const;
 
-export const GeneralNameSchema = z
+const GeneralNameSchema = z
   .object({
     type: z.enum(GENERAL_NAME_TYPES),
     value: z.string(),
@@ -238,14 +239,14 @@ export type GeneralName = z.infer<typeof GeneralNameSchema>;
 // Extension Schemas
 // =============================================================================
 
-export const DistributionPointNameSchema = z
+const DistributionPointNameSchema = z
   .object({
     fullName: z.array(GeneralNameSchema).optional(),
     nameRelativeToCRLIssuer: RelativeDistinguishedNameSchema.optional(),
   })
   .meta({ id: "DistributionPointName" });
 
-export const DistributionPointSchema = z
+const DistributionPointSchema = z
   .object({
     distributionPoint: DistributionPointNameSchema.optional(),
     reasons: z.array(z.string()).optional(),
@@ -254,14 +255,14 @@ export const DistributionPointSchema = z
   .meta({ id: "DistributionPoint" });
 export type DistributionPoint = z.infer<typeof DistributionPointSchema>;
 
-export const UserNoticeSchema = z.object({
+const UserNoticeSchema = z.object({
   organization: z.string().optional(),
   noticeNumbers: z.array(z.string()).optional(),
   explicitText: z.string().optional(),
 });
 export type UserNotice = z.infer<typeof UserNoticeSchema>;
 
-export const PolicyQualifierSchema = z.object({
+const PolicyQualifierSchema = z.object({
   qualifierId: ObjectIdentifierSchema,
   cpsUri: z.string().optional(),
   userNotice: UserNoticeSchema.optional(),
@@ -269,19 +270,19 @@ export const PolicyQualifierSchema = z.object({
 });
 export type PolicyQualifier = z.infer<typeof PolicyQualifierSchema>;
 
-export const PolicyInformationSchema = z.object({
+const PolicyInformationSchema = z.object({
   policyIdentifier: ObjectIdentifierSchema,
   policyQualifiers: z.array(PolicyQualifierSchema).optional(),
 });
 export type PolicyInformation = z.infer<typeof PolicyInformationSchema>;
 
-export const AccessDescriptionSchema = z.object({
+const AccessDescriptionSchema = z.object({
   accessMethod: ObjectIdentifierSchema,
   accessLocation: GeneralNameSchema,
 });
 export type AccessDescription = z.infer<typeof AccessDescriptionSchema>;
 
-export const GeneralSubtreeSchema = z.object({
+const GeneralSubtreeSchema = z.object({
   base: GeneralNameSchema,
   minimum: z.number(),
   maximum: z.number().optional(),
@@ -300,7 +301,7 @@ function extensionValue<const T extends string, S extends z.ZodRawShape>(
   return z.object({ extensionType: z.literal(extensionType), ...shape }).meta({ id });
 }
 
-export const ParsedExtensionValueSchema = z.discriminatedUnion("extensionType", [
+const ParsedExtensionValueSchema = z.discriminatedUnion("extensionType", [
   extensionValue("basicConstraints", { cA: z.boolean(), pathLenConstraint: z.number().optional() }),
   extensionValue("keyUsage", {
     digitalSignature: z.boolean(),
@@ -407,7 +408,7 @@ export type ParsedExtensionValue = z.infer<typeof ParsedExtensionValueSchema>;
 /** The 41 `extensionType` discriminants (src/core/summary/extensions.ts produces each). */
 export type ExtensionType = ParsedExtensionValue["extensionType"];
 
-export const ExtensionSchema = z
+const ExtensionSchema = z
   .object({
     extnID: ObjectIdentifierSchema,
     critical: z.boolean(),
@@ -423,7 +424,7 @@ export const ExtensionSchema = z
   .meta({ id: "Extension" });
 export type Extension = z.infer<typeof ExtensionSchema>;
 
-export const ExtensionsSchema = z
+const ExtensionsSchema = z
   .object({
     count: z.number(),
     critical: z.number(),
@@ -459,7 +460,7 @@ export type TBSCertificate = z.infer<typeof TBSCertificateSchema>;
 // CRL Schemas
 // =============================================================================
 
-export const RevokedCertificateSchema = z
+const RevokedCertificateSchema = z
   .object({
     userCertificate: SerialNumberSchema,
     revocationDate: TimeSchema,
@@ -474,7 +475,7 @@ export const RevokedCertificateSchema = z
 export type RevokedCertificate = z.infer<typeof RevokedCertificateSchema>;
 
 /** Every entry of the CRL; an empty or absent list is { count: 0, items: [] }. */
-export const RevokedCertificatesSchema = z.object({
+const RevokedCertificatesSchema = z.object({
   count: z.number(),
   items: z.array(RevokedCertificateSchema),
 });
