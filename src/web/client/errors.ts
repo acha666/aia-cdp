@@ -53,8 +53,10 @@ export async function unwrap<R extends ResponseLike>(res: R): Promise<SuccessBod
   if (res.ok) {
     return body as SuccessBody<R>;
   }
-  const error = envelopeError(body);
-  if (error === undefined) {
+  const error = (
+    body as { error?: { code?: unknown; message?: unknown; details?: unknown } | null } | null
+  )?.error;
+  if (typeof error?.code !== "string" || typeof error.message !== "string") {
     throw invalidResponse(res.status);
   }
   throw new ApiError(res.status, error.code, error.message, error.details);
@@ -84,17 +86,6 @@ async function readJson(res: ResponseLike): Promise<unknown> {
   } catch {
     throw invalidResponse(res.status);
   }
-}
-
-function envelopeError(
-  body: unknown
-): { code: string; message: string; details: unknown } | undefined {
-  const error = (
-    body as { error?: { code?: unknown; message?: unknown; details?: unknown } | null } | null
-  )?.error;
-  return typeof error?.code === "string" && typeof error.message === "string"
-    ? { code: error.code, message: error.message, details: error.details }
-    : undefined;
 }
 
 function invalidResponse(status: number): ApiError {
