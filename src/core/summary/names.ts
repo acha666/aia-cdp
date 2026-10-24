@@ -48,7 +48,7 @@ const ENCODING_BY_TAG: Record<number, AttributeValue["encoding"]> = {
 };
 
 /** RFC 4514 §2.4 escaping for a single attribute value. */
-export function escapeRdnValue(value: string): string {
+function escapeRdnValue(value: string): string {
   let escaped = value
     .replace(/\\/g, "\\\\")
     .replace(/[,+"<>;]/g, (char) => `\\${char}`)

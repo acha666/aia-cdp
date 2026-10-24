@@ -3,8 +3,7 @@ import * as pkijs from "pkijs";
 import { describe, expect, it } from "vitest";
 import { SIGNATURE_ALG_NAMES } from "../../../src/core/pki/constants.ts";
 import { parseCertificate } from "../../../src/core/pki/parsers.ts";
-import { buildTBSCertList } from "../../../src/core/summary/crl.ts";
-import { buildName, escapeRdnValue } from "../../../src/core/summary/names.ts";
+import { buildName } from "../../../src/core/summary/names.ts";
 import {
   buildAlgorithmIdentifier,
   buildSubjectPublicKeyInfo,
@@ -12,7 +11,7 @@ import {
 import { cert, fixture } from "../../fixtures/pki.ts";
 import { attribute, nameOf } from "../../helpers/pki.ts";
 
-// The values of the X.509 detail other than extensions: algorithms, names, keys, versions.
+// The values of the X.509 detail other than extensions: algorithms, names and keys.
 
 const spkiOf = (name: string) => parseCertificate(fixture(cert(name).der)).subjectPublicKeyInfo;
 
@@ -74,7 +73,8 @@ describe("distinguished names", () => {
           attribute("2.5.4.10", new asn1.BmpString({ value: "Acme, Inc. " })),
         ],
         [attribute("2.5.4.5", new asn1.Integer({ value: 7 }))],
-        [attribute("2.5.4.3", new asn1.TeletexString({ value: "#1 <Root>" }))]
+        [attribute("2.5.4.3", new asn1.TeletexString({ value: "#1 <Root>" }))],
+        [attribute("2.5.4.11", new asn1.Utf8String({ value: " a\\b;c" }))]
       )
     );
     expect(built.rdnSequence.map((rdn) => rdn.attributes.map((a) => a.value.encoding))).toEqual([
@@ -82,17 +82,16 @@ describe("distinguished names", () => {
       ["ia5String", "bmpString"],
       ["unknown"],
       ["teletexString"],
+      ["utf8String"],
     ]);
     expect(built.rdnSequence[2]?.attributes[0]?.value).toMatchObject({
       string: null,
       rawHex: "020107",
     });
     expect(built.rfc4514).toBe(
-      "CN=\\#1 \\<Root\\>,serialNumber=#020107,DC=example+O=Acme\\, Inc.\\ ,C=CA"
+      "OU=\\ a\\\\b\\;c,CN=\\#1 \\<Root\\>,serialNumber=#020107,DC=example+O=Acme\\, Inc.\\ ,C=CA"
     );
     expect(built.commonName).toBe("#1 <Root>");
-    expect(escapeRdnValue(" lead")).toBe("\\ lead");
-    expect(escapeRdnValue("a\\b;c")).toBe("a\\\\b\\;c");
   });
 
   it("label title, description, businessCategory and postalCode by their attribute names", () => {
@@ -146,11 +145,4 @@ describe("public keys", () => {
       sha256: await hex("SHA-256"),
     });
   });
-});
-
-it("shows the CRL version explicitly", () => {
-  const crl = new pkijs.CertificateRevocationList({ version: 1 });
-  expect(buildTBSCertList(crl).version).toEqual({ raw: 1, display: "v2" });
-  crl.version = 0;
-  expect(buildTBSCertList(crl).version).toEqual({ raw: 0, display: "v1" });
 });
