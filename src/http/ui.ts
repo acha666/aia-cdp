@@ -9,9 +9,10 @@ import type { AppDeps } from "./types.ts";
 export const API_PREFIX = /^\/api(?:\/|$)/;
 
 /**
- * Download paths (CryptoAPI / OpenSSL clients), as Hono matches the download routes' `/ca/*`: a
- * miss is a text/plain 404 and another method a text/plain 405. The bare prefix counts, but a `/`
- * or the end must follow it: /crls/ and /certificates/ are UI routes.
+ * Download paths (CryptoAPI / OpenSSL clients), as Hono matches the download routes' `/ca/*`:
+ * another method there is a text/plain 405 (their misses are the download routes' own text 404).
+ * The bare prefix counts, but a `/` or the end must follow it: /crls/ and /certificates/ are UI
+ * routes.
  */
 export const DOWNLOAD_PREFIX = /^\/(?:ca|crl|dcrl)(?:\/|$)/;
 
@@ -41,8 +42,6 @@ function isHtml(res: Response): boolean {
  * app.notFound: every request no route answered.
  *
  * - `/api`, `/api/*` → JSON envelope 404 `not_found`, no-store.
- * - `/ca`, `/crl`, `/dcrl` and below → text/plain 404, no-store. GET / HEAD of them is answered by
- *   the download routes themselves; this catches the other methods.
  * - other GET / HEAD → `deps.ui(req)`, copied (binding responses have immutable headers); a ui
  *   404, or text/html for a path whose last segment has a non-.html extension (the SPA fallback
  *   for a missing file), → text 404. Cache-Control: immutable only for a file under /assets/
@@ -60,11 +59,7 @@ export function uiFallback(deps: Pick<AppDeps, "ui">): NotFoundHandler {
       return c.json(errorBody("not_found", ERROR_MESSAGES.not_found), 404, NO_STORE);
     }
     const method = c.req.method;
-    if (
-      DOWNLOAD_PREFIX.test(path) ||
-      deps.ui === undefined ||
-      (method !== "GET" && method !== "HEAD")
-    ) {
+    if (deps.ui === undefined || (method !== "GET" && method !== "HEAD")) {
       return textNotFound(c);
     }
     // HEAD is passed through as HEAD.
