@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { CATALOG_KEY, certificateBlobKey, readCatalog } from "../../src/core/catalog.ts";
 import { importCertificate } from "../../src/core/certificates.ts";
+import type { ImportResult } from "../../src/core/certificates.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { cert, fixture, NOW } from "../fixtures/pki.ts";
-import { patchStore } from "../helpers/app.ts";
 import { certificateEntry } from "../helpers/catalog.ts";
 import { withOuterAlgorithm } from "../helpers/pki.ts";
-import { puts, recordingStore } from "../helpers/store.ts";
+import { puts, racingStore, recordingStore } from "../helpers/store.ts";
+import type { RecordingStore } from "../helpers/store.ts";
 
 function importInto(store: ObjectStore, bytes: Uint8Array, now: Date = NOW) {
   return importCertificate({ store, now: () => now, sleep: async () => undefined }, bytes);
@@ -66,39 +67,20 @@ describe("importCertificate", () => {
 
   it("ends two concurrent imports of one certificate as created + unchanged", async () => {
     const base = new MemoryStore();
-    // The first four catalog reads are released in pairs: both imports pass the early check, then
-    // both read the catalog for their write before either writes. Without the barrier, one import
-    // could finish before the other one's early check (WebCrypto runs on the thread pool).
-    const waiting: (() => void)[] = [];
-    let reads = 0;
-    const barrier = patchStore(
-      {
-        get: async (key) => {
-          if (key === CATALOG_KEY && reads < 4) {
-            reads++;
-            await new Promise<void>((release) => {
-              waiting.push(release);
-              if (waiting.length === 2) {
-                waiting.splice(0).forEach((resume) => {
-                  resume();
-                });
-              }
-            });
-          }
-          return base.get(key);
-        },
-      },
-      base
-    );
-    const store = recordingStore(barrier);
     const der = fixture(cert("root-ca").der);
-    const results = await Promise.all([importInto(store, der), importInto(store, der)]);
-    const outcomes = results.map((result) => ("outcome" in result ? result.outcome : result.error));
-    expect(outcomes.sort()).toEqual(["created", "unchanged"]);
+    // The rival import runs to its end between our catalog read and our catalog write.
+    let rival: ImportResult | undefined;
+    const store: RecordingStore = recordingStore(
+      racingStore(base, async () => {
+        rival = await importInto(store, der);
+      })
+    );
+    const ours = await importInto(store, der);
     const { id, entry } = await certificateEntry("root-ca");
-    for (const result of results) {
-      expect(result).toMatchObject({ id, entry });
-    }
+    expect([ours, rival]).toEqual([
+      { outcome: "unchanged", id, entry },
+      { outcome: "created", id, entry },
+    ]);
     expect(await storedCertificates(base)).toEqual({ [id]: entry });
     // Both wrote create-only: one blob put was already there, and the loser of the catalog write
     // found the entry when it read the catalog again.

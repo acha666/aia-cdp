@@ -15,15 +15,9 @@ import { cert, crlEntry, fixture, manifest, NOW } from "../fixtures/pki.ts";
 import { currentCrl } from "../helpers/catalog.ts";
 import { generateCa, setupGeneratedCa, signCrl } from "../helpers/generated-ca.ts";
 import { nullWithContents, padOid, pkiError, withOuterAlgorithm } from "../helpers/pki.ts";
-import {
-  downloadsOf,
-  publish,
-  publishFile,
-  racingStore,
-  setupPublish,
-} from "../helpers/publish.ts";
+import { downloadsOf, publish, publishFile, setupPublish } from "../helpers/publish.ts";
 import type { SetupOptions } from "../helpers/publish.ts";
-import { flakyStore, puts, recordingStore } from "../helpers/store.ts";
+import { flakyStore, puts, racingStore, recordingStore } from "../helpers/store.ts";
 
 // publishCrl on a MemoryStore. Every case starts from the shared setup unless it says otherwise:
 // every `import: true` certificate imported, and full + delta targets for issuing-ca-1 and -2 and

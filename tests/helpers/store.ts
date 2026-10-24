@@ -1,6 +1,8 @@
 // Store wrappers for write assertions: recordingStore logs every write attempt in order,
-// flakyStore makes conditional writes lose or puts throw. Both wrap any ObjectStore and can be
-// stacked: recordingStore(flakyStore(base, …)) records the lost puts.
+// flakyStore makes conditional writes lose or puts throw, racingStore lets a rival write before the
+// first catalog write. They wrap any ObjectStore and can be stacked: recordingStore(flakyStore(base,
+// …)) records the lost puts.
+import { CATALOG_KEY } from "../../src/core/catalog.ts";
 import type { ObjectStore, PutOptions, PutResult } from "../../src/core/store.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { patchStore } from "./app.ts";
@@ -59,6 +61,26 @@ export function flakyStore(base: ObjectStore, options: FlakyOptions): ObjectStor
         if (opts?.ifMatch !== undefined && failures > 0) {
           failures--;
           return { ok: false, reason: "precondition-failed" };
+        }
+        return base.put(key, bytes, opts);
+      },
+    },
+    base
+  );
+}
+
+/**
+ * `base`, except that `rival` runs right before the first catalog.json put is forwarded: a
+ * concurrent writer that lands between this call's state read and its catalog write.
+ */
+export function racingStore(base: ObjectStore, rival: () => Promise<unknown>): ObjectStore {
+  let raced = false;
+  return patchStore(
+    {
+      put: async (key, bytes, opts) => {
+        if (key === CATALOG_KEY && !raced) {
+          raced = true;
+          await rival();
         }
         return base.put(key, bytes, opts);
       },

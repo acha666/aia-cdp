@@ -2,14 +2,13 @@
 // applied with applyConfig, as an operator would, on any store; publishCrl at NOW with a recording
 // sleep.
 import { applyConfig } from "../../src/core/admin.ts";
-import { CATALOG_KEY, emptyConfig } from "../../src/core/catalog.ts";
+import { emptyConfig } from "../../src/core/catalog.ts";
 import type { Config, CrlKind } from "../../src/core/catalog.ts";
 import { importCertificate } from "../../src/core/certificates.ts";
 import { publishCrl } from "../../src/core/publish.ts";
 import type { PublishLogRecord, PublishResult } from "../../src/core/publish.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { cert, fixture, manifest, NOW } from "../fixtures/pki.ts";
-import { patchStore } from "./app.ts";
 
 export interface TargetSpec {
   /** Certificate name (manifest.certificates[].name) of the target's issuer. */
@@ -144,24 +143,4 @@ export async function publish(store: ObjectStore, bytes: Uint8Array): Promise<Pu
 /** publish() of a fixture file (relative to tests/fixtures/pki/). */
 export function publishFile(store: ObjectStore, file: string): Promise<PublishRun> {
   return publish(store, fixture(file));
-}
-
-/**
- * `base`, except that `rival` runs right before the first catalog.json put is forwarded: a
- * concurrent publish that lands between this call's state read and its catalog write.
- */
-export function racingStore(base: ObjectStore, rival: () => Promise<unknown>): ObjectStore {
-  let raced = false;
-  return patchStore(
-    {
-      put: async (key, bytes, opts) => {
-        if (key === CATALOG_KEY && !raced) {
-          raced = true;
-          await rival();
-        }
-        return base.put(key, bytes, opts);
-      },
-    },
-    base
-  );
 }

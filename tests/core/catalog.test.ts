@@ -15,9 +15,9 @@ import {
 } from "../../src/core/catalog.ts";
 import type { Catalog, CatalogMutation, State } from "../../src/core/catalog.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
-import { MINIMAL_CONFIG, patchStore, putText } from "../helpers/app.ts";
+import { MINIMAL_CONFIG, putText } from "../helpers/app.ts";
 import { certificateEntry, currentCrl, putCatalog } from "../helpers/catalog.ts";
-import { flakyStore, puts, recordingStore } from "../helpers/store.ts";
+import { flakyStore, puts, racingStore, recordingStore } from "../helpers/store.ts";
 
 // Schemas, canonical format, readState, and the conditional catalog write, which keeps a
 // concurrent writer's change.
@@ -186,31 +186,29 @@ describe("updateState", () => {
     expect(await certificateIds(base)).toEqual([ROOT.id, ISSUING.id]);
   });
 
-  it("re-reads after a lost race and keeps the other writer's change", async () => {
+  it("re-reads after a lost race, keeps the other writer's change, writes on that read's ETag", async () => {
     const base = new MemoryStore();
+    await putText(base, CONFIG_KEY, MINIMAL_CONFIG);
     await putCatalog(base, emptyCatalog());
     const rival = await certificateEntry("issuing-ca-2");
-    let raced = false;
-    // The first read returns the old catalog; a rival import lands before our write.
+    // A rival import lands between the first attempt's read and its write.
     const store = recordingStore(
-      patchStore(
-        {
-          get: async (key) => {
-            const snapshot = await base.get(key);
-            if (key === CATALOG_KEY && !raced) {
-              raced = true;
-              await putCatalog(base, catalog({ [rival.id]: rival.entry }));
-            }
-            return snapshot;
-          },
-        },
-        base
-      )
+      racingStore(base, () => putCatalog(base, catalog({ [rival.id]: rival.entry })))
     );
+    const seen: State[] = [];
     const sleep = vi.fn(() => Promise.resolve());
-    expect(await updateState(store, addRoot, sleep)).toEqual({ result: "created" });
+    const mutate = async (state: State) => {
+      seen.push(state);
+      return addRoot(state);
+    };
+    expect(await updateState(store, mutate, sleep)).toEqual({ result: "created" });
     expect(sleep.mock.calls).toEqual([[250]]);
-    expect(puts(store).map((put) => put.ok)).toEqual([false, true]);
+    const minimal = JSON.parse(MINIMAL_CONFIG) as unknown;
+    expect(seen.map((state) => state.config)).toEqual([minimal, minimal]);
+    expect(puts(store).map((put) => [put.ok, put.opts.ifMatch])).toEqual([
+      [false, seen[0]!.catalogEtag],
+      [true, seen[1]!.catalogEtag],
+    ]);
     expect((await certificateIds(base)).sort()).toEqual([rival.id, ROOT.id].sort());
   });
 
@@ -233,32 +231,5 @@ describe("updateState", () => {
     const sleep = vi.fn(() => Promise.resolve());
     await expect(updateState(store, addRoot, sleep)).rejects.toBe(failure);
     expect(sleep).not.toHaveBeenCalled();
-  });
-
-  it("gives every attempt a fresh readState and writes on the catalog ETag of that read", async () => {
-    const base = new MemoryStore();
-    await putText(base, CONFIG_KEY, MINIMAL_CONFIG);
-    await putCatalog(base, emptyCatalog());
-    const store = recordingStore(flakyStore(base, { failIfMatch: 1 }));
-    const seen: State[] = [];
-    const sleep = vi.fn(() => Promise.resolve());
-    const result = await updateState(
-      store,
-      async (state): Promise<CatalogMutation<number>> => {
-        seen.push(state);
-        await Promise.resolve();
-        return { next: catalog({ [ROOT.id]: ROOT.entry }), result: seen.length };
-      },
-      sleep
-    );
-    expect(result).toEqual({ result: 2 });
-    expect(sleep.mock.calls).toEqual([[250]]);
-    const minimal = JSON.parse(MINIMAL_CONFIG) as unknown;
-    expect(seen.map((state) => state.config)).toEqual([minimal, minimal]);
-    expect(puts(store).map((put) => [put.key, put.ok, put.opts.ifMatch])).toEqual([
-      [CATALOG_KEY, false, seen[0]!.catalogEtag],
-      [CATALOG_KEY, true, seen[1]!.catalogEtag],
-    ]);
-    expect(await certificateIds(base)).toEqual([ROOT.id]);
   });
 });
