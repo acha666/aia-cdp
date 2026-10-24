@@ -9,8 +9,8 @@ import {
   buildSerialNumber,
   buildAlgorithmIdentifier,
   buildTime,
-  buildName,
 } from "./primitives.ts";
+import { buildName } from "./names.ts";
 import { buildExtensions, buildExtension } from "./extensions.ts";
 
 export function buildTBSCertList(crl: pkijs.CertificateRevocationList): TBSCertList {

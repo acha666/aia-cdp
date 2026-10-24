@@ -8,9 +8,9 @@ import {
   buildAlgorithmIdentifier,
   buildBitStringFromContent,
   buildTime,
-  buildName,
   buildSubjectPublicKeyInfo,
 } from "./primitives.ts";
+import { buildName } from "./names.ts";
 import { buildExtensions } from "./extensions.ts";
 
 export async function buildTBSCertificate(cert: pkijs.Certificate): Promise<TBSCertificate> {

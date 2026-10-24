@@ -1,6 +1,6 @@
 // X.509 projection schemas and their z.infer types (Name for NameSchema, …): what the detail
-// builders (primitives.ts, extensions.ts, certificate.ts, crl.ts) return, and what the certificate
-// and CRL detail routes document. The CRL kind is not here: it comes from config (CrlKind in
+// builders (primitives.ts, names.ts, extensions.ts, certificate.ts, crl.ts) return, and what the
+// certificate and CRL detail routes document. The CRL kind is not here: it comes from config (CrlKind in
 // ../catalog.ts).
 //
 // There is no "unknown" extension variant (no parser produces one); fields the builders always

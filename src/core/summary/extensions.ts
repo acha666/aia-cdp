@@ -5,7 +5,6 @@
 // extensionType literals and field names are the contract with the UI's views. Key identifiers
 // are uppercase hex here (for display); catalog summaries and ids are lowercase, so compare across
 // endpoints only through the summary fields.
-import { Sequence, Set as Asn1Set } from "asn1js";
 import type { BaseBlock } from "asn1js";
 import * as pkijs from "pkijs";
 import {
@@ -19,7 +18,6 @@ import {
   ACCESS_METHOD_NAMES,
   POLICY_QUALIFIER_NAMES,
   CERTIFICATE_POLICY_NAMES,
-  OTHER_NAME_TYPES,
   TLS_FEATURE_NAMES,
   QC_STATEMENT_NAMES,
 } from "../pki/constants.ts";
@@ -58,14 +56,13 @@ import {
 } from "../pki/der.ts";
 import { blockHex, displayText, dumpAsn1, readStrictTime, stringOf } from "../pki/asn1.ts";
 import { messageOf } from "../pki/errors.ts";
-import { toHex, toUpperHex } from "../digest.ts";
+import { toUpperHex } from "../digest.ts";
 import type {
   AccessDescription,
   DistributionPoint,
   Extension,
   Extensions,
   ExtensionType,
-  GeneralName,
   GeneralSubtree,
   ParsedExtensionValue,
   PolicyInformation,
@@ -73,7 +70,13 @@ import type {
   Time,
   UserNotice,
 } from "./schemas.ts";
-import { buildObjectIdentifier, buildName } from "./primitives.ts";
+import { buildObjectIdentifier } from "./primitives.ts";
+import {
+  readGeneralName,
+  readGeneralNames,
+  readOtherNameParts,
+  readRelativeName,
+} from "./names.ts";
 
 export function buildExtensions(extensions: pkijs.Extension[] | undefined): Extensions | undefined {
   if (!extensions?.length) {
@@ -125,151 +128,9 @@ function readText(block: BaseBlock): string {
   return text;
 }
 
-function formatGuid(bytes: Uint8Array): string {
-  const hex = toHex(bytes);
-  const swap = (start: number, length: number) =>
-    hex
-      .slice(start * 2, (start + length) * 2)
-      .match(/../g)
-      ?.reverse()
-      .join("") ?? "";
-  return `${swap(0, 4)}-${swap(4, 2)}-${swap(6, 2)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-}
-
 // =============================================================================
-// General names
+// Distribution points, access descriptions and subtrees (their names: names.ts)
 // =============================================================================
-
-const GENERAL_NAME_TYPES: Record<number, GeneralName["type"]> = {
-  0: "otherName",
-  1: "rfc822Name",
-  2: "dNSName",
-  3: "x400Address",
-  4: "directoryName",
-  5: "ediPartyName",
-  6: "uniformResourceIdentifier",
-  7: "iPAddress",
-  8: "registeredID",
-};
-
-/** OtherName ::= SEQUENCE { type-id OBJECT IDENTIFIER, value [0] EXPLICIT ANY }, under [0]. */
-function readOtherNameParts(block: BaseBlock): { typeOid: string; inner: BaseBlock } {
-  const other = new DerReader(block, context(0));
-  const typeOid = readOid(other.read(OBJECT_IDENTIFIER));
-  const inner = explicit(other.read(context(0)), context(0));
-  other.end();
-  return { typeOid, inner };
-}
-
-/** The AD object GUID of a domain controller certificate: 16 octets, shown as a GUID. */
-const AD_GUID = "1.3.6.1.4.1.311.25.1";
-
-function readOtherName(block: BaseBlock): GeneralName {
-  const { typeOid, inner } = readOtherNameParts(block);
-  const bytes = hasTag(inner, OCTET_STRING) ? contents(inner) : undefined;
-  return {
-    type: "otherName",
-    value:
-      stringOf(inner) ??
-      (typeOid === AD_GUID && bytes?.length === 16 ? formatGuid(bytes) : displayText(inner)),
-    typeOid,
-    typeName: OTHER_NAME_TYPES[typeOid],
-    rawHex: blockHex(inner),
-  };
-}
-
-function formatIpAddress(bytes: Uint8Array): string | undefined {
-  if (bytes.length === 4) {
-    return bytes.join(".");
-  }
-  if (bytes.length !== 16) {
-    return undefined;
-  }
-  // Eight groups of four hex digits; the WHATWG URL host serializer writes them in RFC 5952 form.
-  const groups = toHex(bytes).replace(/(.{4})(?=.)/g, "$1:");
-  return new URL(`http://[${groups}]`).hostname.slice(1, -1);
-}
-
-function prefixLength(mask: Uint8Array): number | undefined {
-  let length = 0;
-  let sawZero = false;
-  for (const byte of mask) {
-    for (let bit = 7; bit >= 0; bit--) {
-      const set = (byte & (1 << bit)) !== 0;
-      if (set && sawZero) {
-        return undefined;
-      }
-      if (set) {
-        length++;
-      } else {
-        sawZero = true;
-      }
-    }
-  }
-  return length;
-}
-
-/** iPAddress is 4/16 bytes in alternative names and 8/32 bytes (address + mask) in constraints. */
-function formatIpGeneralName(bytes: Uint8Array): { value: string; rawHex?: string } {
-  const plain = formatIpAddress(bytes);
-  if (plain) {
-    return { value: plain };
-  }
-  if (bytes.length === 8 || bytes.length === 32) {
-    const half = bytes.length / 2;
-    const address = formatIpAddress(bytes.subarray(0, half)) ?? "";
-    const mask = bytes.subarray(half);
-    const prefix = prefixLength(mask);
-    return {
-      value: prefix === undefined ? `${address}/${formatIpAddress(mask)}` : `${address}/${prefix}`,
-    };
-  }
-  const hex = toUpperHex(bytes);
-  return { value: hex, rawHex: hex };
-}
-
-/** GeneralName ::= CHOICE, read from its context-tagged element (RFC 5280 §4.2.1.6). */
-function readGeneralName(block: BaseBlock): GeneralName {
-  const type =
-    block.idBlock.tagClass === 3 ? GENERAL_NAME_TYPES[block.idBlock.tagNumber] : undefined;
-  switch (type) {
-    case "otherName":
-      return readOtherName(block);
-    case "rfc822Name":
-    case "dNSName":
-    case "uniformResourceIdentifier":
-      return { type, value: readAscii(block) };
-    case "registeredID":
-      return { type, value: readOid(block) };
-    case "directoryName": {
-      // Name is a CHOICE, so explicitly tagged.
-      const schema = expectTag(explicit(block, context(4)), SEQUENCE);
-      return { type, value: buildName(new pkijs.RelativeDistinguishedNames({ schema })).rfc4514 };
-    }
-    case "iPAddress":
-      return { type, ...formatIpGeneralName(contents(block)) };
-    case "x400Address":
-    case "ediPartyName":
-      // IMPLICIT SEQUENCEs with no useful text form; the DER is kept.
-      if (!block.idBlock.isConstructed) {
-        throw new Error("Invalid GeneralName");
-      }
-      return { type, value: "", rawHex: blockHex(block) };
-    default:
-      throw new Error("Invalid GeneralName");
-  }
-}
-
-/** GeneralNames ::= SEQUENCE SIZE (1..MAX) OF GeneralName, possibly implicitly tagged. */
-const readGeneralNames = (block: BaseBlock, tag = SEQUENCE) =>
-  sequenceOf(block, tag).map(readGeneralName);
-
-/** RelativeDistinguishedName ::= SET OF AttributeTypeAndValue, under [1] IMPLICIT. */
-function readRelativeName(block: BaseBlock) {
-  const set = new Asn1Set({ value: sequenceOf(block, context(1)) });
-  const name = new pkijs.RelativeDistinguishedNames({ schema: new Sequence({ value: [set] }) });
-  return { attributes: buildName(name).rdnSequence.flatMap((rdn) => rdn.attributes) };
-}
 
 /** distributionPoint [0] DistributionPointName: a CHOICE, so explicitly tagged. */
 function readDistributionPointName(block: BaseBlock): DistributionPoint["distributionPoint"] {

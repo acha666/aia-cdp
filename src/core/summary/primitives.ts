@@ -1,20 +1,12 @@
 // Detail builders for the X.509 building blocks: version, serial, bit strings, algorithm
-// identifiers, times, names, public keys and fingerprints. buildTime takes the pkijs.Time it
-// formats (reading .value and .type), formatGeneralizedTime is the one in ../pki/asn1.ts, and the
-// RSASSA-PSS integers are read from their contents octets (PKIjs's numbers are asn1js's valueDec).
-import {
-  BaseBlock,
-  Constructed,
-  fromBER,
-  Integer,
-  Null,
-  ObjectIdentifier,
-  Sequence,
-  Set as Asn1Set,
-} from "asn1js";
+// identifiers, times, public keys and fingerprints (names are in names.ts). buildTime takes the
+// pkijs.Time it formats (reading .value and .type), formatGeneralizedTime is the one in
+// ../pki/asn1.ts, and the RSASSA-PSS integers are read from their contents octets (PKIjs's numbers
+// are asn1js's valueDec).
+import { BaseBlock, Constructed, fromBER, Integer, Null, ObjectIdentifier, Sequence } from "asn1js";
 import type { BitString as Asn1BitString } from "asn1js";
 import * as pkijs from "pkijs";
-import { blockHex, formatGeneralizedTime, integerNumber, stringOf } from "../pki/asn1.ts";
+import { blockHex, formatGeneralizedTime, integerNumber } from "../pki/asn1.ts";
 import {
   OID_DICTIONARY,
   KEY_ALG_NAMES,
@@ -33,10 +25,6 @@ import type {
   AlgorithmParameters,
   AlgorithmParametersParsed,
   Time,
-  Name,
-  RelativeDistinguishedName,
-  AttributeTypeAndValue,
-  AttributeValue,
   SubjectPublicKeyInfo,
   RSAPublicKey,
   ECPublicKey,
@@ -47,7 +35,7 @@ import type {
  * `value instanceof BaseBlock` narrows `unknown` to BaseBlock<any, any>, which typescript-eslint
  * rejects as an argument (no-unsafe-argument); this guard narrows to BaseBlock.
  */
-function isBlock(value: unknown): value is BaseBlock {
+export function isBlock(value: unknown): value is BaseBlock {
   return value instanceof BaseBlock;
 }
 
@@ -211,99 +199,6 @@ export function buildTime(time: pkijs.Time): Time {
   const type = time.type === pkijs.TimeType.GeneralizedTime ? "generalizedTime" : "utcTime";
   const generalized = formatGeneralizedTime(time.value);
   return { iso, type, raw: type === "utcTime" ? generalized.slice(2) : generalized };
-}
-
-// =============================================================================
-// Name Builder
-// =============================================================================
-
-const ENCODING_BY_TAG: Record<number, AttributeValue["encoding"]> = {
-  12: "utf8String",
-  18: "numericString",
-  19: "printableString",
-  20: "teletexString",
-  22: "ia5String",
-  26: "visibleString",
-  27: "generalString",
-  28: "universalString",
-  30: "bmpString",
-};
-
-/** RFC 4514 §2.4 escaping for a single attribute value. */
-export function escapeRdnValue(value: string): string {
-  let escaped = value
-    .replace(/\\/g, "\\\\")
-    .replace(/[,+"<>;]/g, (char) => `\\${char}`)
-    .replace(/\0/g, "\\00");
-  if (escaped.startsWith("#") || escaped.startsWith(" ")) {
-    escaped = `\\${escaped}`;
-  }
-  if (escaped.endsWith(" ") && !escaped.endsWith("\\ ")) {
-    escaped = `${escaped.slice(0, -1)}\\ `;
-  }
-  return escaped;
-}
-
-function attributeLabel(oid: string): string {
-  const entry = OID_DICTIONARY[oid];
-  return entry?.short ?? entry?.name ?? oid;
-}
-
-function formatRfc4514(rdnSequence: RelativeDistinguishedName[]): string {
-  return [...rdnSequence]
-    .reverse()
-    .map((rdn) =>
-      rdn.attributes
-        .map((attribute) => {
-          const label = attributeLabel(attribute.type.oid);
-          const value =
-            attribute.value.string !== null
-              ? escapeRdnValue(attribute.value.string)
-              : `#${(attribute.value.rawHex ?? "").toLowerCase()}`;
-          return `${label}=${value}`;
-        })
-        .join("+")
-    )
-    .join(",");
-}
-
-export function buildName(name: pkijs.RelativeDistinguishedNames): Name {
-  const rdnSequence = name.toSchema().valueBlock.value.map((group): RelativeDistinguishedName => {
-    if (!(group instanceof Asn1Set)) {
-      throw new Error("Invalid RDN set");
-    }
-    return {
-      attributes: group.valueBlock.value.map((schema): AttributeTypeAndValue => {
-        const tv = new pkijs.AttributeTypeAndValue({ schema });
-        const block: unknown = tv.value;
-        const tagNumber =
-          block instanceof BaseBlock && block.idBlock.tagClass === 1 ? block.idBlock.tagNumber : -1;
-        const value: AttributeValue = {
-          string: stringOf(block) ?? null,
-          encoding: ENCODING_BY_TAG[tagNumber] ?? "unknown",
-        };
-        if (value.string === null && isBlock(block)) {
-          value.rawHex = blockHex(block);
-        }
-        return { type: buildObjectIdentifier(tv.type), value };
-      }),
-    };
-  });
-
-  // The normalized fields: the first string value of each attribute type, in RDN order.
-  const attributes = rdnSequence.flatMap((rdn) => rdn.attributes);
-  const first = (oid: string) =>
-    attributes.find((a) => a.type.oid === oid && a.value.string !== null)?.value.string ?? null;
-  return {
-    commonName: first("2.5.4.3"),
-    organization: first("2.5.4.10"),
-    organizationalUnit: first("2.5.4.11"),
-    country: first("2.5.4.6"),
-    stateOrProvince: first("2.5.4.8"),
-    locality: first("2.5.4.7"),
-    rdnSequence,
-    rfc4514: formatRfc4514(rdnSequence),
-  };
 }
 
 // =============================================================================

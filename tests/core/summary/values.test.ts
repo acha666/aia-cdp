@@ -4,11 +4,10 @@ import { describe, expect, it } from "vitest";
 import { SIGNATURE_ALG_NAMES } from "../../../src/core/pki/constants.ts";
 import { parseCertificate } from "../../../src/core/pki/parsers.ts";
 import { buildTBSCertList } from "../../../src/core/summary/crl.ts";
+import { buildName, escapeRdnValue } from "../../../src/core/summary/names.ts";
 import {
   buildAlgorithmIdentifier,
-  buildName,
   buildSubjectPublicKeyInfo,
-  escapeRdnValue,
 } from "../../../src/core/summary/primitives.ts";
 import { cert, fixture } from "../../fixtures/pki.ts";
 import { attribute, nameOf } from "../../helpers/pki.ts";
