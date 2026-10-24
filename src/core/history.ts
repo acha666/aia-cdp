@@ -7,6 +7,7 @@
 // every version that catalog names.
 import { readState } from "./catalog.ts";
 import { parseCrlVersionName } from "./publish.ts";
+import { readBlob } from "./store.ts";
 import type { ObjectStore } from "./store.ts";
 
 export interface HistoryEntry {
@@ -110,10 +111,6 @@ export async function getHistoryBlob(
   if (found === undefined) {
     return { error: "not_found" };
   }
-  const blob = await deps.store.get(found.key);
-  if (blob === null) {
-    throw new Error(`The store has no blob ${found.key}`);
-  }
-  const { key: _key, ...entry } = found;
-  return { entry, der: blob.bytes };
+  const { key, ...entry } = found;
+  return { entry, der: await readBlob(deps.store, key) };
 }

@@ -25,6 +25,18 @@ export interface ObjectStore {
   delete(key: string): Promise<void>;
 }
 
+/**
+ * The bytes at `key`, a blob that catalog.json names: a missing one is a broken store, not a bad
+ * request, and throws (the HTTP layer answers its generic 500).
+ */
+export async function readBlob(store: ObjectStore, key: string): Promise<Uint8Array<ArrayBuffer>> {
+  const object = await store.get(key);
+  if (object === null) {
+    throw new Error(`The store has no blob ${key}`);
+  }
+  return object.bytes;
+}
+
 const SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 
 /**

@@ -12,6 +12,7 @@ import type { Context } from "hono";
 import { readState } from "../../core/catalog.ts";
 import { derToPem } from "../../core/pki/pem.ts";
 import { downloadHeaders, ifNoneMatchHit, pemKind, resolveDownload } from "../../core/resources.ts";
+import { readBlob } from "../../core/store.ts";
 import type { AppDeps } from "../types.ts";
 import { textNotFound } from "../ui.ts";
 
@@ -51,11 +52,7 @@ async function serveDownload(c: Context, deps: AppDeps): Promise<Response> {
     return c.body(null, 200, { ...headers });
   }
 
-  const object = await deps.store.get(resolution.key);
-  if (object === null) {
-    throw new Error(`The store has no blob ${resolution.key}`);
-  }
-  const der = object.bytes;
+  const der = await readBlob(deps.store, resolution.key);
   let body = der;
   if (resolution.format === "pem") {
     const pem = derToPem(der, pemKind(resolution.kind));

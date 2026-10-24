@@ -14,6 +14,7 @@ import { toDer } from "./pki/pem.ts";
 import { verifyCrlSignature } from "./pki/verify.ts";
 import type { SignatureCheck } from "./pki/verify.ts";
 import { downloadPaths } from "./resources.ts";
+import { readBlob } from "./store.ts";
 import type { ObjectStore } from "./store.ts";
 import { buildCrlSummary, readCrlFields, readExtension } from "./summary/catalog-summary.ts";
 import type { CrlFields } from "./summary/catalog-summary.ts";
@@ -363,11 +364,8 @@ async function verifyWithIssuer(
   if (entry === undefined) {
     throw new Error(`Certificate ${issuer} is not in the catalog`);
   }
-  const object = await store.get(entry.key);
-  if (object === null) {
-    throw new Error(`The blob ${entry.key} of issuer ${issuer} is missing`);
-  }
-  return verifyCrlSignature(crl, parseCertificate(object.bytes).subjectPublicKeyInfo);
+  const der = await readBlob(store, entry.key);
+  return verifyCrlSignature(crl, parseCertificate(der).subjectPublicKeyInfo);
 }
 
 function currentVersion(current: CurrentCrl): CurrentVersion {

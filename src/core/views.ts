@@ -16,6 +16,7 @@ import type { Catalog, CatalogCertificate, Config } from "./catalog.ts";
 import { SIGNATURE_ALG_NAMES } from "./pki/constants.ts";
 import { parseCertificate, parseCRL } from "./pki/parsers.ts";
 import { downloadPaths } from "./resources.ts";
+import { readBlob } from "./store.ts";
 import type { ObjectStore } from "./store.ts";
 import { buildTBSCertificate } from "./summary/certificate.ts";
 import { buildTBSCertList } from "./summary/crl.ts";
@@ -39,15 +40,12 @@ function sortedKeys(record: Record<string, unknown>): string[] {
  * other bytes under the catalog's id.
  */
 async function checkedBlob(store: ObjectStore, key: string, sha256: string) {
-  const blob = await store.get(key);
-  if (blob === null) {
-    throw new Error(`The store has no blob ${key}`);
-  }
-  const fingerprints = await buildFingerprints(blob.bytes);
+  const der = await readBlob(store, key);
+  const fingerprints = await buildFingerprints(der);
   if (fingerprints.sha256 !== sha256) {
     throw new Error(`Blob ${key} does not have the catalog's SHA-256`);
   }
-  return { der: blob.bytes, fingerprints };
+  return { der, fingerprints };
 }
 
 /**
