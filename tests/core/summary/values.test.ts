@@ -1,53 +1,32 @@
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
 import { describe, expect, it } from "vitest";
-import { SIGNATURE_ALG_NAMES } from "../../../src/core/pki/constants.ts";
-import { parseCertificate } from "../../../src/core/pki/parsers.ts";
+import { parseCertificate, parseCRL } from "../../../src/core/pki/parsers.ts";
+import { buildTBSCertificate } from "../../../src/core/summary/certificate.ts";
+import { buildTBSCertList } from "../../../src/core/summary/crl.ts";
 import { buildName } from "../../../src/core/summary/names.ts";
-import {
-  buildAlgorithmIdentifier,
-  buildSubjectPublicKeyInfo,
-} from "../../../src/core/summary/primitives.ts";
+import { buildSubjectPublicKeyInfo } from "../../../src/core/summary/primitives.ts";
 import { cert, fixture } from "../../fixtures/pki.ts";
 import { attribute, nameOf } from "../../helpers/pki.ts";
 
 // The values of the X.509 detail other than extensions: algorithms, names and keys.
 
-const spkiOf = (name: string) => parseCertificate(fixture(cert(name).der)).subjectPublicKeyInfo;
+const certificate = (name: string) => parseCertificate(fixture(cert(name).der));
+const spkiOf = (name: string) => certificate(name).subjectPublicKeyInfo;
 
-it("decodes NULL, named curve and RSASSA-PSS algorithm parameters", () => {
-  const algorithm = (algorithmId: string, algorithmParams: asn1.BaseBlock) =>
-    new pkijs.AlgorithmIdentifier({ algorithmId, algorithmParams });
-  expect(
-    buildAlgorithmIdentifier(
-      algorithm("1.2.840.113549.1.1.11", new asn1.Null()),
-      SIGNATURE_ALG_NAMES
-    )
-  ).toEqual({
+it("decodes NULL, named curve and RSASSA-PSS algorithm parameters", async () => {
+  // leaf-full: sha256WithRSAEncryption (NULL parameters) by issuing-ca-1 over a P-256 key.
+  const leaf = await buildTBSCertificate(certificate("leaf-full"));
+  expect(leaf.signature).toEqual({
     algorithm: { oid: "1.2.840.113549.1.1.11", name: "sha256WithRSAEncryption" },
     parameters: { rawHex: "0500", parsed: { type: "null" } },
   });
-  expect(
-    buildAlgorithmIdentifier(
-      algorithm("1.2.840.10045.2.1", new asn1.ObjectIdentifier({ value: "1.2.840.10045.3.1.7" }))
-    ).parameters?.parsed
-  ).toEqual({ type: "objectIdentifier", oid: { oid: "1.2.840.10045.3.1.7", name: "P-256" } });
-  const sha256 = new pkijs.AlgorithmIdentifier({
-    algorithmId: "2.16.840.1.101.3.4.2.1",
-    algorithmParams: new asn1.Null(),
+  expect(leaf.subjectPublicKeyInfo.algorithm.parameters?.parsed).toEqual({
+    type: "objectIdentifier",
+    oid: { oid: "1.2.840.10045.3.1.7", name: "P-256" },
   });
-  const pss = new pkijs.RSASSAPSSParams({
-    hashAlgorithm: sha256,
-    maskGenAlgorithm: new pkijs.AlgorithmIdentifier({
-      algorithmId: "1.2.840.113549.1.1.8",
-      algorithmParams: sha256.toSchema(),
-    }),
-    saltLength: 32,
-  });
-  const reparsed = asn1.fromBER(pss.toSchema().toBER(false)).result;
-  expect(
-    buildAlgorithmIdentifier(algorithm("1.2.840.113549.1.1.10", reparsed), SIGNATURE_ALG_NAMES)
-  ).toEqual({
+  const pss = buildTBSCertList(parseCRL(fixture("crls/issuing-ca-1/full-pss.der")));
+  expect(pss.signature).toEqual({
     algorithm: { oid: "1.2.840.113549.1.1.10", name: "RSASSA-PSS" },
     parameters: {
       rawHex: expect.any(String) as unknown,

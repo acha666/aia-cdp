@@ -73,15 +73,10 @@ describe("the fixtures", () => {
     });
   });
 
-  it("exposes the named curve of certs/root-ca and its ECDSA (r, s) pair", async () => {
-    const root = certificate("root-ca");
-    expect((await buildTBSCertificate(root)).subjectPublicKeyInfo.algorithm.parameters).toEqual({
-      rawHex: expect.any(String) as unknown,
-      parsed: { type: "objectIdentifier", oid: { oid: "1.3.132.0.34", name: "P-384" } },
-    });
+  it("exposes the ECDSA (r, s) pair of the signature on certs/root-ca", () => {
     const signature = (of: pkijs.Certificate) =>
       buildSignatureValue(of.signatureValue, of.signatureAlgorithm.algorithmId).parsed;
-    const parsed = signature(root);
+    const parsed = signature(certificate("root-ca"));
     expect(parsed?.type).toBe("ecdsa");
     // r and s are at most 48 octets (P-384), unsigned, without the INTEGER's sign octet.
     for (const value of [parsed?.r, parsed?.s]) {
