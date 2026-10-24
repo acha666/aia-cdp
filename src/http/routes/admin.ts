@@ -1,6 +1,6 @@
-// Admin routes (plan §7.2): certificate import and config.json. An independent sub-app that
-// createApp mounts at /api/v1 outside the AppType chain: the web client only gets the public
-// routes' types; the CLI uses plain fetch.
+// Admin routes (plan §7.2): certificate import and deletion, config.json and CRL target history. An
+// independent sub-app that createApp mounts at /api/v1 outside the AppType chain: the web client
+// only gets the public routes' types; the CLI uses plain fetch.
 //
 // Every /api/v1/admin/* request first passes, in order: 503 admin_disabled while no token is
 // configured (before auth, and before the body is read); bearerAuth (constant time; a missing or
@@ -13,11 +13,12 @@ import { bearerAuth } from "hono/bearer-auth";
 import { bodyLimit } from "hono/body-limit";
 import { createMiddleware } from "hono/factory";
 import type { JSONParsed } from "hono/utils/types";
-import { applyConfig, schemaIssues } from "../../core/admin.ts";
+import { applyConfig, deleteCertificate, schemaIssues } from "../../core/admin.ts";
 import type { ConfigIssue, ConfigPrecondition } from "../../core/admin.ts";
 import { CONFIG_KEY, ConfigSchema, encodeJson } from "../../core/catalog.ts";
 import type { Config } from "../../core/catalog.ts";
 import { sha256Hex } from "../../core/digest.ts";
+import { getHistoryBlob, listHistory } from "../../core/history.ts";
 import { importCertificate } from "../../core/import.ts";
 import { ApiError, NO_STORE, validationError } from "../errors.ts";
 import { createLogger } from "../log.ts";
@@ -26,8 +27,12 @@ import {
   AdminDisabledError,
   BadRequestError,
   CERTIFICATE_MEDIA_TYPES,
+  CertificateConflictError,
+  CertificateIdParam,
   ConcurrentUpdateError,
   ConfigInvalidError,
+  CrlHistory,
+  HistoryVersionParam,
   ImportedCertificate,
   InvalidCertificateError,
   jsonContent,
@@ -36,6 +41,7 @@ import {
   PreconditionFailedError,
   PreconditionRequiredError,
   rawBody,
+  TargetIdParam,
   UnauthorizedError,
   UnsupportedMediaTypeError,
 } from "../schemas.ts";
@@ -113,6 +119,35 @@ export const importCertificateRoute = createRoute({
     422: {
       description: "Not a certificate this service accepts; `details.reason` says why",
       content: jsonContent(InvalidCertificateError),
+    },
+  },
+});
+
+// DELETE /admin/certificates/{id} ----------------------------------------------------------------
+
+export const deleteCertificateRoute = createRoute({
+  method: "delete",
+  path: "/admin/certificates/{id}",
+  operationId: "deleteCertificate",
+  summary: "Delete a CA certificate",
+  description:
+    "Removes an imported certificate and its blob, unless config.json or the current CRL of a " +
+    "target (also of one removed from config.json) references it: then 409 `referenced` with " +
+    "`details.references`. The verifier of a target's current CRL stays referenced, also once " +
+    "the target is removed.",
+  tags,
+  security,
+  request: { params: CertificateIdParam },
+  responses: {
+    204: { description: "Deleted" },
+    ...ADMIN_FAILURES,
+    404: {
+      description: "No certificate with this id is imported",
+      content: jsonContent(NotFoundError),
+    },
+    409: {
+      description: "Referenced, or the catalog kept changing concurrently (retry)",
+      content: jsonContent(CertificateConflictError),
     },
   },
 });
@@ -228,6 +263,53 @@ export const applyConfigRoute = createRoute({
   },
 });
 
+// GET /admin/crls/{targetId}/history[/{sha256}] -------------------------------------------------
+
+export const getHistoryRoute = createRoute({
+  method: "get",
+  path: "/admin/crls/{targetId}/history",
+  operationId: "getCrlHistory",
+  summary: "List a CRL target's history",
+  description:
+    "Every version that was published as the target's current CRL, newest first: the superseded " +
+    "ones and the current one, also for a target removed from config.json (retired). Blobs that " +
+    "a lost publish race left behind are not history.",
+  tags,
+  security,
+  request: { params: TargetIdParam },
+  responses: {
+    200: { description: "The history", content: jsonContent(CrlHistory) },
+    ...ADMIN_FAILURES,
+    404: {
+      description: "The target is neither in config.json nor has a history",
+      content: jsonContent(NotFoundError),
+    },
+  },
+});
+
+export const getHistoryVersionRoute = createRoute({
+  method: "get",
+  path: "/admin/crls/{targetId}/history/{sha256}",
+  operationId: "getCrlHistoryVersion",
+  summary: "Download a version of a CRL target's history",
+  description: 'The DER as stored, as an attachment named "<sha256>.crl".',
+  tags,
+  security,
+  request: { params: HistoryVersionParam },
+  responses: {
+    200: {
+      description: "The DER",
+      headers: z.object({ "Content-Disposition": z.string() }),
+      content: { "application/pkix-crl": { schema: z.string().openapi({ format: "binary" }) } },
+    },
+    ...ADMIN_FAILURES,
+    404: {
+      description: "The target's history has no version with this SHA-256",
+      content: jsonContent(NotFoundError),
+    },
+  },
+});
+
 /**
  * config.json bytes with the HTTP ETag (the SHA-256 of exactly these bytes, never the store's
  * ETag). Typed as the route's JSON body, which the bytes are unless an out-of-band write broke
@@ -302,6 +384,51 @@ export function adminRoutes(deps: AppDeps) {
     const { size, importedAt, summary } = result.entry;
     const body = { outcome: result.outcome, id: result.id, size, importedAt, summary };
     return result.outcome === "created" ? c.json(body, 201, NO_STORE) : c.json(body, 200, NO_STORE);
+  });
+
+  admin.openapi(deleteCertificateRoute, async (c) => {
+    const { id } = c.req.valid("param");
+    const result = await deleteCertificate(deps, id);
+    if (!("error" in result)) {
+      log({ level: "info", msg: "delete_certificate", certificateId: id });
+      return c.body(null, 204, NO_STORE);
+    }
+    if (result.error === "not_found") {
+      throw new ApiError(404, "not_found", "No certificate with this id is imported");
+    }
+    log({ level: "warn", msg: "delete_certificate", certificateId: id, reason: result.error });
+    throw result.error === "referenced"
+      ? new ApiError(
+          409,
+          "referenced",
+          "The certificate is referenced: remove the references from config.json first, or keep " +
+            "it (the verifier of a target's current CRL stays referenced)",
+          result.details
+        )
+      : new ApiError(409, "concurrent_update", "The catalog kept changing concurrently: retry");
+  });
+
+  admin.openapi(getHistoryRoute, async (c) => {
+    const { targetId } = c.req.valid("param");
+    const history = await listHistory(deps, targetId);
+    if ("error" in history) {
+      throw new ApiError(404, "not_found", "No target with this id is configured or has a history");
+    }
+    return c.json(history, 200, NO_STORE);
+  });
+
+  admin.openapi(getHistoryVersionRoute, async (c) => {
+    const { targetId, sha256 } = c.req.valid("param");
+    const found = await getHistoryBlob(deps, targetId, sha256);
+    if ("error" in found) {
+      throw new ApiError(404, "not_found", "The target's history has no CRL with this SHA-256");
+    }
+    return c.body(found.der, 200, {
+      "Content-Type": "application/pkix-crl",
+      "Content-Disposition": `attachment; filename="${sha256}.crl"`,
+      "Content-Length": String(found.der.byteLength),
+      ...NO_STORE,
+    });
   });
 
   admin.openapi(getConfigRoute, async () => {

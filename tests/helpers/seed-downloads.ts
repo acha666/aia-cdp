@@ -23,8 +23,8 @@ export const DOWNLOAD_PATHS = {
   delta: "/dcrl/issuing-ca-1.crl",
   /** root-ca's full CRL target, never published (no catalog entry). */
   unpublished: "/crl/root-ca.crl",
-  /** issuing-ca-2's full CRL target, retired (current null). */
-  retired: "/crl/issuing-ca-2.crl",
+  /** issuing-ca-2's full CRL target, with a catalog entry whose current is null. */
+  nullCurrent: "/crl/issuing-ca-2.crl",
 } as const;
 
 /** CRL fixtures of issuing-ca-1 for the full and the delta target. */
@@ -50,7 +50,7 @@ export interface DownloadSeed {
   config: Config;
   catalog: Catalog;
   /** Target ids by role (fresh UUIDs on every build). */
-  targets: { full: string; delta: string; unpublished: string; retired: string };
+  targets: { full: string; delta: string; unpublished: string; nullCurrent: string };
   /** Every DER blob the catalog names, by store key: three certificates and two CRLs. */
   blobs: Map<string, SeedBlob>;
 }
@@ -73,7 +73,7 @@ export async function buildDownloadSeed(options: DownloadSeedOptions = {}): Prom
     full: crypto.randomUUID(),
     delta: crypto.randomUUID(),
     unpublished: crypto.randomUUID(),
-    retired: crypto.randomUUID(),
+    nullCurrent: crypto.randomUUID(),
   };
 
   const blobs = new Map<string, SeedBlob>();
@@ -95,7 +95,7 @@ export async function buildDownloadSeed(options: DownloadSeedOptions = {}): Prom
     targets: {
       [targets.full]: { current: await current(full, targets.full) },
       [targets.delta]: { current: await current(delta, targets.delta) },
-      [targets.retired]: { current: null },
+      [targets.nullCurrent]: { current: null },
     },
   });
   const config = ConfigSchema.parse({
@@ -109,7 +109,7 @@ export async function buildDownloadSeed(options: DownloadSeedOptions = {}): Prom
       [targets.full]: { issuer: issuing.sha256, kind: "full", label: "Issuing CA 1" },
       [targets.delta]: { issuer: issuing.sha256, kind: "delta", label: "Issuing CA 1 (delta)" },
       [targets.unpublished]: { issuer: root.sha256, kind: "full", label: "Root CA" },
-      [targets.retired]: { issuer: issuing2.sha256, kind: "full", label: "Issuing CA 2" },
+      [targets.nullCurrent]: { issuer: issuing2.sha256, kind: "full", label: "Issuing CA 2" },
     },
     paths: {
       [DOWNLOAD_PATHS.root]: { certificate: root.sha256 },
@@ -119,7 +119,7 @@ export async function buildDownloadSeed(options: DownloadSeedOptions = {}): Prom
       [DOWNLOAD_PATHS.full]: { target: targets.full },
       [DOWNLOAD_PATHS.delta]: { target: targets.delta },
       [DOWNLOAD_PATHS.unpublished]: { target: targets.unpublished },
-      [DOWNLOAD_PATHS.retired]: { target: targets.retired },
+      [DOWNLOAD_PATHS.nullCurrent]: { target: targets.nullCurrent },
     },
   });
   return { config, catalog, targets, blobs };

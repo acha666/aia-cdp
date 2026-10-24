@@ -1,5 +1,6 @@
-// Admin routes: the token gate, POST /api/v1/admin/certificates, GET and PUT /api/v1/admin/config
-// (If-None-Match: * for the first configuration, If-Match with the SHA-256 ETag afterwards).
+// Admin routes: the token gate, POST and DELETE /api/v1/admin/certificates, GET and PUT
+// /api/v1/admin/config (If-None-Match: * for the first configuration, If-Match with the SHA-256
+// ETag afterwards) and a target's history.
 import { describe, expect, it } from "vitest";
 import type { ConfigIssue } from "../../src/core/admin.ts";
 import { CONFIG_KEY, encodeJson } from "../../src/core/catalog.ts";
@@ -7,17 +8,19 @@ import type { Config } from "../../src/core/catalog.ts";
 import { sha256Hex } from "../../src/core/digest.ts";
 import { createApp } from "../../src/http/app.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
-import { cert, fixture, fixtureText, NOW } from "../fixtures/pki.ts";
+import { cert, crlEntry, fixture, fixtureText, NOW } from "../fixtures/pki.ts";
 import { MINIMAL_CONFIG, putText, testDeps } from "../helpers/app.ts";
 import type { TestOverrides } from "../helpers/app.ts";
 import { certificateEntry } from "../helpers/catalog.ts";
 import { errorOf } from "../helpers/reads.ts";
+import { publishFile, setupPublish } from "../helpers/publish.ts";
 import { flakyStore, opaqueEtagStore } from "../helpers/store.ts";
 
 const TOKEN = "admin-s3cret-token";
 const AUTH = { Authorization: `Bearer ${TOKEN}` };
 const CERTIFICATES = "/api/v1/admin/certificates";
 const CONFIG = "/api/v1/admin/config";
+const SOME_TARGET = crypto.randomUUID();
 
 // What a RequestInit takes (BodyInit is not a global in the Node program).
 type Body = RequestInit["body"];
@@ -73,8 +76,11 @@ function rootConfig(label = "Root CA"): Config {
 describe("admin gate", () => {
   const routes: [method: string, path: string][] = [
     ["POST", CERTIFICATES],
+    ["DELETE", `${CERTIFICATES}/${cert("root-ca").sha256}`],
     ["GET", CONFIG],
     ["PUT", CONFIG],
+    ["GET", `/api/v1/admin/crls/${SOME_TARGET}/history`],
+    ["GET", `/api/v1/admin/crls/${SOME_TARGET}/history/${cert("root-ca").sha256}`],
   ];
 
   it.each(routes)(
@@ -295,5 +301,84 @@ describe("PUT /api/v1/admin/config", () => {
       ["V4", ["paths", "/ca/root ca.crt", "certificate"]],
     ]);
     expect(await deps.store.get(CONFIG_KEY)).toBeNull();
+  });
+});
+
+describe("DELETE /api/v1/admin/certificates/{id}", () => {
+  it("answers 204, then 404; a referenced certificate is 409 with its references", async () => {
+    const { app, deps } = setup();
+    const setupResult = await setupPublish(deps.store);
+    await post(app, der("leaf-min"), "application/pkix-cert");
+    const leaf = cert("leaf-min").sha256;
+    const del = (id: string) =>
+      app.request(`${CERTIFICATES}/${id}`, { method: "DELETE", headers: AUTH });
+
+    const deleted = await del(leaf.toUpperCase());
+    expect(deleted.status).toBe(204);
+    expect(deleted.headers.get("Cache-Control")).toBe("no-store");
+    expect(await deleted.text()).toBe("");
+    await errorOf(await del(leaf), 404, "not_found");
+
+    const issuer = cert("root-ca").sha256;
+    expect(await errorOf(await del(issuer), 409, "referenced")).toMatchObject({
+      details: {
+        references: [
+          {
+            object: "config.json",
+            path: ["targets", setupResult.target("root-ca", "full"), "issuer"],
+          },
+        ],
+      },
+    });
+    await errorOf(await del("not-a-digest"), 400, "bad_request");
+  });
+});
+
+describe("GET /api/v1/admin/crls/{targetId}/history", () => {
+  const FULL_01 = "crls/issuing-ca-1/full-01.der";
+  const FULL_02 = "crls/issuing-ca-1/full-02.der";
+
+  async function withHistory() {
+    const { app, deps } = setup();
+    const setupResult = await setupPublish(deps.store);
+    for (const file of [FULL_01, FULL_02]) {
+      await publishFile(deps.store, file);
+    }
+    return { app, targetId: setupResult.target("issuing-ca-1", "full") };
+  }
+
+  it("lists the versions, and serves one as an attachment", async () => {
+    const { app, targetId } = await withHistory();
+    const listed = await app.request(`/api/v1/admin/crls/${targetId.toUpperCase()}/history`, {
+      headers: AUTH,
+    });
+    expect(listed.status).toBe(200);
+    expect(listed.headers.get("Cache-Control")).toBe("no-store");
+    const body = (await listed.json()) as { targetId: string; entries: { sha256: string }[] };
+    expect(body.targetId).toBe(targetId);
+    expect(body.entries.map((entry) => entry.sha256)).toEqual(
+      [FULL_02, FULL_01].map((file) => crlEntry(file).sha256)
+    );
+
+    const sha256 = crlEntry(FULL_01).sha256;
+    const res = await app.request(`/api/v1/admin/crls/${targetId}/history/${sha256}`, {
+      headers: AUTH,
+    });
+    expect(res.status).toBe(200);
+    expect(Object.fromEntries(res.headers)).toMatchObject({
+      "content-type": "application/pkix-crl",
+      "content-disposition": `attachment; filename="${sha256}.crl"`,
+      "content-length": String(fixture(FULL_01).byteLength),
+      "cache-control": "no-store",
+    });
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(fixture(FULL_01));
+  });
+
+  it("answers an unknown target or version with 404", async () => {
+    const { app, targetId } = await withHistory();
+    const history = (id: string) => `/api/v1/admin/crls/${id}/history`;
+    await errorOf(await app.request(history(SOME_TARGET), { headers: AUTH }), 404, "not_found");
+    const unknown = `${history(targetId)}/${"0".repeat(64)}`;
+    await errorOf(await app.request(unknown, { headers: AUTH }), 404, "not_found");
   });
 });

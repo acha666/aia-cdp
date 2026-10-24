@@ -32,6 +32,28 @@ export function crlVersionName(
   return `${time}-${summary.crlNumber ?? "none"}-${sha256}`;
 }
 
+const VERSION_NAME =
+  /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z-(0|[1-9][0-9]*|none)-([0-9a-f]{64})$/;
+
+/**
+ * The fields of a crlVersionName, or undefined for a name of another shape (only an out-of-band
+ * write makes one). `thisUpdate` in the catalog's format, exactly: CRL times are whole seconds.
+ */
+export function parseCrlVersionName(
+  name: string
+): { thisUpdate: string; crlNumber: string | null; sha256: string } | undefined {
+  const match = VERSION_NAME.exec(name);
+  if (match === null) {
+    return undefined;
+  }
+  const [, year, month, day, hour, minute, second, crlNumber, sha256 = ""] = match;
+  return {
+    thisUpdate: `${year}-${month}-${day}T${hour}:${minute}:${second}.000Z`,
+    crlNumber: crlNumber === "none" || crlNumber === undefined ? null : crlNumber,
+    sha256,
+  };
+}
+
 /** Store key of a published CRL's DER (plan §5.1); current and history share it. */
 export function crlBlobKey(
   targetId: string,

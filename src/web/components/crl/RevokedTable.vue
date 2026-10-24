@@ -5,6 +5,7 @@ import { useI18n } from "vue-i18n";
 import type { RevokedCertificates } from "@/client/types";
 import { Button } from "@/components/ui/button";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import ExtensionList from "@/components/x509/ExtensionList.vue";
 import { useExtensionContext } from "@/composables/useExtensionContext";
 import { describeEntry } from "@/utils/crl-entries";
 
@@ -12,7 +13,9 @@ import { describeEntry } from "@/utils/crl-entries";
 // reason, invalidity date and indirect issuer; an empty list says so. The API sends every entry (a
 // 10 000-entry CRL is 5.5 MB of JSON), so the table renders PAGE_SIZE rows at a time; the header row
 // stays in view while the box scrolls. On the first and the last page one page button is only
-// aria-disabled (a disabled button drops the focus to <body>).
+// aria-disabled (a disabled button drops the focus to <body>). A row with entry extensions expands
+// to list them all, since the columns leave out a hold instruction, the critical flags and any
+// extension not decoded.
 const props = defineProps<{ revoked: RevokedCertificates }>();
 
 const PAGE_SIZE = 200;
@@ -20,14 +23,23 @@ const PAGE_SIZE = 200;
 const { t } = useI18n();
 const ctx = useExtensionContext();
 const page = ref(0);
+/** The keys of the expanded rows; a row stays expanded across page changes. */
+const expanded = ref(new Set<number>());
 
-// A refetch with other entries starts over on the first page.
+// A refetch with other entries starts over on the first page, every row collapsed.
 watch(
   () => props.revoked,
   () => {
     page.value = 0;
+    expanded.value = new Set();
   }
 );
+
+function toggle(key: number) {
+  if (!expanded.value.delete(key)) {
+    expanded.value.add(key);
+  }
+}
 
 const total = computed(() => props.revoked.items.length);
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)));
@@ -40,6 +52,7 @@ const rows = computed(() =>
     key: first.value + index,
     serial: entry.userCertificate.hex,
     revoked: ctx.time(entry.revocationDate.iso),
+    extensions: entry.crlEntryExtensions?.items ?? [],
     ...describeEntry(entry.crlEntryExtensions?.items, ctx),
   }))
 );
@@ -54,6 +67,9 @@ const rows = computed(() =>
       <table data-slot="table" class="w-full caption-bottom text-sm" data-testid="revoked-table">
         <TableHeader class="sticky top-0 z-10 bg-muted">
           <TableRow class="hover:bg-transparent">
+            <TableHead class="w-0">
+              <span class="sr-only">{{ t("details.crl.extensions") }}</span>
+            </TableHead>
             <TableHead>{{ t("details.crl.serialNumber") }}</TableHead>
             <TableHead>{{ t("details.crl.revocationDate") }}</TableHead>
             <TableHead>{{ t("details.crl.reason") }}</TableHead>
@@ -62,17 +78,40 @@ const rows = computed(() =>
           </TableRow>
         </TableHeader>
         <TableBody>
-          <TableRow v-for="row in rows" :key="row.key">
-            <TableCell class="font-mono text-xs break-all whitespace-normal">{{
-              row.serial
-            }}</TableCell>
-            <TableCell class="text-xs">{{ row.revoked }}</TableCell>
-            <TableCell class="text-xs">{{ row.reason ?? "—" }}</TableCell>
-            <TableCell class="text-xs">{{ row.invalidityDate ?? "—" }}</TableCell>
-            <TableCell class="font-mono text-xs break-all whitespace-normal">
-              {{ row.issuer ?? "—" }}
-            </TableCell>
-          </TableRow>
+          <template v-for="row in rows" :key="row.key">
+            <TableRow>
+              <TableCell class="w-0 pr-0">
+                <Button
+                  v-if="row.extensions.length > 0"
+                  variant="ghost"
+                  size="icon-xs"
+                  :aria-expanded="expanded.has(row.key)"
+                  :aria-label="t('details.crl.showEntryExtensions')"
+                  data-testid="entry-toggle"
+                  @click="toggle(row.key)"
+                >
+                  <ChevronRightIcon
+                    class="transition-transform"
+                    :class="{ 'rotate-90': expanded.has(row.key) }"
+                  />
+                </Button>
+              </TableCell>
+              <TableCell class="font-mono text-xs break-all whitespace-normal">{{
+                row.serial
+              }}</TableCell>
+              <TableCell class="text-xs">{{ row.revoked }}</TableCell>
+              <TableCell class="text-xs">{{ row.reason ?? "—" }}</TableCell>
+              <TableCell class="text-xs">{{ row.invalidityDate ?? "—" }}</TableCell>
+              <TableCell class="font-mono text-xs break-all whitespace-normal">
+                {{ row.issuer ?? "—" }}
+              </TableCell>
+            </TableRow>
+            <TableRow v-if="expanded.has(row.key)" class="hover:bg-transparent">
+              <TableCell colspan="6" class="whitespace-normal">
+                <ExtensionList :extensions="row.extensions" />
+              </TableCell>
+            </TableRow>
+          </template>
         </TableBody>
       </table>
     </div>

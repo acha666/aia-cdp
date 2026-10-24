@@ -70,7 +70,7 @@
 | `tests/worker/api-routing.test.ts` | rewrite | tests/http/app.test.ts + tests/http/downloads.test.ts + tests/http/certificates.test.ts | 1,3,5a |
 | `tests/worker/api-stats.test.ts` | rewrite | tests/http/stats.test.ts | 5a |
 | `tests/worker/json-response.test.ts` | drop | — | 1 |
-| `docs/api-design-v2.md` | reference-only | docs/api.md (slice 6) | 6 |
+| `docs/api-design-v2.md` | reference-only | —（不写 docs/api.md，plan 决策 17；接口以 docs/openapi.json 为准） | none |
 | `src/web/index.html` | migrate-adapt | src/web/index.html（切片 5b 加预绘制主题脚本，CSP 按 hash 放行；2026-10-23 删除：亮 / 暗只跟随系统） | 1,5b |
 | `src/web/public/favicon.svg` | migrate-as-is | src/web/public/favicon.svg | 1 |
 | `src/web/public/favicon.ico` | migrate-as-is | src/web/public/favicon.ico | 1 |

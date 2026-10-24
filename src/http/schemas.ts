@@ -334,6 +334,15 @@ export const TargetIdParam = z.object({
     .openapi({ description: "The target id from config.json (UUID, either case)" }),
 });
 
+/** Path parameters of GET /api/v1/admin/crls/{targetId}/history/{sha256}; `sha256` like an id. */
+export const HistoryVersionParam = TargetIdParam.extend({
+  sha256: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/)
+    .toLowerCase()
+    .openapi({ description: "SHA-256 of the version's DER, hex (either case)" }),
+});
+
 const Size = z.number().int().positive().openapi({ description: "DER size in bytes" });
 
 const Downloads = z.array(z.string()).openapi({
@@ -397,12 +406,12 @@ export const CrlCurrentDetail = CrlCurrent.extend({
 }).openapi("CrlCurrentDetail");
 
 /**
- * A target's current CRL or null while nothing is published (or after a retire). A union rather
- * than .nullable(): the generator writes a nullable named schema as its bare $ref.
+ * A target's current CRL or null while nothing is published. A union rather than .nullable(): the
+ * generator writes a nullable named schema as its bare $ref.
  */
 function currentOrNull<S extends z.ZodType>(current: S) {
   return z.union([current, z.null()]).openapi({
-    description: "null while nothing is published (or after a retire)",
+    description: "null while nothing is published",
   });
 }
 
@@ -454,3 +463,49 @@ export const Stats = z
     }),
   })
   .openapi("Stats");
+
+// Admin: history and certificate deletion ----------------------------------------------------------
+// The bodies of src/core/history.ts and src/core/admin.ts deleteCertificate.
+
+/** One version of a target's history. */
+export const CrlHistoryEntry = z
+  .object({
+    /** SHA-256 of the DER. */
+    sha256: Sha256Hex,
+    crlNumber: CrlSummarySchema.shape.crlNumber,
+    thisUpdate: CrlSummarySchema.shape.thisUpdate,
+    size: Size,
+    current: z.boolean().openapi({
+      description: "The version the target serves: its current CRL, while it is in config.json",
+    }),
+  })
+  .openapi("CrlHistoryEntry");
+
+/** GET /api/v1/admin/crls/{targetId}/history. */
+export const CrlHistory = z
+  .object({
+    targetId: TargetId,
+    configured: z.boolean().openapi({
+      description: "false once the target was removed from config.json: nothing serves it",
+    }),
+    entries: z.array(CrlHistoryEntry).openapi({
+      description: "Newest first: by thisUpdate, then CRL Number",
+    }),
+  })
+  .openapi("CrlHistory");
+
+const CertificateReference = z
+  .object({
+    object: z.enum(["config.json", "catalog.json"]),
+    /** Keys from the object's root. */
+    path: z.array(z.string()),
+  })
+  .openapi("CertificateReference");
+
+/** 409 of DELETE /api/v1/admin/certificates/{id}. */
+export const CertificateConflictError = z
+  .union([
+    detailedErrorSchema(["referenced"], z.object({ references: z.array(CertificateReference) })),
+    ConcurrentUpdateError,
+  ])
+  .openapi("CertificateConflictError");

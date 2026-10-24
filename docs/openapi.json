@@ -2811,7 +2811,7 @@
                 "type": "null"
               }
             ],
-            "description": "null while nothing is published (or after a retire)"
+            "description": "null while nothing is published"
           }
         },
         "required": [
@@ -2967,7 +2967,7 @@
                 "type": "null"
               }
             ],
-            "description": "null while nothing is published (or after a retire)"
+            "description": "null while nothing is published"
           }
         },
         "required": [
@@ -3895,6 +3895,137 @@
           "error"
         ]
       },
+      "CertificateConflictError": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "referenced"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object",
+                    "properties": {
+                      "references": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/CertificateReference"
+                        }
+                      }
+                    },
+                    "required": [
+                      "references"
+                    ]
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "details"
+                ]
+              }
+            },
+            "required": [
+              "error"
+            ]
+          },
+          {
+            "$ref": "#/components/schemas/ConcurrentUpdateError"
+          }
+        ]
+      },
+      "CertificateReference": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "config.json",
+              "catalog.json"
+            ]
+          },
+          "path": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "object",
+          "path"
+        ]
+      },
+      "CrlHistory": {
+        "type": "object",
+        "properties": {
+          "targetId": {
+            "type": "string",
+            "pattern": "^[0-9a-f-]+$"
+          },
+          "configured": {
+            "type": "boolean",
+            "description": "false once the target was removed from config.json: nothing serves it"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CrlHistoryEntry"
+            },
+            "description": "Newest first: by thisUpdate, then CRL Number"
+          }
+        },
+        "required": [
+          "targetId",
+          "configured",
+          "entries"
+        ]
+      },
+      "CrlHistoryEntry": {
+        "type": "object",
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "crlNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:0|[1-9][0-9]*)$"
+          },
+          "thisUpdate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "size": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "description": "DER size in bytes"
+          },
+          "current": {
+            "type": "boolean",
+            "description": "The version the target serves: its current CRL, while it is in config.json"
+          }
+        },
+        "required": [
+          "sha256",
+          "crlNumber",
+          "thisUpdate",
+          "size",
+          "current"
+        ]
+      },
       "Config": {
         "type": "object",
         "properties": {
@@ -4083,7 +4214,6 @@
               "V5",
               "V6",
               "V7",
-              "V8",
               "V9"
             ]
           },
@@ -4648,6 +4778,293 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InvalidCertificateError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No admin token is configured (AIA_ADMIN_TOKEN): the admin API is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminDisabledError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/certificates/{id}": {
+      "delete": {
+        "operationId": "deleteCertificate",
+        "summary": "Delete a CA certificate",
+        "description": "Removes an imported certificate and its blob, unless config.json or the current CRL of a target (also of one removed from config.json) references it: then 409 `referenced` with `details.references`. The verifier of a target's current CRL stays referenced, also once the target is removed.",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{64}$",
+              "description": "The certificate id: SHA-256 of the DER, hex (either case)"
+            },
+            "required": true,
+            "description": "The certificate id: SHA-256 of the DER, hex (either case)",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "description": "Malformed Authorization header, or an invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong admin token",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No certificate with this id is imported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Referenced, or the catalog kept changing concurrently (retry)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificateConflictError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No admin token is configured (AIA_ADMIN_TOKEN): the admin API is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminDisabledError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/crls/{targetId}/history": {
+      "get": {
+        "operationId": "getCrlHistory",
+        "summary": "List a CRL target's history",
+        "description": "Every version that was published as the target's current CRL, newest first: the superseded ones and the current one, also for a target removed from config.json (retired). Blobs that a lost publish race left behind are not history.",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "The target id from config.json (UUID, either case)"
+            },
+            "required": true,
+            "description": "The target id from config.json (UUID, either case)",
+            "name": "targetId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrlHistory"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed Authorization header, or an invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong admin token",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The target is neither in config.json nor has a history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No admin token is configured (AIA_ADMIN_TOKEN): the admin API is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminDisabledError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/crls/{targetId}/history/{sha256}": {
+      "get": {
+        "operationId": "getCrlHistoryVersion",
+        "summary": "Download a version of a CRL target's history",
+        "description": "The DER as stored, as an attachment named \"<sha256>.crl\".",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "The target id from config.json (UUID, either case)"
+            },
+            "required": true,
+            "description": "The target id from config.json (UUID, either case)",
+            "name": "targetId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{64}$",
+              "description": "SHA-256 of the version's DER, hex (either case)"
+            },
+            "required": true,
+            "description": "SHA-256 of the version's DER, hex (either case)",
+            "name": "sha256",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The DER",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/pkix-crl": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed Authorization header, or an invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong admin token",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The target's history has no version with this SHA-256",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
                 }
               }
             }

@@ -100,6 +100,7 @@ async function aia(argv: string[], io: Partial<Pick<CliIo, "fetch" | "env">> = {
       stderr += chunk;
     },
     readFile: (path) => readFile(path),
+    writeFile: (path, bytes) => writeFile(path, bytes),
   });
   // Never echoed, whatever happened.
   expect(stdout + stderr).not.toContain(TOKEN);
@@ -131,6 +132,8 @@ describe("usage", () => {
     [["frobnicate"], /unknown command "frobnicate"/],
     [["import"], /import needs at least one file/],
     [["config", "edit"], /unknown config command "edit"/],
+    [["history", "a", "b", "--json"], /history <targetId> <sha256> needs --out <file>/],
+    [["health", "--out", "x"], /--out is only for history <targetId> <sha256>/],
     [["health", "--nope"], /Unknown option '--nope'/],
   ])("%j → exit 2", async (argv, message) => {
     const run = await aia(argv, { env: ENV });
@@ -566,5 +569,70 @@ describe("publish", () => {
     expect(run.code).toBe(1);
     expect(run.stderr.match(/: HTTP 401 unauthorized: Unauthorized\n/g)).toHaveLength(2);
     expect(run.stdout).toBe("0 created, 0 updated, 0 unchanged, 2 failed\n");
+  });
+});
+
+describe("history", () => {
+  const FILES = ["crls/issuing-ca-1/full-01.der", "crls/issuing-ca-1/full-02.der"];
+
+  /** issuing-ca-1's full target with full-01 and full-02 published. */
+  async function withHistory() {
+    const svc = service();
+    const setup = await setupPublish(svc.deps.store);
+    const run = await against(svc, ["publish", ...FILES.map(fixturePath)]);
+    expect(run.code).toBe(0);
+    return { svc, targetId: setup.target("issuing-ca-1", "full") };
+  }
+
+  it("lists the versions newest first, as text or as JSON", async () => {
+    const { svc, targetId } = await withHistory();
+    const [old, current] = FILES.map((file) => crlEntry(file));
+    const line = (entry: typeof old, size: number) =>
+      `${new Date(entry!.thisUpdate).toISOString()}  #${entry!.crlNumber}  ` +
+      `${entry!.sha256}  ${size} B`;
+    const sizes = FILES.map((file) => readFileSync(fixturePath(file)).byteLength);
+    expect(await against(svc, ["history", targetId])).toEqual({
+      code: 0,
+      stdout: `${line(current, sizes[1]!)}  current\n${line(old, sizes[0]!)}\n2 versions\n`,
+      stderr: "",
+    });
+    const json = await against(svc, ["history", targetId, "--json"]);
+    expect(JSON.parse(json.stdout)).toMatchObject({ targetId, configured: true });
+  });
+
+  it("writes one version's DER with --out, and fails on an unknown one", async () => {
+    const { svc, targetId } = await withHistory();
+    const out = join(scratch, "history-full-01.crl");
+    const sha256 = crlEntry(FILES[0]!).sha256;
+    const run = await against(svc, ["history", targetId, sha256, "--out", out]);
+    expect(run.code).toBe(0);
+    expect(new Uint8Array(await readFile(out))).toEqual(
+      new Uint8Array(readFileSync(fixturePath(FILES[0]!)))
+    );
+    const unknown = await against(svc, ["history", targetId, "0".repeat(64), "--out", out]);
+    expect(unknown.code).toBe(1);
+    expect(unknown.stderr).toMatch(/HTTP 404 not_found/);
+  });
+});
+
+describe("delete-certificate", () => {
+  it("deletes an unreferenced certificate; a referenced one fails with its references", async () => {
+    const svc = service();
+    const setup = await setupPublish(svc.deps.store);
+    const leaf = cert("leaf-min").sha256;
+    expect((await against(svc, ["import", fixturePath(cert("leaf-min").der)])).code).toBe(0);
+    expect(await against(svc, ["delete-certificate", leaf])).toEqual({
+      code: 0,
+      stdout: `deleted ${leaf}\n`,
+      stderr: "",
+    });
+    const issuer = cert("root-ca").sha256;
+    const run = await against(svc, ["delete-certificate", issuer]);
+    expect(run.code).toBe(1);
+    const [first, ...references] = run.stderr.trimEnd().split("\n");
+    expect(first).toMatch(/^aia: HTTP 409 referenced: /);
+    expect(references).toEqual([
+      `  config.json targets["${setup.target("root-ca", "full")}"].issuer`,
+    ]);
   });
 });
