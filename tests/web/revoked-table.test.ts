@@ -21,7 +21,16 @@ function list(items: RevokedCertificate[]): RevokedCertificates {
   return { count: items.length, items };
 }
 
-const serials = (table: VueWrapper) => table.findAll("tbody tr").map((row) => row.get("td").text());
+/** The data cells of each body row; the first cell holds the extensions toggle. */
+const rowTexts = (table: VueWrapper) =>
+  table.findAll("tbody tr").map((row) =>
+    row
+      .findAll("td")
+      .slice(1)
+      .map((cell) => cell.text())
+  );
+
+const serials = (table: VueWrapper) => rowTexts(table).map((row) => row[0]);
 
 describe("RevokedTable", () => {
   it("shows an empty state, not an empty table, for a CRL without entries", () => {
@@ -91,9 +100,7 @@ describe("RevokedTable", () => {
         ],
       },
     };
-    const cells = render(list([entry, ...revokedEntries(1)]))
-      .findAll("tbody tr")
-      .map((row) => row.findAll("td").map((cell) => cell.text()));
+    const cells = rowTexts(render(list([entry, ...revokedEntries(1)])));
 
     expect(cells[0]![0]).toBe("2002");
     expect(cells[0]![1]).toBe("Jan 01, 2026 12:00:00 (UTC)");
@@ -101,5 +108,54 @@ describe("RevokedTable", () => {
     expect(cells[0]![3]).toBe("Dec 31, 2025 12:00:00 (UTC)");
     expect(cells[0]![4]).toBe("DNS: ca.example.test");
     expect(cells[1]!.slice(2)).toEqual(["—", "—", "—"]);
+  });
+
+  it("expands a row with entry extensions into all of them, the hold instruction too", async () => {
+    // The certificateHold entry of crls/issuing-ca-2/full-01.
+    const entry: RevokedCertificate = {
+      userCertificate: { hex: "3000" },
+      revocationDate: time("2025-12-20T00:00:00Z"),
+      crlEntryExtensions: {
+        count: 2,
+        items: [
+          {
+            extnID: { oid: "2.5.29.21", name: "CRL Reason Code" },
+            critical: false,
+            extnValue: { hex: "0a0106", byteLength: 3 },
+            parseStatus: "parsed",
+            parsed: { extensionType: "cRLReason", code: 6, name: "certificateHold" },
+          },
+          {
+            extnID: { oid: "2.5.29.23", name: "Hold Instruction Code" },
+            critical: false,
+            extnValue: { hex: "06072a8648ce380203", byteLength: 9 },
+            parseStatus: "parsed",
+            parsed: {
+              extensionType: "holdInstructionCode",
+              instruction: { oid: "1.2.840.10040.2.3", name: "holdInstructionReject" },
+            },
+          },
+        ],
+      },
+    };
+    const table = render(list([entry, ...revokedEntries(1)]));
+    const [held, plain] = table.findAll("tbody tr");
+    expect(plain!.find("button").exists()).toBe(false);
+    const toggle = held!.get('[data-testid="entry-toggle"]');
+    expect(toggle.attributes("aria-label")).toBe("Show entry extensions");
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+
+    await toggle.trigger("click");
+    expect(toggle.attributes("aria-expanded")).toBe("true");
+    const detail = table.findAll("tbody tr")[1]!;
+    expect(detail.findAll("[data-oid]").map((item) => item.attributes("data-oid"))).toEqual([
+      "2.5.29.21",
+      "2.5.29.23",
+    ]);
+    await detail.get('[data-oid="2.5.29.23"] button').trigger("click");
+    expect(detail.text()).toContain("holdInstructionReject (1.2.840.10040.2.3)");
+
+    await toggle.trigger("click");
+    expect(serials(table)).toEqual(["3000", "0001"]);
   });
 });
