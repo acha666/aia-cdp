@@ -6,6 +6,7 @@ import {
   ConfigSchema,
   decodeJson,
   emptyCatalog,
+  emptyConfig,
   encodeJson,
   InvalidStoredObjectError,
   readCatalog,
@@ -28,7 +29,7 @@ const ISSUER = ISSUING.id;
 const CURRENT = await currentCrl("crls/issuing-ca-1/full-01.der", TARGET);
 
 function config(overrides: Record<string, unknown> = {}) {
-  return { version: 1, certificates: {}, targets: {}, paths: {}, ...overrides };
+  return { ...emptyConfig(), ...overrides };
 }
 
 function catalog(certificates: Catalog["certificates"], targets: Catalog["targets"] = {}) {
@@ -123,9 +124,10 @@ describe("encodeJson / decodeJson", () => {
 });
 
 describe("readState", () => {
-  it("reads an empty store as no config and the empty catalog", async () => {
+  it("reads an empty store as the empty config, not stored, and the empty catalog", async () => {
     expect(await readState(new MemoryStore())).toEqual({
-      config: null,
+      config: emptyConfig(),
+      hasConfig: false,
       catalog: emptyCatalog(),
       catalogEtag: null,
     });
@@ -138,6 +140,7 @@ describe("readState", () => {
     await putCatalog(store, value);
     expect(await readState(store)).toEqual({
       config: JSON.parse(MINIMAL_CONFIG) as unknown,
+      hasConfig: true,
       catalog: value,
       catalogEtag: (await store.get(CATALOG_KEY))!.etag,
     });

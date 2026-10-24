@@ -5,7 +5,7 @@ import { cert, NOW } from "../fixtures/pki.ts";
 import { buildDownloadSeed, DOWNLOAD_PATHS } from "../helpers/seed-downloads.ts";
 
 // resolveDownload and downloadHeaders where the routes cannot steer them: documents that do not
-// back a path, no config.json, and the edges of the CRL max-age. Everything a request reaches is
+// back a path, and the edges of the CRL max-age. Everything a request reaches is
 // tests/http/downloads.test.ts.
 
 const HOUR = 3_600_000;
@@ -20,10 +20,6 @@ function found(resolution: DownloadResolution): FoundDownload {
 }
 
 describe("resolveDownload", () => {
-  it("finds nothing without config.json", () => {
-    expect(resolveDownload(null, catalog, DOWNLOAD_PATHS.root)).toEqual({ status: "not_found" });
-  });
-
   it("reports a path entry the catalog or config.targets cannot back as inconsistent", () => {
     const { [ROOT.sha256]: _root, ...certificates } = catalog.certificates;
     expect(

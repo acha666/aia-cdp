@@ -154,6 +154,11 @@ export function emptyCatalog(): Catalog {
   return { version: 1, certificates: {}, targets: {} };
 }
 
+/** The smallest valid config.json, with nothing configured (also while config.json is missing). */
+export function emptyConfig(): Config {
+  return { version: 1, certificates: {}, targets: {}, paths: {} };
+}
+
 // Encoding --------------------------------------------------------------------------------------
 
 /** The canonical bytes of config.json / catalog.json: two-space indent, trailing newline. */
@@ -205,8 +210,10 @@ export async function readCatalog(
 }
 
 export interface State {
-  /** null while config.json is missing (nothing configured yet). */
-  config: Config | null;
+  /** emptyConfig() while config.json is missing: nothing is configured yet. */
+  config: Config;
+  /** Whether config.json exists (only the health check tells the two apart). */
+  hasConfig: boolean;
   catalog: Catalog;
   catalogEtag: string | null;
 }
@@ -221,8 +228,10 @@ export async function readState(store: ObjectStore): Promise<State> {
     readCatalog(store),
   ]);
   const config =
-    configObject === null ? null : parseStored(CONFIG_KEY, configObject.bytes, ConfigSchema);
-  return { config, catalog, catalogEtag };
+    configObject === null
+      ? emptyConfig()
+      : parseStored(CONFIG_KEY, configObject.bytes, ConfigSchema);
+  return { config, hasConfig: configObject !== null, catalog, catalogEtag };
 }
 
 // Conditional catalog write ---------------------------------------------------------------------

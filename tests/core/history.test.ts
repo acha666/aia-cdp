@@ -2,7 +2,7 @@
 // newest first, also once the target is removed from config.json; orphans are not history.
 import { describe, expect, it } from "vitest";
 import { applyConfig } from "../../src/core/admin.ts";
-import { CONFIG_KEY } from "../../src/core/catalog.ts";
+import { CONFIG_KEY, emptyConfig } from "../../src/core/catalog.ts";
 import type { Config } from "../../src/core/catalog.ts";
 import { sha256Hex } from "../../src/core/digest.ts";
 import { getHistoryBlob, listHistory } from "../../src/core/history.ts";
@@ -36,7 +36,7 @@ function entryOf(file: string, current: boolean) {
 
 async function removeTargets(store: MemoryStore): Promise<Config> {
   const stored = await store.get(CONFIG_KEY);
-  const config: Config = { version: 1, certificates: {}, targets: {}, paths: {} };
+  const config = emptyConfig();
   const applied = await applyConfig({ store }, config, {
     ifMatch: await sha256Hex(stored!.bytes),
   });

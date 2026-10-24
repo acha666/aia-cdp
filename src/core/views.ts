@@ -6,8 +6,7 @@
 // appears in a view.
 //
 // Lists are complete arrays (no pagination), certificates in id order and targets in targetId
-// order (code units; the UI sorts for display). Without config.json the certificates come from the
-// catalog alone, with no labels, downloads or targets, and there are no targets.
+// order (code units; the UI sorts for display).
 //
 // What the catalog and config name but the store cannot back throws, and the HTTP layer answers
 // its generic 500: never a 404, an empty list or a partial 200.
@@ -68,19 +67,14 @@ function signature(signed: {
 
 // Certificates ------------------------------------------------------------------------------------
 
-function certificateItem(config: Config | null, id: string, entry: CatalogCertificate) {
-  const targets =
-    config === null
-      ? []
-      : sortedKeys(config.targets).flatMap((targetId) => {
-          const target = config.targets[targetId];
-          return target?.issuer === id
-            ? [{ targetId, kind: target.kind, label: target.label }]
-            : [];
-        });
+function certificateItem(config: Config, id: string, entry: CatalogCertificate) {
+  const targets = sortedKeys(config.targets).flatMap((targetId) => {
+    const target = config.targets[targetId];
+    return target?.issuer === id ? [{ targetId, kind: target.kind, label: target.label }] : [];
+  });
   return {
     id,
-    label: config === null ? null : (config.certificates[id]?.label ?? null),
+    label: config.certificates[id]?.label ?? null,
     importedAt: entry.importedAt,
     size: entry.size,
     summary: entry.summary,
@@ -90,7 +84,7 @@ function certificateItem(config: Config | null, id: string, entry: CatalogCertif
 }
 
 /** GET /api/v1/certificates: one item per catalog certificate, in id order. */
-export function certificateList(config: Config | null, catalog: Catalog) {
+export function certificateList(config: Config, catalog: Catalog) {
   return sortedKeys(catalog.certificates).flatMap((id) => {
     const entry = catalog.certificates[id];
     return entry === undefined ? [] : [certificateItem(config, id, entry)];
@@ -105,7 +99,7 @@ export function certificateList(config: Config | null, catalog: Catalog) {
  */
 export async function certificateDetail(
   store: ObjectStore,
-  config: Config | null,
+  config: Config,
   catalog: Catalog,
   id: string
 ) {
@@ -160,13 +154,10 @@ function crlTargetItem(config: Config, catalog: Catalog, targetId: string) {
 }
 
 /**
- * GET /api/v1/crls: one item per configured target, in targetId order; [] without config.json. A
- * catalog current whose target config.json no longer defines is not listed (no kind, no paths).
+ * GET /api/v1/crls: one item per configured target, in targetId order. A catalog current whose
+ * target config.json no longer defines is not listed (no kind, no paths).
  */
-export function crlTargetList(config: Config | null, catalog: Catalog) {
-  if (config === null) {
-    return [];
-  }
+export function crlTargetList(config: Config, catalog: Catalog) {
   return sortedKeys(config.targets).flatMap(
     (targetId) => crlTargetItem(config, catalog, targetId) ?? []
   );
@@ -180,11 +171,11 @@ export function crlTargetList(config: Config | null, catalog: Catalog) {
  */
 export async function crlTargetDetail(
   store: ObjectStore,
-  config: Config | null,
+  config: Config,
   catalog: Catalog,
   targetId: string
 ) {
-  const item = config === null ? undefined : crlTargetItem(config, catalog, targetId);
+  const item = crlTargetItem(config, catalog, targetId);
   if (item === undefined) {
     return undefined;
   }
@@ -213,7 +204,7 @@ export async function crlTargetDetail(
  * GET /api/v1/stats, from config.json and catalog.json alone: no blob is read and the store is
  * never listed (history blobs are not counted; listing them is an admin operation).
  */
-export function stats(config: Config | null, catalog: Catalog) {
+export function stats(config: Config, catalog: Catalog) {
   let certificates = 0;
   let derBytes = 0;
   let totalRevocations: number | null = null;
@@ -223,7 +214,7 @@ export function stats(config: Config | null, catalog: Catalog) {
     certificates++;
     derBytes += entry.size;
   }
-  for (const [targetId, target] of Object.entries(config?.targets ?? {})) {
+  for (const [targetId, target] of Object.entries(config.targets)) {
     targets[target.kind]++;
     const current = catalog.targets[targetId]?.current ?? null;
     if (current === null) {

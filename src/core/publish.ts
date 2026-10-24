@@ -289,7 +289,7 @@ async function checkWhole(der: Uint8Array): Promise<CrlSummary | Rejection> {
  * bytes are answered without being parsed.
  */
 function alreadyCurrent(state: State, sha256: string): PublishedCrl | undefined {
-  for (const [targetId, target] of Object.entries(state.config?.targets ?? {})) {
+  for (const [targetId, target] of Object.entries(state.config.targets)) {
     const current = state.catalog.targets[targetId]?.current;
     if (current?.sha256 === sha256) {
       const downloads = downloadPaths(state.config, { target: targetId });
@@ -331,7 +331,7 @@ function resolveTarget(state: State, aki: string | undefined, kind: CrlKind): Re
       detail: `No imported certificate has the Subject Key Identifier ${aki}`,
     };
   }
-  const targets = Object.entries(state.config?.targets ?? {}).filter(
+  const targets = Object.entries(state.config.targets).filter(
     ([, target]) => target.kind === kind && candidates.includes(target.issuer)
   );
   const [found, ...more] = targets;

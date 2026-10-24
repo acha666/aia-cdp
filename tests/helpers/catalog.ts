@@ -1,7 +1,13 @@
 // Catalog and config values built from the fixtures: digests, key ids and sizes come from the files
 // or manifest.json, never from literals.
 import type { Catalog, CatalogCertificate, Config, CurrentCrl } from "../../src/core/catalog.ts";
-import { CATALOG_KEY, certificateBlobKey, CONFIG_KEY, encodeJson } from "../../src/core/catalog.ts";
+import {
+  CATALOG_KEY,
+  certificateBlobKey,
+  CONFIG_KEY,
+  emptyConfig,
+  encodeJson,
+} from "../../src/core/catalog.ts";
 import { parseCertificate, parseCRL } from "../../src/core/pki/parsers.ts";
 import { crlBlobKey } from "../../src/core/publish.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
@@ -16,7 +22,7 @@ import { cert, crlEntry, fixture, NOW } from "../fixtures/pki.ts";
  * /crl/<name>.crl.
  */
 export function configFor(names: readonly string[]): Config {
-  const config: Config = { version: 1, certificates: {}, targets: {}, paths: {} };
+  const config = emptyConfig();
   for (const name of names) {
     const id = cert(name).sha256;
     const target = crypto.randomUUID();

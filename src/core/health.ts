@@ -35,8 +35,8 @@ export async function checkHealth(
 ): Promise<HealthReport> {
   let configuration: ConfigurationCheck;
   try {
-    const { config } = await readState(store);
-    configuration = config === null ? "missing" : "ok";
+    const { hasConfig } = await readState(store);
+    configuration = hasConfig ? "ok" : "missing";
   } catch (error) {
     if (!(error instanceof InvalidStoredObjectError)) {
       onStoreError(error);

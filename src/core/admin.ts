@@ -402,20 +402,18 @@ export type DeleteCertificateResult =
  */
 function referencesOf(state: State, id: string): CertificateReference[] {
   const references: CertificateReference[] = [];
-  const config = state.config;
-  if (config !== null) {
-    if (config.certificates[id] !== undefined) {
-      references.push({ object: "config.json", path: ["certificates", id] });
+  const { config } = state;
+  if (config.certificates[id] !== undefined) {
+    references.push({ object: "config.json", path: ["certificates", id] });
+  }
+  for (const [targetId, target] of Object.entries(config.targets)) {
+    if (target.issuer === id) {
+      references.push({ object: "config.json", path: ["targets", targetId, "issuer"] });
     }
-    for (const [targetId, target] of Object.entries(config.targets)) {
-      if (target.issuer === id) {
-        references.push({ object: "config.json", path: ["targets", targetId, "issuer"] });
-      }
-    }
-    for (const [path, entry] of Object.entries(config.paths)) {
-      if ("certificate" in entry && entry.certificate === id) {
-        references.push({ object: "config.json", path: ["paths", path, "certificate"] });
-      }
+  }
+  for (const [path, entry] of Object.entries(config.paths)) {
+    if ("certificate" in entry && entry.certificate === id) {
+      references.push({ object: "config.json", path: ["paths", path, "certificate"] });
     }
   }
   for (const [targetId, target] of Object.entries(state.catalog.targets)) {

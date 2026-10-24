@@ -61,21 +61,17 @@ function own<T>(record: Record<string, T>, key: string): T | undefined {
  *
  * - An own key of config.paths, matched exactly and case-sensitively → DER; otherwise a path
  *   ending in `.pem` whose stripped form is such a key → PEM (one suffix: `.pem.pem` is not
- *   found, since config paths never end in `.pem`). Anything else, or no config.json (null) →
- *   not_found.
+ *   found, since config paths never end in `.pem`). Anything else → not_found.
  * - A certificate path → catalog.certificates[id]; missing → inconsistent.
  * - A target path → config.targets[id] (missing → inconsistent) for the kind, and
  *   catalog.targets[id].current for the CRL: no catalog entry (never published) or a null current
  *   → not_found (plan §6).
  */
 export function resolveDownload(
-  config: Config | null,
+  config: Config,
   catalog: Catalog,
   path: string
 ): DownloadResolution {
-  if (config === null) {
-    return NOT_FOUND;
-  }
   let format: DownloadFormat = "der";
   let entry = own(config.paths, path);
   if (entry === undefined && path.endsWith(PEM_SUFFIX)) {
@@ -128,13 +124,10 @@ export function resolveDownload(
 /**
  * The reverse of resolveDownload: the paths that serve a certificate or a target (`downloads` of
  * the upload response, plan §7.1, and of the read API's lists). Every config path mapped to
- * `reference`, in code-unit order, each DER path followed by its `<path>.pem`; [] without
- * config.json. Only path table entries, never a store key.
+ * `reference`, in code-unit order, each DER path followed by its `<path>.pem`. Only path table
+ * entries, never a store key.
  */
-export function downloadPaths(config: Config | null, reference: ConfigPath): string[] {
-  if (config === null) {
-    return [];
-  }
+export function downloadPaths(config: Config, reference: ConfigPath): string[] {
   const matches = ([, entry]: [string, ConfigPath]) =>
     "certificate" in reference
       ? "certificate" in entry && entry.certificate === reference.certificate

@@ -2,7 +2,7 @@
 // applied with applyConfig, as an operator would, on any store; publishCrl at NOW with a recording
 // sleep.
 import { applyConfig } from "../../src/core/admin.ts";
-import { CATALOG_KEY, ConfigSchema } from "../../src/core/catalog.ts";
+import { CATALOG_KEY, ConfigSchema, emptyConfig } from "../../src/core/catalog.ts";
 import type { Config, CrlKind } from "../../src/core/catalog.ts";
 import { importCertificate } from "../../src/core/import.ts";
 import { publishCrl } from "../../src/core/publish.ts";
@@ -78,7 +78,7 @@ export async function setupPublish(
     }
   }
   const ids = new Map<string, string>();
-  const config: Config = { version: 1, certificates: {}, targets: {}, paths: {} };
+  const config = emptyConfig();
   for (const spec of targets) {
     const id = crypto.randomUUID();
     ids.set(`${spec.issuer}/${spec.kind}`, id);

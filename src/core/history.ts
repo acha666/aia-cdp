@@ -52,7 +52,7 @@ async function storedHistory(
   const markerPrefix = `history/${targetId}/`;
   const { config, catalog } = await readState(store);
   const [blobs, markers] = await Promise.all([store.list(blobPrefix), store.list(markerPrefix)]);
-  const configured = config?.targets[targetId] !== undefined;
+  const configured = config.targets[targetId] !== undefined;
   const current = catalog.targets[targetId]?.current ?? null;
   // Version names: a marker's key and its blob's key without prefix and extension.
   const marked = new Set(

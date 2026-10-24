@@ -11,7 +11,7 @@
 //
 // The CRLs go up with the upload token when AIA_UPLOAD_TOKEN is set (the CLI's publish).
 import process from "node:process";
-import { encodeJson } from "../src/core/catalog.ts";
+import { emptyConfig, encodeJson } from "../src/core/catalog.ts";
 import type { Config } from "../src/core/catalog.ts";
 import type { HealthReport } from "../src/core/health.ts";
 import { main, processIo } from "../src/cli/aia.ts";
@@ -42,7 +42,7 @@ const CAS: Ca[] = [
 ];
 
 function seedConfig(): Config {
-  const config: Config = { version: 1, certificates: {}, targets: {}, paths: {} };
+  const config = emptyConfig();
   for (const ca of CAS) {
     // The certificate id is the SHA-256 of the DER, which the manifest records.
     const id = cert(ca.name).sha256;
