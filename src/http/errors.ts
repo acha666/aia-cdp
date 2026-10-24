@@ -9,11 +9,8 @@ import { describeError } from "./log.ts";
 import type { Logger } from "./log.ts";
 import type { ErrorCode } from "./schemas.ts";
 
-/**
- * Generic in the code, so the body satisfies a route's per-status schema with a narrowed enum. An
- * undefined `details` is left out of the JSON.
- */
-export function errorBody<C extends ErrorCode>(code: C, message: string, details?: unknown) {
+/** The failure envelope; an undefined `details` is left out of the JSON. */
+export function errorBody(code: ErrorCode, message: string, details?: unknown) {
   return { error: { code, message, details } };
 }
 
