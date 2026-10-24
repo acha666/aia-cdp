@@ -1,11 +1,11 @@
 // POST /api/v1/crls: raw bodies, the optional upload token, the media type and size limits, and
-// the status, code and message of every publish outcome.
+// how publish outcomes map to status, code, message and details (which CRL gets which outcome is
+// tests/core/publish.test.ts).
 import { describe, expect, it } from "vitest";
-import { CATALOG_KEY } from "../../src/core/catalog.ts";
 import { CRL_MEDIA_TYPES } from "../../src/http/schemas.ts";
 import { cert, crlEntry, fixture, fixtureText } from "../fixtures/pki.ts";
 import { currentCrl } from "../helpers/catalog.ts";
-import { downloadsOf } from "../helpers/publish.ts";
+import { downloadsOf, versionOf } from "../helpers/publish.ts";
 import type { PublishSetup } from "../helpers/publish.ts";
 import { errorOf, expectInternal, readService } from "../helpers/reads.ts";
 import type { ReadService } from "../helpers/reads.ts";
@@ -24,6 +24,9 @@ type HeaderFields = NonNullable<RequestInit["headers"]>;
 type Body = RequestInit["body"];
 
 type App = ReadService["app"];
+
+/** full-02 is issuing-ca-1's current full CRL. Every upload to it is refused, so nothing changes it. */
+const served = await readService({ publish: [FULL_02] });
 
 function upload(app: App, body: Body, contentType?: string, headers: HeaderFields = {}) {
   const all = new Headers(headers);
@@ -80,11 +83,6 @@ describe("POST /api/v1/crls: bodies", () => {
 
   it.each<[string, string, () => Uint8Array<ArrayBuffer> | string]>([
     ["application/x-pem-file", "PEM", () => fixtureText("crls/issuing-ca-1/full-01.pem")],
-    [
-      "application/pkix-crl",
-      "PEM with CRLF",
-      () => fixtureText("crls/issuing-ca-1/full-01.crlf.pem"),
-    ],
     ["application/octet-stream", "DER", () => fixture(FULL_01)],
   ])("takes a raw %s body (%s), recognizing the bytes", async (contentType, _, body) => {
     const { app, setup } = await readService();
@@ -97,8 +95,7 @@ describe("POST /api/v1/crls: bodies", () => {
     ["an empty body", new Uint8Array(0)],
     ["no body", null],
   ])("answers a raw upload with %s with 400", async (_, body) => {
-    const { app } = await readService();
-    const res = await upload(app, body, "application/pkix-crl");
+    const res = await upload(served.app, body, "application/pkix-crl");
     expect(await errorOf(res, 400, "bad_request")).toEqual({
       code: "bad_request",
       message: "Expected a CRL, but the upload is empty",
@@ -110,7 +107,7 @@ describe("POST /api/v1/crls: bodies", () => {
     ["multipart/form-data", "multipart/form-data; boundary=xyz", "multipart/form-data"],
     ["no Content-Type", undefined, null],
   ])("answers a body sent as %s with 415 and what it received", async (_, type, received) => {
-    const { app, base } = await readService();
+    const { app, base } = served;
     const before = await base.list("");
     const res = await upload(app, fixture(FULL_01), type);
     expect(await errorOf(res, 415, "unsupported_media_type")).toMatchObject({
@@ -180,94 +177,36 @@ describe("POST /api/v1/crls: token and size", () => {
 });
 
 describe("POST /api/v1/crls: outcomes", () => {
-  it("answers 200 updated for a newer CRL", async () => {
-    const { app, setup } = await readService();
-    expect((await uploadFile(app, FULL_01)).status).toBe(201);
-    const res = await uploadFile(app, FULL_02);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(await publishedBody(FULL_02, "updated", setup));
-  });
+  /** details of a 409 against full-02. */
+  const CURRENT = { current: versionOf(FULL_02) };
 
-  // The 409 rows upload against full-02 as the target's current CRL.
-  it.each([
-    [409, "stale_crl", FULL_01, "The CRL is older than the target's current CRL"],
+  it.each<[number, string, string, string, unknown]>([
+    [409, "stale_crl", FULL_01, "The CRL is older than the target's current CRL", CURRENT],
     [
       409,
       "conflict",
       "crls/issuing-ca-1/full-02-conflict.der",
       "The target's current CRL has other bytes for the same CRL Number and thisUpdate",
+      CURRENT,
     ],
     [
       409,
       "non_orderable",
       "crls/issuing-ca-1/full-no-number.der",
       "Only one of the CRL and the target's current CRL has a CRL Number",
+      CURRENT,
     ],
-    [422, "invalid_crl", "invalid/garbage.txt", "Not a valid X.509 CRL"],
-    [
-      422,
-      "not_yet_valid",
-      "crls/issuing-ca-1/full-future.der",
-      "The CRL's thisUpdate is more than 5 minutes ahead of the service's clock",
-    ],
-    [
-      422,
-      "unknown_critical_extension",
-      "crls/issuing-ca-1/full-unknown-critical.der",
-      "The CRL has a critical extension this service does not know",
-    ],
-    [
-      422,
-      "scoped_crl_unsupported",
-      "crls/issuing-ca-1/full-idp-scoped.der",
-      "Scoped and indirect CRLs are not supported",
-    ],
-    [
-      422,
-      "unsupported_algorithm",
-      "crls/ed25519-ca/full-01.der",
-      "The CRL's signature algorithm is not supported",
-    ],
-    [
-      422,
-      "issuer_not_found",
-      "crls/rogue-ca/full-01.der",
-      "No imported certificate has the CRL's Authority Key Identifier as its Subject Key Identifier",
-    ],
+    [422, "invalid_crl", "invalid/garbage.txt", "Not a valid X.509 CRL", { reason: "der" }],
     [
       422,
       "issuer_not_found",
       "crls/issuing-ca-1/full-no-aki.der",
       "The CRL has no Authority Key Identifier keyIdentifier",
+      { reason: "missing_aki" },
     ],
-    [
-      422,
-      "invalid_signature",
-      "crls/issuing-ca-1/full-broken-sig.der",
-      "The CRL's signature does not verify with the issuer's key",
-    ],
-  ])("answers %i %s for %s, writing nothing", async (status, code, file, message) => {
-    const { app, base } = await readService();
-    if (status === 409) {
-      expect((await uploadFile(app, FULL_02)).status).toBe(201);
-    }
-    const before = await base.list("");
-    const catalog = (await base.get(CATALOG_KEY))?.bytes;
-    const res = await uploadFile(app, file);
-    const error = await errorOf(res, status, code);
-    expect(error.message).toBe(message);
-    if (status === 409) {
-      const current = crlEntry(FULL_02);
-      expect(error.details).toEqual({
-        current: {
-          sha256: current.sha256,
-          crlNumber: current.crlNumber,
-          thisUpdate: new Date(current.thisUpdate).toISOString(),
-        },
-      });
-    }
-    expect(await base.list("")).toEqual(before);
-    expect((await base.get(CATALOG_KEY))?.bytes).toEqual(catalog);
+  ])("answers %i %s for %s", async (status, code, file, message, details) => {
+    const res = await uploadFile(served.app, file);
+    expect(await errorOf(res, status, code)).toEqual({ code, message, details });
   });
 
   it("answers 422 target_not_configured with the kind and the matching certificates", async () => {

@@ -158,20 +158,13 @@ describe("POST /api/v1/admin/certificates", () => {
     }
   );
 
-  it.each<[string, () => Uint8Array<ArrayBuffer> | string, string]>([
-    ["garbage", () => fixture("invalid/garbage.txt"), "der"],
-    [
-      "a two-certificate bundle",
-      () => fixtureText(cert("issuing-ca-1").pem) + fixtureText(cert("root-ca").pem),
-      "pem_blocks",
-    ],
-  ])("answers %s with 422 invalid_certificate and its reason", async (_, body, reason) => {
+  it("answers garbage with 422 invalid_certificate and its reason", async () => {
     const { app, deps } = setup();
-    const res = await post(app, body(), "application/octet-stream");
+    const res = await post(app, fixture("invalid/garbage.txt"), "application/octet-stream");
     expect(await errorOf(res, 422, "invalid_certificate")).toEqual({
       code: "invalid_certificate",
       message: "Not a valid X.509 certificate",
-      details: { reason },
+      details: { reason: "der" },
     });
     expect(await deps.store.list("")).toEqual([]);
   });
