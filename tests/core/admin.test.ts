@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyConfig, checkConfigStatic, validateConfig } from "../../src/core/admin.ts";
+import { applyConfig, validateConfig } from "../../src/core/admin.ts";
 import type { ConfigCheck, ConfigIssue, ConfigPrecondition } from "../../src/core/admin.ts";
 import {
   CATALOG_KEY,
@@ -105,9 +105,9 @@ async function apply(store: ObjectStore, config: unknown) {
 
 describe("config rules", () => {
   it("accept the minimal configuration, and the baseline once its certificates are imported", async () => {
-    expect(checkConfigStatic(JSON.parse(MINIMAL_CONFIG))).toMatchObject({ ok: true });
+    expect(validateConfig(JSON.parse(MINIMAL_CONFIG))).toMatchObject({ ok: true });
     const { config } = baseline();
-    expect(checkConfigStatic(config)).toEqual({ ok: true, config });
+    expect(validateConfig(config)).toEqual({ ok: true, config });
     const catalog = await catalogOf(await storeWith());
     expect(validateConfig(config, { catalog })).toEqual({ ok: true, config });
   });
@@ -115,7 +115,7 @@ describe("config rules", () => {
   it("V1: reports every schema issue, and nothing else", () => {
     const { config } = baseline();
     const upper = id("root-ca").toUpperCase();
-    const check = checkConfigStatic({
+    const check = validateConfig({
       ...config,
       tagrets: {},
       certificates: { [upper]: { label: "Root CA" } },
@@ -152,14 +152,14 @@ describe("config rules", () => {
     const paths = Object.fromEntries(
       [...accepted, ...rejected].map((path) => [path, { certificate: id("root-ca") }])
     );
-    expect(rules(checkConfigStatic({ ...baseline().config, paths }))).toEqual(
+    expect(rules(validateConfig({ ...baseline().config, paths }))).toEqual(
       rejected.map((path) => ["V2", ["paths", path]])
     );
   });
 
   it("V3: the prefix decides the kind of resource", () => {
     const { ids, config } = baseline();
-    const check = checkConfigStatic({
+    const check = validateConfig({
       ...config,
       paths: {
         "/ca/root-ca.crl": { target: ids.root },

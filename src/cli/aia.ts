@@ -14,7 +14,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 import { parseArgs } from "node:util";
 import type { z } from "zod";
-import { checkConfigStatic } from "../core/admin.ts";
+import { validateConfig } from "../core/admin.ts";
 import type { ConfigIssue } from "../core/admin.ts";
 import { decodeJson } from "../core/catalog.ts";
 import type { CertificateReference } from "../core/certificates.ts";
@@ -712,7 +712,7 @@ async function loadConfigFile(io: CliIo, file: string): Promise<unknown> {
 }
 
 async function configValidate(ctx: Context, file: string): Promise<number> {
-  const checked = checkConfigStatic(await loadConfigFile(ctx.io, file));
+  const checked = validateConfig(await loadConfigFile(ctx.io, file));
   if (ctx.json) {
     printJson(ctx.io, checked.ok ? { ok: true } : { ok: false, issues: checked.issues });
   } else if (checked.ok) {
@@ -727,7 +727,7 @@ async function configValidate(ctx: Context, file: string): Promise<number> {
 }
 
 async function configApply(ctx: Context, file: string): Promise<number> {
-  const checked = checkConfigStatic(await loadConfigFile(ctx.io, file));
+  const checked = validateConfig(await loadConfigFile(ctx.io, file));
   if (!checked.ok) {
     ctx.io.stderr(issuesText(`${file} is invalid, nothing was sent`, checked.issues));
     return 1;

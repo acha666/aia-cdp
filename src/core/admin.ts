@@ -1,8 +1,8 @@
 // Configuration rules and apply (plan §5.2).
 //
 // The rules V1–V9 come in three layers:
-// - static (V1–V3, V4 / V6 static parts): the document alone. Only this layer is exported on its
-//   own: the CLI's `config validate` runs it offline.
+// - static (V1–V3, V4 / V6 static parts): the document alone. validateConfig without a context
+//   runs only this layer: the CLI's `config validate`, offline.
 // - state (V4 / V6 catalog parts, V5): the document against catalog.json, at apply time only.
 // - migration (V7, V9): the document against the current config.json, at apply time only.
 //
@@ -149,27 +149,6 @@ export function schemaIssues(error: z.ZodError): ConfigIssue[] {
   }));
 }
 
-// V1, then the other static rules on a schema-valid document. `config` is undefined when V1 fails:
-// the other rules need a well-formed document and do not run.
-function staticLayer(value: unknown): { config: Config | undefined; issues: ConfigIssue[] } {
-  const parsed = ConfigSchema.safeParse(value);
-  if (parsed.success) {
-    return { config: parsed.data, issues: staticIssues(parsed.data) };
-  }
-  return { config: undefined, issues: schemaIssues(parsed.error) };
-}
-
-/**
- * V1 (ConfigSchema, strict) and, on a schema-valid document, V2, V3 and the static parts of V4
- * (path targets exist) and V6 (one target per issuer and kind). Needs no store.
- */
-export function checkConfigStatic(value: unknown): ConfigCheck {
-  const { config, issues } = staticLayer(value);
-  return config !== undefined && issues.length === 0
-    ? { ok: true, config }
-    : { ok: false, issues: byRule(issues) };
-}
-
 // State layer ------------------------------------------------------------------------------------
 
 /**
@@ -281,18 +260,29 @@ export interface ValidationContext {
   current?: Config | undefined;
 }
 
-/** V1–V9: every violation at once, ordered by rule (the static layer alone when V1 fails). */
-export function validateConfig(value: unknown, context: ValidationContext): ConfigCheck {
-  const { config, issues } = staticLayer(value);
-  if (config === undefined) {
-    return { ok: false, issues: byRule(issues) };
+/**
+ * Every violation at once, ordered by rule: V1 (ConfigSchema, strict) and, on a schema-valid
+ * document, V2, V3 and the static parts of V4 (path targets exist) and V6 (one target per issuer
+ * and kind); with a `context`, also the state rules (V4 / V6 catalog parts, V5) and the migration
+ * rules (V7, V9). Without one it needs no store. When V1 fails nothing else runs: the other rules
+ * need a well-formed document.
+ */
+export function validateConfig(value: unknown, context?: ValidationContext): ConfigCheck {
+  const parsed = ConfigSchema.safeParse(value);
+  if (!parsed.success) {
+    return { ok: false, issues: schemaIssues(parsed.error) };
   }
-  const all = byRule([
-    ...issues,
-    ...checkConfigState(config, context.catalog),
-    ...checkConfigMigration(config, context.current),
+  const config = parsed.data;
+  const issues = byRule([
+    ...staticIssues(config),
+    ...(context === undefined
+      ? []
+      : [
+          ...checkConfigState(config, context.catalog),
+          ...checkConfigMigration(config, context.current),
+        ]),
   ]);
-  return all.length === 0 ? { ok: true, config } : { ok: false, issues: all };
+  return issues.length === 0 ? { ok: true, config } : { ok: false, issues };
 }
 
 // Apply ------------------------------------------------------------------------------------------

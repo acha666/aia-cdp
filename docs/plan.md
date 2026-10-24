@@ -564,7 +564,7 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
 （走公开上传路由，逐个文件发原始体，`Content-Type: application/octet-stream`，服务端按字节识别；created / updated / unchanged
 之外都算该文件失败）、`history <targetId>`（列历史）、`history <targetId> <sha256> --out <file>`（把一条历史的 DER 写进文件）、
 `delete-certificate <id>`（被引用时逐行列出引用来源，退出 1）、`health`。`config validate` 离线只跑静态规则（V1–V3、V4 / V6 的静态部分，
-与服务端共用 `checkConfigStatic`），不连服务、不要令牌；状态与迁移规则（V4–V7、V9 的其余部分）由服务端在
+与服务端共用不带 context 的 `validateConfig`），不连服务、不要令牌；状态与迁移规则（V4–V7、V9 的其余部分）由服务端在
 apply 时判定，以服务端为准。参数解析用 `parseArgs`，输出为每个文件（块）一行加汇总行，或 `--json`；退出码 0 成功、1 失败（或服务
 不健康）、2 用法错误。
 
