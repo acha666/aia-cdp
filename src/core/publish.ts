@@ -7,6 +7,7 @@ import { sha256Hex } from "./digest.ts";
 import { crlBlobKey, crlHistoryKey } from "./history.ts";
 import type { HistoryMarker } from "./history.ts";
 import { checkCrlPolicy, checkEntryPolicy } from "./pki/crl-policy.ts";
+import type { CrlPolicyFailure } from "./pki/crl-policy.ts";
 import { PkiParseError } from "./pki/errors.ts";
 import type { PkiParseReason } from "./pki/errors.ts";
 import { getAuthorityKeyIdHex, parseCertificate, parseCRL, parseCrlHeader } from "./pki/parsers.ts";
@@ -152,10 +153,21 @@ export type PublishErrorCode = PublishFailure["error"];
 
 export type PublishResult = PublishedCrl | PublishFailure;
 
-/** A failure and the log line's detail of it. */
-interface Rejection {
-  failure: PublishFailure;
-  detail: string;
+/**
+ * A failure of the upload, thrown out of the attempt (which ends updateState without a write);
+ * publishCrl's catch makes it the result, and its message the log line's detail.
+ */
+class Rejection extends Error {
+  readonly failure: PublishFailure;
+
+  constructor(failure: PublishFailure, detail: string) {
+    super(detail);
+    this.failure = failure;
+  }
+}
+
+function rejectPolicy({ ok: _ok, detail, ...failure }: CrlPolicyFailure): never {
+  throw new Rejection(failure, detail);
 }
 
 /** What the header of an upload says, checked before its signature is verified. */
@@ -169,8 +181,9 @@ interface Header {
 }
 
 // parseCrlHeader → readCrlFields (CRL Number, Delta CRL Indicator) and the AKI → kind →
-// checkCrlPolicy against the call's one `now`. A PkiParseError propagates (invalid_crl).
-function checkHeader(der: Uint8Array, now: Date, trace: Trace): Header | Rejection {
+// checkCrlPolicy against the call's one `now`. A PkiParseError propagates (invalid_crl), and a
+// policy violation is a Rejection.
+function checkHeader(der: Uint8Array, now: Date, trace: Trace): Header {
   const crl = parseCrlHeader(der);
   const fields = readCrlFields(crl);
   const aki = readExtension("crl", "Authority Key Identifier", () =>
@@ -184,21 +197,20 @@ function checkHeader(der: Uint8Array, now: Date, trace: Trace): Header | Rejecti
 
   const policy = checkCrlPolicy(crl, now);
   if (!policy.ok) {
-    const { ok: _ok, detail, ...failure } = policy;
-    return { failure, detail };
+    rejectPolicy(policy);
   }
   trace.expired = policy.expired;
   return { crl, fields, kind, aki };
 }
 
 // The whole CRL, once its signature verified: the strict parseCRL, checkEntryPolicy and the
-// summary with revokedCount. A PkiParseError propagates (invalid_crl).
-async function checkWhole(der: Uint8Array): Promise<CrlSummary | Rejection> {
+// summary with revokedCount. A PkiParseError propagates (invalid_crl), and a policy violation is a
+// Rejection.
+async function checkWhole(der: Uint8Array): Promise<CrlSummary> {
   const crl = parseCRL(der);
   const policy = checkEntryPolicy(crl);
   if (!policy.ok) {
-    const { ok: _ok, detail, ...failure } = policy;
-    return { failure, detail };
+    rejectPolicy(policy);
   }
   return buildCrlSummary(crl, der);
 }
@@ -225,40 +237,42 @@ function alreadyCurrent(state: State, sha256: string): PublishedCrl | undefined 
   return undefined;
 }
 
-type Resolution = { targetId: string; issuer: string } | Rejection;
-
 /**
  * The certificates whose subjectKeyId is the AKI are the candidates; the target is the config
  * target of the CRL's kind whose issuer is one of them, and that issuer verifies, whatever other
  * certificates share its SKI. V6 leaves at most one such target; more than one means an out-of-band
  * config.json and throws (500).
  */
-function resolveTarget(state: State, aki: string | undefined, kind: CrlKind): Resolution {
+function resolveTarget(
+  state: State,
+  aki: string | undefined,
+  kind: CrlKind
+): { targetId: string; issuer: string } {
   if (aki === undefined) {
-    return {
-      failure: { error: "issuer_not_found", details: { reason: "missing_aki" } },
-      detail: "The CRL has no Authority Key Identifier keyIdentifier",
-    };
+    throw new Rejection(
+      { error: "issuer_not_found", details: { reason: "missing_aki" } },
+      "The CRL has no Authority Key Identifier keyIdentifier"
+    );
   }
   const candidates = Object.entries(state.catalog.certificates)
     .filter(([, certificate]) => certificate.summary.subjectKeyId === aki)
     .map(([id]) => id)
     .sort();
   if (candidates.length === 0) {
-    return {
-      failure: { error: "issuer_not_found", details: { authorityKeyId: aki } },
-      detail: `No imported certificate has the Subject Key Identifier ${aki}`,
-    };
+    throw new Rejection(
+      { error: "issuer_not_found", details: { authorityKeyId: aki } },
+      `No imported certificate has the Subject Key Identifier ${aki}`
+    );
   }
   const targets = Object.entries(state.config.targets).filter(
     ([, target]) => target.kind === kind && candidates.includes(target.issuer)
   );
   const [found, ...more] = targets;
   if (found === undefined) {
-    return {
-      failure: { error: "target_not_configured", details: { kind, certificates: candidates } },
-      detail: `No ${kind} target names certificate ${candidates.join(", ")}`,
-    };
+    throw new Rejection(
+      { error: "target_not_configured", details: { kind, certificates: candidates } },
+      `No ${kind} target names certificate ${candidates.join(", ")}`
+    );
   }
   if (more.length > 0) {
     throw new Error(
@@ -309,8 +323,8 @@ async function publish(
   // call. Blob and marker are create-only and immutable: each is put at most once per call, and an
   // existing one (precondition-failed) has the same bytes: the blob key holds its digest, and a
   // marker is the superseded current record, which every writer reads alike.
-  let header: Header | Rejection | undefined;
-  let whole: CrlSummary | Rejection | undefined;
+  let header: Header | undefined;
+  let summary: CrlSummary | undefined;
   const written = new Set<string>();
   const putOnce = async (key: string, body: Uint8Array, contentType: string) => {
     if (!written.has(key)) {
@@ -318,12 +332,11 @@ async function publish(
       written.add(key);
     }
   };
-  const attempt = async (state: State): Promise<CatalogMutation<PublishResult>> => {
+  const attempt = async (state: State): Promise<CatalogMutation<PublishedCrl>> => {
     trace.attempts++;
     // What an earlier attempt learned does not describe this one: fields the call does not know
     // at its end are left out.
     delete trace.targetId;
-    delete trace.detail;
     const unchanged = alreadyCurrent(state, sha256);
     if (unchanged !== undefined) {
       trace.targetId = unchanged.targetId;
@@ -334,23 +347,16 @@ async function publish(
     }
 
     header ??= checkHeader(der, now, trace);
-    if ("failure" in header) {
-      trace.detail = header.detail;
-      return { result: header.failure };
-    }
     const { crl, fields, kind, aki } = header;
-    const resolved = resolveTarget(state, aki, kind);
-    if ("failure" in resolved) {
-      trace.detail = resolved.detail;
-      return { result: resolved.failure };
-    }
-    const { targetId, issuer } = resolved;
+    const { targetId, issuer } = resolveTarget(state, aki, kind);
     trace.targetId = targetId;
 
     const check = await verifyWithIssuer(deps.store, state, issuer, crl);
     if (!check.ok) {
-      trace.detail = `${check.algorithm}: ${check.detail}`;
-      return { result: { error: check.reason, details: { algorithm: check.algorithm } } };
+      throw new Rejection(
+        { error: check.reason, details: { algorithm: check.algorithm } },
+        `${check.algorithm}: ${check.detail}`
+      );
     }
 
     // Terminal outcomes end the call without a write (bytes already current were answered by
@@ -362,19 +368,15 @@ async function publish(
       const freshness = compareFreshness(current.summary, fields);
       if (freshness !== "updated") {
         const version = currentVersion(current);
-        trace.detail =
+        throw new Rejection(
+          { error: freshness, details: { current: version } },
           `${freshness} against the current CRL ${version.crlNumber ?? "without a number"} ` +
-          `of ${version.thisUpdate}`;
-        return { result: { error: freshness, details: { current: version } } };
+            `of ${version.thisUpdate}`
+        );
       }
     }
 
-    whole ??= await checkWhole(der);
-    if ("failure" in whole) {
-      trace.detail = whole.detail;
-      return { result: whole.failure };
-    }
-    const summary = whole;
+    summary ??= await checkWhole(der);
 
     // The blob, the marker of the superseded current, then the catalog.
     const key = crlBlobKey(targetId, summary, sha256);
@@ -469,9 +471,12 @@ export async function publishCrl(deps: PublishDeps, bytes: Uint8Array): Promise<
   try {
     result = await publish(deps, bytes, now, trace);
   } catch (error) {
-    // Every PkiParseError of the upload (toDer, the header, the whole CRL) is invalid_crl with its
-    // reason; one of the issuer certificate is a broken store.
-    if (error instanceof PkiParseError && error.kind === "crl") {
+    // A Rejection is its failure. Every PkiParseError of the upload (toDer, the header, the whole
+    // CRL) is invalid_crl with its reason; one of the issuer certificate is a broken store.
+    if (error instanceof Rejection) {
+      trace.detail = error.message;
+      result = error.failure;
+    } else if (error instanceof PkiParseError && error.kind === "crl") {
       trace.detail = `${error.reason}: ${error.message}`;
       result = { error: "invalid_crl", details: { reason: error.reason } };
     } else {
