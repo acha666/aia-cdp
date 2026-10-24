@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/table";
 import { useClock } from "@/composables/useClock";
 import { formatDate, relativeTime } from "@/utils/dates";
-import { compareTargets, issuerName } from "@/utils/labels";
+import { compareTargets } from "@/utils/labels";
 import { computeTargetStatus } from "@/utils/status";
 
 // The configured CRL targets (plan §8), one table for full and delta targets: label with the
@@ -48,7 +48,7 @@ const rows = computed(() => {
         targetId: target.targetId,
         label: target.label,
         kind: target.kind,
-        issuer: issuerName(target.issuer) ?? t("common.unknown"),
+        issuer: target.issuer.label ?? target.issuer.subjectCN ?? t("common.unknown"),
         crlNumber: summary?.crlNumber ?? null,
         thisUpdate: summary
           ? formatDate(summary.thisUpdate, i18n, { time: false, zone: false })

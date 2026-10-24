@@ -11,7 +11,6 @@ import StatusBadge from "@/components/StatusBadge.vue";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ExtensionList from "@/components/x509/ExtensionList.vue";
 import { useClock } from "@/composables/useClock";
-import { certificateName } from "@/utils/labels";
 import { computeCertificateStatus } from "@/utils/status";
 
 // One certificate (plan §8), in DetailLayout's frame: header with name, status and downloads; tabs
@@ -27,8 +26,11 @@ const { t } = useI18n();
 const now = useClock();
 const { data, error, refetch } = useCertificate(() => props.id);
 
+// The config label, else the subject CN.
 const name = computed(
-  () => data.value && (certificateName(data.value) ?? t("details.certificate.unknownName"))
+  () =>
+    data.value &&
+    (data.value.label ?? data.value.summary.subjectCN ?? t("details.certificate.unknownName"))
 );
 
 const state = computed(() => {

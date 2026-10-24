@@ -14,7 +14,6 @@ import ExtensionList from "@/components/x509/ExtensionList.vue";
 import NameDetails from "@/components/x509/NameDetails.vue";
 import { useClock } from "@/composables/useClock";
 import { formatDate, relativeTime } from "@/utils/dates";
-import { issuerName } from "@/utils/labels";
 import { computeTargetStatus } from "@/utils/status";
 import { rows } from "@/utils/values";
 import { formatAlgorithm } from "@/utils/x509";
@@ -35,7 +34,7 @@ const { data, error, refetch } = useCrlTarget(() => props.targetId);
 const current = computed(() => data.value?.current ?? null);
 const status = computed(() => computeTargetStatus(current.value, now.value.getTime()));
 const issuer = computed(() =>
-  data.value ? (issuerName(data.value.issuer) ?? t("common.unknown")) : ""
+  data.value ? (data.value.issuer.label ?? data.value.issuer.subjectCN ?? t("common.unknown")) : ""
 );
 const extensions = computed(() => current.value?.tbsCertList.crlExtensions?.items ?? []);
 

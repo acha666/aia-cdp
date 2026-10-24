@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/table";
 import { useClock } from "@/composables/useClock";
 import { formatDate, relativeTime } from "@/utils/dates";
-import { certificateName } from "@/utils/labels";
 import { computeCertificateStatus } from "@/utils/status";
 
 // The imported certificates (plan §8): name (config label, else subject CN), issuer, validity with
@@ -43,10 +42,9 @@ const rows = computed(() => {
     .map((certificate) => {
       const { notBefore, notAfter, issuerCN, subjectCN } = certificate.summary;
       const state = computeCertificateStatus(notBefore, notAfter, nowMs);
-      const name = certificateName(certificate);
       return {
         id: certificate.id,
-        name: name ?? t("details.certificate.unknownName"),
+        name: certificate.label ?? subjectCN ?? t("details.certificate.unknownName"),
         // The CN under a label, when they differ.
         subjectCN: certificate.label !== null && subjectCN !== certificate.label ? subjectCN : null,
         issuer: issuerCN ?? t("common.unknown"),
