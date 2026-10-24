@@ -1,4 +1,4 @@
-// Copying text to the clipboard (HexValue, PemText). The Clipboard API needs a secure context and
+// Copying text to the clipboard (CopyButton). The Clipboard API needs a secure context and
 // may be denied; the fallback copies a selected off-screen <textarea> with
 // document.execCommand("copy"), which answers false when the browser refuses. vueuse's
 // useClipboard ignores that answer and reports every fallback as copied, so a failure could never

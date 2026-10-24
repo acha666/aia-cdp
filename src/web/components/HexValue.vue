@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { CheckIcon, CopyIcon } from "@lucide/vue";
 import { computed } from "vue";
-import { Button } from "@/components/ui/button";
-import { useCopy } from "@/composables/useCopy";
+import CopyButton from "@/components/CopyButton.vue";
 
 // A hex value (the API's bare digits) in monospace with a copy button. Bytes show as AB:CD and wrap
 // only after a colon (<wbr>, which a selection does not copy). The copy button puts the upper-case
-// digits on the clipboard (useCopy: a failure is reported as a toast).
+// digits on the clipboard.
 const props = withDefaults(
   defineProps<{
     value?: string | null;
@@ -15,8 +13,6 @@ const props = withDefaults(
   }>(),
   { value: null, block: false }
 );
-
-const { copy, copied, label } = useCopy();
 
 const digits = computed(() => props.value?.toUpperCase() ?? "");
 const groups = computed(() => digits.value.match(/.{1,2}/g) ?? []);
@@ -33,18 +29,6 @@ const groups = computed(() => digits.value.match(/.{1,2}/g) ?? []);
         >{{ index < groups.length - 1 ? `${group}:` : group }}<wbr
       /></span>
     </span>
-    <Button
-      v-if="digits"
-      type="button"
-      variant="ghost"
-      size="icon-xs"
-      class="self-center text-muted-foreground"
-      :aria-label="label"
-      :title="label"
-      @click="copy(digits)"
-    >
-      <CheckIcon v-if="copied" />
-      <CopyIcon v-else />
-    </Button>
+    <CopyButton v-if="digits" :text="digits" class="self-center text-muted-foreground" />
   </component>
 </template>

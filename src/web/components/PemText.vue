@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { CheckIcon, CopyIcon } from "@lucide/vue";
 import { useQuery } from "@tanstack/vue-query";
 import { useI18n } from "vue-i18n";
 import { ApiError, apiFetch } from "@/client/errors";
+import CopyButton from "@/components/CopyButton.vue";
 import QueryError from "@/components/QueryError.vue";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useCopy } from "@/composables/useCopy";
 
 // The PEM text served at one of the resource's download paths, with a copy button (the raw tab of
 // a certificate). The path comes from the API's `downloads`; the download routes are not part of
@@ -27,8 +25,6 @@ const pem = useQuery({
     return response.text();
   },
 });
-
-const { copy, copied, label } = useCopy();
 </script>
 
 <template>
@@ -40,18 +36,7 @@ const { copy, copied, label } = useCopy();
   />
   <Skeleton v-else-if="pem.data.value === undefined" class="h-40 w-full" />
   <div v-else class="relative">
-    <Button
-      type="button"
-      variant="outline"
-      size="xs"
-      class="absolute top-2 right-2"
-      :aria-label="label"
-      @click="copy(pem.data.value ?? '')"
-    >
-      <CheckIcon v-if="copied" data-icon="inline-start" />
-      <CopyIcon v-else data-icon="inline-start" />
-      {{ label }}
-    </Button>
+    <CopyButton labelled :text="pem.data.value ?? ''" class="absolute top-2 right-2" />
     <pre
       class="max-h-[32rem] overflow-auto rounded-lg bg-muted/50 p-3 pr-24 font-mono text-xs leading-5"
       data-testid="pem-text"
