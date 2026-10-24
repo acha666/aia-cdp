@@ -6,6 +6,7 @@ import {
   CrlSummarySchema,
   Sha256Hex,
   TargetId,
+  Timestamp,
 } from "../core/catalog.ts";
 import { CertificateReference } from "../core/certificates.ts";
 import { PKI_PARSE_REASONS } from "../core/pki/errors.ts";
@@ -92,10 +93,10 @@ export function rawBody(mediaTypes: readonly string[]) {
   };
 }
 
-const Timestamp = z.iso.datetime({ precision: 3 });
-
 /** Why an upload is not a certificate or CRL this service accepts. */
 const ParseReason = z.enum(PKI_PARSE_REASONS);
+
+const Size = z.number().int().positive().openapi({ description: "DER size in bytes" });
 
 // Shared failures ---------------------------------------------------------------------------------
 
@@ -170,7 +171,7 @@ export const ImportedCertificate = z
     outcome: z.enum(["created", "unchanged"]),
     /** SHA-256 of the DER. */
     id: Sha256Hex,
-    size: z.number().int().positive(),
+    size: Size,
     importedAt: Timestamp,
     summary: CertificateSummarySchema,
   })
@@ -325,8 +326,6 @@ export const HistoryVersionParam = TargetIdParam.extend({
     .toLowerCase()
     .openapi({ description: "SHA-256 of the version's DER, hex (either case)" }),
 });
-
-const Size = z.number().int().positive().openapi({ description: "DER size in bytes" });
 
 const Downloads = z.array(z.string()).openapi({
   description:

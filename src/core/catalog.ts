@@ -34,7 +34,7 @@ const KeyId = z
 const SerialNumber = z.string().regex(/^(?:[0-9A-F]{2})+$/, "Expected uppercase hex bytes");
 
 /** Date.toISOString(): UTC with milliseconds, e.g. 2026-01-01T00:00:00.000Z. */
-const Timestamp = z.iso.datetime({ precision: 3 });
+export const Timestamp = z.iso.datetime({ precision: 3 });
 
 /** CRL Number / Delta CRL base: decimal without leading zeros (compared as BigInt). */
 const Decimal = z.string().regex(/^(?:0|[1-9][0-9]*)$/, "Expected a decimal integer");

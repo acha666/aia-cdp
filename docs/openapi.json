@@ -3757,7 +3757,8 @@
           },
           "size": {
             "type": "integer",
-            "exclusiveMinimum": 0
+            "exclusiveMinimum": 0,
+            "description": "DER size in bytes"
           },
           "importedAt": {
             "type": "string",
