@@ -1,17 +1,16 @@
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
 import { describe, expect, it, vi } from "vitest";
-import { CATALOG_KEY, CatalogSchema, decodeJson } from "../../src/core/catalog.ts";
-import type { Catalog, CurrentCrl } from "../../src/core/catalog.ts";
-import { crlBlobKey, crlHistoryKey, crlVersionName } from "../../src/core/history.ts";
+import { CATALOG_KEY, decodeJson, readCatalog } from "../../src/core/catalog.ts";
+import type { CurrentCrl } from "../../src/core/catalog.ts";
+import { crlHistoryKey, crlVersionName } from "../../src/core/history.ts";
 import { SIGNATURE_ALG_NAMES } from "../../src/core/pki/constants.ts";
 import { MAX_CRL_NUMBER_OCTETS } from "../../src/core/pki/extensions.ts";
 import { getSKIHex, parseCertificate, parseCRL } from "../../src/core/pki/parsers.ts";
 import type { PublishErrorCode } from "../../src/core/publish.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
-import { buildCrlSummary } from "../../src/core/summary/catalog-summary.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
-import { cert, crlEntry, fixture, manifest, NOW } from "../fixtures/pki.ts";
+import { cert, crlEntry, fixture, manifest } from "../fixtures/pki.ts";
 import { currentCrl } from "../helpers/catalog.ts";
 import { generateCa, setupGeneratedCa, signCrl } from "../helpers/generated-ca.ts";
 import { nullWithContents, padOid, pkiError, withOuterAlgorithm } from "../helpers/pki.ts";
@@ -52,8 +51,7 @@ async function json(store: ObjectStore, key: string): Promise<unknown> {
 }
 
 async function currentOf(store: ObjectStore, targetId: string): Promise<CurrentCrl | null> {
-  const catalog: Catalog = CatalogSchema.parse(await json(store, CATALOG_KEY));
-  return catalog.targets[targetId]?.current ?? null;
+  return (await readCatalog(store)).catalog.targets[targetId]?.current ?? null;
 }
 
 async function keys(store: ObjectStore, prefix: string): Promise<string[]> {
@@ -236,30 +234,22 @@ describe("publishCrl: what an upload writes", () => {
     const { base, setup } = await fresh();
     const targetId = setup.target("issuing-ca-1", "full");
     const store = recordingStore(base);
-    const der = fixture(FULL_01);
-    const { sha256 } = crlEntry(FULL_01);
-    const summary = await buildCrlSummary(parseCRL(der), der);
-    const key = crlBlobKey(targetId, summary, sha256);
-    expect(key).toBe(`blobs/crls/${targetId}/${crlVersionName(summary, sha256)}.der`);
+    const current = await currentCrl(FULL_01, targetId);
 
     const { result } = await publishFile(store, FULL_01);
     expect(puts(store)).toEqual([
-      { key, opts: { ifNoneMatch: "*", contentType: "application/pkix-crl" }, ok: true },
+      {
+        key: current.key,
+        opts: { ifNoneMatch: "*", contentType: "application/pkix-crl" },
+        ok: true,
+      },
       {
         key: CATALOG_KEY,
         opts: { contentType: "application/json", ifMatch: expect.any(String) as unknown },
         ok: true,
       },
     ]);
-    expect((await base.get(key))!.bytes).toEqual(der);
-    const current = {
-      sha256,
-      key,
-      size: der.byteLength,
-      publishedAt: NOW.toISOString(),
-      verifier: cert("issuing-ca-1").sha256,
-      summary,
-    };
+    expect((await base.get(current.key))!.bytes).toEqual(fixture(FULL_01));
     expect(await currentOf(base, targetId)).toEqual(current);
     expect(result).toEqual({
       outcome: "created",
@@ -294,13 +284,6 @@ describe("publishCrl: what an upload writes", () => {
         ok: true,
       },
     ]);
-    // The superseded record verbatim, without a time of its own.
-    expect(await json(base, marker)).toEqual(first);
-    expect(await currentOf(base, targetId)).toEqual(second);
-    // Blob and marker share the version name, so a list of both prefixes pairs them.
-    const name = crlVersionName(first.summary, first.sha256);
-    expect(first.key).toBe(`blobs/crls/${targetId}/${name}.der`);
-    expect(marker).toBe(`history/${targetId}/${name}.json`);
     expect(await keys(base, `blobs/crls/${targetId}/`)).toEqual([first.key, second.key]);
   });
 

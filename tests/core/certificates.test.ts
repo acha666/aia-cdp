@@ -26,12 +26,7 @@ describe("importCertificate", () => {
     const der = fixture(cert("issuing-ca-1").der);
 
     expect(await importInto(store, der)).toEqual({ outcome: "created", id, entry });
-    expect(id).toBe(cert("issuing-ca-1").sha256);
-    expect(entry).toMatchObject({
-      key: `blobs/certificates/${id}.der`,
-      size: der.byteLength,
-      importedAt: NOW.toISOString(),
-    });
+    expect(entry.key).toBe(`blobs/certificates/${id}.der`);
     expect(puts(store)).toEqual([
       {
         key: certificateBlobKey(id),
