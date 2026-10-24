@@ -50,25 +50,21 @@ export function buildSerialNumber(integer: Integer): SerialNumber {
   return { hex, decimal: BigInt(`0x${hex}`).toString() };
 }
 
+const bitStringOf = (bytes: Uint8Array, unusedBits: number): BitString => ({
+  hex: toUpperHex(bytes),
+  bitLength: bytes.length * 8 - unusedBits,
+  unusedBits,
+});
+
 function buildBitString(bitString: Asn1BitString): BitString {
-  const { valueHexView: bytes, unusedBits } = bitString.valueBlock;
-  return { hex: toUpperHex(bytes), bitLength: bytes.length * 8 - unusedBits, unusedBits };
+  return bitStringOf(bitString.valueBlock.valueHexView, bitString.valueBlock.unusedBits);
 }
 
 /** Raw content of an implicitly tagged BIT STRING (first octet is the unused-bit count). */
 export function buildBitStringFromContent(content: ArrayBuffer): BitString | undefined {
   const bytes = new Uint8Array(content);
   const [first] = bytes;
-  if (first === undefined) {
-    return undefined;
-  }
-  const unusedBits = first <= 7 ? first : 0;
-  const body = bytes.subarray(1);
-  return {
-    hex: toUpperHex(body),
-    bitLength: body.length * 8 - unusedBits,
-    unusedBits,
-  };
+  return first === undefined ? undefined : bitStringOf(bytes.subarray(1), first <= 7 ? first : 0);
 }
 
 const SIGNATURE_FAMILIES: Record<string, "ecdsa" | "dsa"> = {
@@ -208,37 +204,33 @@ export function buildTime(time: pkijs.Time): Time {
 export async function buildSubjectPublicKeyInfo(
   spki: pkijs.PublicKeyInfo
 ): Promise<SubjectPublicKeyInfo> {
-  const algorithm = buildAlgorithmIdentifier(spki.algorithm, KEY_ALG_NAMES);
-
   const subjectPublicKey = buildBitString(spki.subjectPublicKey);
-
-  // Calculate fingerprints
-  const spkiDer = new Uint8Array(spki.toSchema().toBER(false));
-  const fingerprints = await buildFingerprints(spkiDer);
-
-  // Parse key based on algorithm
-  let parsed: SubjectPublicKeyInfo["parsed"] | undefined;
-
-  const algOid = spki.algorithm.algorithmId;
-
-  if (algOid === "1.2.840.113549.1.1.1" || algOid === RSASSA_PSS_OID) {
-    parsed = parseRSAPublicKey(spki);
-  } else if (algOid === "1.2.840.10045.2.1") {
-    parsed = parseECPublicKey(spki);
-  } else if (algOid === "1.3.101.112" || algOid === "1.3.101.113") {
-    const keyHex = toUpperHex(spki.subjectPublicKey.valueBlock.valueHex);
-    parsed = {
-      type: algOid === "1.3.101.112" ? "ed25519" : "ed448",
-      publicKey: { hex: keyHex },
-    };
-  }
-
   return {
-    algorithm,
+    algorithm: buildAlgorithmIdentifier(spki.algorithm, KEY_ALG_NAMES),
     subjectPublicKey,
-    parsed: parsed ?? { type: "unknown" },
-    fingerprints,
+    parsed: parsePublicKey(spki, subjectPublicKey.hex) ?? { type: "unknown" },
+    fingerprints: await buildFingerprints(new Uint8Array(spki.toSchema().toBER(false))),
   };
+}
+
+/** The key by its algorithm; `hex` is the subjectPublicKey octets, already in display hex. */
+function parsePublicKey(
+  spki: pkijs.PublicKeyInfo,
+  hex: string
+): SubjectPublicKeyInfo["parsed"] | undefined {
+  switch (spki.algorithm.algorithmId) {
+    case "1.2.840.113549.1.1.1":
+    case RSASSA_PSS_OID:
+      return parseRSAPublicKey(spki);
+    case "1.2.840.10045.2.1":
+      return parseECPublicKey(spki, hex);
+    case "1.3.101.112":
+      return { type: "ed25519", publicKey: { hex } };
+    case "1.3.101.113":
+      return { type: "ed448", publicKey: { hex } };
+    default:
+      return undefined;
+  }
 }
 
 function parseRSAPublicKey(spki: pkijs.PublicKeyInfo): RSAPublicKey | undefined {
@@ -261,7 +253,7 @@ function parseRSAPublicKey(spki: pkijs.PublicKeyInfo): RSAPublicKey | undefined 
   };
 }
 
-function parseECPublicKey(spki: pkijs.PublicKeyInfo): ECPublicKey | undefined {
+function parseECPublicKey(spki: pkijs.PublicKeyInfo, hex: string): ECPublicKey | undefined {
   const key = spki.parsedKey;
   if (!(key instanceof pkijs.ECPublicKey)) {
     return undefined;
@@ -271,7 +263,7 @@ function parseECPublicKey(spki: pkijs.PublicKeyInfo): ECPublicKey | undefined {
     type: "ec",
     curve: buildObjectIdentifier(curve?.id ?? key.namedCurve, CURVE_NAMES),
     point: {
-      hex: toUpperHex(spki.subjectPublicKey.valueBlock.valueHexView),
+      hex,
       x: toUpperHex(key.x),
       y: toUpperHex(key.y),
     },
