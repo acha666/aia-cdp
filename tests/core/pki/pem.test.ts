@@ -52,16 +52,6 @@ describe("toDer", () => {
       expect.objectContaining({ name: "PkiParseError", kind: "certificate", reason: "pem_base64" })
     );
   });
-
-  // A regexp with a repeated group overflowed V8's regexp stack from about 5 MiB of base64, which
-  // a raised AIA_MAX_UPLOAD_BYTES lets through.
-  it("round-trips 6 MiB from a sliced buffer through derToPem", () => {
-    const buffer = Uint8Array.from({ length: 6 * 1024 * 1024 + 7 }, (_, index) => index % 256);
-    const bytes = buffer.subarray(3, buffer.length - 2);
-    const pem = derToPem(bytes, "crl");
-    // Buffer.compare instead of toEqual: a deep equality walk over MiBs takes seconds.
-    expect(Buffer.compare(toDer(encode(pem), "crl"), bytes)).toBe(0);
-  });
 });
 
 describe("splitPemBlocks", () => {

@@ -10,9 +10,7 @@ import { parseCRL } from "../../../src/core/pki/parsers.ts";
 import { fixture } from "../../fixtures/pki.ts";
 
 /** Octets from hex pairs separated by spaces. */
-function bytes(hex: string): Uint8Array {
-  return Uint8Array.from(hex.trim().split(/\s+/), (pair) => Number.parseInt(pair, 16));
-}
+const bytes = (hex: string) => Uint8Array.fromHex(hex.replaceAll(" ", ""));
 
 /** A time value as asn1js decodes these content bytes (its time classes would re-encode them). */
 function decodedTime(tagNumber: 23 | 24, raw: string): asn1.BaseBlock {

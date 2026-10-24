@@ -3,7 +3,9 @@
   // `import type { AppType }`) and the happy-dom component tests.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    // ESNext.TypedArrays only for the core files AppType reaches: src/web never calls those
+    // methods, which browsers before Chrome 140 lack.
+    "lib": ["ES2024", "ESNext.TypedArrays", "DOM", "DOM.Iterable"],
     "types": ["vite/client"],
     // Generated shadcn-vue code imports without extensions.
     "module": "ESNext",

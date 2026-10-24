@@ -4,7 +4,9 @@
   "compilerOptions": {
     "noEmit": true,
     "target": "ES2024",
-    "lib": ["ES2024"],
+    // ESNext.TypedArrays: Uint8Array toBase64 / fromBase64 / toHex, which workerd and Node 26 have
+    // (core/pki/pem.ts, core/digest.ts).
+    "lib": ["ES2024", "ESNext.TypedArrays"],
     "module": "NodeNext",
     "moduleDetection": "force",
     // Relative imports carry a .ts extension: Node 26 runs the sources directly (type stripping)

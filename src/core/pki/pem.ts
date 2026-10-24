@@ -11,12 +11,7 @@ function boundaryLines(kind: PkiKind): [begin: string, end: string] {
 }
 
 export function derToPem(bytes: Uint8Array, kind: PkiKind): string {
-  // Bound argument counts for large CRLs and preserve typed-array slice boundaries.
-  const chunks: string[] = [];
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 0x8000)));
-  }
-  const lines = btoa(chunks.join("")).match(/.{1,64}/g) ?? [];
+  const lines = bytes.toBase64().match(/.{1,64}/g) ?? [];
   const [begin, end] = boundaryLines(kind);
   return `${begin}\n${lines.join("\n")}\n${end}\n`;
 }
@@ -40,11 +35,6 @@ export function pemLength(derSize: number, kind: PkiKind): number {
 
 // An encapsulation boundary: `-----BEGIN <label>-----` or `-----END <label>-----`.
 const BOUNDARY = /-----(BEGIN|END) ([^\r\n]*?)-----/g;
-
-// Canonical base64 once whitespace is removed: full quads (the length is checked apart), `=`
-// padding only at the end. No repeated group: V8 runs one out of regexp stack on a body of a few
-// MiB, which is below the upload limit.
-const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 interface Boundary {
   type: "BEGIN" | "END";
@@ -150,11 +140,15 @@ export function toDer(bytes: Uint8Array, kind: PkiKind): Uint8Array {
   if (boundaries.length !== 2 || begin?.type !== "BEGIN" || end?.type !== "END") {
     throw new PkiParseError(kind, "pem_blocks", `Expected exactly one complete ${label} PEM block`);
   }
-  const body = text.slice(begin.end, end.start).replace(/\s/g, "");
-  if (body.length % 4 !== 0 || !BASE64.test(body)) {
-    throw new PkiParseError(kind, "pem_base64", `Invalid base64 in the ${label} PEM block`);
+  // Strict: full quads, `=` padding only at the end and zero padding bits; ASCII whitespace (SPACE,
+  // TAB, LF, FF, CR) may stand anywhere.
+  try {
+    return Uint8Array.fromBase64(text.slice(begin.end, end.start), { lastChunkHandling: "strict" });
+  } catch (error) {
+    throw new PkiParseError(kind, "pem_base64", `Invalid base64 in the ${label} PEM block`, {
+      cause: error,
+    });
   }
-  return Uint8Array.from(atob(body), (char) => char.charCodeAt(0));
 }
 
 /**

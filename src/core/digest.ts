@@ -1,8 +1,9 @@
-// Hex and WebCrypto digests (Workers, Node 26 and browsers). No imports: storage and the CLI use
-// them without loading asn1js or PKIjs.
+// Hex and WebCrypto digests (Workers and Node 26; the web program only type-checks them). No
+// imports: storage and the CLI use them without loading asn1js or PKIjs.
 
+/** Lowercase hex of `input`: of a view, exactly its bytes. */
 export const toHex = (input: ArrayBuffer | Uint8Array) =>
-  Array.from(new Uint8Array(input), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  (input instanceof Uint8Array ? input : new Uint8Array(input)).toHex();
 
 /**
  * Bytes for WebCrypto. TypeScript's DOM lib (the web program reaches core through hc<AppType>)
