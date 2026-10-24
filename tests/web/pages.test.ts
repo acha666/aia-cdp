@@ -6,6 +6,7 @@ import type { DOMWrapper, VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   certificateItem,
+  definitions,
   envelope,
   issuingDeltaDetail,
   issuingFullDetail,
@@ -54,12 +55,6 @@ const OVERVIEW = {
 
 function rows(page: VueWrapper, table: string): DOMWrapper<Element>[] {
   return page.get(`[data-testid="${table}"]`).findAll("tbody tr");
-}
-
-/** The [term, value] pairs of the description lists in `element`. */
-function definitions(element: Pick<DOMWrapper<Element>, "findAll">): [string, string][] {
-  const values = element.findAll("dd");
-  return element.findAll("dt").map((term, index) => [term.text(), values[index]!.text()]);
 }
 
 function stat(page: VueWrapper, key: string): string {
@@ -113,6 +108,7 @@ describe("OverviewPage", () => {
       "delta",
       "full",
     ]);
+    expect(targets[1]!.get("[data-kind]").text()).toBe("Delta CRL");
     expect(targets[0]!.get('[data-testid="crl-number"]').text()).toBe("#19");
     expect(targets[0]!.get('[data-testid="revoked-count"]').text()).toBe("2");
     expect(targets[0]!.find('[data-state="current"]').exists()).toBe(true);

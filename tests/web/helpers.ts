@@ -5,6 +5,7 @@
 import { VueQueryPlugin } from "@tanstack/vue-query";
 import type { QueryClient } from "@tanstack/vue-query";
 import { flushPromises, mount } from "@vue/test-utils";
+import type { DOMWrapper } from "@vue/test-utils";
 import { onTestFinished, vi } from "vitest";
 import { createMemoryHistory } from "vue-router";
 import manifest from "../fixtures/pki/manifest.json";
@@ -410,6 +411,12 @@ export async function mountApp(path: string) {
   });
   await flushPromises();
   return { router, wrapper, queryClient };
+}
+
+/** The [term, value] pairs of the description lists in `element`. */
+export function definitions(element: Pick<DOMWrapper<Element>, "findAll">): [string, string][] {
+  const values = element.findAll("dd");
+  return element.findAll("dt").map((term, index) => [term.text(), values[index]!.text()]);
 }
 
 // Fetch ------------------------------------------------------------------------------------------

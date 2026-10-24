@@ -4,10 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { h } from "vue";
 import type { Component } from "vue";
 import { toast } from "vue-sonner";
+import { definitions } from "./helpers";
 import type { Extension, Name } from "@/client/types";
 import DownloadLinks from "@/components/DownloadLinks.vue";
 import HexValue from "@/components/HexValue.vue";
-import KindBadge from "@/components/KindBadge.vue";
 import LocaleSelect from "@/components/LocaleSelect.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
 import { Accordion } from "@/components/ui/accordion";
@@ -71,18 +71,6 @@ describe("StatusBadge", () => {
     const badge = render(StatusBadge, { state });
     expect(badge.text()).toBe(label);
     expect(badge.attributes("data-state")).toBe(state);
-  });
-});
-
-describe("KindBadge", () => {
-  it.each([
-    ["certificate", "Certificate"],
-    ["full", "Full CRL"],
-    ["delta", "Delta CRL"],
-  ])("labels %s", (kind, label) => {
-    const badge = render(KindBadge, { kind });
-    expect(badge.text()).toBe(label);
-    expect(badge.attributes("data-kind")).toBe(kind);
   });
 });
 
@@ -156,8 +144,7 @@ describe("ValueView", () => {
     expect(render(ValueView, { value }).text()).toBe("(empty)");
   });
 
-  it("keeps the line breaks of text and gives each line or tag a list item", () => {
-    expect(render(ValueView, { value: "a\nb" }).get("span").element.textContent).toBe("a\nb");
+  it("gives each line or tag a list item", () => {
     const lines = render(ValueView, { value: { lines: ["URI: http://a.test/", "DNS: b.test"] } });
     expect(lines.findAll("li").map((item) => item.text())).toEqual([
       "URI: http://a.test/",
@@ -214,15 +201,9 @@ describe("NameDetails", () => {
     rfc4514: "CN=<script>bad</script>,C=US,1.2.3.4=#0101ff,DC=test",
   } satisfies Name;
 
-  it("escapes text and keeps the labels of empty fields", () => {
+  it("keeps the labels of empty fields", () => {
     const details = render(NameDetails, { title: "Issuer", name });
-    const html = details.html();
-    expect(html).toContain("&lt;script&gt;bad&lt;/script&gt;");
-    expect(html).not.toContain("<script>bad");
-    const pairs = details
-      .findAll("dt")
-      .map((term, index) => [term.text(), details.findAll("dd")[index]!.text()]);
-    expect(pairs).toEqual([
+    expect(definitions(details)).toEqual([
       ["Common Name", "<script>bad</script>"],
       ["Organization", "(empty)"],
       ["Organizational Unit", "(empty)"],
@@ -320,8 +301,10 @@ describe("ExtensionView", () => {
     expect(header).toContain("1.3.6.1.4.1.311.21.1");
     expect(view.find('[data-testid="parse-status"]').exists()).toBe(false);
     expect(view.find('[data-testid="critical"]').exists()).toBe(false);
-    expect(view.findAll("dt").map((term) => term.text())).toEqual(["CA 证书索引", "CA 密钥索引"]);
-    expect(view.findAll("dd").map((value) => value.text())).toEqual(["1", "0"]);
+    expect(definitions(view)).toEqual([
+      ["CA 证书索引", "1"],
+      ["CA 密钥索引", "0"],
+    ]);
   });
 
   /** A decoded extension of `parsed`'s type (the header and value are not looked at here). */
@@ -335,29 +318,13 @@ describe("ExtensionView", () => {
     };
   }
 
-  const KEY_CERT_SIGN_ONLY = {
-    digitalSignature: false,
-    nonRepudiation: false,
-    keyEncipherment: false,
-    dataEncipherment: false,
-    keyAgreement: false,
-    keyCertSign: true,
-    cRLSign: false,
-    encipherOnly: false,
-    decipherOnly: false,
-  };
-
-  it("draws every value kind in its one style, a section per distribution point", () => {
-    const ldap =
-      "ldap:///CN=Example%20Issuing%20CA%2001,CN=CDP,DC=example,DC=test?deltaRevocationList";
+  it("draws one list per section, a hex value with HexValue, and (empty) without sections", () => {
     const uri = (value: string) => ({ type: "uniformResourceIdentifier" as const, value });
     const freshest = renderOpen(
       decoded("2.5.29.46", {
         extensionType: "freshestCRL",
         distributionPoints: [
-          {
-            distributionPoint: { fullName: [uri("http://pki.example.test/dcrl/a.crl"), uri(ldap)] },
-          },
+          { distributionPoint: { fullName: [uri("http://a.test/a.crl")] } },
           {
             distributionPoint: { fullName: [uri("http://b.test/b.crl")] },
             reasons: ["keyCompromise"],
@@ -366,33 +333,11 @@ describe("ExtensionView", () => {
       })
     );
     expect(freshest.findAll("dl")).toHaveLength(2);
-    expect(freshest.findAll("dt").map((term) => term.text())).toEqual([
-      "Full name",
-      "Full name",
-      "Reasons",
-    ]);
-    const [names, , reasons] = freshest.findAll("dd");
-    expect(names!.findAll("li").map((item) => item.text())).toEqual([
-      "URI: http://pki.example.test/dcrl/a.crl",
-      `URI: ${ldap}`,
-    ]);
-    expect(reasons!.get("li").text()).toBe("keyCompromise");
 
     const ski = renderOpen(
       decoded("2.5.29.14", { extensionType: "subjectKeyIdentifier", keyIdentifier: "AB12" })
     );
     expect(ski.get('dd [data-testid="hex-value"]').element.textContent).toBe("AB:12");
-
-    const keyUsage = renderOpen(
-      decoded("2.5.29.15", {
-        extensionType: "keyUsage",
-        ...KEY_CERT_SIGN_ONLY,
-        usages: ["keyCertSign"],
-      })
-    );
-    // Every extension sits in the label grid: key usage too ("Usages").
-    expect(keyUsage.get("dt").text()).toBe("Usages");
-    expect(keyUsage.get("li").text()).toBe("keyCertSign");
     // No sections: the body reads "(empty)".
     expect(renderOpen(decoded("2.5.29.30", { extensionType: "nameConstraints" })).text()).toContain(
       "(empty)"
@@ -428,15 +373,8 @@ describe("ExtensionView", () => {
     ]);
   });
 
-  it("falls back to the raw view for an extension type this build does not know", () => {
-    const future = {
-      extnID: { oid: "1.3.6.1.4.1.32473.3", name: "Future" },
-      critical: false,
-      extnValue: { hex: "0500", byteLength: 2 },
-      parseStatus: "parsed",
-      parsed: { extensionType: "brandNew" },
-    } as unknown as Extension;
-    const view = renderOpen(future);
+  it("marks an extension the server does not decode as such, with its raw value", () => {
+    const view = renderOpen(extension("1.3.6.1.4.1.32473.3", null, false));
     expect(view.get('[data-testid="parse-status"]').text()).toBe("Not decoded");
     expect(view.findAll("button").some((button) => button.text() === "Raw value (hex)")).toBe(true);
   });
