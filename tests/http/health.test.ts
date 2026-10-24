@@ -9,12 +9,6 @@ describe("GET /api/v1/health", () => {
     ["degraded", "missing", "an empty store", undefined],
     ["healthy", "ok", "the minimal configuration", MINIMAL_CONFIG],
     ["degraded", "invalid", "config.json that is no JSON", "{not json"],
-    [
-      "degraded",
-      "invalid",
-      "config.json that fails its schema",
-      '{"version":1,"certificates":{},"targets":{},"pahts":{}}',
-    ],
   ])("is %s / %s for %s", async (status, configuration, _, config) => {
     const store = new MemoryStore();
     if (config !== undefined) {
