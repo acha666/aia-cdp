@@ -172,8 +172,8 @@ describe("refusals before the cryptography", () => {
     });
   });
 
-  // PKIjs reads ECDSA-Sig-Value leniently: it ignores trailing bytes and takes INTEGERs as unsigned
-  // octets. Each variant verifies with PKIjs alone, so one signature would have several encodings.
+  // PKIjs reads ECDSA-Sig-Value leniently: it ignores trailing bytes, takes ENUMERATED for INTEGER
+  // and INTEGERs as unsigned octets. Each variant verifies with PKIjs alone, so one signature would have several encodings.
   const variants = (): [string, Uint8Array][] => {
     const bytes = crlOf(ROOT_FULL_01).signatureValue.valueBlock.valueHexView;
     const [r, s] = (asn1.fromBER(bytes).result as asn1.Sequence).valueBlock.value.map((part) => [
@@ -182,9 +182,11 @@ describe("refusals before the cryptography", () => {
     // r with its 00 pad dropped (negative), or with a redundant 00 added.
     const nonDer = r![0] === 0 ? r!.slice(1) : [0, ...r!];
     const body = [0x02, nonDer.length, ...nonDer, 0x02, s!.length, ...s!];
+    const enumerated = [0x0a, r!.length, ...r!, 0x0a, s!.length, ...s!];
     return [
       ["a trailing byte after the SEQUENCE", Uint8Array.from([...bytes, 0])],
       ["an r not in DER", Uint8Array.from([0x30, body.length, ...body])],
+      ["ENUMERATED in place of INTEGER", Uint8Array.from([0x30, enumerated.length, ...enumerated])],
     ];
   };
 

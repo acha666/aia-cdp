@@ -4,10 +4,11 @@
 // certificate the target names, the CRL extension policy (crl-policy.ts) has already run, and PKIjs
 // only does the cryptography, on the engine it installs from globalThis.crypto by itself (the
 // engine is never replaced).
-import { Any, fromBER, Integer, Null, ObjectIdentifier, Sequence } from "asn1js";
+import { Any, fromBER, Null, ObjectIdentifier, Sequence } from "asn1js";
 import * as pkijs from "pkijs";
 import { assertWellFormed } from "./asn1.ts";
 import { CURVE_NAMES, HASH_ALG_NAMES, KEY_ALG_NAMES, SIGNATURE_ALG_NAMES } from "./constants.ts";
+import { INTEGER, contents, hasTag } from "./der.ts";
 import { toDigestInput } from "../digest.ts";
 
 export type SignatureCheck =
@@ -91,9 +92,9 @@ function pssProblem(params: unknown): string | undefined {
 
 /**
  * ECDSA-Sig-Value (RFC 5480 §2.2.3) in DER: exactly SEQUENCE { r INTEGER, s INTEGER }, both
- * minimal and positive and no longer than the curve order. PKIjs ignores bytes after the SEQUENCE
- * and takes a negative or zero-padded INTEGER as its unsigned bytes, so without this one signature
- * would verify under several encodings, which OpenSSL refuses as well.
+ * minimal and positive and no longer than the curve order. PKIjs ignores bytes after the SEQUENCE,
+ * takes an ENUMERATED for an INTEGER and a negative or zero-padded INTEGER as its unsigned bytes,
+ * so without this one signature would verify under several encodings, which OpenSSL refuses too.
  */
 function ecdsaSignatureProblem(signature: Uint8Array, orderLength: number): string | undefined {
   const parsed = fromBER(signature);
@@ -106,11 +107,12 @@ function ecdsaSignatureProblem(signature: Uint8Array, orderLength: number): stri
     return `The ECDSA signature is not DER: ${error instanceof Error ? error.message : String(error)}`;
   }
   const parts = parsed.result instanceof Sequence ? parsed.result.valueBlock.value : [];
-  if (parts.length !== 2 || !parts.every((part) => part instanceof Integer)) {
+  // Tag 2: asn1js decodes ENUMERATED into a subclass of its Integer.
+  if (parts.length !== 2 || !parts.every((part) => hasTag(part, INTEGER))) {
     return "The ECDSA signature is not SEQUENCE { r INTEGER, s INTEGER }";
   }
   for (const part of parts) {
-    const value = part.valueBlock.valueHexView;
+    const value = contents(part);
     const [first = 0, second = 0] = value;
     // X.690 §8.3.2: no leading 00 unless the next octet has its top bit set; r, s ∈ [1, n − 1].
     const padded = first === 0 && (value.length === 1 || second < 0x80);
