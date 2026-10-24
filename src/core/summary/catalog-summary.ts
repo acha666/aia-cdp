@@ -1,8 +1,7 @@
 // Catalog summaries (plan §5.3). A summary is always built whole and replaces the previous one (no
 // merge, no summary version), so there is one implementation of each summary.
 import type { Certificate, CertificateRevocationList, RelativeDistinguishedNames } from "pkijs";
-import type { z } from "zod";
-import type { CertificateSummarySchema, CrlSummarySchema } from "../catalog.ts";
+import type { CertificateSummary, CrlSummary } from "../catalog.ts";
 import { sha1Hex, toUpperHex } from "../digest.ts";
 import { stringOf } from "../pki/asn1.ts";
 import { PkiParseError } from "../pki/errors.ts";
@@ -13,10 +12,6 @@ import {
   getNextCRLPublish,
   getSKIHex,
 } from "../pki/parsers.ts";
-
-// The two summaries in their catalog format.
-export type CertificateSummary = z.infer<typeof CertificateSummarySchema>;
-export type CrlSummary = z.infer<typeof CrlSummarySchema>;
 
 /** `read()`, with whatever it throws reported as a malformed extension of `kind`. */
 export function readExtension<T>(kind: PkiKind, name: string, read: () => T): T {

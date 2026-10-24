@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { CrlSummary } from "../../src/core/catalog.ts";
 import { compareFreshness } from "../../src/core/publish.ts";
 import type { FreshnessInput } from "../../src/core/publish.ts";
-import type { CrlSummary } from "../../src/core/summary/catalog-summary.ts";
 
 // compareFreshness is a pure function of two catalog summaries: the inputs are literal objects.
 

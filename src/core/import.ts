@@ -2,7 +2,7 @@
 // There is one commit point, the catalog write: no companion objects, no edge cache. Importing does
 // not authorize anything: a certificate only becomes an issuer once a config target names it.
 import { certificateBlobKey, readCatalog, updateState } from "./catalog.ts";
-import type { CatalogCertificate } from "./catalog.ts";
+import type { CatalogCertificate, CertificateSummary } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { PkiParseError } from "./pki/errors.ts";
 import type { PkiParseReason } from "./pki/errors.ts";
@@ -10,7 +10,6 @@ import { parseCertificate, sameSignatureAlgorithms } from "./pki/parsers.ts";
 import { toDer } from "./pki/pem.ts";
 import type { ObjectStore } from "./store.ts";
 import { buildCertificateSummary } from "./summary/catalog-summary.ts";
-import type { CertificateSummary } from "./summary/catalog-summary.ts";
 
 export interface ImportDeps {
   store: ObjectStore;

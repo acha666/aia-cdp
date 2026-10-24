@@ -80,7 +80,7 @@ export type ConfigPath = z.infer<typeof ConfigPath>;
 /** Built by buildCertificateSummary (src/core/summary/catalog-summary.ts). */
 export const CertificateSummarySchema = z
   .strictObject({
-    /** First CN in RDN order. */
+    /** The first CN in RDN order with a string value, as the detail's Name.commonName. */
     subjectCN: z.string().nullable(),
     issuerCN: z.string().nullable(),
     serialNumber: SerialNumber,
@@ -140,6 +140,8 @@ export const CatalogSchema = z
 
 export type Catalog = z.infer<typeof CatalogSchema>;
 export type CatalogCertificate = z.infer<typeof CatalogCertificate>;
+export type CertificateSummary = z.infer<typeof CertificateSummarySchema>;
+export type CrlSummary = z.infer<typeof CrlSummarySchema>;
 export type CurrentCrl = z.infer<typeof CurrentCrl>;
 
 /** Store key of an imported certificate's DER (plan §5.1). */

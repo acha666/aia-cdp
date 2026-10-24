@@ -2,7 +2,7 @@
 // one commit point, the catalog write: no PEM or alias companions, no edge cache. The HTTP route
 // maps the result.
 import { encodeJson, JSON_CONTENT_TYPE, updateState } from "./catalog.ts";
-import type { CatalogMutation, CrlKind, CurrentCrl, State } from "./catalog.ts";
+import type { CatalogMutation, CrlKind, CrlSummary, CurrentCrl, State } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { formatGeneralizedTime } from "./pki/asn1.ts";
 import { checkCrlPolicy, checkEntryPolicy } from "./pki/crl-policy.ts";
@@ -16,7 +16,7 @@ import type { SignatureCheck } from "./pki/verify.ts";
 import { downloadPaths } from "./resources.ts";
 import type { ObjectStore } from "./store.ts";
 import { buildCrlSummary, readCrlFields, readExtension } from "./summary/catalog-summary.ts";
-import type { CrlFields, CrlSummary } from "./summary/catalog-summary.ts";
+import type { CrlFields } from "./summary/catalog-summary.ts";
 
 /**
  * `<YYYYMMDDHHMMSSZ of thisUpdate>-<crlNumber or "none">-<sha256>`: the name of one CRL version,
