@@ -2,7 +2,7 @@
 // applied with applyConfig, as an operator would, on any store; publishCrl at NOW with a recording
 // sleep.
 import { applyConfig } from "../../src/core/admin.ts";
-import { CATALOG_KEY, ConfigSchema, emptyConfig } from "../../src/core/catalog.ts";
+import { CATALOG_KEY, emptyConfig } from "../../src/core/catalog.ts";
 import type { Config, CrlKind } from "../../src/core/catalog.ts";
 import { importCertificate } from "../../src/core/certificates.ts";
 import { publishCrl } from "../../src/core/publish.ts";
@@ -37,10 +37,10 @@ export const DEFAULT_TARGETS: readonly TargetSpec[] = [
  * A second path of issuing-ca-1's full target, added whenever that target is configured. It sorts
  * before `/crl/issuing-ca-1.crl` ("-" < "."), the reverse of the insertion order.
  */
-export const ISSUING_FULL_ALIAS = "/crl/issuing-ca-1-alias.crl";
+const ISSUING_FULL_ALIAS = "/crl/issuing-ca-1-alias.crl";
 
 /** The path of a target: `/crl/<issuer>.crl` (full) or `/dcrl/<issuer>.crl` (delta). */
-export function targetPath({ issuer, kind }: TargetSpec): string {
+function targetPath({ issuer, kind }: TargetSpec): string {
   return `/${kind === "full" ? "crl" : "dcrl"}/${issuer}.crl`;
 }
 
@@ -93,7 +93,7 @@ export async function setupPublish(
     }
   }
   configure?.(config);
-  const applied = await applyConfig({ store }, ConfigSchema.parse(config), { ifNoneMatch: "*" });
+  const applied = await applyConfig({ store }, config, { ifNoneMatch: "*" });
   if ("error" in applied) {
     throw new Error(`applyConfig: ${JSON.stringify(applied)}`);
   }

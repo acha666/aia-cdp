@@ -31,7 +31,7 @@ const UNHEALTHY: HealthReport = {
  */
 export async function checkHealth(
   store: ObjectStore,
-  onStoreError: (error: unknown) => void = () => undefined
+  onStoreError: (error: unknown) => void
 ): Promise<HealthReport> {
   let configuration: ConfigurationCheck;
   try {

@@ -6,7 +6,6 @@ import type { webcrypto } from "node:crypto";
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
 import { applyConfig } from "../../src/core/admin.ts";
-import { ConfigSchema } from "../../src/core/catalog.ts";
 import { importCertificate } from "../../src/core/certificates.ts";
 import { toDigestInput } from "../../src/core/digest.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
@@ -119,12 +118,12 @@ export async function setupGeneratedCa(store: ObjectStore, ca: GeneratedCa): Pro
     throw new Error(`import: ${imported.error}`);
   }
   const targetId = crypto.randomUUID();
-  const config = ConfigSchema.parse({
+  const config = {
     version: 1,
     certificates: {},
     targets: { [targetId]: { issuer: imported.id, kind: "full", label: ca.commonName } },
     paths: { "/crl/generated-ca.crl": { target: targetId } },
-  });
+  };
   const applied = await applyConfig({ store }, config, { ifNoneMatch: "*" });
   if ("error" in applied) {
     throw new Error(`applyConfig: ${JSON.stringify(applied)}`);
