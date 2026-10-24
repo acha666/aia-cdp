@@ -32,8 +32,16 @@ async function exclusive<T>(path: string, task: () => Promise<T>): Promise<T> {
   }
 }
 
-function isMissing(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
+/** `task`'s value, or `fallback` when the file or directory does not exist (ENOENT). */
+async function orMissing<T, F>(task: Promise<T>, fallback: F): Promise<T | F> {
+  try {
+    return await task;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return fallback;
+    }
+    throw error;
+  }
 }
 
 async function fsyncDirectory(path: string): Promise<void> {
@@ -58,15 +66,8 @@ export class FsStore implements ObjectStore {
   }
 
   async #read(path: string): Promise<Uint8Array<ArrayBuffer> | null> {
-    try {
-      const buffer = await readFile(path);
-      return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-    } catch (error) {
-      if (isMissing(error)) {
-        return null;
-      }
-      throw error;
-    }
+    const buffer = await orMissing(readFile(path), null);
+    return buffer && new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
   }
 
   async get(key: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; etag: string } | null> {
@@ -115,15 +116,7 @@ export class FsStore implements ObjectStore {
     assertStorePrefix(prefix);
     // A valid prefix is whole segments plus `/`, so its keys all live below one directory.
     const base = prefix === "" ? this.#root : this.#path(prefix.slice(0, -1));
-    let names: string[];
-    try {
-      names = await readdir(base, { recursive: true });
-    } catch (error) {
-      if (isMissing(error)) {
-        return [];
-      }
-      throw error;
-    }
+    const names = await orMissing(readdir(base, { recursive: true }), []);
     // With sep "/", the names sort as their keys do.
     const objects = await Promise.all(
       names.sort().map(async (name) => {
@@ -133,17 +126,10 @@ export class FsStore implements ObjectStore {
         if (!segments.every(isStoreKeySegment)) {
           return null;
         }
-        try {
-          // stat follows a symbolic link to a file, as get() does; a directory is not a key.
-          const info = await stat(join(base, name));
-          return info.isFile() ? { key: prefix + segments.join("/"), size: info.size } : null;
-        } catch (error) {
-          // Deleted between readdir and stat (or a dangling link).
-          if (isMissing(error)) {
-            return null;
-          }
-          throw error;
-        }
+        // stat follows a symbolic link to a file, as get() does; a directory is not a key. null:
+        // deleted between readdir and stat (or a dangling link).
+        const info = await orMissing(stat(join(base, name)), null);
+        return info?.isFile() ? { key: prefix + segments.join("/"), size: info.size } : null;
       })
     );
     return objects.filter((object) => object !== null);
