@@ -1,23 +1,12 @@
 // Detail builders for X.509 extensions: one decoder per supported OID (41 extensionType values),
-// a generic ASN.1 dump for the rest. Integers are read from their contents octets (asn1js's
-// valueDec, which PKIjs copies, is 0 from four octets on; beyond a safe integer the extension is a
-// parse error) and an SCT list must decode whole. The extensionType literals and field names are
-// the contract with the UI's views. Key identifiers are uppercase hex here (for display); catalog
-// summaries and ids are lowercase, so compare across endpoints only through the summary fields.
-import {
-  BaseBlock,
-  BitString as Asn1BitString,
-  Constructed,
-  Enumerated,
-  GeneralizedTime,
-  IA5String,
-  Integer,
-  Null,
-  ObjectIdentifier,
-  OctetString,
-  Primitive,
-  Sequence,
-} from "asn1js";
+// a generic ASN.1 dump for the rest. Each decoder reads the value in strict DER through
+// ../pki/der.ts: integers from their contents octets (asn1js's valueDec is 0 from four octets on;
+// beyond a safe integer the extension is a parse error), and an SCT list must decode whole. The
+// extensionType literals and field names are the contract with the UI's views. Key identifiers
+// are uppercase hex here (for display); catalog summaries and ids are lowercase, so compare across
+// endpoints only through the summary fields.
+import { Sequence, Set as Asn1Set } from "asn1js";
+import type { BaseBlock } from "asn1js";
 import * as pkijs from "pkijs";
 import {
   EXTENSION_NAMES,
@@ -34,8 +23,40 @@ import {
   TLS_FEATURE_NAMES,
   QC_STATEMENT_NAMES,
 } from "../pki/constants.ts";
-import { readExtensionValue, readExtensionSchema, readCRLInteger } from "../pki/extensions.ts";
-import { blockHex, displayText, dumpAsn1, integerNumber, readStrictTime } from "../pki/asn1.ts";
+import {
+  readAuthorityKeyId,
+  readCRLInteger,
+  readExtensionDer,
+  readSubjectKeyId,
+} from "../pki/extensions.ts";
+import {
+  BIT_STRING,
+  BOOLEAN,
+  ENUMERATED,
+  GENERALIZED_TIME,
+  IA5_STRING,
+  INTEGER,
+  NULL,
+  OBJECT_IDENTIFIER,
+  OCTET_STRING,
+  SEQUENCE,
+  SET,
+  DerReader,
+  asUniversal,
+  context,
+  contents,
+  expectTag,
+  hasTag,
+  explicit,
+  readAscii,
+  readBigInt,
+  readBits,
+  readBoolean,
+  readInteger,
+  readOid,
+  sequenceOf,
+} from "../pki/der.ts";
+import { blockHex, displayText, dumpAsn1, readStrictTime } from "../pki/asn1.ts";
 import { toHex } from "../digest.ts";
 import type {
   AccessDescription,
@@ -51,7 +72,7 @@ import type {
   Time,
   UserNotice,
 } from "./schemas.ts";
-import { buildObjectIdentifier, buildTime, buildName, isBlock, stringOf } from "./primitives.ts";
+import { buildObjectIdentifier, buildName, stringOf } from "./primitives.ts";
 
 export function buildExtensions(extensions: pkijs.Extension[] | undefined): Extensions | undefined {
   if (!extensions?.length) {
@@ -66,11 +87,11 @@ export function buildExtension(ext: pkijs.Extension): Extension {
   const result: Extension = {
     extnID: buildObjectIdentifier(ext.extnID, EXTENSION_NAMES),
     critical: ext.critical,
-    extnValue: { hex: toHex(bytes).toUpperCase(), byteLength: bytes.length },
+    extnValue: { hex: hexOf(bytes), byteLength: bytes.length },
     parseStatus: "unsupported",
   };
   try {
-    result.parsed = EXTENSION_PARSERS[ext.extnID]?.(ext);
+    result.parsed = PARSER_BY_OID[ext.extnID]?.(readExtensionDer(ext));
     if (result.parsed) {
       result.parseStatus = "parsed";
     }
@@ -89,48 +110,21 @@ export function buildExtension(ext: pkijs.Extension): Extension {
 // Shared value helpers
 // =============================================================================
 
-function bitFlags(bytes: Uint8Array, unusedBits: number, names: string[]): string[] {
-  const totalBits = Math.max(0, bytes.length * 8 - unusedBits);
-  const flags: string[] = [];
-  for (const [index, name] of names.entries()) {
-    if (index >= totalBits) {
-      break;
-    }
-    if (((bytes[index >> 3] ?? 0) & (0x80 >> (index & 7))) !== 0) {
-      flags.push(name);
-    }
-  }
-  return flags;
-}
-
-function reasonFlags(bits: Asn1BitString): string[] {
-  return bitFlags(bits.valueBlock.valueHexView, bits.valueBlock.unusedBits, REASON_FLAGS);
-}
-
 function timeFromBlock(block: BaseBlock): Time {
   const strict = readStrictTime(block);
   return { iso: strict.date.toISOString(), type: strict.type, raw: strict.raw };
 }
 
-function generalizedTimeFromDate(date: Date): Time {
-  return buildTime(new pkijs.Time({ type: 1, value: date }));
-}
+/** Uppercase hex, as the detail shows octets (key ids, hashes, serial numbers). */
+const hexOf = (bytes: ArrayBuffer | Uint8Array) => toHex(bytes).toUpperCase();
 
-// PKIjs keeps the Integer itself where asn1js could not decode it (four contents octets and more),
-// a number otherwise; integerNumber reads the contents (valueDec is 0 there).
-function integerValue(value: number | Integer | undefined): number | undefined {
-  if (value === undefined) {
-    return undefined;
+/** The text of an element of an ASN.1 string type (DisplayText, DirectoryString); else throws. */
+function readText(block: BaseBlock): string {
+  const text = stringOf(block);
+  if (text === undefined) {
+    throw new Error("Expected an ASN.1 string");
   }
-  return typeof value === "number" ? value : integerNumber(value);
-}
-
-/** An implicitly tagged INTEGER (a context-specific primitive) as a number. */
-function implicitInteger(block: BaseBlock): number {
-  if (!(block instanceof Primitive) || block.valueBlock.valueHexView.length === 0) {
-    throw new Error("Invalid implicitly tagged INTEGER");
-  }
-  return integerNumber(new Integer({ valueHex: block.valueBlock.valueHexView }));
+  return text;
 }
 
 function formatGuid(bytes: Uint8Array): string {
@@ -160,41 +154,30 @@ const GENERAL_NAME_TYPES: Record<number, GeneralName["type"]> = {
   8: "registeredID",
 };
 
-function parseOtherName(block: unknown): GeneralName {
-  const result: GeneralName = { type: "otherName", value: "" };
-  if (!(block instanceof Constructed)) {
-    if (isBlock(block)) {
-      result.rawHex = blockHex(block);
-    }
-    return result;
-  }
-  const [typeId, wrapper] = block.valueBlock.value;
-  if (typeId instanceof ObjectIdentifier) {
-    result.typeOid = typeId.valueBlock.toString();
-    const typeName = OTHER_NAME_TYPES[result.typeOid];
-    if (typeName) {
-      result.typeName = typeName;
-    }
-  }
-  const inner = wrapper instanceof Constructed ? wrapper.valueBlock.value[0] : undefined;
-  if (!(inner instanceof BaseBlock)) {
-    result.rawHex = blockHex(block);
-    return result;
-  }
-  result.rawHex = blockHex(inner);
-  const text = stringOf(inner);
-  if (text !== undefined) {
-    result.value = text;
-  } else if (
-    result.typeOid === "1.3.6.1.4.1.311.25.1" &&
-    inner instanceof OctetString &&
-    inner.valueBlock.valueHexView.length === 16
-  ) {
-    result.value = formatGuid(inner.valueBlock.valueHexView);
-  } else {
-    result.value = displayText(inner);
-  }
-  return result;
+/** OtherName ::= SEQUENCE { type-id OBJECT IDENTIFIER, value [0] EXPLICIT ANY }, under [0]. */
+function readOtherNameParts(block: BaseBlock): { typeOid: string; inner: BaseBlock } {
+  const other = new DerReader(block, context(0));
+  const typeOid = readOid(other.read(OBJECT_IDENTIFIER));
+  const inner = explicit(other.read(context(0)), context(0));
+  other.end();
+  return { typeOid, inner };
+}
+
+/** The AD object GUID of a domain controller certificate: 16 octets, shown as a GUID. */
+const AD_GUID = "1.3.6.1.4.1.311.25.1";
+
+function readOtherName(block: BaseBlock): GeneralName {
+  const { typeOid, inner } = readOtherNameParts(block);
+  const bytes = hasTag(inner, OCTET_STRING) ? contents(inner) : undefined;
+  return {
+    type: "otherName",
+    value:
+      stringOf(inner) ??
+      (typeOid === AD_GUID && bytes?.length === 16 ? formatGuid(bytes) : displayText(inner)),
+    typeOid,
+    typeName: OTHER_NAME_TYPES[typeOid],
+    rawHex: blockHex(inner),
+  };
 }
 
 function formatIpAddress(bytes: Uint8Array): string | undefined {
@@ -243,73 +226,107 @@ function formatIpGeneralName(bytes: Uint8Array): { value: string; rawHex?: strin
       value: prefix === undefined ? `${address}/${formatIpAddress(mask)}` : `${address}/${prefix}`,
     };
   }
-  const hex = toHex(bytes).toUpperCase();
+  const hex = hexOf(bytes);
   return { value: hex, rawHex: hex };
 }
 
-function parseGeneralName(gn: pkijs.GeneralName): GeneralName {
-  const type = GENERAL_NAME_TYPES[gn.type] ?? "otherName";
-  const value: unknown = gn.value;
-
+/** GeneralName ::= CHOICE, read from its context-tagged element (RFC 5280 §4.2.1.6). */
+function readGeneralName(block: BaseBlock): GeneralName {
+  const type =
+    block.idBlock.tagClass === 3 ? GENERAL_NAME_TYPES[block.idBlock.tagNumber] : undefined;
   switch (type) {
     case "otherName":
-      return parseOtherName(value);
+      return readOtherName(block);
     case "rfc822Name":
     case "dNSName":
     case "uniformResourceIdentifier":
+      return { type, value: readAscii(block) };
     case "registeredID":
-      return { type, value: typeof value === "string" ? value : "" };
-    case "directoryName":
-      return {
-        type,
-        value: value instanceof pkijs.RelativeDistinguishedNames ? buildName(value).rfc4514 : "",
-      };
-    case "iPAddress": {
-      const bytes = value instanceof OctetString ? value.valueBlock.valueHexView : new Uint8Array();
-      return { type, ...formatIpGeneralName(bytes) };
+      return { type, value: readOid(block) };
+    case "directoryName": {
+      // Name is a CHOICE, so explicitly tagged.
+      const schema = expectTag(explicit(block, context(4)), SEQUENCE);
+      return { type, value: buildName(new pkijs.RelativeDistinguishedNames({ schema })).rfc4514 };
     }
+    case "iPAddress":
+      return { type, ...formatIpGeneralName(contents(block)) };
+    case "x400Address":
+    case "ediPartyName":
+      // IMPLICIT SEQUENCEs with no useful text form; the DER is kept.
+      if (!block.idBlock.isConstructed) {
+        throw new Error("Invalid GeneralName");
+      }
+      return { type, value: "", rawHex: blockHex(block) };
     default:
-      // x400Address and ediPartyName keep their DER; there is no useful text form.
-      return { type, value: "", rawHex: isBlock(value) ? blockHex(value) : undefined };
+      throw new Error("Invalid GeneralName");
   }
 }
 
-function buildDistributionPointName(
-  name: pkijs.GeneralName[] | pkijs.RelativeDistinguishedNames | undefined
-): DistributionPoint["distributionPoint"] {
-  if (Array.isArray(name)) {
-    return { fullName: name.map(parseGeneralName) };
-  }
-  if (name instanceof pkijs.RelativeDistinguishedNames) {
-    return {
-      nameRelativeToCRLIssuer: {
-        attributes: buildName(name).rdnSequence.flatMap((rdn) => rdn.attributes),
-      },
-    };
-  }
-  return undefined;
+/** GeneralNames ::= SEQUENCE SIZE (1..MAX) OF GeneralName, possibly implicitly tagged. */
+const readGeneralNames = (block: BaseBlock, tag = SEQUENCE) =>
+  sequenceOf(block, tag).map(readGeneralName);
+
+/** RelativeDistinguishedName ::= SET OF AttributeTypeAndValue, under [1] IMPLICIT. */
+function readRelativeName(block: BaseBlock) {
+  const set = new Asn1Set({ value: sequenceOf(block, context(1)) });
+  const name = new pkijs.RelativeDistinguishedNames({ schema: new Sequence({ value: [set] }) });
+  return { attributes: buildName(name).rdnSequence.flatMap((rdn) => rdn.attributes) };
 }
 
-function buildDistributionPoint(dp: pkijs.DistributionPoint): DistributionPoint {
+/** distributionPoint [0] DistributionPointName: a CHOICE, so explicitly tagged. */
+function readDistributionPointName(block: BaseBlock): DistributionPoint["distributionPoint"] {
+  const choice = explicit(block, context(0));
+  if (hasTag(choice, context(0))) {
+    return { fullName: readGeneralNames(choice, context(0)) };
+  }
+  if (hasTag(choice, context(1))) {
+    return { nameRelativeToCRLIssuer: readRelativeName(choice) };
+  }
+  throw new Error("Invalid DistributionPointName");
+}
+
+/** DistributionPoint ::= SEQUENCE { [0] name, [1] reasons, [2] cRLIssuer }, all OPTIONAL. */
+function readDistributionPoint(block: BaseBlock): DistributionPoint {
+  const point = new DerReader(block);
+  const name = point.optional(context(0));
+  const reasons = point.optional(context(1));
+  const issuer = point.optional(context(2));
+  point.end();
   return {
-    distributionPoint: buildDistributionPointName(dp.distributionPoint),
-    reasons: dp.reasons ? reasonFlags(dp.reasons) : undefined,
-    cRLIssuer: dp.cRLIssuer?.map(parseGeneralName),
+    distributionPoint: name && readDistributionPointName(name),
+    reasons: reasons && readBits(reasons, REASON_FLAGS),
+    cRLIssuer: issuer && readGeneralNames(issuer, context(2)),
   };
 }
 
-function buildAccessDescriptions(info: pkijs.InfoAccess): AccessDescription[] {
-  return info.accessDescriptions.map((access) => ({
-    accessMethod: buildObjectIdentifier(access.accessMethod, ACCESS_METHOD_NAMES),
-    accessLocation: parseGeneralName(access.accessLocation),
-  }));
+/** CRLDistributionPoints ::= SEQUENCE SIZE (1..MAX) OF DistributionPoint (also Freshest CRL). */
+const readDistributionPoints = (root: BaseBlock) => sequenceOf(root).map(readDistributionPoint);
+
+/** AuthorityInfoAccessSyntax ::= SEQUENCE SIZE (1..MAX) OF AccessDescription (also SIA). */
+function readAccessDescriptions(root: BaseBlock): AccessDescription[] {
+  return sequenceOf(root).map((block) => {
+    const access = new DerReader(block);
+    const accessMethod = buildObjectIdentifier(
+      readOid(access.read(OBJECT_IDENTIFIER)),
+      ACCESS_METHOD_NAMES
+    );
+    const accessLocation = readGeneralName(access.any());
+    access.end();
+    return { accessMethod, accessLocation };
+  });
 }
 
-function buildGeneralSubtree(subtree: pkijs.GeneralSubtree): GeneralSubtree {
+/** GeneralSubtree ::= SEQUENCE { base, minimum [0] DEFAULT 0, maximum [1] OPTIONAL } (IMPLICIT). */
+function readGeneralSubtree(block: BaseBlock): GeneralSubtree {
+  const subtree = new DerReader(block);
+  const base = readGeneralName(subtree.any());
+  const minimum = subtree.optional(context(0));
+  const maximum = subtree.optional(context(1));
+  subtree.end();
   return {
-    base: parseGeneralName(subtree.base),
-    minimum: integerValue(subtree.minimum),
-    maximum: integerValue(subtree.maximum),
+    base,
+    minimum: minimum ? readInteger(minimum) : 0,
+    maximum: maximum && readInteger(maximum),
   };
 }
 
@@ -320,99 +337,143 @@ function buildGeneralSubtree(subtree: pkijs.GeneralSubtree): GeneralSubtree {
 const CPS_QUALIFIER = "1.3.6.1.5.5.7.2.1";
 const USER_NOTICE_QUALIFIER = "1.3.6.1.5.5.7.2.2";
 
-function parseUserNotice(sequence: Sequence): UserNotice {
-  const notice: UserNotice = {};
-  for (const item of sequence.valueBlock.value) {
-    if (item instanceof Sequence) {
-      const [organization, numbers] = item.valueBlock.value;
-      if (organization instanceof BaseBlock) {
-        notice.organization = displayText(organization);
-      }
-      if (numbers instanceof Sequence) {
-        notice.noticeNumbers = numbers.valueBlock.value
-          .filter((number): number is Integer => number instanceof Integer)
-          .map((number) => number.toBigInt().toString(10));
-      }
-    } else if (item instanceof BaseBlock) {
-      notice.explicitText = displayText(item);
-    }
+/**
+ * UserNotice ::= SEQUENCE { noticeRef OPTIONAL, explicitText DisplayText OPTIONAL }, where
+ * NoticeReference ::= SEQUENCE { organization DisplayText, noticeNumbers SEQUENCE OF INTEGER }.
+ */
+function readUserNotice(block: BaseBlock): UserNotice {
+  const notice = new DerReader(block);
+  const reference = notice.optional(SEQUENCE);
+  const explicitText = notice.optional();
+  notice.end();
+  const text = explicitText && readText(explicitText);
+  if (!reference) {
+    return { explicitText: text };
   }
-  return notice;
-}
-
-function buildPolicyQualifier(info: pkijs.PolicyQualifierInfo): PolicyQualifier {
-  const qualifier: unknown = info.qualifier;
-  const result: PolicyQualifier = {
-    qualifierId: buildObjectIdentifier(info.policyQualifierId, POLICY_QUALIFIER_NAMES),
-    rawHex: isBlock(qualifier) ? blockHex(qualifier) : "",
+  const ref = new DerReader(reference);
+  const organization = readText(ref.any());
+  const numbers = sequenceOf(ref.read(SEQUENCE), SEQUENCE, 0);
+  ref.end();
+  return {
+    organization,
+    noticeNumbers: numbers.map((number) => readBigInt(expectTag(number, INTEGER)).toString()),
+    explicitText: text,
   };
-  if (info.policyQualifierId === CPS_QUALIFIER) {
-    const uri = stringOf(qualifier);
-    if (uri !== undefined) {
-      result.cpsUri = uri;
-    }
-  } else if (info.policyQualifierId === USER_NOTICE_QUALIFIER && qualifier instanceof Sequence) {
-    result.userNotice = parseUserNotice(qualifier);
-  }
-  return result;
 }
 
-function buildPolicies(
-  policies: pkijs.CertificatePolicies,
-  names = CERTIFICATE_POLICY_NAMES
-): PolicyInformation[] {
-  return policies.certificatePolicies.map((policy) => ({
-    policyIdentifier: buildObjectIdentifier(policy.policyIdentifier, names),
-    policyQualifiers: policy.policyQualifiers?.map(buildPolicyQualifier),
-  }));
+/** The CPS pointer or user notice in a qualifier; one that does not decode keeps only its DER. */
+function readQualifierValue(qualifierId: string, qualifier: BaseBlock) {
+  try {
+    if (qualifierId === CPS_QUALIFIER) {
+      return { cpsUri: readText(qualifier) };
+    }
+    if (qualifierId === USER_NOTICE_QUALIFIER) {
+      return { userNotice: readUserNotice(qualifier) };
+    }
+  } catch {
+    // Shown as rawHex, like a qualifier of another type.
+  }
+  return {};
+}
+
+/** PolicyQualifierInfo ::= SEQUENCE { policyQualifierId, qualifier ANY DEFINED BY it } */
+function readPolicyQualifier(block: BaseBlock): PolicyQualifier {
+  const info = new DerReader(block);
+  const qualifierId = readOid(info.read(OBJECT_IDENTIFIER));
+  const qualifier = info.any();
+  info.end();
+  return {
+    qualifierId: buildObjectIdentifier(qualifierId, POLICY_QUALIFIER_NAMES),
+    rawHex: blockHex(qualifier),
+    ...readQualifierValue(qualifierId, qualifier),
+  };
+}
+
+/** certificatePolicies ::= SEQUENCE OF PolicyInformation { policyIdentifier, qualifiers OPTIONAL } */
+function readPolicies(root: BaseBlock, names = CERTIFICATE_POLICY_NAMES): PolicyInformation[] {
+  return sequenceOf(root).map((block) => {
+    const policy = new DerReader(block);
+    const policyIdentifier = buildObjectIdentifier(readOid(policy.read(OBJECT_IDENTIFIER)), names);
+    const qualifiers = policy.optional(SEQUENCE);
+    policy.end();
+    return {
+      policyIdentifier,
+      policyQualifiers: qualifiers && sequenceOf(qualifiers).map(readPolicyQualifier),
+    };
+  });
+}
+
+// =============================================================================
+// Signed certificate timestamps
+// =============================================================================
+
+/** The 16-bit length before each TLS vector (RFC 6962 §3.3, RFC 8446 §3.4). */
+const lengthAt = (bytes: Uint8Array, at: number) => ((bytes[at] ?? 0) << 8) | (bytes[at + 1] ?? 0);
+
+/** SignedCertificateTimestampList: sct_list <1..2^16-1>, each SerializedSCT after its length. */
+function checkSctFraming(list: Uint8Array): void {
+  let at = 2;
+  while (at < list.length) {
+    at += 2 + lengthAt(list, at);
+  }
+  if (list.length <= 2 || lengthAt(list, 0) !== list.length - 2 || at !== list.length) {
+    throw new Error("Invalid SCT list");
+  }
+}
+
+function readSct(sct: pkijs.SignedCertificateTimestamp) {
+  const signature = hexOf(sct.signature);
+  // version is typed number but is undefined when the data ended before it.
+  const version: unknown = sct.version;
+  if (typeof version !== "number" || sct.logID.byteLength !== 32 || signature === "") {
+    throw new Error("Invalid SCT");
+  }
+  return {
+    version,
+    logId: hexOf(sct.logID),
+    timestamp: sct.timestamp.toISOString(),
+    hashAlgorithm: sct.hashAlgorithm,
+    signatureAlgorithm: sct.signatureAlgorithm,
+    signature,
+  };
 }
 
 // =============================================================================
 // Extension parsers
 // =============================================================================
 
-type ExtensionParser = (ext: pkijs.Extension) => ParsedExtensionValue | undefined;
+/** A decoder of one OID: it gets the extension value as one element in strict DER. */
+type ExtensionParser = (value: BaseBlock) => ParsedExtensionValue | undefined;
 
 /** The member of ParsedExtensionValue for one extensionType: the return type of its parser. */
 type Parsed<K extends ExtensionType> = Extract<ParsedExtensionValue, { extensionType: K }>;
 
-function requireSequence(ext: pkijs.Extension): Sequence {
-  const schema = readExtensionSchema(ext);
-  if (!(schema instanceof Sequence)) {
-    throw new Error(`Invalid extension ${ext.extnID}`);
-  }
-  return schema;
-}
-
-const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
-  // Subject Directory Attributes (2.5.29.9)
-  "2.5.29.9": (ext): Parsed<"subjectDirectoryAttributes"> => ({
+const EXTENSION_PARSERS = {
+  // Subject Directory Attributes (2.5.29.9): SEQUENCE OF Attribute { type, values SET OF ANY }
+  "2.5.29.9": (value): Parsed<"subjectDirectoryAttributes"> => ({
     extensionType: "subjectDirectoryAttributes",
-    attributes: readExtensionValue(ext, pkijs.SubjectDirectoryAttributes).attributes.map(
-      (attribute) => ({
-        type: buildObjectIdentifier(attribute.type),
-        values: attribute.values.map((value: unknown) =>
-          isBlock(value) ? displayText(value) : String(value)
-        ),
-      })
-    ),
+    attributes: sequenceOf(value).map((block) => {
+      const attribute = new DerReader(block);
+      const type = buildObjectIdentifier(readOid(attribute.read(OBJECT_IDENTIFIER)));
+      const values = sequenceOf(attribute.read(SET), SET).map(displayText);
+      attribute.end();
+      return { type, values };
+    }),
   }),
 
   // Subject Key Identifier (2.5.29.14)
-  "2.5.29.14": (ext): Parsed<"subjectKeyIdentifier"> => {
-    const octetString = readExtensionValue(ext, OctetString);
-    const keyIdentifier = toHex(octetString.valueBlock.valueHex).toUpperCase();
-    return { extensionType: "subjectKeyIdentifier", keyIdentifier };
-  },
+  "2.5.29.14": (value): Parsed<"subjectKeyIdentifier"> => ({
+    extensionType: "subjectKeyIdentifier",
+    keyIdentifier: hexOf(readSubjectKeyId(value)),
+  }),
 
   // Key Usage (2.5.29.15)
-  "2.5.29.15": (ext): Parsed<"keyUsage"> | undefined => {
-    const bitString = readExtensionValue(ext, Asn1BitString);
-    const bytes = bitString.valueBlock.valueHexView;
-    if (bytes.length === 0) {
-      return undefined;
+  "2.5.29.15": (value): Parsed<"keyUsage"> | undefined => {
+    const bits = expectTag(value, BIT_STRING);
+    const usages = readBits(bits, KEY_USAGE_FLAGS);
+    if (contents(bits).length === 1) {
+      return undefined; // an empty BIT STRING: nothing to show
     }
-    const usages = bitFlags(bytes, bitString.valueBlock.unusedBits, KEY_USAGE_FLAGS);
     const has = (flag: string) => usages.includes(flag);
     return {
       extensionType: "keyUsage",
@@ -429,47 +490,53 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
     };
   },
 
-  // Private Key Usage Period (2.5.29.16)
-  "2.5.29.16": (ext): Parsed<"privateKeyUsagePeriod"> => {
-    const period = readExtensionValue(ext, pkijs.PrivateKeyUsagePeriod);
+  // Private Key Usage Period (2.5.29.16): [0] / [1] IMPLICIT GeneralizedTime, both OPTIONAL
+  "2.5.29.16": (value): Parsed<"privateKeyUsagePeriod"> => {
+    const period = new DerReader(value);
+    const notBefore = period.optional(context(0));
+    const notAfter = period.optional(context(1));
+    period.end();
     return {
       extensionType: "privateKeyUsagePeriod",
-      notBefore: period.notBefore ? generalizedTimeFromDate(period.notBefore) : undefined,
-      notAfter: period.notAfter ? generalizedTimeFromDate(period.notAfter) : undefined,
+      notBefore: notBefore && timeFromBlock(asUniversal(notBefore, GENERALIZED_TIME)),
+      notAfter: notAfter && timeFromBlock(asUniversal(notAfter, GENERALIZED_TIME)),
     };
   },
 
   // Subject Alternative Name (2.5.29.17)
-  "2.5.29.17": (ext): Parsed<"subjectAltName"> => ({
+  "2.5.29.17": (value): Parsed<"subjectAltName"> => ({
     extensionType: "subjectAltName",
-    names: readExtensionValue(ext, pkijs.AltName).altNames.map(parseGeneralName),
+    names: readGeneralNames(value),
   }),
 
   // Issuer Alternative Name (2.5.29.18)
-  "2.5.29.18": (ext): Parsed<"issuerAltName"> => ({
+  "2.5.29.18": (value): Parsed<"issuerAltName"> => ({
     extensionType: "issuerAltName",
-    names: readExtensionValue(ext, pkijs.AltName).altNames.map(parseGeneralName),
+    names: readGeneralNames(value),
   }),
 
   // Basic Constraints (2.5.29.19)
-  "2.5.29.19": (ext): Parsed<"basicConstraints"> => {
-    const bc = readExtensionValue(ext, pkijs.BasicConstraints);
+  "2.5.29.19": (value): Parsed<"basicConstraints"> => {
+    const bc = new DerReader(value);
+    const cA = bc.optional(BOOLEAN);
+    const pathLen = bc.optional(INTEGER);
+    bc.end();
     return {
       extensionType: "basicConstraints",
-      cA: bc.cA,
-      pathLenConstraint: integerValue(bc.pathLenConstraint),
+      cA: cA ? readBoolean(cA) : false,
+      pathLenConstraint: pathLen && readInteger(pathLen),
     };
   },
 
   // CRL Number (2.5.29.20)
-  "2.5.29.20": (ext): Parsed<"cRLNumber"> => ({
+  "2.5.29.20": (value): Parsed<"cRLNumber"> => ({
     extensionType: "cRLNumber",
-    number: readCRLInteger(ext).toString(),
+    number: readCRLInteger(value).toString(),
   }),
 
   // CRL Reason (2.5.29.21) - CRL entry extension
-  "2.5.29.21": (ext): Parsed<"cRLReason"> => {
-    const code = integerNumber(readExtensionValue(ext, Enumerated));
+  "2.5.29.21": (value): Parsed<"cRLReason"> => {
+    const code = readInteger(expectTag(value, ENUMERATED));
     return {
       extensionType: "cRLReason",
       code,
@@ -478,318 +545,304 @@ const EXTENSION_PARSERS: Record<string, ExtensionParser> = {
   },
 
   // Hold Instruction Code (2.5.29.23) - CRL entry extension
-  "2.5.29.23": (ext): Parsed<"holdInstructionCode"> => ({
+  "2.5.29.23": (value): Parsed<"holdInstructionCode"> => ({
     extensionType: "holdInstructionCode",
     instruction: buildObjectIdentifier(
-      readExtensionValue(ext, ObjectIdentifier).valueBlock.toString(),
+      readOid(expectTag(value, OBJECT_IDENTIFIER)),
       HOLD_INSTRUCTION_NAMES
     ),
   }),
 
   // Invalidity Date (2.5.29.24) - CRL entry extension
-  "2.5.29.24": (ext): Parsed<"invalidityDate"> => ({
+  "2.5.29.24": (value): Parsed<"invalidityDate"> => ({
     extensionType: "invalidityDate",
-    date: timeFromBlock(readExtensionValue(ext, GeneralizedTime)),
+    date: timeFromBlock(expectTag(value, GENERALIZED_TIME)),
   }),
 
   // Delta CRL Indicator (2.5.29.27)
-  "2.5.29.27": (ext): Parsed<"deltaCRLIndicator"> => ({
+  "2.5.29.27": (value): Parsed<"deltaCRLIndicator"> => ({
     extensionType: "deltaCRLIndicator",
-    baseCRLNumber: readCRLInteger(ext).toString(),
+    baseCRLNumber: readCRLInteger(value).toString(),
   }),
 
   // Issuing Distribution Point (2.5.29.28)
-  "2.5.29.28": (ext): Parsed<"issuingDistributionPoint"> => {
-    const idp = readExtensionValue(ext, pkijs.IssuingDistributionPoint);
-    // PKIjs folds onlySomeReasons into a lossy integer; read the bits from the DER instead.
-    const reasons = requireSequence(ext).valueBlock.value.find(
-      (block) => block.idBlock.tagClass === 3 && block.idBlock.tagNumber === 3
-    );
-    const reasonBytes = reasons instanceof Primitive ? reasons.valueBlock.valueHexView : undefined;
+  "2.5.29.28": (value): Parsed<"issuingDistributionPoint"> => {
+    const idp = new DerReader(value);
+    const name = idp.optional(context(0));
+    const flag = (num: number) => {
+      const block = idp.optional(context(num));
+      return block ? readBoolean(block) : false;
+    };
+    const onlyContainsUserCerts = flag(1);
+    const onlyContainsCACerts = flag(2);
+    const reasons = idp.optional(context(3));
+    const indirectCRL = flag(4);
+    const onlyContainsAttributeCerts = flag(5);
+    idp.end();
     return {
       extensionType: "issuingDistributionPoint",
-      distributionPoint: buildDistributionPointName(idp.distributionPoint),
-      onlyContainsUserCerts: idp.onlyContainsUserCerts,
-      onlyContainsCACerts: idp.onlyContainsCACerts,
-      onlySomeReasons:
-        reasonBytes && reasonBytes.length > 0
-          ? bitFlags(reasonBytes.subarray(1), reasonBytes[0] ?? 0, REASON_FLAGS)
-          : undefined,
-      indirectCRL: idp.indirectCRL,
-      onlyContainsAttributeCerts: idp.onlyContainsAttributeCerts,
+      distributionPoint: name && readDistributionPointName(name),
+      onlyContainsUserCerts,
+      onlyContainsCACerts,
+      onlySomeReasons: reasons && readBits(reasons, REASON_FLAGS),
+      indirectCRL,
+      onlyContainsAttributeCerts,
     };
   },
 
   // Certificate Issuer (2.5.29.29) - CRL entry extension
-  "2.5.29.29": (ext): Parsed<"certificateIssuer"> => ({
+  "2.5.29.29": (value): Parsed<"certificateIssuer"> => ({
     extensionType: "certificateIssuer",
-    names: readExtensionValue(ext, pkijs.GeneralNames).names.map(parseGeneralName),
+    names: readGeneralNames(value),
   }),
 
   // Name Constraints (2.5.29.30)
-  "2.5.29.30": (ext): Parsed<"nameConstraints"> => {
-    const constraints = readExtensionValue(ext, pkijs.NameConstraints);
+  "2.5.29.30": (value): Parsed<"nameConstraints"> => {
+    const constraints = new DerReader(value);
+    const permitted = constraints.optional(context(0));
+    const excluded = constraints.optional(context(1));
+    constraints.end();
     return {
       extensionType: "nameConstraints",
-      permittedSubtrees: constraints.permittedSubtrees?.map(buildGeneralSubtree),
-      excludedSubtrees: constraints.excludedSubtrees?.map(buildGeneralSubtree),
+      permittedSubtrees: permitted && sequenceOf(permitted, context(0)).map(readGeneralSubtree),
+      excludedSubtrees: excluded && sequenceOf(excluded, context(1)).map(readGeneralSubtree),
     };
   },
 
   // CRL Distribution Points (2.5.29.31)
-  "2.5.29.31": (ext): Parsed<"cRLDistributionPoints"> => ({
+  "2.5.29.31": (value): Parsed<"cRLDistributionPoints"> => ({
     extensionType: "cRLDistributionPoints",
-    distributionPoints: readExtensionValue(ext, pkijs.CRLDistributionPoints).distributionPoints.map(
-      buildDistributionPoint
-    ),
+    distributionPoints: readDistributionPoints(value),
   }),
 
   // Certificate Policies (2.5.29.32)
-  "2.5.29.32": (ext): Parsed<"certificatePolicies"> => ({
+  "2.5.29.32": (value): Parsed<"certificatePolicies"> => ({
     extensionType: "certificatePolicies",
-    policies: buildPolicies(readExtensionValue(ext, pkijs.CertificatePolicies)),
+    policies: readPolicies(value),
   }),
 
   // Policy Mappings (2.5.29.33)
-  "2.5.29.33": (ext): Parsed<"policyMappings"> => ({
+  "2.5.29.33": (value): Parsed<"policyMappings"> => ({
     extensionType: "policyMappings",
-    mappings: readExtensionValue(ext, pkijs.PolicyMappings).mappings.map((mapping) => ({
-      issuerDomainPolicy: buildObjectIdentifier(
-        mapping.issuerDomainPolicy,
-        CERTIFICATE_POLICY_NAMES
-      ),
-      subjectDomainPolicy: buildObjectIdentifier(
-        mapping.subjectDomainPolicy,
-        CERTIFICATE_POLICY_NAMES
-      ),
-    })),
+    mappings: sequenceOf(value).map((block) => {
+      const mapping = new DerReader(block);
+      const issuer = readOid(mapping.read(OBJECT_IDENTIFIER));
+      const subject = readOid(mapping.read(OBJECT_IDENTIFIER));
+      mapping.end();
+      return {
+        issuerDomainPolicy: buildObjectIdentifier(issuer, CERTIFICATE_POLICY_NAMES),
+        subjectDomainPolicy: buildObjectIdentifier(subject, CERTIFICATE_POLICY_NAMES),
+      };
+    }),
   }),
 
   // Authority Key Identifier (2.5.29.35)
-  "2.5.29.35": (ext): Parsed<"authorityKeyIdentifier"> => {
-    const aki = readExtensionValue(ext, pkijs.AuthorityKeyIdentifier);
+  "2.5.29.35": (value): Parsed<"authorityKeyIdentifier"> => {
+    const { keyIdentifier, names, serial } = readAuthorityKeyId(value);
     return {
       extensionType: "authorityKeyIdentifier",
-      keyIdentifier: aki.keyIdentifier
-        ? toHex(aki.keyIdentifier.valueBlock.valueHexView).toUpperCase()
-        : undefined,
-      authorityCertIssuer: aki.authorityCertIssuer?.map(parseGeneralName),
-      authorityCertSerialNumber: aki.authorityCertSerialNumber
-        ? toHex(aki.authorityCertSerialNumber.valueBlock.valueHexView).toUpperCase()
-        : undefined,
+      keyIdentifier: keyIdentifier && hexOf(keyIdentifier),
+      authorityCertIssuer: names?.map(readGeneralName),
+      authorityCertSerialNumber: serial && hexOf(serial),
     };
   },
 
   // Policy Constraints (2.5.29.36)
-  "2.5.29.36": (ext): Parsed<"policyConstraints"> => {
-    // PKIjs checks the shape; its numbers are valueDec, so they are read from the fields' contents.
-    readExtensionValue(ext, pkijs.PolicyConstraints);
-    const fields = requireSequence(ext).valueBlock.value;
-    const skipCerts = (tagNumber: number) => {
-      const field = fields.find(
-        (block) => block.idBlock.tagClass === 3 && block.idBlock.tagNumber === tagNumber
-      );
-      return field === undefined ? undefined : implicitInteger(field);
-    };
+  "2.5.29.36": (value): Parsed<"policyConstraints"> => {
+    const constraints = new DerReader(value);
+    const requireExplicitPolicy = constraints.optional(context(0));
+    const inhibitPolicyMapping = constraints.optional(context(1));
+    constraints.end();
     return {
       extensionType: "policyConstraints",
-      requireExplicitPolicy: skipCerts(0),
-      inhibitPolicyMapping: skipCerts(1),
+      requireExplicitPolicy: requireExplicitPolicy && readInteger(requireExplicitPolicy),
+      inhibitPolicyMapping: inhibitPolicyMapping && readInteger(inhibitPolicyMapping),
     };
   },
 
   // Extended Key Usage (2.5.29.37)
-  "2.5.29.37": (ext): Parsed<"extendedKeyUsage"> => ({
+  "2.5.29.37": (value): Parsed<"extendedKeyUsage"> => ({
     extensionType: "extendedKeyUsage",
-    purposes: readExtensionValue(ext, pkijs.ExtKeyUsage).keyPurposes.map((oid) =>
-      buildObjectIdentifier(oid, EKU_NAMES)
+    purposes: sequenceOf(value).map((block) =>
+      buildObjectIdentifier(readOid(expectTag(block, OBJECT_IDENTIFIER)), EKU_NAMES)
     ),
   }),
 
   // Freshest CRL (2.5.29.46)
-  "2.5.29.46": (ext): Parsed<"freshestCRL"> => ({
+  "2.5.29.46": (value): Parsed<"freshestCRL"> => ({
     extensionType: "freshestCRL",
-    distributionPoints: readExtensionValue(ext, pkijs.CRLDistributionPoints).distributionPoints.map(
-      buildDistributionPoint
-    ),
+    distributionPoints: readDistributionPoints(value),
   }),
 
   // Inhibit anyPolicy (2.5.29.54)
-  "2.5.29.54": (ext): Parsed<"inhibitAnyPolicy"> => ({
+  "2.5.29.54": (value): Parsed<"inhibitAnyPolicy"> => ({
     extensionType: "inhibitAnyPolicy",
-    skipCerts: integerNumber(readExtensionValue(ext, Integer)),
+    skipCerts: readInteger(expectTag(value, INTEGER)),
   }),
 
   // Expired Certificates on CRL (2.5.29.60)
-  "2.5.29.60": (ext): Parsed<"expiredCertsOnCRL"> => ({
+  "2.5.29.60": (value): Parsed<"expiredCertsOnCRL"> => ({
     extensionType: "expiredCertsOnCRL",
-    date: timeFromBlock(readExtensionValue(ext, GeneralizedTime)),
+    date: timeFromBlock(expectTag(value, GENERALIZED_TIME)),
   }),
 
   // Authority Information Access (1.3.6.1.5.5.7.1.1)
-  "1.3.6.1.5.5.7.1.1": (ext): Parsed<"authorityInfoAccess"> => ({
+  "1.3.6.1.5.5.7.1.1": (value): Parsed<"authorityInfoAccess"> => ({
     extensionType: "authorityInfoAccess",
-    accessDescriptions: buildAccessDescriptions(readExtensionValue(ext, pkijs.InfoAccess)),
+    accessDescriptions: readAccessDescriptions(value),
   }),
 
   // Qualified Certificate Statements (1.3.6.1.5.5.7.1.3)
-  "1.3.6.1.5.5.7.1.3": (ext): Parsed<"qcStatements"> => ({
+  "1.3.6.1.5.5.7.1.3": (value): Parsed<"qcStatements"> => ({
     extensionType: "qcStatements",
-    statements: readExtensionValue(ext, pkijs.QCStatements).values.map((statement) => {
-      const type: unknown = statement.type;
+    // QCStatements ::= SEQUENCE OF QCStatement, with no SIZE (RFC 3739 §3.2.6).
+    statements: sequenceOf(value, SEQUENCE, 0).map((block) => {
+      const statement = new DerReader(block);
+      const statementId = readOid(statement.read(OBJECT_IDENTIFIER));
+      const info = statement.optional();
+      statement.end();
       return {
-        statementId: buildObjectIdentifier(statement.id, QC_STATEMENT_NAMES),
-        rawHex: isBlock(type) ? blockHex(type) : "",
+        statementId: buildObjectIdentifier(statementId, QC_STATEMENT_NAMES),
+        rawHex: info ? blockHex(info) : "",
       };
     }),
   }),
 
   // Subject Information Access (1.3.6.1.5.5.7.1.11)
-  "1.3.6.1.5.5.7.1.11": (ext): Parsed<"subjectInfoAccess"> => ({
+  "1.3.6.1.5.5.7.1.11": (value): Parsed<"subjectInfoAccess"> => ({
     extensionType: "subjectInfoAccess",
-    accessDescriptions: buildAccessDescriptions(readExtensionValue(ext, pkijs.InfoAccess)),
+    accessDescriptions: readAccessDescriptions(value),
   }),
 
   // TLS Feature (1.3.6.1.5.5.7.1.24)
-  "1.3.6.1.5.5.7.1.24": (ext): Parsed<"tlsFeature"> => ({
+  "1.3.6.1.5.5.7.1.24": (value): Parsed<"tlsFeature"> => ({
     extensionType: "tlsFeature",
-    features: requireSequence(ext).valueBlock.value.map((item) => {
-      if (!(item instanceof Integer)) {
-        throw new Error(`Invalid TLS feature in ${ext.extnID}`);
-      }
-      const code = integerNumber(item);
+    features: sequenceOf(value, SEQUENCE, 0).map((block) => {
+      const code = readInteger(expectTag(block, INTEGER));
       return { code, name: TLS_FEATURE_NAMES[code] ?? null };
     }),
   }),
 
   // OCSP No Check (1.3.6.1.5.5.7.48.1.5)
-  "1.3.6.1.5.5.7.48.1.5": (ext): Parsed<"ocspNoCheck"> => {
-    readExtensionValue(ext, Null);
+  "1.3.6.1.5.5.7.48.1.5": (value): Parsed<"ocspNoCheck"> => {
+    if (contents(expectTag(value, NULL)).length > 0) {
+      throw new Error("Invalid NULL");
+    }
     return { extensionType: "ocspNoCheck" };
   },
 
   // Signed Certificate Timestamp List (1.3.6.1.4.1.11129.2.4.2). PKIjs does not fail on truncated
   // TLS data or on an SCT version it does not know: it leaves the defaults (no version, an empty
-  // logID, timestamp 0, no signature). Every SCT must have been read whole (RFC 6962 §3.2: v1 is
-  // 0, a 32-octet LogID, a signature), or the list is an error instead of invented SCTs.
-  "1.3.6.1.4.1.11129.2.4.2": (ext): Parsed<"signedCertificateTimestampList"> => ({
-    extensionType: "signedCertificateTimestampList",
-    timestamps: readExtensionValue(ext, pkijs.SignedCertificateTimestampList).timestamps.map(
-      (sct) => {
-        const signature = toHex(sct.signature).toUpperCase();
-        // version is typed number but is undefined when the data ended before it.
-        const version: unknown = sct.version;
-        if (typeof version !== "number" || sct.logID.byteLength !== 32 || signature === "") {
-          throw new Error(`Invalid SCT in ${ext.extnID}`);
-        }
-        return {
-          version,
-          logId: toHex(sct.logID).toUpperCase(),
-          timestamp: sct.timestamp.toISOString(),
-          hashAlgorithm: sct.hashAlgorithm,
-          signatureAlgorithm: sct.signatureAlgorithm,
-          signature,
-        };
-      }
-    ),
-  }),
-
-  // Netscape Certificate Type (2.16.840.1.113730.1.1)
-  "2.16.840.1.113730.1.1": (ext): Parsed<"netscapeCertType"> => {
-    const bits = readExtensionValue(ext, Asn1BitString);
+  // logID, timestamp 0, no signature), and it reads a last SCT longer than the list as a short one.
+  // The length prefixes must fill the list exactly and every SCT must have been read whole (RFC
+  // 6962 §3.2: v1 is 0, a 32-octet LogID, a signature), or the list is an error instead of
+  // invented SCTs.
+  "1.3.6.1.4.1.11129.2.4.2": (value): Parsed<"signedCertificateTimestampList"> => {
+    const list = expectTag(value, OCTET_STRING);
+    checkSctFraming(contents(list));
     return {
-      extensionType: "netscapeCertType",
-      flags: bitFlags(
-        bits.valueBlock.valueHexView,
-        bits.valueBlock.unusedBits,
-        NETSCAPE_CERT_TYPE_FLAGS
+      extensionType: "signedCertificateTimestampList",
+      timestamps: new pkijs.SignedCertificateTimestampList({ schema: list }).timestamps.map(
+        readSct
       ),
     };
   },
 
+  // Netscape Certificate Type (2.16.840.1.113730.1.1)
+  "2.16.840.1.113730.1.1": (value): Parsed<"netscapeCertType"> => {
+    const bits = expectTag(value, BIT_STRING);
+    return { extensionType: "netscapeCertType", flags: readBits(bits, NETSCAPE_CERT_TYPE_FLAGS) };
+  },
+
   // Netscape Comment (2.16.840.1.113730.1.13)
-  "2.16.840.1.113730.1.13": (ext): Parsed<"netscapeComment"> => ({
+  "2.16.840.1.113730.1.13": (value): Parsed<"netscapeComment"> => ({
     extensionType: "netscapeComment",
-    comment: readExtensionValue(ext, IA5String).valueBlock.value,
+    comment: readAscii(expectTag(value, IA5_STRING)),
   }),
 
   // Microsoft Certificate Template Name v1 (1.3.6.1.4.1.311.20.2)
-  "1.3.6.1.4.1.311.20.2": (ext): Parsed<"msCertificateTemplateName"> => {
-    const name = stringOf(readExtensionSchema(ext));
-    if (name === undefined) {
-      throw new Error(`Invalid template name in ${ext.extnID}`);
-    }
-    return { extensionType: "msCertificateTemplateName", name };
-  },
+  "1.3.6.1.4.1.311.20.2": (value): Parsed<"msCertificateTemplateName"> => ({
+    extensionType: "msCertificateTemplateName",
+    name: readText(value),
+  }),
 
   // Microsoft CA Version (1.3.6.1.4.1.311.21.1)
-  "1.3.6.1.4.1.311.21.1": (ext): Parsed<"msCaVersion"> => {
-    const version = readExtensionValue(ext, pkijs.CAVersion);
+  "1.3.6.1.4.1.311.21.1": (value): Parsed<"msCaVersion"> => {
+    // The key index in the high, the certificate index in the low 16 bits.
+    const version = readInteger(expectTag(value, INTEGER));
+    if (version < 0 || version > 0xffffffff) {
+      throw new Error("Invalid CA version");
+    }
     return {
       extensionType: "msCaVersion",
-      certificateIndex: version.certificateIndex,
-      keyIndex: version.keyIndex,
+      certificateIndex: version % 0x10000,
+      keyIndex: Math.floor(version / 0x10000),
     };
   },
 
   // Microsoft Previous CA Certificate Hash (1.3.6.1.4.1.311.21.2)
-  "1.3.6.1.4.1.311.21.2": (ext): Parsed<"msPreviousCaCertificateHash"> => ({
+  "1.3.6.1.4.1.311.21.2": (value): Parsed<"msPreviousCaCertificateHash"> => ({
     extensionType: "msPreviousCaCertificateHash",
-    hash: toHex(readExtensionValue(ext, OctetString).valueBlock.valueHexView).toUpperCase(),
+    hash: hexOf(contents(expectTag(value, OCTET_STRING))),
   }),
 
   // Microsoft CRL Virtual Base (1.3.6.1.4.1.311.21.3)
-  "1.3.6.1.4.1.311.21.3": (ext): Parsed<"msCrlVirtualBase"> => ({
+  "1.3.6.1.4.1.311.21.3": (value): Parsed<"msCrlVirtualBase"> => ({
     extensionType: "msCrlVirtualBase",
-    number: readCRLInteger(ext).toString(),
+    number: readCRLInteger(value).toString(),
   }),
 
   // Microsoft Next CRL Publish (1.3.6.1.4.1.311.21.4)
-  "1.3.6.1.4.1.311.21.4": (ext): Parsed<"msCrlNextPublish"> => ({
+  "1.3.6.1.4.1.311.21.4": (value): Parsed<"msCrlNextPublish"> => ({
     extensionType: "msCrlNextPublish",
-    date: timeFromBlock(readExtensionSchema(ext)),
+    date: timeFromBlock(value),
   }),
 
   // Microsoft Certificate Template Information v2 (1.3.6.1.4.1.311.21.7)
-  "1.3.6.1.4.1.311.21.7": (ext): Parsed<"msCertificateTemplate"> => {
-    const template = readExtensionValue(ext, pkijs.CertificateTemplate);
-    // PKIjs's versions are valueDec: read them from the INTEGERs after the templateID.
-    const [, major, minor] = requireSequence(ext).valueBlock.value;
+  "1.3.6.1.4.1.311.21.7": (value): Parsed<"msCertificateTemplate"> => {
+    const template = new DerReader(value);
+    const templateId = readOid(template.read(OBJECT_IDENTIFIER));
+    const major = template.optional(INTEGER);
+    const minor = template.optional(INTEGER);
+    template.end();
     return {
       extensionType: "msCertificateTemplate",
-      templateId: buildObjectIdentifier(template.templateID),
-      majorVersion: major instanceof Integer ? integerNumber(major) : undefined,
-      minorVersion: minor instanceof Integer ? integerNumber(minor) : undefined,
+      templateId: buildObjectIdentifier(templateId),
+      majorVersion: major && readInteger(major),
+      minorVersion: minor && readInteger(minor),
     };
   },
 
   // Microsoft Application Policies (1.3.6.1.4.1.311.21.10)
-  "1.3.6.1.4.1.311.21.10": (ext): Parsed<"msApplicationPolicies"> => ({
+  "1.3.6.1.4.1.311.21.10": (value): Parsed<"msApplicationPolicies"> => ({
     extensionType: "msApplicationPolicies",
-    policies: buildPolicies(readExtensionValue(ext, pkijs.CertificatePolicies), EKU_NAMES),
+    policies: readPolicies(value, EKU_NAMES),
   }),
 
   // Microsoft CRL Self CDP (1.3.6.1.4.1.311.21.14): same syntax as CRL Distribution Points
-  "1.3.6.1.4.1.311.21.14": (ext): Parsed<"msCrlSelfCdp"> => ({
+  "1.3.6.1.4.1.311.21.14": (value): Parsed<"msCrlSelfCdp"> => ({
     extensionType: "msCrlSelfCdp",
-    distributionPoints: new pkijs.CRLDistributionPoints({
-      schema: requireSequence(ext),
-    }).distributionPoints.map(buildDistributionPoint),
+    distributionPoints: readDistributionPoints(value),
   }),
 
   // Microsoft NTDS CA Security Extension (1.3.6.1.4.1.311.25.2): SEQUENCE { otherName }, whose
   // value is the SID text in an OCTET STRING
-  "1.3.6.1.4.1.311.25.2": (ext): Parsed<"msNtdsCaSecurity"> => {
-    const [otherName] = requireSequence(ext).valueBlock.value;
-    const [, wrapper] = otherName instanceof Constructed ? otherName.valueBlock.value : [];
-    const [octets] = wrapper instanceof Constructed ? wrapper.valueBlock.value : [];
-    const sid =
-      octets instanceof OctetString
-        ? new TextDecoder("latin1").decode(octets.valueBlock.valueHexView)
-        : "";
+  "1.3.6.1.4.1.311.25.2": (value): Parsed<"msNtdsCaSecurity"> => {
+    const sequence = new DerReader(value);
+    const { inner } = readOtherNameParts(sequence.read(context(0)));
+    sequence.end();
+    const sid = readAscii(expectTag(inner, OCTET_STRING));
     if (!/^S-1-[0-9-]+$/.test(sid)) {
-      throw new Error(`Invalid SID in ${ext.extnID}`);
+      throw new Error("Invalid SID");
     }
     return { extensionType: "msNtdsCaSecurity", sid };
   },
-};
+} satisfies Record<string, ExtensionParser>;
+
+// Every member of the API union has a parser: a missing one names itself in a compile error.
+type Decoded = NonNullable<ReturnType<(typeof EXTENSION_PARSERS)[keyof typeof EXTENSION_PARSERS]>>;
+type Undecoded = Exclude<ExtensionType, Decoded["extensionType"]>;
+const decodesEveryType: [Undecoded] extends [never] ? true : Undecoded = true;
+void decodesEveryType;
+
+const PARSER_BY_OID: Readonly<Record<string, ExtensionParser | undefined>> = EXTENSION_PARSERS;

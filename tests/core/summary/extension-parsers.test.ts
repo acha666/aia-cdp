@@ -176,7 +176,15 @@ const bits = (byte: number, unusedBits: number) =>
   new asn1.BitString({ valueHex: Uint8Array.of(byte).buffer, unusedBits });
 const context = (tagNumber: number, ...value: asn1.BaseBlock[]) =>
   new asn1.Constructed({ idBlock: { tagClass: 3, tagNumber }, value });
+/** A context-specific primitive: an IMPLICIT [n] value's contents octets. */
+const implicit = (tagNumber: number, ...bytes: number[]) =>
+  new asn1.Primitive({
+    idBlock: { tagClass: 3, tagNumber },
+    valueHex: Uint8Array.from(bytes).buffer,
+  });
 const zeros = (count: number) => new Array<number>(count).fill(0);
+/** An extension value given as its octets, for encodings asn1js would not write. */
+const der = (...bytes: number[]) => ({ toBER: () => Uint8Array.from(bytes).buffer });
 const uri = (value: string) => new pkijs.GeneralName({ type: 6, value });
 const ip = (...bytes: number[]) => new pkijs.GeneralName({ type: 7, value: octets(bytes) });
 /** A GeneralName inside a hand-built SEQUENCE (PKIjs types toSchema() as a union). */
@@ -194,12 +202,14 @@ const SCT_SIGNATURE = [0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02];
 const SCT_TIME = new Date("2026-01-02T03:04:05.678Z");
 
 /** A list of one v1 SCT (RFC 6962 §3.2–3.3) by hand: PKIjs's encoder pads it with zero octets. */
-function sctList(): asn1.OctetString {
+function sctList(missing = 0): asn1.OctetString {
   const ms = BigInt(SCT_TIME.getTime());
   const time = Array.from({ length: 8 }, (_, at) => Number((ms >> BigInt(56 - 8 * at)) & 0xffn));
   // v1, log id, timestamp, no extensions, sha256 / ecdsa, signature.
   const sct = [0, ...SCT_LOG_ID, ...time, 0, 0, 4, 3, 0, SCT_SIGNATURE.length, ...SCT_SIGNATURE];
-  return octets([0, sct.length + 2, 0, sct.length, ...sct]);
+  // `missing` octets cut from the end, with the SCT's own length left as it was.
+  const kept = sct.slice(0, sct.length - missing);
+  return octets([0, kept.length + 2, 0, sct.length, ...kept]);
 }
 
 const qcType = seq(objectId("0.4.0.1862.1.6.1"));
@@ -269,6 +279,18 @@ const DECODED: [type: string, oid: string, value: { toBER(): ArrayBuffer }, pars
     },
   ],
   [
+    // No text form: the DER is kept. PKIjs cannot read either.
+    "subjectAltName",
+    "2.5.29.17",
+    seq(context(3, seq()), context(5, context(1, utf8("party")))),
+    {
+      names: [
+        { type: "x400Address", value: "", rawHex: "A3023000" },
+        { type: "ediPartyName", value: "", rawHex: "A509A1070C057061727479" },
+      ],
+    },
+  ],
+  [
     "issuerAltName",
     "2.5.29.18",
     new pkijs.AltName({ altNames: [uri("https://ca.example")] }).toSchema(),
@@ -277,21 +299,22 @@ const DECODED: [type: string, oid: string, value: { toBER(): ArrayBuffer }, pars
   [
     "nameConstraints",
     "2.5.29.30",
-    new pkijs.NameConstraints({
-      permittedSubtrees: [
-        new pkijs.GeneralSubtree({ base: ip(192, 0, 2, 0, 255, 255, 255, 0) }),
-        new pkijs.GeneralSubtree({
-          base: ip(0x20, 1, 0x0d, 0xb8, ...zeros(12), 255, 255, 255, 255, ...zeros(12)),
-        }),
-      ],
-      excludedSubtrees: [
-        new pkijs.GeneralSubtree({
-          base: new pkijs.GeneralName({ type: 1, value: "nobody@example.com" }),
-          minimum: 1,
-          maximum: 3,
-        }),
-      ],
-    }).toSchema(),
+    // RFC 5280 DER (IMPLICIT [0] minimum, [1] maximum), built by hand: PKIjs tags them EXPLICIT.
+    seq(
+      context(
+        0,
+        seq(block(ip(192, 0, 2, 0, 255, 255, 255, 0))),
+        seq(block(ip(0x20, 1, 0x0d, 0xb8, ...zeros(12), 255, 255, 255, 255, ...zeros(12))))
+      ),
+      context(
+        1,
+        seq(
+          block(new pkijs.GeneralName({ type: 1, value: "nobody@example.com" })),
+          implicit(0, 1),
+          implicit(1, 3)
+        )
+      )
+    ),
     {
       permittedSubtrees: [
         { base: { type: "iPAddress", value: "192.0.2.0/24" }, minimum: 0 },
@@ -406,21 +429,42 @@ const DECODED: [type: string, oid: string, value: { toBER(): ArrayBuffer }, pars
   [
     "cRLDistributionPoints",
     "2.5.29.31",
-    new pkijs.CRLDistributionPoints({
-      distributionPoints: [
-        new pkijs.DistributionPoint({
-          distributionPoint: [uri("http://crl.example/a.crl")],
-          reasons: bits(0x60, 5),
-          cRLIssuer: [new pkijs.GeneralName({ type: 2, value: "crl-issuer.example" })],
-        }),
-      ],
-    }).toSchema(),
+    // RFC 5280 DER, built by hand: PKIjs writes [1] reasons without the unused-bits octet.
+    seq(
+      seq(
+        context(0, context(0, block(uri("http://crl.example/a.crl")))),
+        implicit(1, 0x05, 0x60),
+        context(2, block(new pkijs.GeneralName({ type: 2, value: "crl-issuer.example" })))
+      )
+    ),
     {
       distributionPoints: [
         {
           distributionPoint: { fullName: [URI("http://crl.example/a.crl")] },
           reasons: ["keyCompromise", "cACompromise"],
           cRLIssuer: [{ type: "dNSName", value: "crl-issuer.example" }],
+        },
+      ],
+    },
+  ],
+  [
+    // nameRelativeToCRLIssuer [1] IMPLICIT RelativeDistinguishedName, which PKIjs cannot read.
+    "freshestCRL",
+    "2.5.29.46",
+    seq(seq(context(0, context(1, seq(objectId("2.5.4.3"), utf8("Delta")))))),
+    {
+      distributionPoints: [
+        {
+          distributionPoint: {
+            nameRelativeToCRLIssuer: {
+              attributes: [
+                {
+                  type: named("2.5.4.3", "commonName"),
+                  value: { string: "Delta", encoding: "utf8String" },
+                },
+              ],
+            },
+          },
         },
       ],
     },
@@ -574,6 +618,9 @@ describe("decoders on values built in the test", () => {
   it.each([
     // PKIjs yields an SCT of 1970 with an empty log id from truncated TLS data.
     ["a truncated SCT list", "1.3.6.1.4.1.11129.2.4.2", octets([0, 2, 9, 9])],
+    // PKIjs reads the short last SCT, its signature cut, as if the octets were there.
+    ["an SCT longer than the list", "1.3.6.1.4.1.11129.2.4.2", sctList(2)],
+    ["an empty SCT list (1..2^16-1)", "1.3.6.1.4.1.11129.2.4.2", octets([0, 0])],
     [
       "a pathLenConstraint beyond Number.MAX_SAFE_INTEGER",
       "2.5.29.19",
@@ -582,9 +629,49 @@ describe("decoders on values built in the test", () => {
         asn1.Integer.fromBigInt(BigInt(Number.MAX_SAFE_INTEGER) + 1n)
       ),
     ],
+    // Strict DER (X.690 §10, §11) and RFC 5280 syntax, which PKIjs's models let through.
+    ["trailing bytes after the value", "2.5.29.19", der(0x30, 0x00, 0x05, 0x00)],
+    ["a length in the long form", "2.5.29.19", der(0x30, 0x81, 0x00)],
+    ["a BOOLEAN other than 00 / FF", "2.5.29.19", der(0x30, 0x03, 0x01, 0x01, 0x01)],
+    ["an element too many", "2.5.29.19", seq(new asn1.Boolean({ value: true }), int(0), int(5))],
+    ["an empty SubjectAltName (SIZE 1..MAX)", "2.5.29.17", seq()],
+    [
+      "an AccessDescription with an element too many",
+      "1.3.6.1.5.5.7.1.1",
+      seq(seq(objectId("1.3.6.1.5.5.7.48.1"), block(uri("http://ocsp.example")), new asn1.Null())),
+    ],
+    // PKIjs writes and reads [1] reasons without the unused-bits octet: 0x60 is no such count.
+    ["reasons without the unused-bits octet", "2.5.29.31", seq(seq(implicit(1, 0x60)))],
+    [
+      "a QCStatement with an element too many",
+      "1.3.6.1.5.5.7.1.3",
+      seq(seq(objectId("0.4.0.1862.1.1"), new asn1.Null(), new asn1.Null())),
+    ],
+    [
+      "an empty IMPLICIT INTEGER (GeneralSubtree minimum)",
+      "2.5.29.30",
+      seq(context(0, seq(block(uri("http://x")), implicit(0)))),
+    ],
   ])("reports %s as an error, not as a parsed value", (_case, oid, value) => {
     const result = buildExtension(extension(oid, value));
     expect([result.parseStatus, result.parsed]).toEqual(["error", undefined]);
     expect(result.asn1).toBeDefined();
+  });
+
+  it("keeps a policy qualifier that does not decode as its DER only", () => {
+    const notice = new asn1.IA5String({ value: "not a UserNotice" });
+    const result = buildExtension(
+      extension(
+        "2.5.29.32",
+        seq(seq(objectId("2.5.29.32.0"), seq(seq(objectId("1.3.6.1.5.5.7.2.2"), notice))))
+      )
+    );
+    const parsed = result.parsed?.extensionType === "certificatePolicies" ? result.parsed : null;
+    expect(parsed?.policies[0]?.policyQualifiers).toEqual([
+      {
+        qualifierId: named("1.3.6.1.5.5.7.2.2", "userNotice"),
+        rawHex: toHex(notice.toBER(false)).toUpperCase(),
+      },
+    ]);
   });
 });

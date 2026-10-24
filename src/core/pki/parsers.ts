@@ -1,10 +1,15 @@
-import { Constructed, fromBER, Integer, OctetString, Sequence } from "asn1js";
+import { Constructed, fromBER, Integer, Sequence } from "asn1js";
 import type { BaseBlock } from "asn1js";
 import * as pkijs from "pkijs";
 import { Asn1TimeError, assertWellFormed, integerNumber, readStrictTime } from "./asn1.ts";
 import { PkiParseError } from "./errors.ts";
 import type { PkiKind } from "./errors.ts";
-import { readCRLInteger, readExtensionSchema } from "./extensions.ts";
+import {
+  readAuthorityKeyId,
+  readCRLInteger,
+  readExtensionSchema,
+  readSubjectKeyId,
+} from "./extensions.ts";
 import { readTlv } from "./pem.ts";
 import type { Tlv } from "./pem.ts";
 import { toHex } from "../digest.ts";
@@ -274,14 +279,7 @@ export function getCommonName(name: pkijs.RelativeDistinguishedNames): string | 
  */
 export function getSKIHex(cert: pkijs.Certificate): string | undefined {
   const extension = cert.extensions?.find((ext) => ext.extnID === "2.5.29.14");
-  if (!extension) {
-    return undefined;
-  }
-  const value = readExtensionSchema(extension);
-  if (!(value instanceof OctetString) || value.idBlock.isConstructed) {
-    throw new Error("Invalid extension 2.5.29.14");
-  }
-  return toHex(value.valueBlock.valueHexView);
+  return extension && toHex(readSubjectKeyId(readExtensionSchema(extension)));
 }
 
 /**
@@ -293,12 +291,8 @@ export function getAuthorityKeyIdHex(
   extensions: pkijs.Extension[] | undefined
 ): string | undefined {
   const extension = extensions?.find((ext) => ext.extnID === "2.5.29.35");
-  if (!extension) {
-    return undefined;
-  }
-  const schema = readExtensionSchema(extension);
-  const key = new pkijs.AuthorityKeyIdentifier({ schema }).keyIdentifier;
-  return key ? toHex(key.valueBlock.valueHexView) : undefined;
+  const key = extension && readAuthorityKeyId(readExtensionSchema(extension)).keyIdentifier;
+  return key && toHex(key);
 }
 
 /** The INTEGER of the CRL extension `oid` (CRL Number, Delta CRL Indicator); undefined without it. */
@@ -307,7 +301,7 @@ export function getCRLInteger(
   oid: string
 ): bigint | undefined {
   const extension = crl.crlExtensions?.extensions.find((ext) => ext.extnID === oid);
-  return extension ? readCRLInteger(extension) : undefined;
+  return extension && readCRLInteger(readExtensionSchema(extension));
 }
 
 /** AD CS Next CRL Publish: when the CA will publish its next CRL (before nextUpdate). */

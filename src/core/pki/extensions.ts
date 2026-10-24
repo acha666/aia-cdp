@@ -1,34 +1,55 @@
-import { BaseBlock, fromBER, Integer } from "asn1js";
+// Extension values that both the upload path and the detail views read: key identifiers and CRL
+// numbers. An upload holds the certificate or CRL to DER but not the contents of its extension
+// values (plan §6), so it reads them with readExtensionSchema; the detail views decode every value
+// in strict DER (readExtensionDer). The readers below take the decoded value either way.
+import type { BaseBlock } from "asn1js";
 import type { Extension } from "pkijs";
+import {
+  DerReader,
+  INTEGER,
+  OCTET_STRING,
+  context,
+  contents,
+  expectTag,
+  readBigInt,
+  readDer,
+  readOne,
+  sequenceOf,
+} from "./der.ts";
 
-/** PKIjs decodes and caches extension values; validate its result before using it. */
-export function readExtensionValue<T>(
-  extension: Extension,
-  expected: abstract new (...args: never[]) => T
-): T {
-  const value: unknown = extension.parsedValue;
-  if (
-    !(value instanceof expected) ||
-    (typeof value === "object" && value !== null && "parsingError" in value) ||
-    (value instanceof BaseBlock && value.error !== "")
-  ) {
-    throw new Error(`Invalid extension ${extension.extnID}`);
-  }
-  return value;
-}
+/** The extension value as one element, BER let through (the upload path, plan §6). */
+export const readExtensionSchema = (extension: Extension): BaseBlock =>
+  readOne(extension.extnValue.valueBlock.valueHexView);
+
+/** The extension value as one element in strict DER (the detail views). */
+export const readExtensionDer = (extension: Extension): BaseBlock =>
+  readDer(extension.extnValue.valueBlock.valueHexView);
+
+/** SubjectKeyIdentifier ::= KeyIdentifier (a primitive OCTET STRING): its octets. */
+export const readSubjectKeyId = (value: BaseBlock): Uint8Array =>
+  contents(expectTag(value, OCTET_STRING));
 
 /**
- * Decode the raw extension bytes as a fresh ASN.1 tree, independent of the PKIjs cache. The value
- * must be exactly one element (RFC 5280 §4.1: extnValue holds the DER of one value); PKIjs's own
- * decoding ignores trailing bytes.
+ * AuthorityKeyIdentifier ::= SEQUENCE { keyIdentifier [0], authorityCertIssuer [1] GeneralNames,
+ * authorityCertSerialNumber [2] }, all OPTIONAL and IMPLICIT (RFC 5280 §4.2.1.1), nothing else:
+ * the key id and serial number octets, and the GeneralName elements of the issuer.
  */
-export function readExtensionSchema(extension: Extension): BaseBlock {
-  const view = extension.extnValue.valueBlock.valueHexView;
-  const parsed = fromBER(view);
-  if (parsed.offset !== view.byteLength || parsed.result.error !== "") {
-    throw new Error(`Invalid extension ${extension.extnID}`);
+export function readAuthorityKeyId(value: BaseBlock) {
+  const aki = new DerReader(value);
+  const keyIdentifier = aki.optional(context(0));
+  const issuer = aki.optional(context(1));
+  const serial = aki.optional(context(2));
+  aki.end();
+  const names = issuer && sequenceOf(issuer, context(1));
+  // GeneralName ::= CHOICE [0]–[8]: the detail views decode each name, uploads only check this.
+  if (names?.some(({ idBlock }) => idBlock.tagClass !== 3 || idBlock.tagNumber > 8)) {
+    throw new Error("Invalid GeneralName");
   }
-  return parsed.result;
+  return {
+    keyIdentifier: keyIdentifier && contents(keyIdentifier),
+    names,
+    serial: serial && contents(serial),
+  };
 }
 
 /**
@@ -38,26 +59,17 @@ export function readExtensionSchema(extension: Extension): BaseBlock {
 export const MAX_CRL_NUMBER_OCTETS = 20;
 
 /**
- * A CRL Number or Delta CRL Indicator: exactly one INTEGER (tag 2, not ENUMERATED), not negative, at
- * most MAX_CRL_NUMBER_OCTETS contents octets. Throws otherwise, trailing bytes in extnValue included.
+ * A CRL Number or Delta CRL Indicator: one INTEGER (tag 2, not ENUMERATED), not negative, at most
+ * MAX_CRL_NUMBER_OCTETS contents octets. Throws otherwise.
  */
-export function readCRLInteger(extension: Extension): bigint {
-  const integer = readExtensionSchema(extension);
-  if (
-    !(integer instanceof Integer) ||
-    integer.idBlock.tagNumber !== 2 ||
-    integer.valueBlock.valueHexView.length === 0
-  ) {
-    throw new Error(`Invalid CRL number in ${extension.extnID}`);
+export function readCRLInteger(value: BaseBlock): bigint {
+  const integer = expectTag(value, INTEGER);
+  if (contents(integer).length > MAX_CRL_NUMBER_OCTETS) {
+    throw new Error(`CRL number longer than ${MAX_CRL_NUMBER_OCTETS} octets`);
   }
-  if (integer.valueBlock.valueHexView.length > MAX_CRL_NUMBER_OCTETS) {
-    throw new Error(
-      `CRL number in ${extension.extnID} longer than ${MAX_CRL_NUMBER_OCTETS} octets`
-    );
+  const number = readBigInt(integer);
+  if (number < 0n) {
+    throw new Error("Negative CRL number");
   }
-  const value = integer.toBigInt();
-  if (value < 0n) {
-    throw new Error(`Negative CRL number in ${extension.extnID}`);
-  }
-  return value;
+  return number;
 }

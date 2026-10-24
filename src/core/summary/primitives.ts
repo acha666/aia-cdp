@@ -11,6 +11,7 @@ import {
   ObjectIdentifier,
   Sequence,
   Set as Asn1Set,
+  UTCTime,
 } from "asn1js";
 import type { BitString as Asn1BitString } from "asn1js";
 import * as pkijs from "pkijs";
@@ -47,13 +48,14 @@ import type {
  * `value instanceof BaseBlock` narrows `unknown` to BaseBlock<any, any>, which typescript-eslint
  * rejects as an argument (no-unsafe-argument); this guard narrows to BaseBlock.
  */
-export function isBlock(value: unknown): value is BaseBlock {
+function isBlock(value: unknown): value is BaseBlock {
   return value instanceof BaseBlock;
 }
 
 /** The text of a string-typed block (asn1js keeps it in valueBlock.value); undefined otherwise. */
 export function stringOf(block: unknown): string | undefined {
-  if (!(block instanceof BaseBlock)) {
+  // asn1js derives UTCTime and GeneralizedTime from VisibleString, with an empty value.
+  if (!(block instanceof BaseBlock) || block instanceof UTCTime) {
     return undefined;
   }
   const value: unknown = (block.valueBlock as { value?: unknown }).value;

@@ -42,7 +42,8 @@ export class Asn1TimeError extends Error {
   override name = "Asn1TimeError";
 }
 
-function asciiOf(view: Uint8Array): string {
+/** One character per octet (ISO 8859-1): the text of an IA5String, a time or an SID. */
+export function asciiOf(view: Uint8Array): string {
   let text = "";
   for (const byte of view) {
     text += String.fromCharCode(byte);

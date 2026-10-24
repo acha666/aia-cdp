@@ -75,7 +75,7 @@ export type CrlPolicyResult =
 function limitsScope(extension: Extension): boolean {
   const value = readExtensionSchema(extension);
   if (!(value instanceof Sequence)) {
-    throw new Error("IssuingDistributionPoint is not a SEQUENCE");
+    throw new Error("Not a SEQUENCE");
   }
   return value.valueBlock.value.some(
     ({ idBlock }) => idBlock.tagClass !== 3 || idBlock.tagNumber !== 0
@@ -139,11 +139,12 @@ export function checkCrlPolicy(crl: ReceivedCrl, now: Date): CrlPolicyResult {
       try {
         scoped = limitsScope(extension);
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         return {
           ok: false,
           error: "invalid_crl",
           details: { reason: "extension_value" },
-          detail: error instanceof Error ? error.message : String(error),
+          detail: `Invalid Issuing Distribution Point: ${message}`,
         };
       }
       if (scoped) {

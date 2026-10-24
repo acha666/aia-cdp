@@ -95,6 +95,20 @@ describe("names and key identifiers", () => {
     expect(getAuthorityKeyIdHex([aki()])).toBeUndefined();
     expect(getAuthorityKeyIdHex(undefined)).toBeUndefined();
     expect(() => getAuthorityKeyIdHex([extension("2.5.29.35", new asn1.Null())])).toThrow();
+    // The three fields in their order and nothing else (RFC 5280 §4.2.1.1).
+    const tagged = (tagNumber: number, ...bytes: number[]) =>
+      new asn1.Primitive({
+        idBlock: { tagClass: 3, tagNumber },
+        valueHex: Uint8Array.from(bytes).buffer,
+      });
+    for (const value of [
+      [tagged(2, 17), tagged(0, 0xab, 0xcd)],
+      [tagged(0, 0xab, 0xcd), new asn1.Null()],
+    ]) {
+      expect(() =>
+        getAuthorityKeyIdHex([extension("2.5.29.35", new asn1.Sequence({ value }))])
+      ).toThrow();
+    }
   });
 });
 
