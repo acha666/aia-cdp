@@ -9,7 +9,7 @@ import {
   encodeJson,
 } from "../../src/core/catalog.ts";
 import { parseCertificate, parseCRL } from "../../src/core/pki/parsers.ts";
-import { crlBlobKey } from "../../src/core/publish.ts";
+import { crlBlobKey } from "../../src/core/history.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import {
   buildCertificateSummary,

@@ -1,10 +1,11 @@
-// CRL publishing (plan §5.5): blob and history keys, the freshness rule and publishCrl. There is
-// one commit point, the catalog write: no PEM or alias companions, no edge cache. The HTTP route
-// maps the result.
+// CRL publishing (plan §5.5): the freshness rule and publishCrl, which writes the blob and history
+// marker keys of ./history.ts. There is one commit point, the catalog write: no PEM or alias
+// companions, no edge cache. The HTTP route maps the result.
 import { encodeJson, JSON_CONTENT_TYPE, updateState } from "./catalog.ts";
 import type { CatalogMutation, CrlKind, CrlSummary, CurrentCrl, State } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
-import { formatGeneralizedTime } from "./pki/asn1.ts";
+import { crlBlobKey, crlHistoryKey } from "./history.ts";
+import type { HistoryMarker } from "./history.ts";
 import { checkCrlPolicy, checkEntryPolicy } from "./pki/crl-policy.ts";
 import { PkiParseError } from "./pki/errors.ts";
 import type { PkiParseReason } from "./pki/errors.ts";
@@ -18,72 +19,6 @@ import { readBlob } from "./store.ts";
 import type { ObjectStore } from "./store.ts";
 import { buildCrlSummary, readCrlFields, readExtension } from "./summary/catalog-summary.ts";
 import type { CrlFields } from "./summary/catalog-summary.ts";
-
-/**
- * `<YYYYMMDDHHMMSSZ of thisUpdate>-<crlNumber or "none">-<sha256>`: the name of one CRL version,
- * shared by its blob and by its history marker (plan §5.1). The fixed-width time first makes a
- * `list` of either prefix sort by thisUpdate; the number lets a target's history be listed without
- * reading the blobs.
- */
-export function crlVersionName(
-  summary: Pick<CrlSummary, "thisUpdate" | "crlNumber">,
-  sha256: string
-): string {
-  const time = formatGeneralizedTime(new Date(summary.thisUpdate));
-  return `${time}-${summary.crlNumber ?? "none"}-${sha256}`;
-}
-
-const VERSION_NAME =
-  /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z-(0|[1-9][0-9]*|none)-([0-9a-f]{64})$/;
-
-/**
- * The fields of a crlVersionName, or undefined for a name of another shape (only an out-of-band
- * write makes one). `thisUpdate` in the catalog's format, exactly: CRL times are whole seconds.
- */
-export function parseCrlVersionName(
-  name: string
-): { thisUpdate: string; crlNumber: string | null; sha256: string } | undefined {
-  const match = VERSION_NAME.exec(name);
-  if (match === null) {
-    return undefined;
-  }
-  const [, year, month, day, hour, minute, second, crlNumber, sha256 = ""] = match;
-  return {
-    thisUpdate: `${year}-${month}-${day}T${hour}:${minute}:${second}.000Z`,
-    crlNumber: crlNumber === "none" || crlNumber === undefined ? null : crlNumber,
-    sha256,
-  };
-}
-
-/** Store key of a published CRL's DER (plan §5.1); current and history share it. */
-export function crlBlobKey(
-  targetId: string,
-  summary: Pick<CrlSummary, "thisUpdate" | "crlNumber">,
-  sha256: string
-): string {
-  return `blobs/crls/${targetId}/${crlVersionName(summary, sha256)}.der`;
-}
-
-/**
- * Store key of the history marker of one CRL version of a target (plan §5.1, §5.3): the name of
- * its blob as JSON, so that a `list` of both prefixes pairs them without reading either.
- */
-export function crlHistoryKey(
-  targetId: string,
-  summary: Pick<CrlSummary, "thisUpdate" | "crlNumber">,
-  sha256: string
-): string {
-  return `history/${targetId}/${crlVersionName(summary, sha256)}.json`;
-}
-
-/**
- * Body of a history marker written when a publish supersedes `current`: that record verbatim. No
- * time of its own: a marker is create-only and may come from a call whose catalog write was then
- * lost (concurrent_update) while the version stayed current, so a time written then would stay
- * wrong forever. When the version was superseded is the `publishedAt` of the version that
- * superseded it.
- */
-export type HistoryMarker = CurrentCrl;
 
 // Freshness ---------------------------------------------------------------------------------------
 

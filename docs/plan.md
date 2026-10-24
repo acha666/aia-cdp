@@ -105,7 +105,7 @@ aia-cdp/
       import.ts        importCertificate(deps, bytes)
       publish.ts       publishCrl(deps, bytes)（入口取一次 deps.now()）
       admin.ts         validateConfig / applyConfig / deleteCertificate
-      history.ts       listHistory / getHistoryBlob
+      history.ts       CRL 版本名与键（crlBlobKey / crlHistoryKey）、listHistory / getHistoryBlob
     http/
       app.ts           createApp(deps) → OpenAPIHono；中间件与挂载顺序
       routes/          health.ts  certificates.ts  crls.ts  stats.ts  admin.ts  downloads.ts
@@ -251,7 +251,7 @@ history/<targetId>/<与 blob 同名>.json                不可变；历史标�
 ```
 
 CRL 键的时间段是 `thisUpdate`（定宽，字典序即时间序），号段是十进制 CRL 号、无号时为 `none`；键只由 `crlBlobKey()`
-（`src/core/publish.ts`）生成。CRL Number 与 Delta 指示的内容至多 20 octet（RFC 5280 §5.2.3），更长的拒为 `invalid_crl`（`extension_value`），
+（`src/core/history.ts`）生成。CRL Number 与 Delta 指示的内容至多 20 octet（RFC 5280 §5.2.3），更长的拒为 `invalid_crl`（`extension_value`），
 所以号段至多 48 位十进制，最长的名字与 fs 适配器的临时文件 `.<名字>.<uuid>.tmp` 都远在单个名字 255 字节以内（R2 键上限 1024）。
 键全部由服务生成（hex、uuid、十进制、固定名），不存在操作员命名的键，
 因此不需要键编码、长度、大小写规则；三个适配器仍用 `assertStoreKey` 校验每个键（§5.4）。
