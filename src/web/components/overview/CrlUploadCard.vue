@@ -26,7 +26,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useCrlUploadInput } from "@/composables/useCrlUploadInput";
 import { useUploadToken } from "@/composables/useUploadToken";
-import { errorCode, errorMessage, errorReason } from "@/utils/errors";
+import { errorMessage, errorReason } from "@/utils/errors";
 
 // Publishing a CRL from the browser: no submit while the input is invalid or an upload runs, the
 // input cleared only if it did not change meanwhile, a drop takes its first file, the file input is
@@ -69,7 +69,6 @@ interface Success {
   published: PublishedCrl;
 }
 interface Failure {
-  code: string;
   message: string;
   reason: string | null;
 }
@@ -118,7 +117,7 @@ async function submit() {
     void focusResult(successAlert);
   } catch (error) {
     const message = errorMessage(error, i18n);
-    failure.value = { code: errorCode(error), message, reason: errorReason(error, i18n) };
+    failure.value = { message, reason: errorReason(error, i18n) };
     toast.error(message);
     if (error instanceof ApiError && error.code === "unauthorized") {
       openToken();
@@ -182,7 +181,6 @@ function onFileChange(event: Event) {
         tabindex="-1"
         class="outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         data-testid="upload-error"
-        :data-code="failure.code"
       >
         <CircleAlertIcon />
         <AlertTitle>{{ t("upload.errors.uploadFailed") }}</AlertTitle>

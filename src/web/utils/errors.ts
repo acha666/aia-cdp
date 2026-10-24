@@ -6,17 +6,10 @@
 import { ApiError } from "@/client/errors";
 import type { I18nText } from "@/i18n";
 
-/** The code of a failure: ApiError's code, else the error's name. */
-export function errorCode(error: unknown): string {
-  if (error instanceof ApiError) {
-    return error.code;
-  }
-  return error instanceof Error ? error.name : "unknown";
-}
-
-/** The message of `error` in the UI language. */
+/** The message of `error` in the UI language, by its code: ApiError's code, else the error's name. */
 export function errorMessage(error: unknown, { t, te }: Pick<I18nText, "t" | "te">): string {
-  const code = errorCode(error);
+  const code =
+    error instanceof ApiError ? error.code : error instanceof Error ? error.name : "unknown";
   const key = `errors.${code}`;
   return t(te(key) ? key : "errors.unknown", { code });
 }

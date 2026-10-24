@@ -69,7 +69,6 @@
     "rawHex": "Raw value (hex)",
     "asn1": "ASN.1 structure",
     "status": {
-      "parsed": "Decoded",
       "unsupported": "Not decoded",
       "error": "Decode error"
     },

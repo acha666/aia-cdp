@@ -54,7 +54,6 @@ export function createAppI18n(locale: AppLocale = detectLocale()) {
   // `false`: the Composition API instance, whose global locale is a ref.
   const i18n = createI18n<[MessageSchema], AppLocale, false>({
     legacy: false,
-    globalInjection: true,
     locale,
     fallbackLocale: "en",
     messages: { en, "zh-CN": zhCN },

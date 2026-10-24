@@ -69,7 +69,6 @@
     "rawHex": "原始值（十六进制）",
     "asn1": "ASN.1 结构",
     "status": {
-      "parsed": "已解码",
       "unsupported": "未解码",
       "error": "解码出错"
     },
