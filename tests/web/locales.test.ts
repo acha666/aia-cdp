@@ -9,24 +9,16 @@ import zhCN from "@/locales/zh-CN.json";
 
 type Messages = Record<string, unknown>;
 
-/** "a.b.c" → message, for every leaf. */
-function flatten(messages: Messages, prefix = ""): Map<string, string> {
-  const result = new Map<string, string>();
-  for (const [key, value] of Object.entries(messages)) {
-    const path = `${prefix}${key}`;
-    if (typeof value === "string") {
-      result.set(path, value);
-    } else {
-      for (const [inner, text] of flatten(value as Messages, `${path}.`)) {
-        result.set(inner, text);
-      }
-    }
-  }
-  return result;
-}
+/** ["a.b.c", message] for every leaf. */
+const flatten = (messages: Messages, prefix = ""): [string, string][] =>
+  Object.entries(messages).flatMap(([key, value]) =>
+    typeof value === "string"
+      ? [[`${prefix}${key}`, value]]
+      : flatten(value as Messages, `${prefix}${key}.`)
+  );
 
-const EN = flatten(en);
-const ZH = flatten(zhCN);
+const EN = new Map(flatten(en));
+const ZH = new Map(flatten(zhCN));
 
 /** The named placeholders of a message: "{count} items" → ["count"]. */
 function placeholders(message: string): string[] {
