@@ -31,16 +31,11 @@ function targetOf(service: ReadService, file: string): string {
 }
 
 async function list(service: ReadService) {
-  const body = await okJson(await service.app.request(LIST));
-  // parse() drops keys the schema does not know: equal means no other field leaked.
-  expect(CrlTargetListItem.array().parse(body)).toEqual(body);
-  return CrlTargetListItem.array().parse(body);
+  return okJson(await service.app.request(LIST), CrlTargetListItem.array());
 }
 
 async function detail(service: ReadService, targetId: string) {
-  const body = await okJson(await service.app.request(`${LIST}/${targetId}`));
-  expect(CrlTargetDetail.parse(body)).toEqual(body);
-  return CrlTargetDetail.parse(body);
+  return okJson(await service.app.request(`${LIST}/${targetId}`), CrlTargetDetail);
 }
 
 describe("GET /api/v1/crls", () => {

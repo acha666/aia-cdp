@@ -35,10 +35,7 @@ describe("GET /api/v1/certificates", () => {
   it("lists every imported certificate in id order with label, summary, downloads and targets", async () => {
     const service = await readService({ setup: SERVED });
     const { catalog } = await readState(service.base);
-    const body = await okJson(await service.app.request(LIST));
-    // parse() drops keys the schema does not know: equal means no other field leaked.
-    const items = CertificateListItem.array().parse(body);
-    expect(items).toEqual(body);
+    const items = await okJson(await service.app.request(LIST), CertificateListItem.array());
     expect(items.map((item) => item.id)).toEqual(IMPORTED.map((name) => cert(name).sha256).sort());
 
     const root = cert(ROOT);
@@ -77,12 +74,9 @@ describe("GET /api/v1/certificates/{id}", () => {
   it("is the list item plus fingerprints, TBSCertificate and the signature", async () => {
     const service = await readService({ setup: SERVED });
     const root = cert(ROOT);
-    const body = await okJson(await service.app.request(detailPath(ROOT)));
-    const detail = CertificateDetail.parse(body);
-    expect(detail).toEqual(body);
-    const item = CertificateListItem.array()
-      .parse(await okJson(await service.app.request(LIST)))
-      .find((each) => each.id === root.sha256);
+    const detail = await okJson(await service.app.request(detailPath(ROOT)), CertificateDetail);
+    const items = await okJson(await service.app.request(LIST), CertificateListItem.array());
+    const item = items.find((each) => each.id === root.sha256);
     expect(detail).toMatchObject(item!);
     expect(detail.fingerprints).toEqual({ sha1: item?.summary.sha1, sha256: root.sha256 });
     const der = fixture(root.der);

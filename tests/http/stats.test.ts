@@ -15,9 +15,7 @@ const ROOT_FULL_01 = "crls/root-ca/full-01.der";
 
 async function statsOf(publish: string[] = []) {
   const service = await readService({ publish });
-  const body = await okJson(await service.app.request(STATS));
-  expect(Stats.parse(body)).toEqual(body);
-  return Stats.parse(body);
+  return okJson(await service.app.request(STATS), Stats);
 }
 
 /** The DER sizes of the fixture files. */

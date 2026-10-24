@@ -43,12 +43,25 @@ export async function readService(options: ReadServiceOptions = {}): Promise<Rea
   return { app: createApp(deps), deps, base, setup };
 }
 
-/** The JSON body of a 200 read: application/json and no-store. */
-export async function okJson(res: Response): Promise<unknown> {
+/**
+ * The JSON body of a 200 read: application/json and no-store. With a schema, the body as it
+ * parses, which must equal the body: parse() drops keys the schema does not know, so equal means
+ * no other field leaked.
+ */
+export async function okJson<T = unknown>(
+  res: Response,
+  schema?: { parse(value: unknown): T }
+): Promise<T> {
   expect(res.status).toBe(200);
   expect(res.headers.get("Content-Type")).toMatch(/^application\/json/);
   expect(res.headers.get("Cache-Control")).toBe("no-store");
-  return res.json();
+  const body: unknown = await res.json();
+  if (schema === undefined) {
+    return body as T;
+  }
+  const parsed = schema.parse(body);
+  expect(parsed).toEqual(body);
+  return parsed;
 }
 
 /**

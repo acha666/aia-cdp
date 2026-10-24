@@ -25,8 +25,8 @@ const PUBLISHED = [
 
 async function lists(app: ReadService["app"]) {
   return {
-    certificates: CertificateListItem.array().parse(await okJson(await app.request(CERTIFICATES))),
-    targets: CrlTargetListItem.array().parse(await okJson(await app.request(CRLS))),
+    certificates: await okJson(await app.request(CERTIFICATES), CertificateListItem.array()),
+    targets: await okJson(await app.request(CRLS), CrlTargetListItem.array()),
   };
 }
 
