@@ -251,8 +251,7 @@ export function checkConfigMigration(config: Config, current: Config | undefined
   }
   const issues: ConfigIssue[] = [];
   for (const [path, entry] of Object.entries(config.paths)) {
-    // Own properties only: a path key is any string until V2 has looked at it.
-    const before = Object.hasOwn(current.paths, path) ? current.paths[path] : undefined;
+    const before = current.paths[path];
     if (
       path.startsWith("/ca/") &&
       "certificate" in entry &&

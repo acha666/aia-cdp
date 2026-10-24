@@ -49,17 +49,11 @@ const NOT_FOUND = { status: "not_found" } as const;
 
 const PEM_SUFFIX = ".pem";
 
-// Own properties only: a request path or a stored id must never reach Object.prototype
-// ("constructor", "__proto__", "toString"), whatever the schemas let through.
-function own<T>(record: Record<string, T>, key: string): T | undefined {
-  return Object.hasOwn(record, key) ? record[key] : undefined;
-}
-
 /**
  * The resource `path` names. `path` is Hono's `c.req.path` (decoded with decodeURI, so `%2F` and
  * malformed `%` sequences stay as they are) and is not decoded again.
  *
- * - An own key of config.paths, matched exactly and case-sensitively → DER; otherwise a path
+ * - A key of config.paths, matched exactly and case-sensitively → DER; otherwise a path
  *   ending in `.pem` whose stripped form is such a key → PEM (one suffix: `.pem.pem` is not
  *   found, since config paths never end in `.pem`). Anything else → not_found.
  * - A certificate path → catalog.certificates[id]; missing → inconsistent.
@@ -73,17 +67,17 @@ export function resolveDownload(
   path: string
 ): DownloadResolution {
   let format: DownloadFormat = "der";
-  let entry = own(config.paths, path);
+  let entry = config.paths[path];
   if (entry === undefined && path.endsWith(PEM_SUFFIX)) {
     format = "pem";
-    entry = own(config.paths, path.slice(0, -PEM_SUFFIX.length));
+    entry = config.paths[path.slice(0, -PEM_SUFFIX.length)];
   }
   if (entry === undefined) {
     return NOT_FOUND;
   }
   const filename = path.slice(path.lastIndexOf("/") + 1);
   if ("certificate" in entry) {
-    const certificate = own(catalog.certificates, entry.certificate);
+    const certificate = catalog.certificates[entry.certificate];
     if (certificate === undefined) {
       return { status: "inconsistent", reference: { certificate: entry.certificate } };
     }
@@ -99,11 +93,11 @@ export function resolveDownload(
       lastModified: new Date(certificate.importedAt),
     };
   }
-  const target = own(config.targets, entry.target);
+  const target = config.targets[entry.target];
   if (target === undefined) {
     return { status: "inconsistent", reference: { target: entry.target } };
   }
-  const current = own(catalog.targets, entry.target)?.current ?? null;
+  const current = catalog.targets[entry.target]?.current ?? null;
   if (current === null) {
     return NOT_FOUND;
   }
