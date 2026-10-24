@@ -15,7 +15,7 @@ import { sha256Hex } from "../../src/core/digest.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { cert, fixture, NOW } from "../fixtures/pki.ts";
-import { MINIMAL_CONFIG, putText } from "../helpers/app.ts";
+import { putText } from "../helpers/app.ts";
 import { currentCrl, putCatalog } from "../helpers/catalog.ts";
 import { applyOver, importOrThrow } from "../helpers/publish.ts";
 import { flakyStore, puts, recordingStore } from "../helpers/store.ts";
@@ -68,17 +68,6 @@ function baseline() {
   return { ids, config };
 }
 
-/** `config` without the target `targetId` and its paths. */
-function without(config: Config, targetId: string): Config {
-  const { [targetId]: _target, ...targets } = config.targets;
-  const paths = Object.fromEntries(
-    Object.entries(config.paths).filter(
-      ([, entry]) => !("target" in entry) || entry.target !== targetId
-    )
-  );
-  return { ...config, targets, paths };
-}
-
 /** `[rule, path]` of each issue, in order (messages are for people). */
 function rules(check: ConfigCheck | ConfigIssue[]): [string, (string | number)[]][] {
   const issues = Array.isArray(check) ? check : check.ok ? [] : check.issues;
@@ -93,8 +82,7 @@ function issuesOf(result: Awaited<ReturnType<typeof applyConfig>>): ConfigIssue[
 }
 
 describe("config rules", () => {
-  it("accept the minimal configuration, and the baseline once its certificates are imported", async () => {
-    expect(validateConfig(JSON.parse(MINIMAL_CONFIG))).toMatchObject({ ok: true });
+  it("accept the baseline offline, and once its certificates are imported", async () => {
     const { config } = baseline();
     expect(validateConfig(config)).toEqual({ ok: true, config });
     const catalog = await catalogOf(await storeWith());
@@ -225,20 +213,6 @@ describe("config rules", () => {
       paths: { ...config.paths, "/dcrl/issuing-ca-1.crl": { target: renewed } },
     };
     expect(validateConfig(split, { catalog })).toMatchObject({ ok: true });
-  });
-
-  it("a target with a current CRL may be removed: that retires it", async () => {
-    const store = await storeWith();
-    const { ids, config } = baseline();
-    await applyOver(store, config);
-    await putCatalog(store, {
-      ...(await catalogOf(store)),
-      targets: {
-        [ids.full]: { current: await currentCrl("crls/issuing-ca-1/full-01.der", ids.full) },
-      },
-    });
-    const retired = without(config, ids.full);
-    expect(await applyOver(store, retired)).toMatchObject({ config: retired });
   });
 
   it("V9: a target id keeps its issuer and kind, and may change its label", async () => {

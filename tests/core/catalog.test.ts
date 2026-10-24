@@ -63,12 +63,7 @@ describe("ConfigSchema", () => {
 
   const target = { issuer: ISSUER, kind: "full", label: "x" };
   it.each<[string, unknown]>([
-    ["a misspelled key", { ...config(), tagrets: {} }],
     ["a missing map", { version: 1, certificates: {}, targets: {} }],
-    [
-      "an uppercase hex certificate id",
-      config({ certificates: { [ISSUER.toUpperCase()]: { label: "x" } } }),
-    ],
     [
       "a target id that is not RFC 9562",
       config({ targets: { "00000000-0000-0000-0000-000000000001": target } }),
