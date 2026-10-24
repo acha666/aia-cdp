@@ -1,7 +1,13 @@
 // Shared by the PKI, import, publish and CRL detail tests.
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
+import { expect } from "vitest";
+import type { PkiKind, PkiParseReason } from "../../src/core/pki/errors.ts";
 import { encodeTlv } from "../../src/core/pki/pem.ts";
+
+/** Matches a PkiParseError of `kind` and `reason`, for toThrow and rejects.toThrow. */
+export const pkiError = (kind: PkiKind, reason: PkiParseReason): unknown =>
+  expect.objectContaining({ name: "PkiParseError", kind, reason });
 
 /**
  * BER encodings of one DER TLV (a certificate or CRL fixture) that DER forbids, each with the same

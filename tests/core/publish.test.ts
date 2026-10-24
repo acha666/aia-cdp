@@ -14,7 +14,7 @@ import { MemoryStore } from "../../src/storage/memory.ts";
 import { cert, crlEntry, fixture, manifest, NOW } from "../fixtures/pki.ts";
 import { currentCrl } from "../helpers/catalog.ts";
 import { generateCa, setupGeneratedCa, signCrl } from "../helpers/generated-ca.ts";
-import { nullWithContents, padOid, withOuterAlgorithm } from "../helpers/pki.ts";
+import { nullWithContents, padOid, pkiError, withOuterAlgorithm } from "../helpers/pki.ts";
 import {
   downloadsOf,
   publish,
@@ -184,9 +184,7 @@ describe("publishCrl: rejections", () => {
       value: Array.from({ length: 50_000 }, () => new asn1.Null()),
     });
     const junk = new Uint8Array(schema.toBER(false));
-    expect(() => parseCRL(junk)).toThrow(
-      expect.objectContaining({ name: "PkiParseError", kind: "crl", reason: "structure" })
-    );
+    expect(() => parseCRL(junk)).toThrow(pkiError("crl", "structure"));
     const store = recordingStore(base);
     expect((await publish(store, junk)).result).toEqual({
       error: "invalid_signature",

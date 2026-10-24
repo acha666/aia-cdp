@@ -9,7 +9,7 @@ import {
   parseCRL,
 } from "../../../src/core/pki/parsers.ts";
 import { fixture } from "../../fixtures/pki.ts";
-import { attribute, berVariants, extension, nameOf } from "../../helpers/pki.ts";
+import { attribute, berVariants, extension, nameOf, pkiError } from "../../helpers/pki.ts";
 
 const ROOT = "certs/root-ca.der";
 
@@ -19,16 +19,12 @@ describe("parseCertificate / parseCRL", () => {
       ["certificate", parseCertificate],
       ["crl", parseCRL],
     ] as const) {
-      expect(() => parse(fixture("invalid/truncated.der"))).toThrow(
-        expect.objectContaining({ name: "PkiParseError", kind, reason: "der" })
-      );
+      expect(() => parse(fixture("invalid/truncated.der"))).toThrow(pkiError(kind, "der"));
       const der = fixture(kind === "crl" ? "crls/root-ca/full-01.der" : ROOT);
-      expect(() => parse(Uint8Array.from([...der, 0]))).toThrow(
-        expect.objectContaining({ name: "PkiParseError", kind, reason: "trailing_bytes" })
-      );
+      expect(() => parse(Uint8Array.from([...der, 0]))).toThrow(pkiError(kind, "trailing_bytes"));
     }
     expect(() => parseCRL(fixture("invalid/certificate.der"))).toThrow(
-      expect.objectContaining({ name: "PkiParseError", kind: "crl", reason: "structure" })
+      pkiError("crl", "structure")
     );
   });
 
@@ -40,11 +36,7 @@ describe("parseCertificate / parseCRL", () => {
     const view = padded.subarray(4, 4 + der.length);
     expect(new Uint8Array(parseCertificate(view).toSchema().toBER(false))).toEqual(der);
     expect(() => parseCertificate(padded.subarray(4, 5 + der.length))).toThrow(
-      expect.objectContaining({
-        name: "PkiParseError",
-        kind: "certificate",
-        reason: "trailing_bytes",
-      })
+      pkiError("certificate", "trailing_bytes")
     );
   });
 
@@ -56,9 +48,7 @@ describe("parseCertificate / parseCRL", () => {
       ["crl", "crls/issuing-ca-1/full-01.der", parseCRL],
     ] as const) {
       for (const [variant, bytes] of berVariants(fixture(file))) {
-        expect(() => parse(bytes), `${kind}: ${variant}`).toThrow(
-          expect.objectContaining({ name: "PkiParseError", kind, reason: "der" })
-        );
+        expect(() => parse(bytes), `${kind}: ${variant}`).toThrow(pkiError(kind, "der"));
       }
     }
   });

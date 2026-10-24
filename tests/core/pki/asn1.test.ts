@@ -8,6 +8,7 @@ import {
 } from "../../../src/core/pki/asn1.ts";
 import { parseCRL } from "../../../src/core/pki/parsers.ts";
 import { fixture } from "../../fixtures/pki.ts";
+import { pkiError } from "../../helpers/pki.ts";
 
 /** Octets from hex pairs separated by spaces. */
 const bytes = (hex: string) => Uint8Array.fromHex(hex.replaceAll(" ", ""));
@@ -50,7 +51,7 @@ describe("strict RFC 5280 times", () => {
 
   it("rejects crls/issuing-ca-1/full-bad-time.der (UTCTime without seconds, valid signature)", () => {
     expect(() => parseCRL(fixture("crls/issuing-ca-1/full-bad-time.der"))).toThrow(
-      expect.objectContaining({ name: "PkiParseError", kind: "crl", reason: "time" })
+      pkiError("crl", "time")
     );
   });
 });

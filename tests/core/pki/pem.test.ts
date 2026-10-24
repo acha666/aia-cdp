@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { PkiKind, PkiParseReason } from "../../../src/core/pki/errors.ts";
 import { derToPem, pemLength, splitPemBlocks, toDer } from "../../../src/core/pki/pem.ts";
 import { fixture, fixtureText } from "../../fixtures/pki.ts";
+import { pkiError } from "../../helpers/pki.ts";
 
 // Upload input (toDer, splitPemBlocks) and the download format (derToPem, pemLength) against
 // OpenSSL's output.
@@ -29,28 +31,24 @@ describe("toDer", () => {
     );
   });
 
-  it("rejects a block labelled for the other kind", () => {
-    expect(() => toDer(encode(ROOT_PEM), "crl")).toThrow(
-      expect.objectContaining({ name: "PkiParseError", kind: "crl", reason: "pem_label" })
-    );
-  });
-
-  it("rejects two blocks instead of using the first, and a block without its END line", () => {
-    const bundle = encode(`${ROOT_PEM}${fixtureText("certs/issuing-ca-1.pem")}`);
-    expect(() => toDer(bundle, "certificate")).toThrow(
-      expect.objectContaining({ name: "PkiParseError", kind: "certificate", reason: "pem_blocks" })
-    );
-    expect(() => toDer(fixture("invalid/truncated.pem"), "crl")).toThrow(
-      expect.objectContaining({ name: "PkiParseError", kind: "crl", reason: "pem_blocks" })
-    );
-  });
-
-  it("rejects a body that is not base64", () => {
-    const lines = ROOT_PEM.split("\n");
-    const pem = [lines[0], (lines[1] ?? "").replace(/^./, "*"), ...lines.slice(2)].join("\n");
-    expect(() => toDer(encode(pem), "certificate")).toThrow(
-      expect.objectContaining({ name: "PkiParseError", kind: "certificate", reason: "pem_base64" })
-    );
+  it.each<[string, Uint8Array, PkiKind, PkiParseReason]>([
+    ["a block labelled for the other kind", encode(ROOT_PEM), "crl", "pem_label"],
+    [
+      "two blocks instead of using the first",
+      encode(`${ROOT_PEM}${fixtureText("certs/issuing-ca-1.pem")}`),
+      "certificate",
+      "pem_blocks",
+    ],
+    ["a block without its END line", fixture("invalid/truncated.pem"), "crl", "pem_blocks"],
+    // The first character of the body replaced.
+    [
+      "a body that is not base64",
+      encode(ROOT_PEM.replace(/\n./, "\n*")),
+      "certificate",
+      "pem_base64",
+    ],
+  ])("rejects %s", (_, bytes, kind, reason) => {
+    expect(() => toDer(bytes, kind)).toThrow(pkiError(kind, reason));
   });
 });
 
@@ -76,7 +74,7 @@ describe("splitPemBlocks", () => {
   it("rejects a truncated bundle instead of importing part of it", () => {
     const truncated = `${ROOT_PEM}${fixtureText("certs/issuing-ca-1.pem").replace("-----END", "")}`;
     expect(() => splitPemBlocks(truncated, "certificate")).toThrow(
-      expect.objectContaining({ name: "PkiParseError", kind: "certificate", reason: "pem_blocks" })
+      pkiError("certificate", "pem_blocks")
     );
   });
 });
@@ -92,20 +90,15 @@ describe("the download PEM format", () => {
     }
   });
 
-  // A PEM HEAD takes its Content-Length from pemLength.
+  // A PEM HEAD takes its Content-Length from pemLength. The DER size counts only modulo 48 (one
+  // 64-column line), so 1 to 96 covers every case twice; 1 MiB is a large one.
   it("pemLength equals the length of derToPem's output", () => {
     const bytes = Uint8Array.from({ length: 1024 * 1024 }, (_, index) => (index * 7) % 256);
-    const sizes = [...Array.from({ length: 4096 }, (_, index) => index + 1), bytes.length];
-    // Collected rather than asserted one by one: 8194 cases.
-    const mismatches: string[] = [];
+    const sizes = [...Array.from({ length: 96 }, (_, index) => index + 1), bytes.length];
     for (const kind of ["certificate", "crl"] as const) {
-      for (const size of sizes) {
-        const pem = derToPem(bytes.subarray(0, size), kind);
-        if (pemLength(size, kind) !== pem.length) {
-          mismatches.push(`${kind} ${size}: ${pemLength(size, kind)} ≠ ${pem.length}`);
-        }
-      }
+      expect(sizes.map((size) => pemLength(size, kind))).toEqual(
+        sizes.map((size) => derToPem(bytes.subarray(0, size), kind).length)
+      );
     }
-    expect(mismatches).toEqual([]);
   });
 });
