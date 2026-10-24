@@ -62,7 +62,7 @@
 | Node 服务器   | `@hono/node-server`                             | 2.1.5                             | `serve()` + `serve-static`；替代手写 `node:http` 桥                                            |
 | 校验与 OpenAPI | `@hono/zod-openapi` + `zod`                    | 1.6.3 / 4.6.7                     | 路由声明即 schema，处理器返回值按状态码类型检查；OpenAPI 文档运行时从路由表生成，另写出提交的 `docs/openapi.json` 作漂移基线（§7.3） |
 | 类型化客户端  | `hono/client` 的 `hc<AppType>`                  | 随 hono                           | 前端类型从服务端路由推导；`init: { cache: "no-store" }`                                        |
-| PKI           | `pkijs` + `asn1js`                              | 4.0.0 / 4.0.0                     | 解析、扩展、验签、摘要构建器                                                                   |
+| PKI           | `pkijs` + `asn1js`                              | 4.0.0 / 4.0.0                     | 证书、CRL、名称与 SCT 的解析，验签；扩展值由 asn1js 之上的严格 DER 读取器（`src/core/pki/der.ts`）解码 |
 | 前端          | `vue`、`vue-router`、`@tanstack/vue-query`、`vue-i18n` | 3.5.44 / 5.4.0 / 5.104.5 / 11.4.16 | 不用 Pinia（决策 5）                                                                   |
 | 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.5 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8（Rolldown、默认 oxc 压缩）；`vue-tsc` 检查 `tsconfig.web.json` |
 | UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.61.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`；`@tanstack/vue-table` 不随 shadcn Table 安装，也没用上（吊销列表分页只是 `slice()`） |
@@ -591,8 +591,9 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 - 详情：证书页 Tabs = 概览（主体 / 签发者 DN 表含 `rfc4514`、有效期、序列号、公钥摘要、签名算法含参数与 ECDSA `(r, s)`、指纹、
   unique ID、它作为签发者的 CRL 目标链接）/ 扩展 / PEM（有 `.pem` 路径时）。CRL 目标页头 = 标签、类别、状态、签发者链接、下载；
   Tabs = 概览（CRL 号与 base 号、thisUpdate / nextUpdate / Next CRL Publish、算法、指纹、签发者 DN）/ 吊销列表 / 扩展；未发布目标
-  （`current: null`）只有页头与"未发布"，不显示 0 或"未知"；API 404 显示"不存在"。扩展是 Accordion（关键在前）：每个解析结果映射为
-  render block（rows / tags / general names / distribution points / access / policies / subtrees），未识别或解码失败显示 ASN.1 结构 dump
+  （`current: null`）只有页头与"未发布"，不显示 0 或"未知"；API 404 显示"不存在"。扩展是 Accordion（关键在前）：每个解析结果按类型
+  映射为若干区段（`src/web/utils/extension-display.ts`；分发点、策略、SCT 这类重复元素各占一段），每段是一张标签 / 值表，值只有文本、
+  十六进制、等宽行、标签四种，各由 `ValueView` 用一种样式画出，概览页的表也用它；未识别或解码失败显示解析错误、ASN.1 结构 dump
   与原始 hex。吊销列表：序列号、吊销时间、原因、失效起始、间接签发者；表头吸顶，超过 200 行按 200 行一页 `slice()` 分页，0 条显示空状态
   （不用 `@tanstack/vue-table`）。
 - 客户端：`const api = hc<AppType>("", { init: { cache: "no-store" }, fetch: apiFetch })`，vue-query 的 `queryFn` 写

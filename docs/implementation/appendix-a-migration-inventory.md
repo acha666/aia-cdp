@@ -97,10 +97,10 @@
 | `src/web/locales/en.json` | migrate-adapt | src/web/locales/en.json (+ new src/web/locales/zh-CN.json) | 5b |
 | `src/web/stores/certificates.ts` | drop | — | none |
 | `src/web/stores/crls.ts` | drop | — | none |
-| `src/web/components/ExtensionView.vue` | migrate-adapt | src/web/utils/extension-blocks.ts + src/web/components/x509/ExtensionView.vue | 5b |
+| `src/web/components/ExtensionView.vue` | migrate-adapt | src/web/utils/extension-display.ts + src/web/components/x509/ExtensionView.vue | 5b |
 | `src/web/components/ExtensionList.vue` | migrate-adapt | src/web/components/x509/ExtensionList.vue | 5b |
-| `src/web/components/GeneralNameList.vue` | migrate-adapt | src/web/components/x509/GeneralNameList.vue | 5b |
-| `src/web/components/DistributionPointList.vue` | migrate-adapt | src/web/components/x509/DistributionPointList.vue | 5b |
+| `src/web/components/GeneralNameList.vue` | rewrite | src/web/utils/extension-display.ts (+ src/web/components/ValueView.vue) | 5b |
+| `src/web/components/DistributionPointList.vue` | rewrite | src/web/utils/extension-display.ts (+ src/web/components/ValueView.vue) | 5b |
 | `src/web/components/Asn1Dump.vue` | migrate-adapt | src/web/components/x509/Asn1Dump.vue | 5b |
 | `src/web/components/NameDetails.vue` | migrate-adapt | src/web/components/x509/NameDetails.vue | 5b |
 | `src/web/components/HexValue.vue` | migrate-adapt | src/web/components/HexValue.vue | 5b |
