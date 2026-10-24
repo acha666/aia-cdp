@@ -75,6 +75,26 @@ export type Config = z.infer<typeof ConfigSchema>;
 export type ConfigTarget = z.infer<typeof ConfigTarget>;
 export type ConfigPath = z.infer<typeof ConfigPath>;
 
+/**
+ * Every place config.json references a certificate, with its keys from the document root: the
+ * certificates keys, then the path certificates, then the target issuers. Rule V4 requires each to
+ * be imported, and deleteCertificate refuses a certificate that one of them names.
+ */
+export function certificateReferences(config: Config): { id: string; path: string[] }[] {
+  return [
+    ...Object.keys(config.certificates).map((id) => ({ id, path: ["certificates", id] })),
+    ...Object.entries(config.paths).flatMap(([path, entry]) =>
+      "certificate" in entry
+        ? [{ id: entry.certificate, path: ["paths", path, "certificate"] }]
+        : []
+    ),
+    ...Object.entries(config.targets).map(([id, target]) => ({
+      id: target.issuer,
+      path: ["targets", id, "issuer"],
+    })),
+  ];
+}
+
 // catalog.json (service) --------------------------------------------------------------------------
 
 /** Built by buildCertificateSummary (src/core/summary/catalog-summary.ts). */

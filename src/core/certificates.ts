@@ -1,7 +1,7 @@
 // Certificate import and deletion (plan §5.5).
 // There is one commit point, the catalog write: no companion objects, no edge cache. Importing does
 // not authorize anything: a certificate only becomes an issuer once a config target names it.
-import { certificateBlobKey, readCatalog, updateState } from "./catalog.ts";
+import { certificateBlobKey, certificateReferences, readCatalog, updateState } from "./catalog.ts";
 import type { CatalogCertificate, CertificateSummary, State } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { PkiParseError } from "./pki/errors.ts";
@@ -123,28 +123,16 @@ export type DeleteCertificateResult =
   | { error: "concurrent_update" };
 
 /**
- * Every reference to certificate `id`: config.json's certificates, target issuers and paths, and
- * the verifier of any current CRL in the catalog, also of a target removed from config.json. A
+ * Every reference to certificate `id`: config.json's (certificateReferences, what rule V4 checks),
+ * and the verifier of any current CRL in the catalog, also of a target removed from config.json. A
  * target's history is verified by the certificate that verified its current (V9), so that
  * reference protects the history too, unless the target's id was removed and added back with
- * another issuer (checkConfigMigration).
+ * another issuer (checkConfigMigration in ./admin.ts).
  */
 function referencesOf(state: State, id: string): CertificateReference[] {
-  const references: CertificateReference[] = [];
-  const { config } = state;
-  if (config.certificates[id] !== undefined) {
-    references.push({ object: "config.json", path: ["certificates", id] });
-  }
-  for (const [targetId, target] of Object.entries(config.targets)) {
-    if (target.issuer === id) {
-      references.push({ object: "config.json", path: ["targets", targetId, "issuer"] });
-    }
-  }
-  for (const [path, entry] of Object.entries(config.paths)) {
-    if ("certificate" in entry && entry.certificate === id) {
-      references.push({ object: "config.json", path: ["paths", path, "certificate"] });
-    }
-  }
+  const references: CertificateReference[] = certificateReferences(state.config)
+    .filter((reference) => reference.id === id)
+    .map(({ path }) => ({ object: "config.json", path }));
   for (const [targetId, target] of Object.entries(state.catalog.targets)) {
     if (target.current?.verifier === id) {
       references.push({

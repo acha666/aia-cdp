@@ -15,6 +15,7 @@
 // operator's responsibility.
 import type { z } from "zod";
 import {
+  certificateReferences,
   CONFIG_KEY,
   ConfigSchema,
   decodeJson,
@@ -172,34 +173,25 @@ export function checkConfigStatic(value: unknown): ConfigCheck {
 // State layer ------------------------------------------------------------------------------------
 
 /**
- * V4 (certificates keys, path certificates and target issuers are in the catalog), V5 (a target's
- * issuer has a Subject Key Identifier: CRLs are matched to issuers by AKI = SKI) and V6's catalog
- * part: two different certificates with the same SKI, such as a renewal on the same key, must not
- * each have a target of the same kind, or a CRL could not be attributed to one of them.
+ * V4 (every certificateReferences entry is in the catalog), V5 (a target's issuer has a Subject
+ * Key Identifier: CRLs are matched to issuers by AKI = SKI) and V6's catalog part: two different
+ * certificates with the same SKI, such as a renewal on the same key, must not each have a target of
+ * the same kind, or a CRL could not be attributed to one of them.
  */
 function checkConfigState(config: Config, catalog: Catalog): ConfigIssue[] {
-  const issues: ConfigIssue[] = [];
-  const notImported = (id: string) => `Certificate ${id} has not been imported`;
-  for (const id of Object.keys(config.certificates)) {
-    if (catalog.certificates[id] === undefined) {
-      issues.push({ path: ["certificates", id], rule: "V4", message: notImported(id) });
-    }
-  }
-  for (const [path, entry] of Object.entries(config.paths)) {
-    if ("certificate" in entry && catalog.certificates[entry.certificate] === undefined) {
-      issues.push({
-        path: ["paths", path, "certificate"],
-        rule: "V4",
-        message: notImported(entry.certificate),
-      });
-    }
-  }
+  const issues: ConfigIssue[] = certificateReferences(config)
+    .filter(({ id }) => catalog.certificates[id] === undefined)
+    .map(({ id, path }) => ({
+      path,
+      rule: "V4",
+      message: `Certificate ${id} has not been imported`,
+    }));
   const bySubjectKey = new Map<string, { id: string; issuer: string }>();
   for (const [id, target] of Object.entries(config.targets)) {
     const at = ["targets", id, "issuer"];
     const issuer = catalog.certificates[target.issuer];
     if (issuer === undefined) {
-      issues.push({ path: at, rule: "V4", message: notImported(target.issuer) });
+      // V4, reported above.
       continue;
     }
     const subjectKeyId = issuer.summary.subjectKeyId;

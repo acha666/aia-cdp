@@ -367,9 +367,9 @@ describe("deleteCertificate", () => {
       details: {
         references: [
           { object: "config.json", path: ["certificates", id("issuing-ca-1")] },
+          { object: "config.json", path: ["paths", "/ca/issuing-ca-1.crt", "certificate"] },
           { object: "config.json", path: ["targets", ids.full, "issuer"] },
           { object: "config.json", path: ["targets", ids.delta, "issuer"] },
-          { object: "config.json", path: ["paths", "/ca/issuing-ca-1.crt", "certificate"] },
         ],
       },
     });
