@@ -4,19 +4,9 @@ import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 import { useCertificates } from "@/client/queries";
 import DownloadLinks from "@/components/DownloadLinks.vue";
-import QueryError from "@/components/QueryError.vue";
+import OverviewTable from "@/components/overview/OverviewTable.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableEmpty,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { TableCell, TableRow } from "@/components/ui/table";
 import { useClock } from "@/composables/useClock";
 import { formatDate, relativeTime } from "@/utils/dates";
 import { computeCertificateStatus } from "@/utils/status";
@@ -27,11 +17,16 @@ import { computeCertificateStatus } from "@/utils/status";
 // and the status show: with every column the table scrolls sideways inside its card, which hides
 // the status; issuer, validity and downloads are on the detail page. From sm up, where the table
 // may still scroll, the name keeps a minimum width instead of one word per line.
-const { data, isPending, isError, error, refetch } = useCertificates();
+const { data, error, refetch } = useCertificates();
 
 const SECONDARY = "hidden sm:table-cell";
-/** The cell classes of a skeleton row, column by column. */
-const SKELETON = ["", SECONDARY, SECONDARY, "", SECONDARY];
+const COLUMNS = [
+  { label: "table.name" },
+  { label: "table.issuer", class: SECONDARY },
+  { label: "table.validity", class: SECONDARY },
+  { label: "table.status" },
+  { label: "table.downloads", class: SECONDARY },
+];
 const now = useClock();
 const i18n = useI18n();
 const { t, locale } = i18n;
@@ -62,73 +57,39 @@ const rows = computed(() => {
 </script>
 
 <template>
-  <Card>
-    <CardHeader>
-      <CardTitle>
-        <h2>{{ t("app.sections.certificates") }}</h2>
-      </CardTitle>
-      <CardDescription v-if="data">
-        {{ t("common.itemCount", { count: data.length }, data.length) }}
-      </CardDescription>
-    </CardHeader>
-    <CardContent>
-      <QueryError
-        v-if="isError && !data"
-        :error="error"
-        :title="t('overview.certificatesFailed')"
-        @retry="refetch()"
-      />
-      <Table v-else data-testid="certificate-table">
-        <TableHeader>
-          <TableRow>
-            <TableHead>{{ t("table.name") }}</TableHead>
-            <TableHead :class="SECONDARY">{{ t("table.issuer") }}</TableHead>
-            <TableHead :class="SECONDARY">{{ t("table.validity") }}</TableHead>
-            <TableHead>{{ t("table.status") }}</TableHead>
-            <TableHead :class="SECONDARY">{{ t("table.downloads") }}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <template v-if="isPending">
-            <TableRow v-for="index in 3" :key="index" data-testid="skeleton-row">
-              <TableCell v-for="(cellClass, cell) in SKELETON" :key="cell" :class="cellClass">
-                <Skeleton class="h-4 w-24" />
-              </TableCell>
-            </TableRow>
-          </template>
-          <TableEmpty v-else-if="rows.length === 0" :colspan="5">
-            {{ t("app.empty.certificates") }}
-          </TableEmpty>
-          <TableRow v-for="row in rows" v-else :key="row.id" :data-id="row.id">
-            <TableCell class="whitespace-normal sm:min-w-44">
-              <RouterLink
-                :to="{ name: 'certificate', params: { id: row.id } }"
-                class="font-medium underline-offset-4 hover:underline"
-              >
-                {{ row.name }}
-              </RouterLink>
-              <div v-if="row.subjectCN" class="text-xs text-muted-foreground">
-                {{ row.subjectCN }}
-              </div>
-            </TableCell>
-            <TableCell
-              :class="SECONDARY"
-              class="min-w-40 whitespace-normal text-muted-foreground"
-              >{{ row.issuer }}</TableCell
-            >
-            <TableCell :class="SECONDARY" class="text-xs">
-              <div>{{ row.from }} – {{ row.until }}</div>
-              <div v-if="row.remaining" class="text-muted-foreground" data-testid="remaining">
-                {{ row.remaining }}
-              </div>
-            </TableCell>
-            <TableCell><StatusBadge :state="row.state" /></TableCell>
-            <TableCell :class="[SECONDARY, { 'text-center': row.downloads.length === 0 }]">
-              <DownloadLinks :downloads="row.downloads" />
-            </TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
-    </CardContent>
-  </Card>
+  <OverviewTable
+    list="certificates"
+    :columns="COLUMNS"
+    :count="data?.length"
+    :error="error"
+    data-testid="certificate-table"
+    @retry="refetch()"
+  >
+    <TableRow v-for="row in rows" :key="row.id" :data-id="row.id">
+      <TableCell class="whitespace-normal sm:min-w-44">
+        <RouterLink
+          :to="{ name: 'certificate', params: { id: row.id } }"
+          class="font-medium underline-offset-4 hover:underline"
+        >
+          {{ row.name }}
+        </RouterLink>
+        <div v-if="row.subjectCN" class="text-xs text-muted-foreground">
+          {{ row.subjectCN }}
+        </div>
+      </TableCell>
+      <TableCell :class="SECONDARY" class="min-w-40 whitespace-normal text-muted-foreground">{{
+        row.issuer
+      }}</TableCell>
+      <TableCell :class="SECONDARY" class="text-xs">
+        <div>{{ row.from }} – {{ row.until }}</div>
+        <div v-if="row.remaining" class="text-muted-foreground" data-testid="remaining">
+          {{ row.remaining }}
+        </div>
+      </TableCell>
+      <TableCell><StatusBadge :state="row.state" /></TableCell>
+      <TableCell :class="[SECONDARY, { 'text-center': row.downloads.length === 0 }]">
+        <DownloadLinks :downloads="row.downloads" />
+      </TableCell>
+    </TableRow>
+  </OverviewTable>
 </template>
