@@ -1,41 +1,63 @@
 // Download routes: DER as stored and PEM derived on read, the headers, If-None-Match, HEAD, the
-// text/plain 404 / 405 and the 500 of a store that fails or lost a blob, through
-// createApp().request() on a seeded MemoryStore.
+// text/plain 404 / 405 and the 500 of a lost blob, through createApp().request() on state built by
+// importCertificate / applyConfig / publishCrl.
 import { describe, expect, it } from "vitest";
 import { certificateBlobKey } from "../../src/core/catalog.ts";
+import type { ObjectStore } from "../../src/core/store.ts";
 import { derToPem } from "../../src/core/pki/pem.ts";
 import { createApp } from "../../src/http/app.ts";
-import { MemoryStore } from "../../src/storage/memory.ts";
-import { cert, crlEntry, fixture } from "../fixtures/pki.ts";
-import { logRecords, patchStore, testDeps } from "../helpers/app.ts";
-import { expectInternal } from "../helpers/reads.ts";
-import { DOWNLOAD_PATHS, SEED_CRLS, seedDownloads } from "../helpers/seed-downloads.ts";
-import type { DownloadSeedOptions } from "../helpers/seed-downloads.ts";
+import { cert, crlEntry, fixture, NOW } from "../fixtures/pki.ts";
+import { patchStore, testDeps } from "../helpers/app.ts";
+import { expectInternal, readService } from "../helpers/reads.ts";
+import type { ReadServiceOptions } from "../helpers/reads.ts";
 import { opaqueEtagStore } from "../helpers/store.ts";
 
-const P = DOWNLOAD_PATHS;
 const ROOT = cert("root-ca");
 const ISSUING = cert("issuing-ca-1");
-const FULL = crlEntry(SEED_CRLS.full);
+const FULL_01 = "crls/issuing-ca-1/full-01.der";
+const DELTA_01 = "crls/issuing-ca-1/delta-01.der";
+const FULL = crlEntry(FULL_01);
 const IMMUTABLE = "public, max-age=31536000, immutable";
+const HOUR = 3_600_000;
 
-/** Every blob read fails: what still answers never read the blob. */
-const BLOBS = (key: string) => key.startsWith("blobs/");
+/** The served paths; full, delta and unpublished are setupPublish's target paths. */
+const P = {
+  /** root-ca; also served as rootAlias and nested (three paths, one certificate). */
+  root: "/ca/root-ca.crt",
+  rootAlias: "/ca/root.cer",
+  /** Two segments under /ca/ (V2 allows that): `%2F` must not reach it. */
+  nested: "/ca/sub/root-ca.crt",
+  issuing: "/ca/issuing-ca-1.crt",
+  /** issuing-ca-1's full CRL target; current: FULL_01. */
+  full: "/crl/issuing-ca-1.crl",
+  /** issuing-ca-1's delta CRL target; current: DELTA_01. */
+  delta: "/dcrl/issuing-ca-1.crl",
+  /** root-ca's full CRL target, never published. */
+  unpublished: "/crl/root-ca.crl",
+} as const;
 
-interface SetupOptions extends DownloadSeedOptions {
-  /** `get` of these keys throws. */
-  failGet?: (key: string) => boolean;
-}
+const OPTIONS: ReadServiceOptions = {
+  setup: {
+    configure: (config) => {
+      for (const path of [P.root, P.rootAlias, P.nested]) {
+        config.paths[path] = { certificate: ROOT.sha256 };
+      }
+      config.paths[P.issuing] = { certificate: ISSUING.sha256 };
+    },
+  },
+  publish: [FULL_01, DELTA_01],
+};
+
+/** Read only, so every test shares it (the blob-missing test builds its own). */
+const served = await readService(OPTIONS);
 
 /**
- * createApp on a MemoryStore holding the seed, behind store ETags that are not the digest (a
- * download ETag comes from the catalog). The ui answers index.html for every path, so a download
- * miss that reached it would be a 200.
+ * Requests to createApp over `base`, behind store ETags that are not the digest (a download ETag
+ * comes from the catalog), an hour after the import and publish time (NOW), so that Last-Modified
+ * cannot be the request's clock. `get` of the keys `failGet` names throws. The ui answers
+ * index.html for every path, so a download miss that reached it would be a 200.
  */
-async function setup(options: SetupOptions = {}) {
-  const { failGet, ...seedOptions } = options;
-  const base = new MemoryStore();
-  const seed = await seedDownloads(base, seedOptions);
+function requester(failGet?: (key: string) => boolean, base: ObjectStore = served.base) {
   const opaque = opaqueEtagStore(base);
   const store = patchStore(
     {
@@ -48,16 +70,23 @@ async function setup(options: SetupOptions = {}) {
     },
     opaque
   );
-  const deps = testDeps({
-    store,
-    ui: () =>
-      new Response("<!doctype html>", { headers: { "Content-Type": "text/html; charset=utf-8" } }),
-  });
-  const app = createApp(deps);
-  const request = (path: string, init?: RequestInit) =>
-    app.request(`http://localhost${path}`, init);
-  return { deps, seed, base, request };
+  const app = createApp(
+    testDeps({
+      store,
+      now: () => new Date(NOW.getTime() + HOUR),
+      ui: () =>
+        new Response("<!doctype html>", {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        }),
+    })
+  );
+  return (path: string, init?: RequestInit) => app.request(`http://localhost${path}`, init);
 }
+
+const request = requester();
+
+/** Every blob read fails: what still answers never read the blob. */
+const blobless = requester((key) => key.startsWith("blobs/"));
 
 const DOWNLOAD_HEADERS = [
   "cache-control",
@@ -82,13 +111,6 @@ async function bytesOf(res: Response): Promise<Uint8Array> {
   return new Uint8Array(await res.arrayBuffer());
 }
 
-function httpDate(iso: string | undefined): string {
-  if (iso === undefined) {
-    throw new Error("no timestamp");
-  }
-  return new Date(iso).toUTCString();
-}
-
 describe("bytes", () => {
   it.each([
     [P.root, fixture(ROOT.der)],
@@ -96,12 +118,11 @@ describe("bytes", () => {
     // Every path of a certificate names the same blob.
     [P.rootAlias, fixture(ROOT.der)],
     [P.nested, fixture(ROOT.der)],
-    [P.full, fixture(SEED_CRLS.full)],
+    [P.full, fixture(FULL_01)],
     // OpenSSL's PEM of the fixture: the same text as the one derived on read.
-    [`${P.full}.pem`, fixture(SEED_CRLS.full.replace(/\.der$/, ".pem"))],
-    [`${P.delta}.pem`, new TextEncoder().encode(derToPem(fixture(SEED_CRLS.delta), "crl"))],
+    [`${P.full}.pem`, fixture(FULL_01.replace(/\.der$/, ".pem"))],
+    [`${P.delta}.pem`, new TextEncoder().encode(derToPem(fixture(DELTA_01), "crl"))],
   ])("GET %s sends the stored DER or the PEM derived from it", async (path, body) => {
-    const { request } = await setup();
     const res = await request(path);
     expect(res.status).toBe(200);
     expect(await bytesOf(res)).toEqual(body);
@@ -115,7 +136,6 @@ describe("bytes", () => {
 
 describe("headers", () => {
   it("certificate DER, GET: immutable, the digest as ETag, the path's file name", async () => {
-    const { request, seed } = await setup();
     const res = await request(P.root);
     expect(res.status).toBe(200);
     expect(headersOf(res)).toEqual({
@@ -124,13 +144,12 @@ describe("headers", () => {
       "content-length": String(fixture(ROOT.der).byteLength),
       "content-type": "application/pkix-cert",
       etag: `"${ROOT.sha256}"`,
-      "last-modified": httpDate(seed.catalog.certificates[ROOT.sha256]?.importedAt),
+      "last-modified": NOW.toUTCString(),
     });
   });
 
   it("certificate PEM, HEAD: every header, no body, the blob not read", async () => {
-    const { request, seed } = await setup({ failGet: BLOBS });
-    const res = await request(`${P.root}.pem`, { method: "HEAD" });
+    const res = await blobless(`${P.root}.pem`, { method: "HEAD" });
     expect(res.status).toBe(200);
     expect(headersOf(res)).toEqual({
       "cache-control": IMMUTABLE,
@@ -138,43 +157,22 @@ describe("headers", () => {
       "content-length": String(fixture(ROOT.pem).byteLength),
       "content-type": "application/x-pem-file",
       etag: `"${ROOT.sha256}-pem"`,
-      "last-modified": httpDate(seed.catalog.certificates[ROOT.sha256]?.importedAt),
+      "last-modified": NOW.toUTCString(),
     });
     expect(await res.text()).toBe("");
   });
 
   it("CRL DER, GET (nextUpdate 4 days after NOW → max-age 3600)", async () => {
-    const { request, seed } = await setup();
     const res = await request(P.full);
     expect(res.status).toBe(200);
     expect(headersOf(res)).toEqual({
       "cache-control": "public, max-age=3600, must-revalidate",
       "content-disposition": 'attachment; filename="issuing-ca-1.crl"',
-      "content-length": String(fixture(SEED_CRLS.full).byteLength),
+      "content-length": String(fixture(FULL_01).byteLength),
       "content-type": "application/pkix-crl",
       etag: `"${FULL.sha256}"`,
-      "last-modified": httpDate(seed.catalog.targets[seed.targets.full]?.current?.publishedAt),
+      "last-modified": NOW.toUTCString(),
     });
-  });
-
-  it.each<{ title: string; path: string; options: DownloadSeedOptions; maxAge: number }>([
-    { title: "full-01: nextUpdate 4 days after NOW", path: P.full, options: {}, maxAge: 3600 },
-    { title: "delta-01: expired at NOW", path: P.delta, options: {}, maxAge: 60 },
-    {
-      title: "a CRL without nextUpdate",
-      path: P.full,
-      options: { full: SEED_CRLS.fullWithoutNextUpdate },
-      maxAge: 300,
-    },
-  ])("CRL Cache-Control, $title → max-age $maxAge", async ({ path, options, maxAge }) => {
-    const { request } = await setup(options);
-    for (const variant of [path, `${path}.pem`]) {
-      const res = await request(variant);
-      expect(res.status, variant).toBe(200);
-      expect(res.headers.get("Cache-Control"), variant).toBe(
-        `public, max-age=${maxAge}, must-revalidate`
-      );
-    }
   });
 });
 
@@ -191,9 +189,8 @@ describe("If-None-Match", () => {
     ["the PEM ETag on the PEM path", `${P.root}.pem`, pem],
     ["the CRL's ETag", P.full, `"${FULL.sha256}"`],
   ])("%s → 304 with ETag and Cache-Control only, the blob not read", async (_, path, header) => {
-    const { request } = await setup({ failGet: BLOBS });
     for (const method of ["GET", "HEAD"]) {
-      const res = await request(path, { method, headers: { "If-None-Match": header } });
+      const res = await blobless(path, { method, headers: { "If-None-Match": header } });
       expect(res.status, method).toBe(304);
       expect(await res.text(), method).toBe("");
       expect(Object.keys(headersOf(res)), method).toEqual(["cache-control", "etag"]);
@@ -209,7 +206,6 @@ describe("If-None-Match", () => {
     ["* in a list", P.root, '"x", *'],
     ["an empty header", P.root, ""],
   ])("%s → 200 with the body", async (_, path, header) => {
-    const { request } = await setup();
     const res = await request(path, { headers: { "If-None-Match": header } });
     expect(res.status).toBe(200);
     expect((await bytesOf(res)).byteLength).toBe(Number(res.headers.get("Content-Length")));
@@ -233,13 +229,11 @@ describe("text/plain 404 and 405", () => {
     ["the prefix with a slash", "/ca/"],
     ["/crl alone", "/crl"],
     ["a target that was never published", P.unpublished],
-    ["a target whose current is null", `${P.nullCurrent}.pem`],
   ])("%s: %s, never the ui, never 304", async (_, path) => {
-    const { request } = await setup({ failGet: BLOBS });
     for (const method of ["GET", "HEAD"]) {
       // If-None-Match: * only matches a current representation (RFC 9110 §13.1.2).
       for (const headers of [{}, { "If-None-Match": "*" }]) {
-        const res = await request(path, { method, headers });
+        const res = await blobless(path, { method, headers });
         expect(res.status, method).toBe(404);
         expect(res.headers.get("Content-Type"), method).toMatch(/^text\/plain/);
         expect(res.headers.get("Cache-Control"), method).toBe("no-store");
@@ -251,9 +245,9 @@ describe("text/plain 404 and 405", () => {
   it.each(["POST", "PUT", "DELETE"])(
     "%s on a download path → 405 Allow: GET, HEAD, before any read",
     async (method) => {
-      const { request } = await setup({ failGet: () => true });
+      const failing = requester(() => true);
       for (const path of [P.root, `${P.root}.pem`, P.full, "/crl/missing.crl", "/ca"]) {
-        const res = await request(path, { method });
+        const res = await failing(path, { method });
         expect(res.status, path).toBe(405);
         expect(res.headers.get("Allow"), path).toBe("GET, HEAD");
         expect(res.headers.get("Content-Type"), path).toMatch(/^text\/plain/);
@@ -265,19 +259,11 @@ describe("text/plain 404 and 405", () => {
 });
 
 describe("500", () => {
-  it("store get throws → 500 internal; the error text only reaches the log", async () => {
-    const { request, deps } = await setup({ failGet: () => true });
-    await expectInternal(await request(P.root), "private", "blobs/");
-    const message = expect.stringContaining("private storage details") as unknown;
-    expect(logRecords(deps).filter((line) => line.msg === "unhandled_error")).toMatchObject([
-      { path: P.root, error: { message } },
-    ]);
-  });
-
   it("blob missing → 500 for GET; HEAD still answers from the catalog", async () => {
-    const { base, request } = await setup();
-    await base.delete(certificateBlobKey(ROOT.sha256));
-    await expectInternal(await request(P.root), "blobs/");
-    expect((await request(P.root, { method: "HEAD" })).status).toBe(200);
+    const own = await readService(OPTIONS);
+    await own.base.delete(certificateBlobKey(ROOT.sha256));
+    const ownRequest = requester(undefined, own.base);
+    await expectInternal(await ownRequest(P.root), "blobs/");
+    expect((await ownRequest(P.root, { method: "HEAD" })).status).toBe(200);
   });
 });

@@ -4,7 +4,6 @@ import type { Catalog, CatalogCertificate, Config, CurrentCrl } from "../../src/
 import {
   CATALOG_KEY,
   certificateBlobKey,
-  CONFIG_KEY,
   emptyConfig,
   encodeJson,
 } from "../../src/core/catalog.ts";
@@ -34,10 +33,9 @@ export function configFor(names: readonly string[]): Config {
   return config;
 }
 
-/** The catalog entry importCertificate writes for certs/<name>.der at `importedAt`. */
+/** The catalog entry importCertificate writes for certs/<name>.der at NOW. */
 export async function certificateEntry(
-  name: string,
-  importedAt: Date = NOW
+  name: string
 ): Promise<{ id: string; entry: CatalogCertificate }> {
   const { der: path, sha256: id } = cert(name);
   const der = fixture(path);
@@ -46,7 +44,7 @@ export async function certificateEntry(
     entry: {
       key: certificateBlobKey(id),
       size: der.byteLength,
-      importedAt: importedAt.toISOString(),
+      importedAt: NOW.toISOString(),
       summary: await buildCertificateSummary(parseCertificate(der), der),
     },
   };
@@ -73,9 +71,4 @@ export async function currentCrl(file: string, targetId: string): Promise<Curren
 /** Writes catalog.json in the canonical format, unconditionally. */
 export async function putCatalog(store: ObjectStore, catalog: Catalog): Promise<void> {
   await store.put(CATALOG_KEY, encodeJson(catalog));
-}
-
-/** Writes config.json in the canonical format, unconditionally (no V1–V9, unlike applyConfig). */
-export async function putConfig(store: ObjectStore, config: Config): Promise<void> {
-  await store.put(CONFIG_KEY, encodeJson(config));
 }
