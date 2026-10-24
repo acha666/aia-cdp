@@ -1,14 +1,11 @@
 // A target's history (src/core/history.ts): published versions from the blob and marker prefixes,
 // newest first, also once the target is removed from config.json; orphans are not history.
 import { describe, expect, it } from "vitest";
-import { applyConfig } from "../../src/core/admin.ts";
-import { CONFIG_KEY, emptyConfig } from "../../src/core/catalog.ts";
-import type { Config } from "../../src/core/catalog.ts";
-import { sha256Hex } from "../../src/core/digest.ts";
+import { emptyConfig } from "../../src/core/catalog.ts";
 import { getHistoryBlob, listHistory } from "../../src/core/history.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { crlEntry, fixture } from "../fixtures/pki.ts";
-import { publishFile, setupPublish } from "../helpers/publish.ts";
+import { applyOver, publishFile, setupPublish } from "../helpers/publish.ts";
 
 const FILES = ["full-01", "full-02", "full-03"].map((name) => `crls/issuing-ca-1/${name}.der`);
 
@@ -34,14 +31,8 @@ function entryOf(file: string, current: boolean) {
   };
 }
 
-async function removeTargets(store: MemoryStore): Promise<Config> {
-  const stored = await store.get(CONFIG_KEY);
-  const config = emptyConfig();
-  const applied = await applyConfig({ store }, config, {
-    ifMatch: await sha256Hex(stored!.bytes),
-  });
-  expect(applied).toHaveProperty("config");
-  return config;
+async function removeTargets(store: MemoryStore): Promise<void> {
+  expect(await applyOver(store, emptyConfig())).toHaveProperty("config");
 }
 
 describe("listHistory", () => {

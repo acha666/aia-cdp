@@ -7,7 +7,7 @@ import { crlBlobKey, crlHistoryKey, crlVersionName } from "../../src/core/histor
 import { SIGNATURE_ALG_NAMES } from "../../src/core/pki/constants.ts";
 import { MAX_CRL_NUMBER_OCTETS } from "../../src/core/pki/extensions.ts";
 import { getSKIHex, parseCertificate, parseCRL } from "../../src/core/pki/parsers.ts";
-import type { CurrentVersion, PublishErrorCode } from "../../src/core/publish.ts";
+import type { PublishErrorCode } from "../../src/core/publish.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { buildCrlSummary } from "../../src/core/summary/catalog-summary.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
@@ -15,7 +15,7 @@ import { cert, crlEntry, fixture, manifest, NOW } from "../fixtures/pki.ts";
 import { currentCrl } from "../helpers/catalog.ts";
 import { generateCa, setupGeneratedCa, signCrl } from "../helpers/generated-ca.ts";
 import { nullWithContents, padOid, pkiError, withOuterAlgorithm } from "../helpers/pki.ts";
-import { downloadsOf, publish, publishFile, setupPublish } from "../helpers/publish.ts";
+import { downloadsOf, publish, publishFile, setupPublish, versionOf } from "../helpers/publish.ts";
 import type { SetupOptions } from "../helpers/publish.ts";
 import { flakyStore, puts, racingStore, recordingStore } from "../helpers/store.ts";
 
@@ -36,12 +36,6 @@ const engine = pkijs.getCrypto(true);
 const entryOf = (file: string) => crlEntry(file.replace(/(?:\.crlf)?\.pem$/, ".der"));
 
 const iso = (time: string) => new Date(time).toISOString();
-
-/** `details.current` of a 409 against the fixture `file`. */
-function versionOf(file: string): CurrentVersion {
-  const { sha256, crlNumber, thisUpdate } = entryOf(file);
-  return { sha256, crlNumber, thisUpdate: iso(thisUpdate) };
-}
 
 async function fresh(options?: SetupOptions) {
   const base = new MemoryStore();

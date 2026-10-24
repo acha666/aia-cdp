@@ -5,12 +5,11 @@
 import type { webcrypto } from "node:crypto";
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
-import { applyConfig } from "../../src/core/admin.ts";
-import { importCertificate } from "../../src/core/certificates.ts";
 import { toDigestInput } from "../../src/core/digest.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
 import { NOW } from "../fixtures/pki.ts";
 import { attribute, extension, nameOf } from "./pki.ts";
+import { applyOver, importOrThrow } from "./publish.ts";
 
 const HOUR = 3_600_000;
 
@@ -113,18 +112,15 @@ export async function signCrl(
 
 /** Imports `ca` and applies a config.json with one full target for it; returns the target id. */
 export async function setupGeneratedCa(store: ObjectStore, ca: GeneratedCa): Promise<string> {
-  const imported = await importCertificate({ store, now: () => NOW }, ca.der);
-  if (!("outcome" in imported)) {
-    throw new Error(`import: ${imported.error}`);
-  }
+  const issuer = await importOrThrow(store, ca.der);
   const targetId = crypto.randomUUID();
   const config = {
     version: 1,
     certificates: {},
-    targets: { [targetId]: { issuer: imported.id, kind: "full", label: ca.commonName } },
+    targets: { [targetId]: { issuer, kind: "full", label: ca.commonName } },
     paths: { "/crl/generated-ca.crl": { target: targetId } },
   };
-  const applied = await applyConfig({ store }, config, { ifNoneMatch: "*" });
+  const applied = await applyOver(store, config);
   if ("error" in applied) {
     throw new Error(`applyConfig: ${JSON.stringify(applied)}`);
   }

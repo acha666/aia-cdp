@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyConfig, validateConfig } from "../../src/core/admin.ts";
-import type { ConfigCheck, ConfigIssue, ConfigPrecondition } from "../../src/core/admin.ts";
+import type { ConfigCheck, ConfigIssue } from "../../src/core/admin.ts";
 import {
   CATALOG_KEY,
   certificateBlobKey,
@@ -17,6 +17,7 @@ import { MemoryStore } from "../../src/storage/memory.ts";
 import { cert, fixture, NOW } from "../fixtures/pki.ts";
 import { MINIMAL_CONFIG, putText } from "../helpers/app.ts";
 import { currentCrl, putCatalog } from "../helpers/catalog.ts";
+import { applyOver, importOrThrow } from "../helpers/publish.ts";
 import { flakyStore, puts, recordingStore } from "../helpers/store.ts";
 
 // The config rules V1–V9 (validateConfig), applyConfig, which writes only config.json, and
@@ -29,11 +30,7 @@ const id = (name: string) => cert(name).sha256;
 async function storeWith(names: string[] = IMPORTED): Promise<MemoryStore> {
   const store = new MemoryStore();
   for (const name of names) {
-    const result = await importCertificate(
-      { store, now: () => NOW, sleep: async () => undefined },
-      fixture(cert(name).der)
-    );
-    expect(result).toMatchObject({ outcome: "created" });
+    await importOrThrow(store, fixture(cert(name).der));
   }
   return store;
 }
@@ -93,14 +90,6 @@ function issuesOf(result: Awaited<ReturnType<typeof applyConfig>>): ConfigIssue[
     throw new Error(`expected config_invalid, got ${JSON.stringify(result)}`);
   }
   return result.details.issues;
-}
-
-/** Applies `config` as the first configuration or over the stored one. */
-async function apply(store: ObjectStore, config: unknown) {
-  const stored = await store.get(CONFIG_KEY);
-  const precondition: ConfigPrecondition =
-    stored === null ? { ifNoneMatch: "*" } : { ifMatch: await sha256Hex(stored.bytes) };
-  return applyConfig({ store }, config, precondition);
 }
 
 describe("config rules", () => {
@@ -241,7 +230,7 @@ describe("config rules", () => {
   it("a target with a current CRL may be removed: that retires it", async () => {
     const store = await storeWith();
     const { ids, config } = baseline();
-    await apply(store, config);
+    await applyOver(store, config);
     await putCatalog(store, {
       ...(await catalogOf(store)),
       targets: {
@@ -249,19 +238,19 @@ describe("config rules", () => {
       },
     });
     const retired = without(config, ids.full);
-    expect(await apply(store, retired)).toMatchObject({ config: retired });
+    expect(await applyOver(store, retired)).toMatchObject({ config: retired });
   });
 
   it("V9: a target id keeps its issuer and kind, and may change its label", async () => {
     const store = await storeWith();
     const { ids, config } = baseline();
-    await apply(store, config);
+    await applyOver(store, config);
     const changed = {
       ...config,
       targets: { [ids.root]: target("issuing-ca-2", "delta") },
       paths: { "/ca/root-ca.crt": { certificate: id("root-ca") } },
     };
-    expect(rules(issuesOf(await apply(store, changed)))).toEqual([
+    expect(rules(issuesOf(await applyOver(store, changed)))).toEqual([
       ["V9", ["targets", ids.root, "issuer"]],
       ["V9", ["targets", ids.root, "kind"]],
     ]);
@@ -269,7 +258,7 @@ describe("config rules", () => {
       ...config,
       targets: { ...config.targets, [ids.root]: { ...config.targets[ids.root]!, label: "New" } },
     };
-    expect(await apply(store, relabeled)).toMatchObject({ config: relabeled });
+    expect(await applyOver(store, relabeled)).toMatchObject({ config: relabeled });
   });
 });
 
@@ -292,16 +281,16 @@ describe("applyConfig", () => {
 
   it("reports a write lost to a concurrent apply as precondition_failed, without retry", async () => {
     const base = await storeWith();
-    await apply(base, baseline().config);
+    await applyOver(base, baseline().config);
     const store = recordingStore(flakyStore(base, { failIfMatch: 1 }));
-    expect(await apply(store, baseline().config)).toEqual({ error: "precondition_failed" });
+    expect(await applyOver(store, baseline().config)).toEqual({ error: "precondition_failed" });
     expect(puts(store).map((put) => put.ok)).toEqual([false]);
   });
 
   it("returns the issues of every layer at once, by rule, and writes nothing", async () => {
     const base = await storeWith();
     const { config } = baseline();
-    await apply(base, config);
+    await applyOver(base, config);
     const store = recordingStore(base);
     const leaf = crypto.randomUUID();
     const next = {
@@ -313,7 +302,7 @@ describe("applyConfig", () => {
         "/ca/bad path.crt": { certificate: id("root-ca") },
       },
     };
-    const issues = issuesOf(await apply(store, next));
+    const issues = issuesOf(await applyOver(store, next));
     expect(rules(issues)).toEqual([
       ["V2", ["paths", "/ca/bad path.crt"]],
       ["V5", ["targets", leaf, "issuer"]],
@@ -327,7 +316,9 @@ describe("applyConfig", () => {
     const base = await storeWith();
     await putText(base, CATALOG_KEY, '{"version":1}');
     const store = recordingStore(base);
-    await expect(apply(store, baseline().config)).rejects.toBeInstanceOf(InvalidStoredObjectError);
+    await expect(applyOver(store, baseline().config)).rejects.toBeInstanceOf(
+      InvalidStoredObjectError
+    );
     expect(store.writes).toEqual([]);
   });
 });
@@ -335,7 +326,7 @@ describe("applyConfig", () => {
 describe("deleteCertificate", () => {
   it("removes an unreferenced certificate and its blob; importing it again creates it", async () => {
     const base = await storeWith();
-    await apply(base, baseline().config);
+    await applyOver(base, baseline().config);
     const store = recordingStore(base);
     const leaf = id("leaf-min");
     expect(await deleteCertificate({ store }, leaf)).toEqual({ deleted: true });
@@ -352,7 +343,7 @@ describe("deleteCertificate", () => {
   it("refuses a referenced certificate, naming every reference, and writes nothing", async () => {
     const base = await storeWith();
     const { ids, config } = baseline();
-    await apply(base, config);
+    await applyOver(base, config);
     // issuing-ca-2 verified the current CRL of a target that is no longer in config.json.
     const removed = crypto.randomUUID();
     await putCatalog(base, {

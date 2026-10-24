@@ -2,13 +2,15 @@
 // applied with applyConfig, as an operator would, on any store; publishCrl at NOW with a recording
 // sleep.
 import { applyConfig } from "../../src/core/admin.ts";
-import { emptyConfig } from "../../src/core/catalog.ts";
+import type { ApplyConfigResult, ConfigPrecondition } from "../../src/core/admin.ts";
+import { CONFIG_KEY, emptyConfig } from "../../src/core/catalog.ts";
 import type { Config, CrlKind } from "../../src/core/catalog.ts";
 import { importCertificate } from "../../src/core/certificates.ts";
+import { sha256Hex } from "../../src/core/digest.ts";
 import { publishCrl } from "../../src/core/publish.ts";
-import type { PublishLogRecord, PublishResult } from "../../src/core/publish.ts";
+import type { CurrentVersion, PublishLogRecord, PublishResult } from "../../src/core/publish.ts";
 import type { ObjectStore } from "../../src/core/store.ts";
-import { cert, fixture, manifest, NOW } from "../fixtures/pki.ts";
+import { cert, crlEntry, fixture, manifest, NOW } from "../fixtures/pki.ts";
 
 export interface TargetSpec {
   /** Certificate name (manifest.certificates[].name) of the target's issuer. */
@@ -65,16 +67,39 @@ export interface SetupOptions {
   configure?: (config: Config) => void;
 }
 
-/** Imports the certificates, then applies the first config.json (If-None-Match: *). */
+/** importCertificate at NOW; the certificate's id. Throws on a rejection. */
+export async function importOrThrow(store: ObjectStore, bytes: Uint8Array): Promise<string> {
+  const imported = await importCertificate({ store, now: () => NOW }, bytes);
+  if (!("outcome" in imported)) {
+    throw new Error(`import: ${imported.error}`);
+  }
+  return imported.id;
+}
+
+/**
+ * applyConfig with the precondition an operator sends: If-None-Match: * while config.json is
+ * missing, otherwise If-Match with the SHA-256 of its stored bytes.
+ */
+export async function applyOver(store: ObjectStore, config: unknown): Promise<ApplyConfigResult> {
+  const stored = await store.get(CONFIG_KEY);
+  const precondition: ConfigPrecondition =
+    stored === null ? { ifNoneMatch: "*" } : { ifMatch: await sha256Hex(stored.bytes) };
+  return applyConfig({ store }, config, precondition);
+}
+
+/** `details.current` of a 409 against the CRL fixture `file` (a .der) as the current CRL. */
+export function versionOf(file: string): CurrentVersion {
+  const { sha256, crlNumber, thisUpdate } = crlEntry(file);
+  return { sha256, crlNumber, thisUpdate: new Date(thisUpdate).toISOString() };
+}
+
+/** Imports the certificates, then applies config.json over the store's (the first on a new store). */
 export async function setupPublish(
   store: ObjectStore,
   { certificates = IMPORTED, targets = DEFAULT_TARGETS, configure }: SetupOptions = {}
 ): Promise<PublishSetup> {
   for (const name of certificates) {
-    const imported = await importCertificate({ store, now: () => NOW }, fixture(cert(name).der));
-    if (!("outcome" in imported)) {
-      throw new Error(`import ${name}: ${imported.error}`);
-    }
+    await importOrThrow(store, fixture(cert(name).der));
   }
   const ids = new Map<string, string>();
   const config = emptyConfig();
@@ -92,7 +117,7 @@ export async function setupPublish(
     }
   }
   configure?.(config);
-  const applied = await applyConfig({ store }, config, { ifNoneMatch: "*" });
+  const applied = await applyOver(store, config);
   if ("error" in applied) {
     throw new Error(`applyConfig: ${JSON.stringify(applied)}`);
   }
