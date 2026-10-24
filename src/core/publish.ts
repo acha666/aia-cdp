@@ -1,7 +1,14 @@
 // CRL publishing (plan §5.5): the freshness rule and publishCrl, which writes the blob and history
 // marker keys of ./history.ts. There is one commit point, the catalog write: no PEM or alias
 // companions, no edge cache. The HTTP route maps the result.
-import { encodeJson, JSON_CONTENT_TYPE, updateState } from "./catalog.ts";
+import { z } from "zod";
+import {
+  CrlSummarySchema,
+  encodeJson,
+  JSON_CONTENT_TYPE,
+  Sha256Hex,
+  updateState,
+} from "./catalog.ts";
 import type { CatalogMutation, CrlKind, CrlSummary, CurrentCrl, State } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { crlBlobKey, crlHistoryKey } from "./history.ts";
@@ -122,12 +129,16 @@ export interface PublishSuccess {
   downloads: string[];
 }
 
-/** The stored current CRL a 409 refers to (`details.current`). */
-export interface CurrentVersion {
-  sha256: string;
-  crlNumber: string | null;
-  thisUpdate: string;
-}
+/** The stored current CRL a 409 refers to (`details.current`; the HTTP schema uses this one). */
+export const CurrentCrlVersion = z
+  .object({
+    sha256: Sha256Hex,
+    crlNumber: CrlSummarySchema.shape.crlNumber,
+    thisUpdate: CrlSummarySchema.shape.thisUpdate,
+  })
+  .meta({ id: "CurrentCrlVersion" });
+
+export type CurrentVersion = z.infer<typeof CurrentCrlVersion>;
 
 /**
  * The failures (implementation §2.6), `details` as the envelope carries them. The route answers

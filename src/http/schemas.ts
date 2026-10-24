@@ -1,5 +1,5 @@
 import { z } from "@hono/zod-openapi";
-import { CONFIG_RULES } from "../core/admin.ts";
+import { ConfigIssue } from "../core/admin.ts";
 import {
   CertificateSummarySchema,
   CrlKind,
@@ -7,7 +7,9 @@ import {
   Sha256Hex,
   TargetId,
 } from "../core/catalog.ts";
+import { CertificateReference } from "../core/certificates.ts";
 import { PKI_PARSE_REASONS } from "../core/pki/errors.ts";
+import { CurrentCrlVersion } from "../core/publish.ts";
 import {
   AlgorithmIdentifierSchema,
   FingerprintsSchema,
@@ -179,16 +181,6 @@ export const InvalidCertificateError = detailedErrorSchema(
   z.object({ reason: ParseReason })
 ).openapi("InvalidCertificateError");
 
-/** One entry of config_invalid's details.issues (src/core/admin.ts ConfigIssue). */
-export const ConfigIssue = z
-  .object({
-    /** Keys from the document root; [] for the whole document. */
-    path: z.array(z.union([z.string(), z.number()])),
-    rule: z.enum(CONFIG_RULES),
-    message: z.string(),
-  })
-  .openapi("ConfigIssue");
-
 export const ConfigInvalidError = detailedErrorSchema(
   ["config_invalid"],
   z.object({ issues: z.array(ConfigIssue) })
@@ -234,15 +226,6 @@ export const PublishedCrl = z
     downloads: z.array(z.string()),
   })
   .openapi("PublishedCrl");
-
-/** The stored current CRL a 409 compares against (`details.current`). */
-const CurrentCrlVersion = z
-  .object({
-    sha256: Sha256Hex,
-    crlNumber: CrlSummarySchema.shape.crlNumber,
-    thisUpdate: CrlSummarySchema.shape.thisUpdate,
-  })
-  .openapi("CurrentCrlVersion");
 
 export const CrlConflictError = z
   .union([
@@ -493,14 +476,6 @@ export const CrlHistory = z
     }),
   })
   .openapi("CrlHistory");
-
-const CertificateReference = z
-  .object({
-    object: z.enum(["config.json", "catalog.json"]),
-    /** Keys from the object's root. */
-    path: z.array(z.string()),
-  })
-  .openapi("CertificateReference");
 
 /** 409 of DELETE /api/v1/admin/certificates/{id}. */
 export const CertificateConflictError = z

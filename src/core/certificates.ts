@@ -1,6 +1,7 @@
 // Certificate import and deletion (plan §5.5).
 // There is one commit point, the catalog write: no companion objects, no edge cache. Importing does
 // not authorize anything: a certificate only becomes an issuer once a config target names it.
+import { z } from "zod";
 import { certificateBlobKey, certificateReferences, readCatalog, updateState } from "./catalog.ts";
 import type { CatalogCertificate, CertificateSummary, State } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
@@ -111,11 +112,18 @@ export async function importCertificate(
 
 // Deletion ----------------------------------------------------------------------------------------
 
-/** Where a certificate is referenced: the object and the keys from its root, as in ConfigIssue. */
-export interface CertificateReference {
-  object: "config.json" | "catalog.json";
-  path: string[];
-}
+/**
+ * Where a certificate is referenced: the object and the keys from its root, as in ConfigIssue
+ * (`details.references[]` of referenced; the HTTP schema uses this one).
+ */
+export const CertificateReference = z
+  .object({
+    object: z.enum(["config.json", "catalog.json"]),
+    path: z.array(z.string()),
+  })
+  .meta({ id: "CertificateReference" });
+
+export type CertificateReference = z.infer<typeof CertificateReference>;
 
 export type DeleteCertificateResult =
   | { deleted: true }

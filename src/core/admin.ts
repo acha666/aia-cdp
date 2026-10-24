@@ -13,7 +13,7 @@
 // one apply and re-added for another certificate by a later one is not detected. Certificate
 // downloads are cached `immutable` for a year: a new CA certificate needs a new path, which is the
 // operator's responsibility.
-import type { z } from "zod";
+import { z } from "zod";
 import {
   certificateReferences,
   CONFIG_KEY,
@@ -27,18 +27,19 @@ import type { Catalog, Config, CrlKind } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import type { ObjectStore } from "./store.ts";
 
-/** `rule` of a config_invalid issue (the HTTP schema enumerates it). */
-export const CONFIG_RULES = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "V9"] as const;
+const CONFIG_RULES = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "V9"] as const;
 
-export type ConfigRule = (typeof CONFIG_RULES)[number];
+/** One violation: `details.issues[]` of config_invalid (the HTTP schema uses this one). */
+export const ConfigIssue = z
+  .object({
+    /** Keys from the document root, e.g. ["paths", "/ca/root-ca.crt"]; [] for the whole document. */
+    path: z.array(z.union([z.string(), z.number()])),
+    rule: z.enum(CONFIG_RULES),
+    message: z.string(),
+  })
+  .meta({ id: "ConfigIssue" });
 
-/** One violation: `details.issues[]` of config_invalid. */
-export interface ConfigIssue {
-  /** Keys from the document root, e.g. ["paths", "/ca/root-ca.crt"]; [] for the whole document. */
-  path: (string | number)[];
-  rule: ConfigRule;
-  message: string;
-}
+export type ConfigIssue = z.infer<typeof ConfigIssue>;
 
 export type ConfigCheck = { ok: true; config: Config } | { ok: false; issues: ConfigIssue[] };
 
