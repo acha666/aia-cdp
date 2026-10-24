@@ -68,7 +68,7 @@ describe("RevokedTable", () => {
     vi.stubEnv("TZ", "UTC");
     // leaf-revoked in crls/issuing-ca-1/full-01: keyCompromise with an invalidity date.
     const entry: RevokedCertificate = {
-      userCertificate: { hex: "2002" },
+      userCertificate: { hex: "2002", decimal: "8194" },
       revocationDate: time("2026-01-01T12:00:00Z"),
       crlEntryExtensions: {
         count: 3,
@@ -113,7 +113,7 @@ describe("RevokedTable", () => {
   it("expands a row with entry extensions into all of them, the hold instruction too", async () => {
     // The certificateHold entry of crls/issuing-ca-2/full-01.
     const entry: RevokedCertificate = {
-      userCertificate: { hex: "3000" },
+      userCertificate: { hex: "3000", decimal: "12288" },
       revocationDate: time("2025-12-20T00:00:00Z"),
       crlEntryExtensions: {
         count: 2,

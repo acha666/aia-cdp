@@ -48,11 +48,11 @@ function oidText(oid: ObjectIdentifier): string {
 /** "DNS: example.com [0–2]": the base name and, when given, its minimum / maximum. */
 export function describeSubtree(subtree: GeneralSubtree, ctx: ExtensionContext): string {
   const { minimum, maximum } = subtree;
-  if (!minimum && maximum === undefined) {
+  if (minimum === 0 && maximum === undefined) {
     return ctx.name(subtree.base); // the default range [0–∞) says nothing
   }
   const upper = maximum === undefined ? "" : `–${String(maximum)}`;
-  return `${ctx.name(subtree.base)} [${String(minimum ?? 0)}${upper}]`;
+  return `${ctx.name(subtree.base)} [${String(minimum)}${upper}]`;
 }
 
 const names = (list: readonly GeneralName[], ctx: ExtensionContext): Value => ({

@@ -26,7 +26,7 @@ export type X509Version = z.infer<typeof X509VersionSchema>;
 
 export const SerialNumberSchema = z.object({
   hex: z.string(),
-  decimal: z.string().optional(),
+  decimal: z.string(),
 });
 export type SerialNumber = z.infer<typeof SerialNumberSchema>;
 
@@ -288,7 +288,7 @@ export type AccessDescription = z.infer<typeof AccessDescriptionSchema>;
 
 export const GeneralSubtreeSchema = z.object({
   base: GeneralNameSchema,
-  minimum: z.number().optional(),
+  minimum: z.number(),
   maximum: z.number().optional(),
 });
 export type GeneralSubtree = z.infer<typeof GeneralSubtreeSchema>;
@@ -338,11 +338,11 @@ export const ParsedExtensionValueSchema = z.discriminatedUnion("extensionType", 
   extensionValue("deltaCRLIndicator", { baseCRLNumber: z.string() }),
   extensionValue("issuingDistributionPoint", {
     distributionPoint: DistributionPointNameSchema.optional(),
-    onlyContainsUserCerts: z.boolean().optional(),
-    onlyContainsCACerts: z.boolean().optional(),
+    onlyContainsUserCerts: z.boolean(),
+    onlyContainsCACerts: z.boolean(),
     onlySomeReasons: z.array(z.string()).optional(),
-    indirectCRL: z.boolean().optional(),
-    onlyContainsAttributeCerts: z.boolean().optional(),
+    indirectCRL: z.boolean(),
+    onlyContainsAttributeCerts: z.boolean(),
   }),
   extensionValue("cRLReason", { code: z.number(), name: z.string() }),
   extensionValue("invalidityDate", { date: TimeSchema }),

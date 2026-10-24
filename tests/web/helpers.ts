@@ -276,7 +276,10 @@ export function targetItems(): CrlTargetListItem[] {
 /** `count` revoked entries with serials 01, 02, ... (no entry extensions). */
 export function revokedEntries(count: number): RevokedCertificate[] {
   return Array.from({ length: count }, (_, index) => ({
-    userCertificate: { hex: (index + 1).toString(16).toUpperCase().padStart(4, "0") },
+    userCertificate: {
+      hex: (index + 1).toString(16).toUpperCase().padStart(4, "0"),
+      decimal: String(index + 1),
+    },
     revocationDate: time("2026-01-01T00:00:00Z"),
   }));
 }

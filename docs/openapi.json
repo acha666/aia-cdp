@@ -349,7 +349,8 @@
               }
             },
             "required": [
-              "hex"
+              "hex",
+              "decimal"
             ]
           },
           "signature": {
@@ -1725,7 +1726,8 @@
                 }
               },
               "required": [
-                "base"
+                "base",
+                "minimum"
               ]
             }
           },
@@ -1745,7 +1747,8 @@
                 }
               },
               "required": [
-                "base"
+                "base",
+                "minimum"
               ]
             }
           }
@@ -1822,7 +1825,11 @@
           }
         },
         "required": [
-          "extensionType"
+          "extensionType",
+          "onlyContainsUserCerts",
+          "onlyContainsCACerts",
+          "indirectCRL",
+          "onlyContainsAttributeCerts"
         ]
       },
       "CRLReasonValue": {
@@ -3105,7 +3112,8 @@
               }
             },
             "required": [
-              "hex"
+              "hex",
+              "decimal"
             ]
           },
           "revocationDate": {

@@ -210,6 +210,7 @@ describe("describeExtension", () => {
           onlyContainsUserCerts: true,
           onlyContainsCACerts: false,
           indirectCRL: true,
+          onlyContainsAttributeCerts: false,
           onlySomeReasons: ["keyCompromise", "superseded"],
         },
         ctx
@@ -257,9 +258,10 @@ describe("describeExtension", () => {
 
   it("writes subtree ranges as [min–max] and only when given", () => {
     const dns: GeneralName = { type: "dNSName", value: "example.test" };
-    expect(describeSubtree({ base: dns }, ctx)).toBe("DNS: example.test");
     expect(describeSubtree({ base: dns, minimum: 0 }, ctx)).toBe("DNS: example.test");
-    expect(describeSubtree({ base: dns, maximum: 2 }, ctx)).toBe("DNS: example.test [0–2]");
+    expect(describeSubtree({ base: dns, minimum: 0, maximum: 2 }, ctx)).toBe(
+      "DNS: example.test [0–2]"
+    );
     expect(describeSubtree({ base: dns, minimum: 1, maximum: 3 }, ctx)).toBe(
       "DNS: example.test [1–3]"
     );
