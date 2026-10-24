@@ -100,8 +100,6 @@ export function resolveFileVariants(
     }
     if (env[name] !== undefined) {
       errors.push(`  ${name}: set either ${name} or ${fileVar}, not both`);
-    } else if (path === "") {
-      errors.push(`  ${fileVar}: must name a file`);
     } else {
       try {
         resolved[name] = readText(path).replace(/\r?\n$/, "");

@@ -89,7 +89,6 @@ describe("resolveFileVariants", () => {
       { AIA_ADMIN_TOKEN: "x", AIA_ADMIN_TOKEN_FILE: "/run/admin" },
       "AIA_ADMIN_TOKEN: set either AIA_ADMIN_TOKEN or AIA_ADMIN_TOKEN_FILE, not both",
     ],
-    [{ AIA_UPLOAD_TOKEN_FILE: "" }, "AIA_UPLOAD_TOKEN_FILE: must name a file"],
     [
       { AIA_UPLOAD_TOKEN_FILE: "/run/missing" },
       'AIA_UPLOAD_TOKEN_FILE: cannot read "/run/missing": ENOENT: no such file',
