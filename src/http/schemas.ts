@@ -75,7 +75,8 @@ export function jsonContent<S extends z.ZodType>(schema: S) {
   return { "application/json": { schema } };
 }
 
-const binary = z.string().openapi({ format: "binary" });
+/** A binary request body or response (DER). */
+export const binary = z.string().openapi({ format: "binary" });
 
 /**
  * The raw request body of an upload under each of `mediaTypes`: text for PEM, binary otherwise.
@@ -291,16 +292,21 @@ export const CrlMediaTypeError = detailedErrorSchema(
 // here.
 
 /**
- * Path parameter of GET /api/v1/certificates/{id}: 64 hex digits in either case, normalised to the
- * lowercase catalog id. Checked before it is lowercased, so the documented pattern is the input's
- * (either case). One path segment, so `/` (sent as `%2F`) is a 400.
+ * A SHA-256 path parameter: 64 hex digits in either case, normalised to lowercase. Checked before
+ * it is lowercased, so the documented pattern is the input's (either case). One path segment, so
+ * `/` (sent as `%2F`) is a 400.
  */
-export const CertificateIdParam = z.object({
-  id: z
+function sha256Param(description: string) {
+  return z
     .string()
     .regex(/^[0-9a-fA-F]{64}$/)
     .toLowerCase()
-    .openapi({ description: "The certificate id: SHA-256 of the DER, hex (either case)" }),
+    .openapi({ description });
+}
+
+/** Path parameter of GET /api/v1/certificates/{id}, normalised to the lowercase catalog id. */
+export const CertificateIdParam = z.object({
+  id: sha256Param("The certificate id: SHA-256 of the DER, hex (either case)"),
 });
 
 /**
@@ -318,13 +324,9 @@ export const TargetIdParam = z.object({
     .openapi({ description: "The target id from config.json (UUID, either case)" }),
 });
 
-/** Path parameters of GET /api/v1/admin/crls/{targetId}/history/{sha256}; `sha256` like an id. */
+/** Path parameters of GET /api/v1/admin/crls/{targetId}/history/{sha256}. */
 export const HistoryVersionParam = TargetIdParam.extend({
-  sha256: z
-    .string()
-    .regex(/^[0-9a-fA-F]{64}$/)
-    .toLowerCase()
-    .openapi({ description: "SHA-256 of the version's DER, hex (either case)" }),
+  sha256: sha256Param("SHA-256 of the version's DER, hex (either case)"),
 });
 
 const Downloads = z.array(z.string()).openapi({

@@ -26,6 +26,7 @@ import { mediaTypeGate } from "../media.ts";
 import {
   AdminDisabledError,
   BadRequestError,
+  binary,
   CERTIFICATE_MEDIA_TYPES,
   CertificateConflictError,
   CertificateIdParam,
@@ -300,7 +301,7 @@ export const getHistoryVersionRoute = createRoute({
     200: {
       description: "The DER",
       headers: z.object({ "Content-Disposition": z.string() }),
-      content: { "application/pkix-crl": { schema: z.string().openapi({ format: "binary" }) } },
+      content: { "application/pkix-crl": { schema: binary } },
     },
     ...ADMIN_FAILURES,
     404: {
