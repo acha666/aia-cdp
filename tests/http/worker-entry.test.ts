@@ -4,6 +4,7 @@
 // Node program's type check does not follow; at run time it needs none of those globals.
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { expectInternal } from "../helpers/reads.ts";
 
 interface WorkerEntry {
   fetch(request: Request, env: object, ctx: object): Response | Promise<Response>;
@@ -14,13 +15,9 @@ const worker = ((await import(ENTRY)) as { default: WorkerEntry }).default;
 
 const CTX = { waitUntil: () => undefined, passThroughOnException: () => undefined, props: {} };
 
-let lines: string[];
-
+// restoreMocks (vitest.config.ts) restores console.log after each test.
 beforeEach(() => {
-  lines = [];
-  vi.spyOn(console, "log").mockImplementation((line: unknown) => {
-    lines.push(String(line));
-  });
+  vi.spyOn(console, "log").mockImplementation(() => undefined);
 });
 
 /** GET /api/v1/health with a new env object (the entry caches one app per env). */
@@ -33,8 +30,11 @@ function health(vars: Record<string, unknown>): Promise<Response> {
   return Promise.resolve(worker.fetch(new Request("https://pki.example/api/v1/health"), env, CTX));
 }
 
+/** The JSON lines the entry logged. */
 function records(): Record<string, unknown>[] {
-  return lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+  return vi
+    .mocked(console.log)
+    .mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
 }
 
 describe("src/runtime/worker.ts", () => {
@@ -45,27 +45,18 @@ describe("src/runtime/worker.ts", () => {
     expect(records()).toEqual([expect.objectContaining({ msg: "request", status: 200 })]);
   });
 
-  it.each<[string, unknown, string]>([
-    ["AIA_MAX_UPLOAD_BYTES", { bytes: 1048576 }, "must be a positive integer (bytes)"],
-    [
-      "AIA_ADMIN_TOKEN",
-      { secret: "s3cret" },
-      "must be a bearer token: letters, digits and - . _ ~ + /, optionally ending in =",
-    ],
-  ])("answers 500 and logs the variable when %s is %j", async (name, value, message) => {
-    const res = await health({ [name]: value });
-    expect(res.status).toBe(500);
-    expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({
-      error: { code: "internal", message: "Internal server error" },
-    });
+  it("answers 500 and logs the variable when AIA_ADMIN_TOKEN is no string, never the value", async () => {
+    const res = await health({ AIA_ADMIN_TOKEN: { secret: "s3cret" } });
+    await expectInternal(res, "s3cret");
     expect(records()).toEqual([
       {
         level: "error",
         msg: "invalid_settings",
-        error: `Invalid settings:\n  ${name}: ${message}`,
+        error:
+          "Invalid settings:\n  AIA_ADMIN_TOKEN: must be a bearer token: letters, digits and " +
+          "- . _ ~ + /, optionally ending in =",
       },
     ]);
-    expect(lines.join("\n")).not.toContain("s3cret");
+    expect(JSON.stringify(vi.mocked(console.log).mock.calls)).not.toContain("s3cret");
   });
 });

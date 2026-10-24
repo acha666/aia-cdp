@@ -667,7 +667,7 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 - Worker：`wrangler deploy --dry-run --outdir dist/worker`（先 `build:web`）；`smoke:worker`（`scripts/worker-smoke.ts`）用 `createTestHarness`
   运行 dry-run 产物，经管理接口导入并应用配置，跑与运行时无关的 `scripts/smoke.sh`（health、一次证书下载与 304、一次原始体 CRL 上传及其下载、
   读路由、UI），再在 workerd 上发布并验签（RSA PKCS#1 v1.5、RSASSA-PSS、SHA-1、坏签名）。`wrangler dev` 冒烟是切片出口里的人工步骤。
-- Web：组件与逻辑在 vitest `web` 项目；`tests/http/csp.test.ts` 查 UI、JSON 与下载响应都带同一 CSP。
+- Web：组件与逻辑在 vitest `web` 项目；`tests/http/app.test.ts` 查 UI、JSON 与下载响应都带同一 CSP。
 - Docker（`scripts/docker-smoke.sh`）：构建镜像、启动、健康检查 `healthy` 而 API 报 `degraded`、uid 1000、经镜像内 CLI `aia import` 与
   `config apply` 后 health `healthy`，再跑 `scripts/smoke.sh`，`docker stop` < 5 s。
 - CI：`.github/workflows/ci.yml` 四个任务，每个只用 `pnpm/setup` 装 Node（`.nvmrc`）、pnpm（`devEngines`）与依赖，再调用 `pnpm run ci:<job>`：`ci:check` = typecheck + ESLint + `prettier --check`；

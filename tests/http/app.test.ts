@@ -1,9 +1,10 @@
-// Routing rules shared by both runtimes: the /api prefix, the UI fallback, 405 and the 500
-// envelope. The download prefixes are tests/http/downloads.test.ts.
+// Routing rules shared by both runtimes: the /api prefix, the UI fallback, 405, the 500 envelope
+// and the secure headers. The download prefixes are tests/http/downloads.test.ts.
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../src/http/app.ts";
 import { logRecords, testDeps } from "../helpers/app.ts";
 import type { TestOverrides } from "../helpers/app.ts";
+import { errorOf, expectInternal } from "../helpers/reads.ts";
 
 const HEX64 = "0123456789abcdef".repeat(4);
 const UUID = "6f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f";
@@ -35,21 +36,20 @@ describe("/api", () => {
   it.each(["/api", "/api/", "/api/v1/missing"])("GET %s → JSON 404 not_found", async (path) => {
     const { app, requests } = setup();
     const res = await app.request(path);
-    expect(res.status).toBe(404);
-    expect(res.headers.get("Content-Type")).toMatch(/^application\/json/);
-    expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: { code: "not_found", message: "Not found" } });
+    expect(await errorOf(res, 404, "not_found")).toEqual({
+      code: "not_found",
+      message: "Not found",
+    });
     expect(requests).toEqual([]);
   });
 
   it("answers another method on a route with the 405 envelope and Allow", async () => {
     const { app } = setup();
     const res = await app.request("/api/v1/health", { method: "POST" });
-    expect(res.status).toBe(405);
     expect(res.headers.get("Allow")).toBe("GET, HEAD");
-    expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({
-      error: { code: "method_not_allowed", message: "Method not allowed" },
+    expect(await errorOf(res, 405, "method_not_allowed")).toEqual({
+      code: "method_not_allowed",
+      message: "Method not allowed",
     });
   });
 
@@ -59,14 +59,7 @@ describe("/api", () => {
     app.get("/api/v1/test/boom", () => {
       throw new Error("hunter2");
     });
-    const res = await app.request("/api/v1/test/boom");
-    const text = await res.text();
-    expect(res.status).toBe(500);
-    expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(JSON.parse(text)).toEqual({
-      error: { code: "internal", message: "Internal server error" },
-    });
-    expect(text).not.toContain("hunter2");
+    await expectInternal(await app.request("/api/v1/test/boom"), "hunter2");
     expect(logRecords(deps).filter((line) => line.msg === "unhandled_error")).toMatchObject([
       { level: "error", path: "/api/v1/test/boom", error: { message: "hunter2" } },
     ]);
@@ -161,4 +154,26 @@ describe("UI fallback", () => {
       expect(await res.text()).toBe("Not Found");
     }
   );
+});
+
+describe("Content-Security-Policy", () => {
+  it("is on UI, JSON and download-prefix responses", async () => {
+    const { app } = setup();
+    const policies = new Set<string | null>();
+    for (const [method, path, contentType] of [
+      ["GET", "/", /^text\/html/],
+      ["HEAD", "/no/such/page", /^text\/html/],
+      ["GET", "/api/v1/health", /^application\/json/],
+      ["GET", "/crl/missing.crl", /^text\/plain/],
+    ] as const) {
+      const res = await app.request(path, { method });
+      expect(res.headers.get("Content-Type"), path).toMatch(contentType);
+      policies.add(res.headers.get("Content-Security-Policy"));
+      expect(res.headers.get("Content-Security-Policy-Report-Only"), path).toBeNull();
+      expect(res.headers.get("Strict-Transport-Security"), path).toBeNull();
+    }
+    // One policy for all of them, which allows only same-origin scripts.
+    expect(policies.size).toBe(1);
+    expect([...policies][0]).toContain("script-src 'self';");
+  });
 });
