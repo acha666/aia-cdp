@@ -169,6 +169,7 @@ export type PublishResult = PublishSuccess | PublishFailure;
  * publishCrl's catch makes it the result, and its message the log line's detail.
  */
 class Rejection extends Error {
+  override name = "Rejection";
   readonly failure: PublishFailure;
 
   constructor(failure: PublishFailure, detail: string) {
