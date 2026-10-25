@@ -7,6 +7,7 @@ import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { describeError } from "./log.ts";
 import type { Logger } from "./log.ts";
+import { ERROR_STATUS } from "./schemas.ts";
 import type { ErrorCode } from "./schemas.ts";
 
 /** The failure envelope; an undefined `details` is left out of the JSON. */
@@ -35,10 +36,10 @@ export class ApiError extends Error {
   readonly code: ErrorCode;
   readonly details: unknown;
 
-  constructor(status: ContentfulStatusCode, code: ErrorCode, message: string, details?: unknown) {
+  constructor(code: ErrorCode, message: string, details?: unknown) {
     super(message);
     this.name = "ApiError";
-    this.status = status;
+    this.status = ERROR_STATUS[code];
     this.code = code;
     this.details = details;
   }
@@ -93,7 +94,7 @@ export function validationError(target: string, error: z.ZodError): ApiError {
     code: issue.code,
     message: issue.message,
   }));
-  return new ApiError(400, "bad_request", "Request validation failed", { target, issues });
+  return new ApiError("bad_request", "Request validation failed", { target, issues });
 }
 
 /**

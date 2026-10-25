@@ -192,7 +192,6 @@ function configPrecondition(headers: Headers): ConfigPrecondition {
   }
   if (ifMatch === null || ifNoneMatch !== null) {
     throw new ApiError(
-      428,
       "precondition_required",
       'Send exactly one of If-Match: "<ETag of GET>" or If-None-Match: * (first configuration)'
     );
@@ -206,14 +205,13 @@ function configPrecondition(headers: Headers): ConfigPrecondition {
 
 function preconditionFailed(): ApiError {
   return new ApiError(
-    412,
     "precondition_failed",
     "The precondition does not hold for the stored configuration: GET it again"
   );
 }
 
 function configInvalid(issues: ConfigIssue[]): ApiError {
-  return new ApiError(422, "config_invalid", "The configuration is invalid", { issues });
+  return new ApiError("config_invalid", "The configuration is invalid", { issues });
 }
 
 const applyConfigRoute = createRoute({
@@ -343,7 +341,6 @@ export function adminRoutes(deps: AppDeps) {
       "/admin/*",
       createMiddleware(async () => {
         throw new ApiError(
-          503,
           "admin_disabled",
           "The admin API is disabled: no admin token is configured"
         );
@@ -360,23 +357,17 @@ export function adminRoutes(deps: AppDeps) {
   admin.openapi(importCertificateRoute, async (c) => {
     const bytes = await c.req.bytes();
     if (bytes.byteLength === 0) {
-      throw new ApiError(400, "bad_request", "Expected a certificate in the request body");
+      throw new ApiError("bad_request", "Expected a certificate in the request body");
     }
 
     const result = await importCertificate(deps, bytes);
     if ("error" in result) {
       if (result.error === "invalid_certificate") {
         log({ level: "warn", msg: "import", reason: result.details.reason });
-        throw new ApiError(
-          422,
-          "invalid_certificate",
-          "Not a valid X.509 certificate",
-          result.details
-        );
+        throw new ApiError("invalid_certificate", "Not a valid X.509 certificate", result.details);
       }
       log({ level: "warn", msg: "import", certificateId: result.id, reason: result.error });
       throw new ApiError(
-        409,
         "concurrent_update",
         "The catalog kept changing concurrently: retry the import"
       );
@@ -395,25 +386,24 @@ export function adminRoutes(deps: AppDeps) {
       return c.body(null, 204, NO_STORE);
     }
     if (result.error === "not_found") {
-      throw new ApiError(404, "not_found", "No certificate with this id is imported");
+      throw new ApiError("not_found", "No certificate with this id is imported");
     }
     log({ level: "warn", msg: "delete_certificate", certificateId: id, reason: result.error });
     throw result.error === "referenced"
       ? new ApiError(
-          409,
           "referenced",
           "The certificate is referenced: remove the references from config.json first, or keep " +
             "it (the verifier of a target's current CRL stays referenced)",
           result.details
         )
-      : new ApiError(409, "concurrent_update", "The catalog kept changing concurrently: retry");
+      : new ApiError("concurrent_update", "The catalog kept changing concurrently: retry");
   });
 
   admin.openapi(getHistoryRoute, async (c) => {
     const { targetId } = c.req.valid("param");
     const history = await listHistory(deps, targetId);
     if ("error" in history) {
-      throw new ApiError(404, "not_found", "No target with this id is configured or has a history");
+      throw new ApiError("not_found", "No target with this id is configured or has a history");
     }
     return c.json(history, 200, NO_STORE);
   });
@@ -422,7 +412,7 @@ export function adminRoutes(deps: AppDeps) {
     const { targetId, sha256 } = c.req.valid("param");
     const found = await getHistoryBlob(deps, targetId, sha256);
     if ("error" in found) {
-      throw new ApiError(404, "not_found", "The target's history has no CRL with this SHA-256");
+      throw new ApiError("not_found", "The target's history has no CRL with this SHA-256");
     }
     return c.body(found.der, 200, {
       "Content-Type": "application/pkix-crl",
@@ -435,7 +425,7 @@ export function adminRoutes(deps: AppDeps) {
   admin.openapi(getConfigRoute, async () => {
     const stored = await deps.store.get(CONFIG_KEY);
     if (stored === null) {
-      throw new ApiError(404, "not_found", "Nothing has been configured yet");
+      throw new ApiError("not_found", "Nothing has been configured yet");
     }
     return configResponse(stored.bytes, await sha256Hex(stored.bytes));
   });

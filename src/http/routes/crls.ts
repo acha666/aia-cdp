@@ -163,41 +163,30 @@ const getCrlTargetRoute = createRoute({
 
 // Failures --------------------------------------------------------------------------------------
 
-/** 409 for the four conflicts, 422 for every other failure, each with its message. */
+/** The message of each failure (ERROR_STATUS has its status). */
 const FAILURES = {
-  invalid_crl: [422, "Not a valid X.509 CRL"],
-  not_yet_valid: [422, "The CRL's thisUpdate is more than 5 minutes ahead of the service's clock"],
-  unknown_critical_extension: [422, "The CRL has a critical extension this service does not know"],
-  scoped_crl_unsupported: [422, "Scoped and indirect CRLs are not supported"],
-  unsupported_algorithm: [422, "The CRL's signature algorithm is not supported"],
-  issuer_not_found: [
-    422,
+  invalid_crl: "Not a valid X.509 CRL",
+  not_yet_valid: "The CRL's thisUpdate is more than 5 minutes ahead of the service's clock",
+  unknown_critical_extension: "The CRL has a critical extension this service does not know",
+  scoped_crl_unsupported: "Scoped and indirect CRLs are not supported",
+  unsupported_algorithm: "The CRL's signature algorithm is not supported",
+  issuer_not_found:
     "No imported certificate has the CRL's Authority Key Identifier as its Subject Key Identifier",
-  ],
-  target_not_configured: [422, "No configured target of the CRL's kind names its issuer"],
-  invalid_signature: [422, "The CRL's signature does not verify with the issuer's key"],
-  stale_crl: [409, "The CRL is older than the target's current CRL"],
-  conflict: [
-    409,
-    "The target's current CRL has other bytes for the same CRL Number and thisUpdate",
-  ],
-  non_orderable: [409, "Only one of the CRL and the target's current CRL has a CRL Number"],
-  concurrent_update: [409, "The catalog kept changing concurrently: retry the upload"],
-} as const satisfies Record<PublishErrorCode, readonly [409 | 422, string]>;
+  target_not_configured: "No configured target of the CRL's kind names its issuer",
+  invalid_signature: "The CRL's signature does not verify with the issuer's key",
+  stale_crl: "The CRL is older than the target's current CRL",
+  conflict: "The target's current CRL has other bytes for the same CRL Number and thisUpdate",
+  non_orderable: "Only one of the CRL and the target's current CRL has a CRL Number",
+  concurrent_update: "The catalog kept changing concurrently: retry the upload",
+} as const satisfies Record<PublishErrorCode, string>;
 
 /** The failure's status and message; details as publishCrl gives them (concurrent_update has none). */
 function publishError(failure: PublishFailure): ApiError {
-  const [status, text] = FAILURES[failure.error];
   const message =
     failure.error === "issuer_not_found" && "reason" in failure.details
       ? "The CRL has no Authority Key Identifier keyIdentifier"
-      : text;
-  return new ApiError(
-    status,
-    failure.error,
-    message,
-    "details" in failure ? failure.details : undefined
-  );
+      : FAILURES[failure.error];
+  return new ApiError(failure.error, message, "details" in failure ? failure.details : undefined);
 }
 
 // Sub-app ---------------------------------------------------------------------------------------
@@ -222,14 +211,14 @@ export function crlRoutes(deps: AppDeps) {
       const { config, catalog } = await readState(deps.store);
       const detail = await crlTargetDetail(deps.store, config, catalog, targetId);
       if (detail === undefined) {
-        throw new ApiError(404, "not_found", "No target with this id is configured");
+        throw new ApiError("not_found", "No target with this id is configured");
       }
       return c.json(detail, 200, NO_STORE);
     })
     .openapi(uploadCrlRoute(deps.settings), async (c) => {
       const bytes = await c.req.bytes();
       if (bytes.byteLength === 0) {
-        throw new ApiError(400, "bad_request", "Expected a CRL, but the upload is empty");
+        throw new ApiError("bad_request", "Expected a CRL, but the upload is empty");
       }
       // Logs the call's one `publish` line, also when it throws (then onError's 500).
       const result = await publishCrl(

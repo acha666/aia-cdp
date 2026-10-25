@@ -99,7 +99,7 @@
     - `certutil -URL http://pki.acha.top/crl/AchaRootCA.crl`（URL Retrieval Tool）核对检索状态。
     - `curl -sI http://…` 检查：200、没有 `Location`、没有 `Strict-Transport-Security`（B8；Cloudflare 的 "Always Use HTTPS" 不得覆盖下载前缀）、ETag 带引号、有 `Content-Length`、CRL 的 `max-age` ≤ 3600；带 `If-None-Match` 请求返回 304。
     - 所有输出存档。
-11. **删除临时路由**：切换稳定、`verify` 通过后，在分支 `slice/7-cleanup` 删除 `admin-history-import.ts`、它的挂载行、`importHistory` 及其测试，以及 `ERROR_CODES` 中只剩它在用的 `issuer_mismatch`
+11. **删除临时路由**：切换稳定、`verify` 通过后，在分支 `slice/7-cleanup` 删除 `admin-history-import.ts`、它的挂载行、`importHistory` 及其测试，以及 `ERROR_STATUS` 中只剩它在用的 `issuer_mismatch`
     （切片 4 步骤 7），重新生成 `docs/openapi.json`，再部署。
 12. **回滚手册**（写进 `docs/operations.md`，演练 C 验证过）：
     - 操作：dashboard 把域名移回 `aia-cdp-worker` → 任务动作和脚本换回旧副本 → 手动跑一次旧助手（旧服务对相同字节返回 409，是已知旧行为，无害）→ 切换窗口内只发到新服务的根 CRL，经旧 UI 重传。

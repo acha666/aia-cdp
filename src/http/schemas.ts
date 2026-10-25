@@ -19,36 +19,39 @@ import {
   TBSCertListSchema,
 } from "../core/summary/schemas.ts";
 
-/** Every error code of plan §7.3. Each route narrows the enum per status code (errorSchema). */
-export const ERROR_CODES = [
-  "bad_request",
-  "unauthorized",
-  "not_found",
-  "method_not_allowed",
-  "payload_too_large",
-  "unsupported_media_type",
-  "admin_disabled",
-  "precondition_failed",
-  "precondition_required",
-  "config_invalid",
-  "referenced",
-  "invalid_crl",
-  "invalid_certificate",
-  "not_yet_valid",
-  "unknown_critical_extension",
-  "scoped_crl_unsupported",
-  "unsupported_algorithm",
-  "issuer_not_found",
-  "target_not_configured",
-  "invalid_signature",
-  "stale_crl",
-  "conflict",
-  "non_orderable",
-  "concurrent_update",
-  "internal",
-] as const;
+/**
+ * Every error code of plan §7.3 with its one status (ApiError takes it from here). Each route
+ * narrows the enum per status code (errorSchema).
+ */
+export const ERROR_STATUS = {
+  bad_request: 400,
+  unauthorized: 401,
+  not_found: 404,
+  method_not_allowed: 405,
+  payload_too_large: 413,
+  unsupported_media_type: 415,
+  admin_disabled: 503,
+  precondition_failed: 412,
+  precondition_required: 428,
+  config_invalid: 422,
+  referenced: 409,
+  invalid_crl: 422,
+  invalid_certificate: 422,
+  not_yet_valid: 422,
+  unknown_critical_extension: 422,
+  scoped_crl_unsupported: 422,
+  unsupported_algorithm: 422,
+  issuer_not_found: 422,
+  target_not_configured: 422,
+  invalid_signature: 422,
+  stale_crl: 409,
+  conflict: 409,
+  non_orderable: 409,
+  concurrent_update: 409,
+  internal: 500,
+} as const;
 
-export type ErrorCode = (typeof ERROR_CODES)[number];
+export type ErrorCode = keyof typeof ERROR_STATUS;
 
 type ErrorCodes = readonly [ErrorCode, ...ErrorCode[]];
 

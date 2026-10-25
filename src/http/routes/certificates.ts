@@ -70,7 +70,7 @@ export function certificateRoutes(deps: AppDeps) {
       const { config, catalog } = await readState(deps.store);
       const detail = await certificateDetail(deps.store, config, catalog, id);
       if (detail === undefined) {
-        throw new ApiError(404, "not_found", "No certificate with this id is imported");
+        throw new ApiError("not_found", "No certificate with this id is imported");
       }
       return c.json(detail, 200, NO_STORE);
     });

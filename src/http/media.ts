@@ -17,7 +17,7 @@ export function mediaTypeGate(accepted: readonly string[], message: string) {
   return createMiddleware(async (c, next) => {
     const type = mediaType(c.req.header("Content-Type"));
     if (type === undefined || !accepted.includes(type)) {
-      throw new ApiError(415, "unsupported_media_type", message, {
+      throw new ApiError("unsupported_media_type", message, {
         received: type ?? null,
         accepted,
       });

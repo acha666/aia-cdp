@@ -3,7 +3,7 @@
 // errors.unknown or the bare reason without one).
 import { describe, expect, it } from "vitest";
 import { PKI_PARSE_REASONS } from "../../src/core/pki/errors.ts";
-import { ERROR_CODES } from "../../src/http/schemas.ts";
+import { ERROR_STATUS } from "../../src/http/schemas.ts";
 import en from "@/locales/en.json";
 import zhCN from "@/locales/zh-CN.json";
 
@@ -37,7 +37,7 @@ describe("locales", () => {
 
   it("have a message for every error code of the client, and for unknown codes", () => {
     // The server's codes, the two of client/errors.ts and the fallback.
-    for (const code of [...ERROR_CODES, "network", "invalid_response", "unknown"]) {
+    for (const code of [...Object.keys(ERROR_STATUS), "network", "invalid_response", "unknown"]) {
       for (const messages of [EN, ZH]) {
         expect(messages.get(`errors.${code}`), code).toBeTruthy();
       }
