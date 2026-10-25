@@ -3,7 +3,8 @@
   // and the tool configs. Only @types/node is visible, so R2Bucket / Env / ExportedHandler fail here.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": ["node"],
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo"
   },
   "include": ["src", "scripts", "tests", "*.config.ts"],
   "exclude": ["src/web", "src/runtime/worker.ts", "tests/web"]

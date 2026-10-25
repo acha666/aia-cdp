@@ -15,7 +15,7 @@
   },
   "scripts": {
     "types": "mkdir -p .wrangler/types && WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true wrangler types .wrangler/types/worker-configuration.d.ts --env-file=/dev/null",
-    "typecheck": "pnpm run types && tsc -p tsconfig.worker.json && tsc -p tsconfig.node.json && vue-tsc -p tsconfig.web.json",
+    "typecheck": "pnpm run types && vue-tsc -b",
     "lint": "pnpm run types && eslint --max-warnings 0 .",
     "format": "prettier --write .",
     "openapi": "vitest run tests/http/openapi.test.ts -u",

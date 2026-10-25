@@ -1,5 +1,7 @@
 {
-  // Solution-style root for editors, typescript-eslint's projectService and shadcn-vue. Never built.
+  // Solution-style root for `vue-tsc -b` (pnpm run typecheck), editors, typescript-eslint's
+  // projectService and shadcn-vue. The leaves keep noEmit: -b writes only their build info, to
+  // node_modules/.tmp.
   // Order matters: a file in several programs (src/core, src/http) is served by the first one, so
   // ESLint checks them against the Workers globals.
   "files": [],

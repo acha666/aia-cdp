@@ -22,7 +22,7 @@
 | 12  | shadcn-vue 风格 | 2026-10-18：`--style nova`、base color `neutral`、图标库 lucide（`@lucide/vue`） |
 | 13  | 测试数据   | 2026-10-18：测试只用夹具脚本生成的合成 AD CS 风格夹具（fixtures spike 证明 CA Version / 模板名编码逐字节一致、扩展嵌套相同），仓库里不放真实 PKI 的证书与 CRL |
 | 14  | 迁移源     | 2026-10-18：`~/aia-cdp/worker-aia-cdp` 本地分支 `parsing-2026-10-18` 的提交 `5b570aa`；只有附录 A 与切片 7 还引用它（`worker-aia-cdp@5b570aa:<path>`） |
-| 15  | 检查与 devcontainer | 2026-10-23：检查只用常规的一套（§10）：`wrangler types` + worker / node 两套 `tsc` 与 web 的 `vue-tsc`、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、vitest、构建、OpenAPI 快照；撤回 2026-10-19 加的边界护栏（ESLint 分层规则、`typecheck:boundary`、Worker 包的 `"node:` 断言）。切片 1 建 devcontainer（Node 26 镜像、PowerShell feature、非 root、无 `act`） |
+| 15  | 检查与 devcontainer | 2026-10-23：检查只用常规的一套（§10）：`wrangler types` + `vue-tsc -b`（worker / node / web 三个程序）、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、vitest、构建、OpenAPI 快照；撤回 2026-10-19 加的边界护栏（ESLint 分层规则、`typecheck:boundary`、Worker 包的 `"node:` 断言）。切片 1 建 devcontainer（Node 26 镜像、PowerShell feature、非 root、无 `act`） |
 | 16  | 切片 2 两项 | 2026-10-19：不记证书路径改绑账本——V7 只与当前 config 比对，"先删再加"不拦截、由操作员负责，`applyConfig` 只写 `config.json`（§5.2）；`PUT /api/v1/admin/config` 缺可用前置条件回 428 `precondition_required`，不用 400（§7.2、§7.3） |
 | 17  | 切片 6 | 2026-10-24：退役 = 从 `config.json` 删除目标，取消规则 V8，没有 retire 路由、命令与 catalog 字段（§5.2、§6）；证书删除保护：被 config 引用或作为任一目标 current 的 `verifier` 的证书不可删，不做删除后的复核与补偿（§5.5）；历史可列可下载（§7.2）；不写 `docs/api.md`、不补 operations.md 的部署等章节；S3（切片 8）列为远期计划 |
 
@@ -65,7 +65,7 @@
 | 类型化客户端  | `hono/client` 的 `hc<AppType>`                  | 随 hono                           | 前端类型从服务端路由推导；`init: { cache: "no-store" }`                                        |
 | PKI           | `pkijs` + `asn1js`                              | 4.0.0 / 4.0.0                     | 证书、CRL、名称与 SCT 的解析，验签；扩展值由 asn1js 之上的严格 DER 读取器（`src/core/pki/der.ts`）解码 |
 | 前端          | `vue`、`vue-router`、`@tanstack/vue-query`、`vue-i18n` | 3.5.44 / 5.4.0 / 5.104.5 / 11.4.16 | 不用 Pinia（决策 5）                                                                   |
-| 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.5 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8（Rolldown、默认 oxc 压缩）；`vue-tsc` 检查 `tsconfig.web.json` |
+| 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.5 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8（Rolldown、默认 oxc 压缩）；`vue-tsc -b` 检查 worker / node / web 三个程序（§10） |
 | UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.61.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`；`@tanstack/vue-table` 不随 shadcn Table 安装，也没用上（吊销列表分页只是 `slice()`） |
 | 前端工具      | `@vueuse/core`                                   | 15.0.0                            | reka-ui 2.11.0 仍依赖 `^14.1.0`，web 包里暂有两份（多约 0.4 kB gzip），reka-ui 跟上后自然合一；`useNow`（统一时钟快照，15 起间隔经 `scheduler` 传 `useIntervalFn`）、`useStorage`；复制不用 `useClipboard`（其 `execCommand` 退路失败也报成功） |
 | 测试          | `vitest`、`@vue/test-utils`、`happy-dom`        | 5.0.5 / 2.5.1 / 21.0.4            | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`；夹具由脚本生成后入库（§10） |
@@ -649,7 +649,8 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 
 布局与夹具规则见 implementation 总则 §2.5（B15、B16、决策 13），脚本见 `package.json`。检查只用常规的一套（决策 15）。
 
-- 类型：`pnpm run typecheck` = `wrangler types` 后 `tsc -p tsconfig.worker.json`、`tsc -p tsconfig.node.json`、`vue-tsc -p tsconfig.web.json`。
+- 类型：`pnpm run typecheck` = `wrangler types` 后 `vue-tsc -b`，按 `tsconfig.json` 的 references 检查 worker、node、web 三个程序，
+  一次报出全部错误；各程序 `noEmit`，`.tsbuildinfo` 写到 `node_modules/.tmp`。
 - Lint 与格式：ESLint 常规预设（`@eslint/js`、`typescript-eslint`、`eslint-plugin-vue`），另加一条导入规则：`src/web` 对 `src/core`、`src/http`、
   `src/storage`、`src/runtime` 只许 `import type`，Hono 只许 `hono/client`；`prettier --check`。
 - vitest 5 两个 `projects`：`node`（`tests/` 下除 `tests/web` 外的 `*.test.ts`，node 环境）与 `web`（`tests/web`，happy-dom）；独立的
