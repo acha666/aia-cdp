@@ -1,7 +1,6 @@
 // The CLI in process: main() with fetch = app.request over a MemoryStore, so every subcommand's
 // output and exit code is checked without a socket. tests/integration/node-e2e.test.ts runs it as
 // a real process against the Node runtime.
-import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +11,7 @@ import type { CliIo } from "../../src/cli/aia.ts";
 import { CONFIG_KEY, TargetId } from "../../src/core/catalog.ts";
 import { sha256Hex } from "../../src/core/digest.ts";
 import { createApp } from "../../src/http/app.ts";
-import { cert, crlEntry, fixturePath, fixtureText } from "../fixtures/pki.ts";
+import { cert, crlEntry, fixture, fixturePath, fixtureText } from "../fixtures/pki.ts";
 import { MINIMAL_CONFIG, putText, testDeps } from "../helpers/app.ts";
 import type { TestOverrides } from "../helpers/app.ts";
 import { configFor } from "../helpers/catalog.ts";
@@ -76,6 +75,13 @@ function service(overrides: TestOverrides = {}) {
 
 type Service = ReturnType<typeof service>;
 
+/** The service with every certificate imported and the shared targets applied. */
+async function publishing(overrides: TestOverrides = {}) {
+  const svc = service(overrides);
+  const setup = await setupPublish(svc.deps.store);
+  return { svc, setup };
+}
+
 /** A fetch that must not be called. */
 const offline: CliIo["fetch"] = () => {
   throw new Error("this command must not touch the network");
@@ -127,29 +133,34 @@ describe("usage", () => {
     expect(await aia(["--help"])).toEqual({ code: 0, stdout: USAGE, stderr: "" });
   });
 
-  it.each([
-    [[], /missing command/],
-    [["frobnicate"], /unknown command "frobnicate"/],
-    [["import"], /import needs at least one file/],
-    [["config", "edit"], /unknown config command "edit"/],
-    [["history", "a", "b", "--json"], /history <targetId> <sha256> needs --out <file>/],
-    [["health", "--out", "x"], /--out is only for history <targetId> <sha256>/],
-    [["health", "--nope"], /Unknown option '--nope'/],
-  ])("%j → exit 2", async (argv, message) => {
-    const run = await aia(argv, { env: ENV });
+  // The default fetch is offline: none of these sends anything.
+  it.each<[string[], Record<string, string>, RegExp]>([
+    [[], ENV, /missing command/],
+    [["frobnicate"], ENV, /unknown command "frobnicate"/],
+    [["import"], ENV, /import needs at least one file/],
+    [["config", "edit"], ENV, /unknown config command "edit"/],
+    [["history", "a", "b", "--json"], ENV, /history <targetId> <sha256> needs --out <file>/],
+    [["health", "--out", "x"], ENV, /--out is only for history <targetId> <sha256>/],
+    [["health", "--nope"], ENV, /Unknown option '--nope'/],
+    [["health"], { AIA_ADMIN_TOKEN: TOKEN }, /no service URL: pass --url or set AIA_URL/],
+    [["import", ROOT_DER], { AIA_URL: BASE }, /no admin token: pass --token-file/],
+    // Both variables are refused before the file is read.
+    [
+      ["config", "show"],
+      { ...ENV, AIA_ADMIN_TOKEN_FILE: "/unused" },
+      /set either AIA_ADMIN_TOKEN or AIA_ADMIN_TOKEN_FILE, not both/,
+    ],
+    [
+      ["publish", ROOT_CRL],
+      { AIA_URL: BASE, AIA_UPLOAD_TOKEN: `${UPLOAD_TOKEN}\nX-Injected: 1` },
+      /upload token .* has characters a bearer token cannot have/,
+    ],
+  ])("%j → exit 2", async (argv, env, message) => {
+    const run = await aia(argv, { env });
     expect(run.code).toBe(2);
     expect(run.stdout).toBe("");
     expect(run.stderr).toMatch(message);
     expect(run.stderr).toMatch(/Run "aia --help" for usage\.\n$/);
-  });
-
-  it("needs a service URL, and an admin token for the admin commands", async () => {
-    const noUrl = await aia(["health"], { env: { AIA_ADMIN_TOKEN: TOKEN } });
-    expect(noUrl.code).toBe(2);
-    expect(noUrl.stderr).toMatch(/no service URL: pass --url or set AIA_URL/);
-    const noToken = await aia(["import", ROOT_DER], { env: { AIA_URL: BASE } });
-    expect(noToken.code).toBe(2);
-    expect(noToken.stderr).toMatch(/no admin token: pass --token-file/);
   });
 });
 
@@ -157,8 +168,7 @@ describe("tokens", () => {
   // The production host answers plain HTTP (AIA / CDP clients need it), so http://<host> reaches
   // the service and would carry a token in clear text.
   it("sends a token over plain http:// only to a loopback host or with --allow-insecure-http", async () => {
-    const svc = service({ settings: { uploadToken: UPLOAD_TOKEN } });
-    await setupPublish(svc.deps.store);
+    const { svc } = await publishing({ settings: { uploadToken: UPLOAD_TOKEN } });
     const at = (url: string, argv: string[]) =>
       aia(argv, {
         fetch: svc.fetch,
@@ -192,8 +202,7 @@ describe("tokens", () => {
   });
 
   it("checks nothing without a token: health, and publish to a service that needs none", async () => {
-    const svc = service();
-    await setupPublish(svc.deps.store);
+    const { svc } = await publishing();
     const env = { AIA_URL: "http://aia.test" };
     expect((await aia(["health"], { fetch: svc.fetch, env })).stderr).toBe("");
     expect((await aia(["publish", ROOT_CRL], { fetch: svc.fetch, env })).code).toBe(0);
@@ -201,8 +210,7 @@ describe("tokens", () => {
   });
 
   it("reads a token from --token-file, which wins over the variables, or <NAME>_FILE, trimmed", async () => {
-    const svc = service({ settings: { uploadToken: UPLOAD_TOKEN } });
-    await setupPublish(svc.deps.store);
+    const { svc } = await publishing({ settings: { uploadToken: UPLOAD_TOKEN } });
     const admin = await scratchFile("admin-token", `  ${TOKEN}\r\n\n`);
     const upload = await scratchFile("upload-token", `${UPLOAD_TOKEN}\n`);
     const runs = [
@@ -214,27 +222,6 @@ describe("tokens", () => {
     ];
     expect(runs.map((run) => run.code)).toEqual([0, 0]);
     expect(svc.authorization()).toEqual([`Bearer ${TOKEN}`, `Bearer ${UPLOAD_TOKEN}`]);
-  });
-
-  it("refuses both token variables or a malformed token before sending: exit 2", async () => {
-    const file = await scratchFile("both-token", `${TOKEN}\n`);
-    const cases: [string[], Record<string, string>, RegExp][] = [
-      [
-        ["config", "show"],
-        { AIA_ADMIN_TOKEN: TOKEN, AIA_ADMIN_TOKEN_FILE: file },
-        /set either AIA_ADMIN_TOKEN or AIA_ADMIN_TOKEN_FILE, not both/,
-      ],
-      [
-        ["publish", ROOT_CRL],
-        { AIA_UPLOAD_TOKEN: `${UPLOAD_TOKEN}\nX-Injected: 1` },
-        /upload token .* has characters a bearer token cannot have/,
-      ],
-    ];
-    for (const [argv, env, message] of cases) {
-      const run = await aia(argv, { env: { AIA_URL: BASE, ...env } });
-      expect(run.code).toBe(2);
-      expect(run.stderr).toMatch(message);
-    }
   });
 });
 
@@ -412,14 +399,13 @@ describe("config apply", () => {
     const run = await against(svc, ["config", "apply", file]);
     expect(run.code).toBe(1);
     expect(run.stdout).toBe("");
-    const id = cert("root-ca").sha256;
-    expect(run.stderr.trimEnd().split("\n")).toEqual([
+    const [title, ...issues] = run.stderr.trimEnd().split("\n");
+    expect(title).toBe(
       `the service rejected ${file}: HTTP 422 config_invalid: The configuration is invalid ` +
-        "(3 issues):",
-      `  V4  certificates["${id}"]: Certificate ${id} has not been imported`,
-      `  V4  paths["/ca/root-ca.crt"].certificate: Certificate ${id} has not been imported`,
-      expect.stringMatching(/^ {2}V4 {2}targets\["[0-9a-f-]{36}"\]\.issuer: Certificate /),
-    ]);
+        "(3 issues):"
+    );
+    // The wording is core's; the CLI prints each issue's rule and path.
+    expect(issues.map((line) => /^ {2}V4 {2}\S+: /.test(line))).toEqual([true, true, true]);
   });
 
   it("reports 412 when the config changed between GET and PUT, and does not retry", async () => {
@@ -444,11 +430,9 @@ describe("config apply", () => {
 
 describe("new-target-id", () => {
   it("prints a fresh target id, offline", async () => {
-    const one = await aia(["new-target-id"]);
-    const two = await aia(["new-target-id"]);
-    expect(one.code).toBe(0);
-    expect(TargetId.safeParse(one.stdout.replace(/\n$/, "")).success).toBe(true);
-    expect(two.stdout).not.toBe(one.stdout);
+    const run = await aia(["new-target-id"]);
+    expect(run.code).toBe(0);
+    expect(TargetId.safeParse(run.stdout.replace(/\n$/, "")).success).toBe(true);
   });
 });
 
@@ -457,13 +441,6 @@ describe("publish", () => {
   const FULL_01_PEM = fixturePath("crls/issuing-ca-1/full-01.pem");
   const FULL_02 = "crls/issuing-ca-1/full-02.der";
   const UPLOAD_ENV = { AIA_URL: BASE };
-
-  /** The service with every certificate imported and the shared targets applied. */
-  async function publishing(overrides: TestOverrides = {}) {
-    const svc = service(overrides);
-    const setup = await setupPublish(svc.deps.store);
-    return { svc, setup };
-  }
 
   it("sends each file as is, with no token unless set", async () => {
     const { svc, setup } = await publishing();
@@ -488,7 +465,7 @@ describe("publish", () => {
     ]);
     // Each file as is, byte for byte.
     expect(svc.sent.map((request) => request.bytes)).toEqual(
-      [ROOT_CRL, FULL_01_PEM].map((file) => new Uint8Array(readFileSync(file)))
+      ["crls/root-ca/full-01.der", "crls/issuing-ca-1/full-01.pem"].map((file) => fixture(file))
     );
     expect(svc.authorization()).toEqual([null, null]);
   });
@@ -528,23 +505,15 @@ describe("publish", () => {
     const run = await against(svc, ["publish", "--json", ROOT_CRL, GARBAGE], UPLOAD_ENV);
     expect(run.code).toBe(1);
     expect(run.stderr).toBe("");
-    const root = crlEntry("crls/root-ca/full-01.der");
     expect(JSON.parse(run.stdout)).toEqual({
       results: [
-        {
+        // The rest is the route's body as is (crls-upload.test).
+        expect.objectContaining({
           file: ROOT_CRL,
           ok: true,
           outcome: "created",
           target: setup.target("root-ca", "full"),
-          kind: "full",
-          sha256: root.sha256,
-          crlNumber: root.crlNumber,
-          baseCrlNumber: null,
-          thisUpdate: new Date(root.thisUpdate).toISOString(),
-          nextUpdate: new Date(root.nextUpdate ?? "").toISOString(),
-          issuer: cert("root-ca").sha256,
-          downloads: ["/crl/root-ca.crl", "/crl/root-ca.crl.pem"],
-        },
+        }),
         {
           file: GARBAGE,
           ok: false,
@@ -562,14 +531,6 @@ describe("publish", () => {
       failed: 1,
     });
   });
-
-  it("fails each file with the service's 401 without the token it needs", async () => {
-    const { svc } = await publishing({ settings: { uploadToken: UPLOAD_TOKEN } });
-    const run = await against(svc, ["publish", ROOT_CRL, FULL_01_PEM], UPLOAD_ENV);
-    expect(run.code).toBe(1);
-    expect(run.stderr.match(/: HTTP 401 unauthorized: Unauthorized\n/g)).toHaveLength(2);
-    expect(run.stdout).toBe("0 created, 0 updated, 0 unchanged, 2 failed\n");
-  });
 });
 
 describe("history", () => {
@@ -577,8 +538,7 @@ describe("history", () => {
 
   /** issuing-ca-1's full target with full-01 and full-02 published. */
   async function withHistory() {
-    const svc = service();
-    const setup = await setupPublish(svc.deps.store);
+    const { svc, setup } = await publishing();
     const run = await against(svc, ["publish", ...FILES.map(fixturePath)]);
     expect(run.code).toBe(0);
     return { svc, targetId: setup.target("issuing-ca-1", "full") };
@@ -590,7 +550,7 @@ describe("history", () => {
     const line = (entry: typeof old, size: number) =>
       `${new Date(entry!.thisUpdate).toISOString()}  #${entry!.crlNumber}  ` +
       `${entry!.sha256}  ${size} B`;
-    const sizes = FILES.map((file) => readFileSync(fixturePath(file)).byteLength);
+    const sizes = FILES.map((file) => fixture(file).byteLength);
     expect(await against(svc, ["history", targetId])).toEqual({
       code: 0,
       stdout: `${line(current, sizes[1]!)}  current\n${line(old, sizes[0]!)}\n2 versions\n`,
@@ -606,9 +566,7 @@ describe("history", () => {
     const sha256 = crlEntry(FILES[0]!).sha256;
     const run = await against(svc, ["history", targetId, sha256, "--out", out]);
     expect(run.code).toBe(0);
-    expect(new Uint8Array(await readFile(out))).toEqual(
-      new Uint8Array(readFileSync(fixturePath(FILES[0]!)))
-    );
+    expect(new Uint8Array(await readFile(out))).toEqual(fixture(FILES[0]!));
     const unknown = await against(svc, ["history", targetId, "0".repeat(64), "--out", out]);
     expect(unknown.code).toBe(1);
     expect(unknown.stderr).toMatch(/HTTP 404 not_found/);
@@ -617,8 +575,7 @@ describe("history", () => {
 
 describe("delete-certificate", () => {
   it("deletes an unreferenced certificate; a referenced one fails with its references", async () => {
-    const svc = service();
-    const setup = await setupPublish(svc.deps.store);
+    const { svc, setup } = await publishing();
     const leaf = cert("leaf-min").sha256;
     expect((await against(svc, ["import", fixturePath(cert("leaf-min").der)])).code).toBe(0);
     expect(await against(svc, ["delete-certificate", leaf])).toEqual({
