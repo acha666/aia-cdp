@@ -89,15 +89,18 @@ export class DerReader {
 
   /**
    * The next element when it has this tag (an OPTIONAL or DEFAULT field), else undefined; without
-   * a tag, the next element whatever its tag (an OPTIONAL CHOICE or ANY that ends the value).
+   * a tag, the next element whatever its tag (an OPTIONAL CHOICE or ANY that ends the value). With
+   * `read`, the value it decodes from that element.
    */
-  optional(tag?: Tag): BaseBlock | undefined {
+  optional(tag?: Tag): BaseBlock | undefined;
+  optional<T>(tag: Tag, read: (block: BaseBlock) => T): T | undefined;
+  optional<T>(tag?: Tag, read?: (block: BaseBlock) => T): BaseBlock | T | undefined {
     const item = this.#items[this.#next];
     if (item === undefined || (tag !== undefined && !hasTag(item, tag))) {
       return undefined;
     }
     this.#next++;
-    return item;
+    return read ? read(item) : item;
   }
 
   /** The next element, which must have this tag. */

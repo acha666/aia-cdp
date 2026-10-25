@@ -36,20 +36,15 @@ export const readSubjectKeyId = (value: BaseBlock): Uint8Array =>
  */
 export function readAuthorityKeyId(value: BaseBlock) {
   const aki = new DerReader(value);
-  const keyIdentifier = aki.optional(context(0));
-  const issuer = aki.optional(context(1));
-  const serial = aki.optional(context(2));
+  const keyIdentifier = aki.optional(context(0), contents);
+  const names = aki.optional(context(1), (issuer) => sequenceOf(issuer, context(1)));
+  const serial = aki.optional(context(2), contents);
   aki.end();
-  const names = issuer && sequenceOf(issuer, context(1));
   // GeneralName ::= CHOICE [0]–[8]: the detail views decode each name, uploads only check this.
   if (names?.some(({ idBlock }) => idBlock.tagClass !== 3 || idBlock.tagNumber > 8)) {
     throw new Error("Invalid GeneralName");
   }
-  return {
-    keyIdentifier: keyIdentifier && contents(keyIdentifier),
-    names,
-    serial: serial && contents(serial),
-  };
+  return { keyIdentifier, names, serial };
 }
 
 /**
