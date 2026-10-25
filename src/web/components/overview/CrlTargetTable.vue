@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { useQuery } from "@tanstack/vue-query";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
-import { useCrlTargets } from "@/client/queries";
+import { queries } from "@/client/queries";
 import DownloadLinks from "@/components/DownloadLinks.vue";
 import KindBadge from "@/components/KindBadge.vue";
 import OverviewTable from "@/components/overview/OverviewTable.vue";
@@ -18,7 +19,7 @@ import { computeTargetStatus } from "@/utils/status";
 // status and downloads. A target without a current CRL reads "Not published" with dashes, never 0,
 // and has no downloads (its paths answer 404). On a phone (below sm) only label, kind and status
 // show, as in CertificateTable.
-const { data, error, refetch } = useCrlTargets();
+const { data, error, refetch } = useQuery(queries.crls());
 
 const SECONDARY = "hidden sm:table-cell";
 const COLUMNS = [

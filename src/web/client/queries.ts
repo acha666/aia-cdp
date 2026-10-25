@@ -1,25 +1,15 @@
-// Server state of the UI: one TanStack Query key per API read and the CRL upload as a mutation.
-// The query cache dedupes requests, drops the answers of superseded ones and keeps the previous
-// data while a key refetches. Every read is `unwrap(await api…$get(…))`, so a failure is an
-// ApiError (errors.ts) or an abort. ["health"] is HealthBadge's own query: its 503 body is not an
-// envelope, so it reads the status code itself.
-import { QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { toValue } from "vue";
-import type { MaybeRefOrGetter } from "vue";
+// Server state of the UI: `queries`, one TanStack Query options factory (key and request) per API
+// read, and the CRL upload as a mutation. A component calls useQuery(queries.stats()); a detail
+// page passes a getter, useQuery(() => queries.certificate(props.id)), so its query follows the
+// route. The query cache dedupes requests, drops the answers of superseded ones and keeps the
+// previous data while a key refetches. Every read is `unwrap(await api…$get(…))`, so a failure is
+// an ApiError (errors.ts) or an abort. ["health"] is HealthBadge's own query: its 503 body is not
+// an envelope, so it reads the status code itself.
+import { QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/vue-query";
 import { api } from "./api";
 import { ApiError, unwrap } from "./errors";
-import type { CrlTargetList } from "./types";
 
 const v1 = api.api.v1;
-
-export const queryKeys = {
-  health: ["health"],
-  stats: ["stats"],
-  certificates: ["certificates"],
-  certificate: (id: MaybeRefOrGetter<string>) => ["certificate", id] as const,
-  crls: ["crls"],
-  crl: (targetId: MaybeRefOrGetter<string>) => ["crl", targetId] as const,
-} as const;
 
 /**
  * 4xx answers are final (a detail page's 404 shows at once instead of after the backoff); a
@@ -40,68 +30,47 @@ export function createQueryClient(): QueryClient {
   });
 }
 
-export function useStats() {
-  return useQuery({
-    queryKey: queryKeys.stats,
-    queryFn: async ({ signal }) => unwrap(await v1.stats.$get(undefined, { init: { signal } })),
-  });
-}
-
-export function useCertificates() {
-  return useQuery({
-    queryKey: queryKeys.certificates,
-    queryFn: async ({ signal }) =>
-      unwrap(await v1.certificates.$get(undefined, { init: { signal } })),
-  });
-}
-
-/**
- * One certificate. `id` must be one the router's pattern matched or the server sent: hono/client
- * puts path parameters into the URL as they are.
- */
-export function useCertificate(id: MaybeRefOrGetter<string>) {
-  return useQuery({
-    queryKey: queryKeys.certificate(id),
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await v1.certificates[":id"].$get({ param: { id: toValue(id) } }, { init: { signal } })
-      ),
-  });
-}
-
-export function useCrlTargets() {
-  return useQuery({
-    queryKey: queryKeys.crls,
-    queryFn: async ({ signal }) => unwrap(await v1.crls.$get(undefined, { init: { signal } })),
-  });
-}
-
-/** One CRL target; the same rule for `targetId` as for useCertificate's `id`. */
-export function useCrlTarget(targetId: MaybeRefOrGetter<string>) {
-  return useQuery({
-    queryKey: queryKeys.crl(targetId),
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await v1.crls[":targetId"].$get(
-          { param: { targetId: toValue(targetId) } },
-          { init: { signal } }
-        )
-      ),
-  });
-}
+export const queries = {
+  stats: () =>
+    queryOptions({
+      queryKey: ["stats"],
+      queryFn: async ({ signal }) => unwrap(await v1.stats.$get(undefined, { init: { signal } })),
+    }),
+  certificates: () =>
+    queryOptions({
+      queryKey: ["certificates"],
+      queryFn: async ({ signal }) =>
+        unwrap(await v1.certificates.$get(undefined, { init: { signal } })),
+    }),
+  /**
+   * One certificate. `id` must be one the router's pattern matched or the server sent: hono/client
+   * puts path parameters into the URL as they are.
+   */
+  certificate: (id: string) =>
+    queryOptions({
+      queryKey: ["certificate", id],
+      queryFn: async ({ signal }) =>
+        unwrap(await v1.certificates[":id"].$get({ param: { id } }, { init: { signal } })),
+    }),
+  crls: () =>
+    queryOptions({
+      queryKey: ["crls"],
+      queryFn: async ({ signal }) => unwrap(await v1.crls.$get(undefined, { init: { signal } })),
+    }),
+  /** One CRL target; the same rule for `targetId` as for `certificate`'s `id`. */
+  crl: (targetId: string) =>
+    queryOptions({
+      queryKey: ["crl", targetId],
+      queryFn: async ({ signal }) =>
+        unwrap(await v1.crls[":targetId"].$get({ param: { targetId } }, { init: { signal } })),
+    }),
+};
 
 export interface UploadCrlInput {
   /** DER or PEM bytes; pasted text is wrapped as a File by the caller. */
   file: File;
   /** AIA_UPLOAD_TOKEN; empty: no Authorization header (bearerAuth answers 400 to an empty one). */
   token: string;
-}
-
-/** The target's label from the cached ["crls"] list, when that list has it. */
-export function cachedTargetLabel(client: QueryClient, targetId: string): string | undefined {
-  return client
-    .getQueryData<CrlTargetList>(queryKeys.crls)
-    ?.find((target) => target.targetId === targetId)?.label;
 }
 
 /**

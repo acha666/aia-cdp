@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { useQuery } from "@tanstack/vue-query";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { useCertificate } from "@/client/queries";
+import { queries } from "@/client/queries";
 import CertificateOverview from "@/components/certificate/CertificateOverview.vue";
 import DetailLayout from "@/components/DetailLayout.vue";
 import DownloadLinks from "@/components/DownloadLinks.vue";
@@ -26,7 +27,7 @@ const props = defineProps<{ id: string }>();
 const i18n = useI18n();
 const { t } = i18n;
 const now = useClock();
-const { data, error, refetch } = useCertificate(() => props.id);
+const { data, error, refetch } = useQuery(() => queries.certificate(props.id));
 
 // The config label, else the subject CN.
 const name = computed(

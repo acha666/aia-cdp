@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "vue-sonner";
 import { envelope, publishedCrl, stubApi, targetItems, testQueryClient } from "./helpers";
 import type { Handler } from "./helpers";
-import { queryKeys } from "@/client/queries";
+import { queries } from "@/client/queries";
 import type { PublishedCrl } from "@/client/types";
 import CrlUploadCard from "@/components/overview/CrlUploadCard.vue";
 import { useUploadToken } from "@/composables/useUploadToken";
@@ -23,7 +23,7 @@ afterEach(() => {
 function render(post: Handler) {
   const api = stubApi({ "POST /api/v1/crls": post });
   const client = testQueryClient();
-  client.setQueryData(queryKeys.crls, targetItems());
+  client.setQueryData(queries.crls().queryKey, targetItems());
   const card = mount(CrlUploadCard, {
     attachTo: document.body,
     global: { plugins: [createAppI18n("en"), [VueQueryPlugin, { queryClient: client }]] },

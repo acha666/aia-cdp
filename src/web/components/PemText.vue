@@ -14,8 +14,8 @@ const props = defineProps<{ path: string }>();
 
 const { t } = useI18n();
 
-const pem = useQuery({
-  queryKey: ["pem", () => props.path],
+const pem = useQuery(() => ({
+  queryKey: ["pem", props.path],
   queryFn: async ({ signal }) => {
     const response = await apiFetch(props.path, { cache: "no-cache", signal });
     if (!response.ok) {
@@ -24,7 +24,7 @@ const pem = useQuery({
     }
     return response.text();
   },
-});
+}));
 </script>
 
 <template>

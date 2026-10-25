@@ -11,7 +11,6 @@ import { computed } from "vue";
 import type { Component } from "vue";
 import { useI18n } from "vue-i18n";
 import { api } from "@/client/api";
-import { queryKeys } from "@/client/queries";
 import { Badge } from "@/components/ui/badge";
 import type { BadgeVariants } from "@/components/ui/badge";
 
@@ -40,7 +39,7 @@ const { t } = useI18n();
 // retry: false — the badge reports the current state. TanStack's default (3 retries with 1 + 2 + 4 s
 // backoff) kept an unreachable API on "Checking…" for ~7 s; a transient failure clears on the
 // next mount or window focus (staleTime 0, main.ts).
-const health = useQuery({ queryKey: queryKeys.health, queryFn: fetchHealth, retry: false });
+const health = useQuery({ queryKey: ["health"], queryFn: fetchHealth, retry: false });
 
 const state = computed<BadgeState>(() =>
   health.isError.value ? "unknown" : (health.data.value?.status ?? "loading")

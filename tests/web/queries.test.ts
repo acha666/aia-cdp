@@ -1,13 +1,13 @@
 // The query layer against a stubbed fetch: the list refresh after an upload (a list request sent
 // before an upload must not overwrite the refresh that follows it), and the retry rule. What the
 // upload sends is in upload-card.test.ts.
-import { VueQueryPlugin } from "@tanstack/vue-query";
+import { useQuery, VueQueryPlugin } from "@tanstack/vue-query";
 import { flushPromises, mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 import { defineComponent, h } from "vue";
 import { publishedCrl, stubApi, targetItems, testQueryClient } from "./helpers";
 import { ApiError } from "@/client/errors";
-import { shouldRetry, useCrlTargets, useUploadCrl } from "@/client/queries";
+import { queries, shouldRetry, useUploadCrl } from "@/client/queries";
 import type { CrlTargetList } from "@/client/types";
 
 /** Mounts `use` in a component with the app's QueryClient (retries without delay). */
@@ -47,7 +47,7 @@ describe("useUploadCrl", () => {
       "POST /api/v1/crls": () => Response.json(publishedCrl("created"), { status: 201 }),
     });
     const { targets, upload } = harness(() => ({
-      targets: useCrlTargets(),
+      targets: useQuery(queries.crls()),
       upload: useUploadCrl(),
     }));
     await flushPromises();

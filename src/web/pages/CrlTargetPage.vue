@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { useQuery } from "@tanstack/vue-query";
 import { computed } from "vue";
 import { I18nT, useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
-import { useCrlTarget } from "@/client/queries";
+import { queries } from "@/client/queries";
 import RevokedTable from "@/components/crl/RevokedTable.vue";
 import DetailLayout from "@/components/DetailLayout.vue";
 import DownloadLinks from "@/components/DownloadLinks.vue";
@@ -30,7 +31,7 @@ const props = defineProps<{ targetId: string }>();
 const i18n = useI18n();
 const { t } = i18n;
 const now = useClock();
-const { data, error, refetch } = useCrlTarget(() => props.targetId);
+const { data, error, refetch } = useQuery(() => queries.crl(props.targetId));
 
 const current = computed(() => data.value?.current ?? null);
 const status = computed(() => computeTargetStatus(current.value, now.value.getTime()));
