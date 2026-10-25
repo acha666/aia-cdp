@@ -22,7 +22,7 @@
 | 12  | shadcn-vue 风格 | 2026-10-18：`--style nova`、base color `neutral`、图标库 lucide（`@lucide/vue`） |
 | 13  | 测试数据   | 2026-10-18：测试只用夹具脚本生成的合成 AD CS 风格夹具（fixtures spike 证明 CA Version / 模板名编码逐字节一致、扩展嵌套相同），仓库里不放真实 PKI 的证书与 CRL |
 | 14  | 迁移源     | 2026-10-18：`~/aia-cdp/worker-aia-cdp` 本地分支 `parsing-2026-10-18` 的提交 `5b570aa`；只有附录 A 与切片 7 还引用它（`worker-aia-cdp@5b570aa:<path>`） |
-| 15  | 检查与 devcontainer | 2026-10-23：检查只用常规的一套（§10）：`wrangler types` + worker / node 两套 `tsc` 与 web 的 `vue-tsc`、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、vitest、构建、OpenAPI 深等；撤回 2026-10-19 加的边界护栏（ESLint 分层规则、`typecheck:boundary`、Worker 包的 `"node:` 断言）。切片 1 建 devcontainer（Node 26 镜像、PowerShell feature、非 root、无 `act`） |
+| 15  | 检查与 devcontainer | 2026-10-23：检查只用常规的一套（§10）：`wrangler types` + worker / node 两套 `tsc` 与 web 的 `vue-tsc`、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、vitest、构建、OpenAPI 快照；撤回 2026-10-19 加的边界护栏（ESLint 分层规则、`typecheck:boundary`、Worker 包的 `"node:` 断言）。切片 1 建 devcontainer（Node 26 镜像、PowerShell feature、非 root、无 `act`） |
 | 16  | 切片 2 两项 | 2026-10-19：不记证书路径改绑账本——V7 只与当前 config 比对，"先删再加"不拦截、由操作员负责，`applyConfig` 只写 `config.json`（§5.2）；`PUT /api/v1/admin/config` 缺可用前置条件回 428 `precondition_required`，不用 400（§7.2、§7.3） |
 | 17  | 切片 6 | 2026-10-24：退役 = 从 `config.json` 删除目标，取消规则 V8，没有 retire 路由、命令与 catalog 字段（§5.2、§6）；证书删除保护：被 config 引用或作为任一目标 current 的 `verifier` 的证书不可删，不做删除后的复核与补偿（§5.5）；历史可列可下载（§7.2）；不写 `docs/api.md`、不补 operations.md 的部署等章节；S3（切片 8）列为远期计划 |
 
@@ -130,7 +130,7 @@ aia-cdp/
     core/  http/  storage/  integration/  web/
     helpers/           testDeps()、store 包装、readService / setupPublish（按运维流程建状态）
     fixtures/          generate-test-data.sh  pki.ts；产物 pki/ 入库
-  scripts/             adcs-crl-uploader.ps1  generate-openapi.ts  seed-dev.ts
+  scripts/             adcs-crl-uploader.ps1  seed-dev.ts
                        smoke.sh  worker-smoke.ts  docker-smoke.sh（切片 7 加 migrate-from-v2.ts）
   docs/                plan.md（本文）  implementation/（总则、未完成的切片、附录）  operations.md  openapi.json
   dist/                web/（vite build） server/（tsc -p tsconfig.build.json） worker/（dry-run）；不入库
@@ -487,7 +487,7 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 | `GET /api/v1/crls/{targetId}`     | 列表项字段；`current` 另加 `verifier`、`fingerprints`、`tbsCertList`（CRL 号、base 号、时间、全部吊销条目 `{ count, items }`、扩展）、`signatureAlgorithm`、`signatureValue`；未发布为 `current: null`（200）；`targetId` 为 UUID，大写规范化 | 200 / 400 / 404 / 500 |
 | `POST /api/v1/crls`               | 上传 CRL：原始请求体（`application/pkix-crl` / `application/x-pem-file` / `application/octet-stream`），不收 multipart | 201 created；200 updated / unchanged；400 / 401 / 409 / 413 / 415 / 422 / 500 |
 | `GET /api/v1/stats`               | `{ certificates, targets: { full, delta }, published: { full, delta }, totalRevocations, derBytes }`：`totalRevocations` 为已发布 full CRL 的 `revokedCount` 之和（无已发布 full 时 `null`），`derBytes` 为 catalog 证书与 config 各目标 current CRL 的字节数（历史不计）；不含时间相关字段（"需关注"数由 UI 用客户端时钟算，§8） | 200 / 500                                       |
-| `GET /api/v1/openapi.json`        | 运行时从路由表生成（`getOpenAPI31Document`），按进程 / isolate 缓存；与提交的 `docs/openapi.json` 深等（§7.3） | 200，`public, max-age=300`               |
+| `GET /api/v1/openapi.json`        | 运行时从路由表生成（`getOpenAPI31Document`），按进程 / isolate 缓存；与提交的 `docs/openapi.json` 一致（§7.3） | 200，`public, max-age=300`               |
 
 上传成功体：
 
@@ -550,9 +550,9 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
   信封（库文本换成自己的文案，保留 `bearerAuth` 的 `WWW-Authenticate`）。处理器抛错时日志依次是该操作自己的一行（如
   `publish` 的 `reason: "internal"`）→ `unhandled_error` → `request`。
 - OpenAPI（B11）：`GET /api/v1/openapi.json` 在运行时由路由表生成（`getOpenAPI31Document`），每个 app 实例首次请求时序列化并缓存，
-  `max-age=300`；`scripts/generate-openapi.ts`（`pnpm run openapi`）用同一调用写出提交的 `docs/openapi.json`。漂移检查只有一处：
-  `tests/http/openapi.test.ts` 断言运行时文档深等于该文件，改了路由就重新生成并提交。服务端不读该文件：从 `src`
-  导入它会越出 `rootDir: src`，Node 产物与 Worker 包都找不到。
+  `max-age=300`。提交的 `docs/openapi.json` 是它的文件快照，漂移检查只有一处：`tests/http/openapi.test.ts` 用
+  `toMatchFileSnapshot` 比对运行时文档（两空格缩进、末尾换行）与该文件，改了路由就 `pnpm run openapi`（只对这个文件跑
+  `vitest -u`）重新生成并提交。服务端不读该文件：从 `src` 导入它会越出 `rootDir: src`，Node 产物与 Worker 包都找不到。
 
 ### 7.4 CLI
 
@@ -655,7 +655,7 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 - vitest 5 两个 `projects`：`node`（`tests/` 下除 `tests/web` 外的 `*.test.ts`，node 环境）与 `web`（`tests/web`，happy-dom）；独立的
   `vitest.config.ts`（不继承 `vite.config.ts` 的 `root`），没有 `globalSetup`。HTTP 测试通过
   `createApp({ store: new MemoryStore(), now, … }).request()` 进程内运行，不起端口；只有真实 socket 才看得到的差异
-  （HEAD 的 `Content-Length`、传输编码、信号）放 `tests/integration`。OpenAPI 的漂移检查是 `tests/http/openapi.test.ts` 的深等（§7.3）。
+  （HEAD 的 `Content-Length`、传输编码、信号）放 `tests/integration`。OpenAPI 的漂移检查是 `tests/http/openapi.test.ts` 的文件快照（§7.3）。
 - 夹具：`tests/fixtures/generate-test-data.sh`（`pnpm run fixtures`，不带参数）每次完整重写 `tests/fixtures/pki/`，
   产物入库；改了脚本由开发者重新生成并提交。契约：日期、序列号、CRL 号固定；私钥、CSR、CA 库只在 `mktemp -d` 临时目录，退出即删，
   产物含 `PRIVATE KEY` 即失败；产出证书、CRL、`invalid/`、`manifest.json`（`now = 2026-01-04T00:00:00Z`、声明值、期望结果、场景）。

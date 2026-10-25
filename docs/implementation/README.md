@@ -33,7 +33,7 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | D6 | shadcn-vue 风格 | `--style nova`、base color `neutral`、图标库 lucide（`@lucide/vue`） |
 | D7 | 测试数据 | 测试只用夹具脚本生成的合成 AD CS 风格夹具（fixtures spike 证明 CA Version / 模板名编码逐字节一致、扩展嵌套相同）；仓库里不放真实 PKI 的证书与 CRL |
 | D8 | 批次 1 | 本目录 + plan.md 修订 + 切片 1（已完成，见 §1.2） |
-| D9 | 检查（2026-10-23 撤回 2026-10-19 加的边界护栏：core / http 的 ESLint 分层规则、`typecheck:boundary` 与其 canary、Worker 包的 `"node:` 断言） | 只用常规的一套：`wrangler types` + worker / node 两套 `tsc` 与 web 的 `vue-tsc`、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、vitest、构建、OpenAPI 深等（plan §10）。剩余风险见总则 §2.2 |
+| D9 | 检查（2026-10-23 撤回 2026-10-19 加的边界护栏：core / http 的 ESLint 分层规则、`typecheck:boundary` 与其 canary、Worker 包的 `"node:` 断言） | 只用常规的一套：`wrangler types` + worker / node 两套 `tsc` 与 web 的 `vue-tsc`、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、vitest、构建、OpenAPI 快照（plan §10）。剩余风险见总则 §2.2 |
 | D10 | devcontainer | 切片 1 建 `.devcontainer/devcontainer.json`：Node 26 镜像（自带 pnpm）、PowerShell feature（AD CS 助手）、非 root `remoteUser`、不装 `act`、OpenSSL ≥ 3.0 可生成夹具；容器内 Docker 可选；不以 root 生成文件 |
 | D11 | 证书路径改绑（推翻推荐的改绑账本 `catalog.certificatePaths`） | 不记账本：V7 只与当前 config 比对，直接改绑拒绝，"先删再加"两步改绑不拦截，由操作员负责（证书下载 `immutable` 缓存一年，换 CA 证书用新路径）；`applyConfig` 只写 `config.json`。落实：plan §5.2 |
 | D12 | `PUT /api/v1/admin/config` 缺可用前置条件（推翻推荐的 400 `bad_request`） | 428 + 新错误码 `precondition_required`：`If-Match` 与 `If-None-Match: *` 两者都缺、都有、或 `If-None-Match` 不是 `*`；不匹配仍是 412。落实：plan §7.2 / §7.3 |
@@ -52,7 +52,7 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | B8 | `secureHeaders({ strictTransportSecurity: false })`，其余默认；UI 另有 `contentSecurityPolicy`（`src/http/csp.ts`，无内联脚本，无 `'unsafe-inline'`） | `src/http/app.ts`、`src/http/csp.ts` |
 | B9 | 下载不用 `hono/etag`，手写 `If-None-Match`（列表、`W/`、`*`）且先于读 blob；显式 `Content-Length`；`bearerAuth` 对畸形头回 400，进管理与上传的状态表 | `src/http/routes/` 的 `downloads.ts`、`admin.ts`、`crls.ts` |
 | B10 | health：`{ status, checks: { store, configuration } }`；store 抛错 → 503 `unhealthy`；config 缺失 → 200 `degraded`；`config.json` 或 `catalog.json` 不是 JSON 或不合 schema → 200 `degraded`（`invalid`），不重跑 config 的其余规则；`no-store` | `src/core/health.ts` |
-| B11 | OpenAPI 文档运行时从路由表生成并按进程 / isolate 缓存，`GET /api/v1/openapi.json` `max-age=300`；`scripts/generate-openapi.ts`（`pnpm run openapi`）写入提交的 `docs/openapi.json`，`tests/http/openapi.test.ts` 的深等查漂移；`src` 不导入该文件 | `src/http/app.ts`、`scripts/generate-openapi.ts` |
+| B11 | OpenAPI 文档运行时从路由表生成并按进程 / isolate 缓存，`GET /api/v1/openapi.json` `max-age=300`；提交的 `docs/openapi.json` 是它的文件快照：`tests/http/openapi.test.ts` 用 `toMatchFileSnapshot` 查漂移，`pnpm run openapi`（只对该文件跑 `vitest -u`）重写；`src` 不导入该文件 | `src/http/app.ts`、`tests/http/openapi.test.ts` |
 | B12 | 每请求一行 JSON（`method`、`path`、`status`、`ms`）；只输出 JSON；不记令牌、请求体与客户端 IP | 总则 §2.6 |
 | B13 | Node：`settings.ts` 的 zod schema 照 plan §4.2；`PORT` 8080 显式传给 `serve()`；`*_FILE` 启动时读；无效即打印原因 exit 1；`server.on("error")` 与 SIGTERM / SIGINT 处理；`node --enable-source-maps dist/server/runtime/node.js` | `src/runtime/settings.ts`、`src/runtime/node.ts` |
 | B14 | 适配器（D5）：memory sha256 ETag；fs 临时文件 + fsync + `rename`、按键互斥、拒 `..` 与绝对路径、递归 `list`；r2 `onlyIf` 用不带引号的 `R2Object.etag`、`put` 返回 `null` 即 `precondition-failed`、`list` 跟随游标；一致性套件 memory + fs 每次跑，r2 在 `AIA_TEST_R2=1` 下经 `getPlatformProxy`；store ETag 从不当 HTTP ETag | `src/storage/` |
@@ -102,7 +102,7 @@ D8：批次 1 = 本目录（当时为单文件 `docs/implementation.md`）+ plan
 3. 该切片"出口条件"逐条执行通过；合并前四个 `pnpm run ci:<job>`（`ci:check`、`ci:test`、`ci:worker`、`ci:docker`）全过：本机执行，或推送
    切片分支并开 PR 由 GitHub Actions 执行（同一组脚本，D3）。需要人工的出口（`wrangler dev` 冒烟、Windows 助手验证、
    浏览器检查、生产操作）把命令与输出摘要写进合并提交说明，或写进出口条件指定的文档。
-4. 改了路由的切片：`pnpm run openapi` 重新生成并提交 `docs/openapi.json`；`tests/http/openapi.test.ts` 与路由表深等，有漂移即失败。
+4. 改了路由的切片：`pnpm run openapi` 重新生成并提交 `docs/openapi.json`；`tests/http/openapi.test.ts` 以文件快照比对，有漂移即失败。
 5. 改了 plan 规则的切片：同一分支里同步 `docs/plan.md`（各切片的"文档同步"步骤）。
 6. 评审通过后在本地合入 `main`（`git merge --no-ff slice/<n>-<name>`，保留切片边界）并 `git push origin main`；不部署，生产部署只在切片 7。
 7. 改了 `tests/fixtures/generate-test-data.sh`：`pnpm run fixtures` 重新生成整树，与脚本一起提交（总则 §2.5）。

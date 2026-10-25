@@ -18,7 +18,7 @@
     "typecheck": "pnpm run types && tsc -p tsconfig.worker.json && tsc -p tsconfig.node.json && vue-tsc -p tsconfig.web.json",
     "lint": "pnpm run types && eslint --max-warnings 0 .",
     "format": "prettier --write .",
-    "openapi": "node scripts/generate-openapi.ts",
+    "openapi": "vitest run tests/http/openapi.test.ts -u",
     "check": "pnpm run typecheck && eslint --max-warnings 0 . && prettier --check .",
     "test": "vitest run",
     "test:r2": "AIA_TEST_R2=1 vitest run tests/storage/r2.test.ts",

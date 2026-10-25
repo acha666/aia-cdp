@@ -18,8 +18,7 @@ import { statsRoutes } from "./routes/stats.ts";
 import type { AppDeps } from "./types.ts";
 import { onMethodNotAllowed, uiFallback } from "./ui.ts";
 
-/** Shared by GET /api/v1/openapi.json and scripts/generate-openapi.ts (docs/openapi.json). */
-export const OPENAPI_CONFIG = {
+const OPENAPI_CONFIG = {
   openapi: "3.1.0",
   info: { title: "aia-cdp API", version: "1" },
   // Every operation carries one of these (tests/http/openapi.test.ts).

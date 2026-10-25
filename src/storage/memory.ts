@@ -1,6 +1,6 @@
-// In-memory ObjectStore for tests and the OpenAPI generator. ETag = content SHA-256. The
-// conditional check and the write happen synchronously after the only await, so two concurrent
-// conditional puts cannot both succeed.
+// In-memory ObjectStore for tests. ETag = content SHA-256. The conditional check and the write
+// happen synchronously after the only await, so two concurrent conditional puts cannot both
+// succeed.
 import { sha256Hex } from "../core/digest.ts";
 import { assertStoreKey, assertStorePrefix } from "../core/store.ts";
 import type { ObjectStore, PutOptions, PutResult } from "../core/store.ts";

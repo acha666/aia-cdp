@@ -62,10 +62,10 @@
 | `src/worker/api/v2/shared/resource.ts` | drop | — | 3 |
 | `src/contracts/api.ts` | drop | — | 1,4,5a |
 | `src/contracts/schemas.ts` | migrate-adapt | src/core/summary/schemas.ts (X.509 projection, lines 12-497, 542-556, 578-604, types 768-866; `CrlTypeSchema` L510 not moved) + src/http/schemas.ts (v1 wrappers and errors) | 5a |
-| `src/contracts/openapi.ts` | rewrite | scripts/generate-openapi.ts (+ doc config shared with the runtime /api/v1/openapi.json route) | 1,5a |
+| `src/contracts/openapi.ts` | rewrite | src/http/app.ts (doc config and the runtime /api/v1/openapi.json route) + tests/http/openapi.test.ts (docs/openapi.json as a file snapshot) | 1,5a |
 | `src/contracts/types.ts` | drop | — | none |
 | `src/contracts/index.ts` | drop | — | none |
-| `scripts/generate-openapi.ts` | migrate-adapt | scripts/generate-openapi.ts | 1,5a |
+| `scripts/generate-openapi.ts` | migrate-adapt | scripts/generate-openapi.ts，后由 tests/http/openapi.test.ts 的文件快照取代 | 1,5a |
 | `tests/worker/api-pagination.test.ts` | reference-only | tests/http/lists.test.ts（只取不变量） | 5a |
 | `tests/worker/api-routing.test.ts` | rewrite | tests/http/app.test.ts + tests/http/downloads.test.ts + tests/http/certificates.test.ts | 1,3,5a |
 | `tests/worker/api-stats.test.ts` | rewrite | tests/http/stats.test.ts | 5a |

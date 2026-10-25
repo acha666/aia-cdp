@@ -67,8 +67,8 @@ const SettingsSchema = z
 
 /**
  * Validates the environment and applies the plan §4.2 defaults; `parseSettings({})` is the
- * all-defaults configuration (tests, OpenAPI generator). Unknown variables are ignored. On failure
- * `error` lists every invalid variable, one per line.
+ * all-defaults configuration (tests). Unknown variables are ignored. On failure `error` lists
+ * every invalid variable, one per line.
  */
 export function parseSettings(env: Env): SettingsResult<z.output<typeof SettingsSchema>> {
   const result = SettingsSchema.safeParse(env);
