@@ -4,19 +4,21 @@
 //
 //   node scripts/worker-smoke.ts          (pnpm run smoke:worker)
 //
-// Health is "degraded" on the empty store. The admin API (both tokens are harness secrets) imports
-// certs/root-ca.der and certs/issuing-ca-1.der and applies a configuration that serves the root
-// under /ca/root-ca.crt, with a full CRL target of each CA under /crl/<name>.crl. Then
+// Health is "degraded" on the empty store. The CLI's main, as seed-dev and docker-smoke use it
+// (both tokens are harness secrets), imports certs/root-ca.der and certs/issuing-ca-1.der and
+// applies a configuration that serves the root under /ca/root-ca.crt, with a full CRL target of
+// each CA under /crl/<name>.crl. Then
 // scripts/smoke.sh runs against it (health "healthy", downloads, the root's ECDSA P-384 CRL upload,
 // the reads, the UI). The uploads after it verify signatures on workerd's WebCrypto, not only
 // Node's: RSA PKCS#1 v1.5, RSASSA-PSS and SHA-1 (issuing-ca-1) and a broken RSA signature (422
 // invalid_signature); without the upload token an upload is 401. Last, issuing-ca-1's target
 // detail shows what the uploads left.
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
-import { cert, crlEntry, fixture } from "../tests/fixtures/pki.ts";
+import { main, processIo } from "../src/cli/aia.ts";
+import { encodeJson } from "../src/core/catalog.ts";
+import { cert, crlEntry, fixture, fixturePath } from "../tests/fixtures/pki.ts";
 
 // Before wrangler is loaded: no telemetry, no banner or update check (implementation §2.4).
 process.env.WRANGLER_SEND_METRICS = "false";
@@ -26,8 +28,8 @@ const { createTestHarness } = await import("wrangler");
 const root = fileURLToPath(new URL("..", import.meta.url));
 
 // Fresh for every run and never printed; letters, digits and `-` satisfy the b64token rule.
-const ADMIN_TOKEN = `smoke-${randomBytes(16).toString("hex")}`;
-const UPLOAD_TOKEN = `smoke-upload-${randomBytes(16).toString("hex")}`;
+const ADMIN_TOKEN = `smoke-${crypto.randomUUID()}`;
+const UPLOAD_TOKEN = `smoke-upload-${crypto.randomUUID()}`;
 
 let failed = false;
 
@@ -46,24 +48,8 @@ async function json(res: Response): Promise<{ status: number; body: Record<strin
   }
 }
 
-function admin(base: URL, path: string, init: RequestInit): Promise<Response> {
-  const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${ADMIN_TOKEN}`);
-  return fetch(new URL(path, base), { ...init, headers });
-}
-
 /** Imports the two CAs and applies the configuration; returns issuing-ca-1's target id. */
 async function configure(base: URL): Promise<string> {
-  for (const name of ["root-ca", "issuing-ca-1"]) {
-    const res = await json(
-      await admin(base, "/api/v1/admin/certificates", {
-        method: "POST",
-        headers: { "Content-Type": "application/pkix-cert" },
-        body: fixture(cert(name).der),
-      })
-    );
-    check(res.status === 201, `import certs/${name}.der: ${res.status}`);
-  }
   // A certificate id is the SHA-256 of the DER, which the manifest records.
   const rootCa = cert("root-ca").sha256;
   const issuingCa = cert("issuing-ca-1").sha256;
@@ -81,14 +67,20 @@ async function configure(base: URL): Promise<string> {
       "/crl/issuing-ca-1.crl": { target: issuingTarget },
     },
   };
-  const applied = await json(
-    await admin(base, "/api/v1/admin/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", "If-None-Match": "*" },
-      body: JSON.stringify(config),
-    })
-  );
-  check(applied.status === 200, `apply the configuration: ${applied.status}`);
+
+  // As in seed-dev, the CLI reads the configuration as a file that never touches the disk. The
+  // harness listens on a loopback host, so the admin token may go over http://.
+  const file = "<worker-smoke config>";
+  const io = processIo();
+  const cli = {
+    ...io,
+    env: { AIA_URL: base.origin, AIA_ADMIN_TOKEN: ADMIN_TOKEN },
+    readFile: (path: string) =>
+      path === file ? Promise.resolve(encodeJson(config)) : io.readFile(path),
+  };
+  const ders = ["root-ca", "issuing-ca-1"].map((name) => fixturePath(cert(name).der));
+  check((await main(["import", ...ders], cli)) === 0, "aia import (root-ca, issuing-ca-1)");
+  check((await main(["config", "apply", file], cli)) === 0, "aia config apply");
   return issuingTarget;
 }
 
