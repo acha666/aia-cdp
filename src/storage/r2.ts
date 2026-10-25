@@ -49,17 +49,10 @@ export class R2Store implements ObjectStore {
 
   async put(key: string, bytes: Uint8Array, opts: PutOptions = {}): Promise<PutResult> {
     assertStoreKey(key);
-    // Both conditions together never succeed, as in the other adapters.
-    const onlyIf: R2ConditionalLike = {};
-    if (opts.ifMatch !== undefined) {
-      onlyIf.etagMatches = opts.ifMatch;
-    }
-    if (opts.ifNoneMatch === "*") {
-      onlyIf.etagDoesNotMatch = "*";
-    }
+    // An unset field adds no condition; both together never succeed, as in the other adapters.
     const object = await this.#bucket.put(key, bytes, {
       httpMetadata: opts.contentType ? { contentType: opts.contentType } : undefined,
-      onlyIf: Object.keys(onlyIf).length > 0 ? onlyIf : undefined,
+      onlyIf: { etagMatches: opts.ifMatch, etagDoesNotMatch: opts.ifNoneMatch },
     });
     // Any other failure (including R2's per-key write rate limit) is thrown, not mapped: the
     // catalog's retry loop only retries precondition failures.
