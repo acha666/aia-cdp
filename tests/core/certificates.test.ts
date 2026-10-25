@@ -28,12 +28,8 @@ describe("importCertificate", () => {
     expect(await importInto(store, der)).toEqual({ outcome: "created", id, entry });
     expect(entry.key).toBe(`blobs/certificates/${id}.der`);
     expect(puts(store)).toEqual([
-      {
-        key: certificateBlobKey(id),
-        opts: { ifNoneMatch: "*", contentType: "application/pkix-cert" },
-        ok: true,
-      },
-      { key: CATALOG_KEY, opts: { contentType: "application/json", ifNoneMatch: "*" }, ok: true },
+      { key: certificateBlobKey(id), opts: { ifNoneMatch: "*" }, ok: true },
+      { key: CATALOG_KEY, opts: { ifNoneMatch: "*" }, ok: true },
     ]);
     expect((await base.get(certificateBlobKey(id)))!.bytes).toEqual(der);
     expect(await storedCertificates(base)).toEqual({ [id]: entry });

@@ -342,7 +342,6 @@ Publish（`1.3.6.1.4.1.311.21.4`），缺失或读不出一个 RFC 5280 时间�
 export interface ObjectStore {
   get(key: string): Promise<{ bytes: Uint8Array; etag: string } | null>;
   put(key: string, bytes: Uint8Array, opts?: {
-    contentType?: string;
     ifMatch?: string;      // 替换：当前 ETag 必须相等
     ifNoneMatch?: "*";     // 创建：键必须不存在
   }): Promise<{ ok: true; etag: string } | { ok: false; reason: "precondition-failed" }>;
@@ -363,7 +362,7 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 | r2     | `onlyIf: { etagMatches }` / `{ etagDoesNotMatch: "*" }`，返回 `null` 即前置条件失败；其他异常（含单键写速率）原样抛出；`list` 跟随游标；桶按结构化类型 `R2BucketLike` 写 | `R2Object.etag`（不带引号；带引号的 `httpEtag` 传回 `etagMatches` 会抛错） | ~60 行  |
 
 一致性套件（缺失键、put/get、`ifNoneMatch`、`ifMatch` 成功 / 过期 / 缺失键、同一 `ifMatch` 并发 5 次
-恰好一次成功、递归前缀列表、delete、非法键、`contentType`）对 memory 与 fs 每次运行；r2 在 `AIA_TEST_R2=1`（`pnpm run test:r2`，
+恰好一次成功、递归前缀列表、delete、非法键）对 memory 与 fs 每次运行；r2 在 `AIA_TEST_R2=1`（`pnpm run test:r2`，
 `ci:worker` 包含它且要求 passed）下经 `getPlatformProxy({ configPath: "wrangler.jsonc", persist: false })` 运行，结束时
 `await dispose()`。
 

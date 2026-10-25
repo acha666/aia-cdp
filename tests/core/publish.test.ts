@@ -238,16 +238,8 @@ describe("publishCrl: what an upload writes", () => {
 
     const { result } = await publishFile(store, FULL_01);
     expect(puts(store)).toEqual([
-      {
-        key: current.key,
-        opts: { ifNoneMatch: "*", contentType: "application/pkix-crl" },
-        ok: true,
-      },
-      {
-        key: CATALOG_KEY,
-        opts: { contentType: "application/json", ifMatch: expect.any(String) as unknown },
-        ok: true,
-      },
+      { key: current.key, opts: { ifNoneMatch: "*" }, ok: true },
+      { key: CATALOG_KEY, opts: { ifMatch: expect.any(String) as unknown }, ok: true },
     ]);
     expect((await base.get(current.key))!.bytes).toEqual(fixture(FULL_01));
     expect(await currentOf(base, targetId)).toEqual(current);
@@ -272,17 +264,9 @@ describe("publishCrl: what an upload writes", () => {
     const marker = crlHistoryKey(targetId, first.summary, first.sha256);
     expect(result).toMatchObject({ outcome: "updated", current: second });
     expect(puts(store)).toEqual([
-      {
-        key: second.key,
-        opts: { ifNoneMatch: "*", contentType: "application/pkix-crl" },
-        ok: true,
-      },
-      { key: marker, opts: { ifNoneMatch: "*", contentType: "application/json" }, ok: true },
-      {
-        key: CATALOG_KEY,
-        opts: { contentType: "application/json", ifMatch: expect.any(String) as unknown },
-        ok: true,
-      },
+      { key: second.key, opts: { ifNoneMatch: "*" }, ok: true },
+      { key: marker, opts: { ifNoneMatch: "*" }, ok: true },
+      { key: CATALOG_KEY, opts: { ifMatch: expect.any(String) as unknown }, ok: true },
     ]);
     expect(await keys(base, `blobs/crls/${targetId}/`)).toEqual([first.key, second.key]);
   });

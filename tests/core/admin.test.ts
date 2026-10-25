@@ -247,9 +247,7 @@ describe("applyConfig", () => {
     const stored = await base.get(CONFIG_KEY);
     expect(stored!.bytes).toEqual(encodeJson(config));
     expect(result).toEqual({ config, sha256: await sha256Hex(stored!.bytes) });
-    expect(puts(store)).toEqual([
-      { key: CONFIG_KEY, opts: { contentType: "application/json", ifNoneMatch: "*" }, ok: true },
-    ]);
+    expect(puts(store)).toEqual([{ key: CONFIG_KEY, opts: { ifNoneMatch: "*" }, ok: true }]);
     expect((await base.get(CATALOG_KEY))!.bytes).toEqual(catalogBefore!.bytes);
   });
 

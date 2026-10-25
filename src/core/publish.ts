@@ -2,13 +2,7 @@
 // marker keys of ./history.ts. There is one commit point, the catalog write: no PEM or alias
 // companions, no edge cache. The HTTP route maps the result.
 import { z } from "zod";
-import {
-  CrlSummarySchema,
-  encodeJson,
-  JSON_CONTENT_TYPE,
-  Sha256Hex,
-  updateState,
-} from "./catalog.ts";
+import { CrlSummarySchema, encodeJson, Sha256Hex, updateState } from "./catalog.ts";
 import type {
   CatalogDeps,
   CatalogMutation,
@@ -75,9 +69,6 @@ export function compareFreshness(
 }
 
 // publishCrl --------------------------------------------------------------------------------------
-
-/** The DER blob is written with this type (R2 keeps it as httpMetadata). */
-const CRL_CONTENT_TYPE = "application/pkix-crl";
 
 /** What the log line knows so far; publish fills it in as it goes. */
 interface Trace {
@@ -342,9 +333,9 @@ async function publish(
   let header: Header | undefined;
   let summary: CrlSummary | undefined;
   const written = new Set<string>();
-  const putOnce = async (key: string, body: Uint8Array, contentType: string) => {
+  const putOnce = async (key: string, body: Uint8Array) => {
     if (!written.has(key)) {
-      await deps.store.put(key, body, { ifNoneMatch: "*", contentType });
+      await deps.store.put(key, body, { ifNoneMatch: "*" });
       written.add(key);
     }
   };
@@ -393,15 +384,11 @@ async function publish(
 
     // The blob, the marker of the superseded current, then the catalog.
     const key = crlBlobKey(targetId, summary, sha256);
-    await putOnce(key, der, CRL_CONTENT_TYPE);
+    await putOnce(key, der);
     const publishedAt = now.toISOString();
     if (current !== null) {
       const marker: HistoryMarker = current;
-      await putOnce(
-        crlHistoryKey(targetId, current.summary, current.sha256),
-        encodeJson(marker),
-        JSON_CONTENT_TYPE
-      );
+      await putOnce(crlHistoryKey(targetId, current.summary, current.sha256), encodeJson(marker));
     }
     const record: CurrentCrl = {
       sha256,

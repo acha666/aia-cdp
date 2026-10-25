@@ -170,12 +170,8 @@ describe("updateState", () => {
     expect(await updateState({ store, sleep }, addIssuing)).toEqual({ result: "added" });
 
     expect(puts(store)).toEqual([
-      { key: CATALOG_KEY, opts: { contentType: "application/json", ifNoneMatch: "*" }, ok: true },
-      {
-        key: CATALOG_KEY,
-        opts: { contentType: "application/json", ifMatch: first!.etag },
-        ok: true,
-      },
+      { key: CATALOG_KEY, opts: { ifNoneMatch: "*" }, ok: true },
+      { key: CATALOG_KEY, opts: { ifMatch: first!.etag }, ok: true },
     ]);
     expect(sleep).not.toHaveBeenCalled();
     expect(await certificateIds(base)).toEqual([ROOT.id, ISSUING.id]);

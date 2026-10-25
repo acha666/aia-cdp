@@ -30,9 +30,6 @@ export type ImportResult =
   | { error: "invalid_certificate"; details: { reason: PkiParseReason } }
   | { error: "concurrent_update"; id: string };
 
-/** The DER blob is written with this type (R2 keeps it as httpMetadata). */
-const CERTIFICATE_CONTENT_TYPE = "application/pkix-cert";
-
 /**
  * Imports one certificate (DER or a single PEM block; the format is recognized from the bytes).
  * The id is the SHA-256 of the DER. Already in the catalog → `unchanged` with the stored entry and
@@ -78,7 +75,7 @@ export async function importCertificate(
 
   const key = certificateBlobKey(id);
   // precondition-failed: the blob is already there with these very bytes.
-  await deps.store.put(key, der, { ifNoneMatch: "*", contentType: CERTIFICATE_CONTENT_TYPE });
+  await deps.store.put(key, der, { ifNoneMatch: "*" });
 
   const entry: CatalogCertificate = {
     key,

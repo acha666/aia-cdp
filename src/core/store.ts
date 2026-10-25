@@ -3,7 +3,6 @@
 // ETags (those always come from the content SHA-256), and HTTP If-Match values never reach a store.
 
 export interface PutOptions {
-  contentType?: string;
   /** Replace: the current ETag must be equal. */
   ifMatch?: string;
   /** Create: the key must not exist. */

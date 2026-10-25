@@ -85,7 +85,7 @@ export function describeObjectStore(
     });
 
     it('creates with ifNoneMatch: "*" only when the key is missing', async () => {
-      const options = { contentType: "application/pkix-crl", ifNoneMatch: "*" } as const;
+      const options = { ifNoneMatch: "*" } as const;
       expect((await store.put("blobs/crls/t1/x.der", bytesOf("first"), options)).ok).toBe(true);
       expect(await store.put("blobs/crls/t1/x.der", bytesOf("second"), options)).toEqual(REFUSED);
       expect(await text(store, "blobs/crls/t1/x.der")).toBe("first");

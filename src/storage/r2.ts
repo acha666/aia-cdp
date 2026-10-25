@@ -20,7 +20,7 @@ export interface R2BucketLike {
   put(
     key: string,
     value: Uint8Array,
-    options: { httpMetadata?: { contentType: string }; onlyIf?: R2ConditionalLike }
+    options: { onlyIf?: R2ConditionalLike }
   ): Promise<{ etag: string } | null>;
   list(options: { prefix: string; cursor?: string }): Promise<{
     objects: readonly { key: string; size: number }[];
@@ -51,7 +51,6 @@ export class R2Store implements ObjectStore {
     assertStoreKey(key);
     // An unset field adds no condition; both together never succeed, as in the other adapters.
     const object = await this.#bucket.put(key, bytes, {
-      httpMetadata: opts.contentType ? { contentType: opts.contentType } : undefined,
       onlyIf: { etagMatches: opts.ifMatch, etagDoesNotMatch: opts.ifNoneMatch },
     });
     // Any other failure (including R2's per-key write rate limit) is thrown, not mapped: the

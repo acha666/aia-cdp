@@ -10,9 +10,6 @@ import type { ObjectStore } from "./store.ts";
 export const CONFIG_KEY = "config.json";
 export const CATALOG_KEY = "catalog.json";
 
-/** Content type of both JSON objects. */
-export const JSON_CONTENT_TYPE = "application/json";
-
 // Field formats ---------------------------------------------------------------------------------
 
 /** Certificate id (SHA-256 of the DER) and CRL content digest: lowercase hex, 64 digits. */
@@ -302,10 +299,11 @@ export async function updateState<R>(
       return { result: mutation.result };
     }
     const next = CatalogSchema.parse(mutation.next);
-    const written = await store.put(CATALOG_KEY, encodeJson(next), {
-      contentType: JSON_CONTENT_TYPE,
-      ...(state.catalogEtag === null ? { ifNoneMatch: "*" } : { ifMatch: state.catalogEtag }),
-    });
+    const written = await store.put(
+      CATALOG_KEY,
+      encodeJson(next),
+      state.catalogEtag === null ? { ifNoneMatch: "*" } : { ifMatch: state.catalogEtag }
+    );
     if (written.ok) {
       return { result: mutation.result };
     }

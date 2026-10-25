@@ -20,7 +20,6 @@ import {
   ConfigSchema,
   decodeJson,
   encodeJson,
-  JSON_CONTENT_TYPE,
   readCatalog,
 } from "./catalog.ts";
 import type { Catalog, Config, CrlKind } from "./catalog.ts";
@@ -349,10 +348,11 @@ export async function applyConfig(
   }
 
   const bytes = encodeJson(checked.config);
-  const written = await deps.store.put(CONFIG_KEY, bytes, {
-    contentType: JSON_CONTENT_TYPE,
-    ...(stored === null ? { ifNoneMatch: "*" } : { ifMatch: stored.etag }),
-  });
+  const written = await deps.store.put(
+    CONFIG_KEY,
+    bytes,
+    stored === null ? { ifNoneMatch: "*" } : { ifMatch: stored.etag }
+  );
   if (!written.ok) {
     return { error: "precondition_failed" };
   }
