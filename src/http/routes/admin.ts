@@ -35,6 +35,7 @@ import {
   ImportedCertificate,
   InvalidCertificateError,
   jsonContent,
+  jsonResponse,
   NotFoundError,
   PAYLOAD_TOO_LARGE,
   PreconditionFailedError,
@@ -53,25 +54,22 @@ const tags = ["admin"];
 // Shared responses -------------------------------------------------------------------------------
 
 const ADMIN_FAILURES = {
-  400: {
-    description: "Malformed Authorization header, or an invalid request",
-    content: jsonContent(BadRequestError),
-  },
+  400: jsonResponse("Malformed Authorization header, or an invalid request", BadRequestError),
   401: {
     description: "Missing or wrong admin token",
     headers: z.object({ "WWW-Authenticate": z.string() }),
     content: jsonContent(UnauthorizedError),
   },
-  503: {
-    description: "No admin token is configured (AIA_ADMIN_TOKEN): the admin API is disabled",
-    content: jsonContent(AdminDisabledError),
-  },
+  503: jsonResponse(
+    "No admin token is configured (AIA_ADMIN_TOKEN): the admin API is disabled",
+    AdminDisabledError
+  ),
 } as const;
 
-const UNSUPPORTED_MEDIA_TYPE = {
-  description: "The Content-Type is missing or not one of the request body's media types",
-  content: jsonContent(UnsupportedMediaTypeError),
-};
+const UNSUPPORTED_MEDIA_TYPE = jsonResponse(
+  "The Content-Type is missing or not one of the request body's media types",
+  UnsupportedMediaTypeError
+);
 
 const ETAG = z.object({
   ETag: z.string().openapi({
@@ -103,22 +101,19 @@ const importCertificateRoute = createRoute({
   middleware: [certificateMediaType],
   request: { body: rawBody(CERTIFICATE_MEDIA_TYPES) },
   responses: {
-    200: {
-      description: "Already imported: the stored entry, nothing was written",
-      content: jsonContent(ImportedCertificate),
-    },
-    201: { description: "Imported", content: jsonContent(ImportedCertificate) },
+    200: jsonResponse(
+      "Already imported: the stored entry, nothing was written",
+      ImportedCertificate
+    ),
+    201: jsonResponse("Imported", ImportedCertificate),
     ...ADMIN_FAILURES,
-    409: {
-      description: "The catalog kept changing concurrently; retry",
-      content: jsonContent(ConcurrentUpdateError),
-    },
+    409: jsonResponse("The catalog kept changing concurrently; retry", ConcurrentUpdateError),
     413: PAYLOAD_TOO_LARGE,
     415: UNSUPPORTED_MEDIA_TYPE,
-    422: {
-      description: "Not a certificate this service accepts; `details.reason` says why",
-      content: jsonContent(InvalidCertificateError),
-    },
+    422: jsonResponse(
+      "Not a certificate this service accepts; `details.reason` says why",
+      InvalidCertificateError
+    ),
   },
 });
 
@@ -140,14 +135,11 @@ const deleteCertificateRoute = createRoute({
   responses: {
     204: { description: "Deleted" },
     ...ADMIN_FAILURES,
-    404: {
-      description: "No certificate with this id is imported",
-      content: jsonContent(NotFoundError),
-    },
-    409: {
-      description: "Referenced, or the catalog kept changing concurrently (retry)",
-      content: jsonContent(CertificateConflictError),
-    },
+    404: jsonResponse("No certificate with this id is imported", NotFoundError),
+    409: jsonResponse(
+      "Referenced, or the catalog kept changing concurrently (retry)",
+      CertificateConflictError
+    ),
   },
 });
 
@@ -169,7 +161,7 @@ const getConfigRoute = createRoute({
       headers: ETAG,
       content: jsonContent(ConfigSchema),
     },
-    404: { description: "Nothing has been configured yet", content: jsonContent(NotFoundError) },
+    404: jsonResponse("Nothing has been configured yet", NotFoundError),
     ...ADMIN_FAILURES,
   },
 });
@@ -243,20 +235,17 @@ const applyConfigRoute = createRoute({
       content: jsonContent(ConfigSchema),
     },
     ...ADMIN_FAILURES,
-    412: {
-      description: "The precondition does not hold (another apply came first, or W/ / list / *)",
-      content: jsonContent(PreconditionFailedError),
-    },
+    412: jsonResponse(
+      "The precondition does not hold (another apply came first, or W/ / list / *)",
+      PreconditionFailedError
+    ),
     413: PAYLOAD_TOO_LARGE,
     415: UNSUPPORTED_MEDIA_TYPE,
-    422: {
-      description: "The configuration breaks rules V1–V9",
-      content: jsonContent(ConfigInvalidError),
-    },
-    428: {
-      description: "Not exactly one of If-Match and If-None-Match: *",
-      content: jsonContent(PreconditionRequiredError),
-    },
+    422: jsonResponse("The configuration breaks rules V1–V9", ConfigInvalidError),
+    428: jsonResponse(
+      "Not exactly one of If-Match and If-None-Match: *",
+      PreconditionRequiredError
+    ),
   },
 });
 
@@ -275,12 +264,9 @@ const getHistoryRoute = createRoute({
   security,
   request: { params: TargetIdParam },
   responses: {
-    200: { description: "The history", content: jsonContent(CrlHistory) },
+    200: jsonResponse("The history", CrlHistory),
     ...ADMIN_FAILURES,
-    404: {
-      description: "The target is neither in config.json nor has a history",
-      content: jsonContent(NotFoundError),
-    },
+    404: jsonResponse("The target is neither in config.json nor has a history", NotFoundError),
   },
 });
 
@@ -300,10 +286,7 @@ const getHistoryVersionRoute = createRoute({
       content: { "application/pkix-crl": { schema: binary } },
     },
     ...ADMIN_FAILURES,
-    404: {
-      description: "The target's history has no version with this SHA-256",
-      content: jsonContent(NotFoundError),
-    },
+    404: jsonResponse("The target's history has no version with this SHA-256", NotFoundError),
   },
 });
 

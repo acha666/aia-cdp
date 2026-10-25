@@ -79,6 +79,11 @@ export function jsonContent<S extends z.ZodType>(schema: S) {
   return { "application/json": { schema } };
 }
 
+/** A response with a JSON body. */
+export function jsonResponse<S extends z.ZodType>(description: string, schema: S) {
+  return { description, content: jsonContent(schema) };
+}
+
 /** A binary request body or response (DER). */
 export const binary = z.string().openapi({ format: "binary" });
 
@@ -122,18 +127,17 @@ export const ConcurrentUpdateError = errorSchema(["concurrent_update"]).openapi(
 const InternalError = errorSchema(["internal"]).openapi("InternalError");
 
 /** The 500 of the certificate and CRL routes. */
-export const INTERNAL_ERROR = {
-  description:
-    "The store failed, or it cannot back what catalog.json and config.json name (logged, never " +
+export const INTERNAL_ERROR = jsonResponse(
+  "The store failed, or it cannot back what catalog.json and config.json name (logged, never " +
     "sent); retry later",
-  content: jsonContent(InternalError),
-};
+  InternalError
+);
 
 /** The 413 of every route that reads a request body. */
-export const PAYLOAD_TOO_LARGE = {
-  description: "The body is larger than AIA_MAX_UPLOAD_BYTES",
-  content: jsonContent(PayloadTooLargeError),
-};
+export const PAYLOAD_TOO_LARGE = jsonResponse(
+  "The body is larger than AIA_MAX_UPLOAD_BYTES",
+  PayloadTooLargeError
+);
 
 // Admin --------------------------------------------------------------------------------------------
 

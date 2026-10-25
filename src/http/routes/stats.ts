@@ -5,7 +5,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { readState } from "../../core/catalog.ts";
 import { stats } from "../../core/views.ts";
 import { NO_STORE } from "../errors.ts";
-import { INTERNAL_ERROR, jsonContent, Stats } from "../schemas.ts";
+import { INTERNAL_ERROR, jsonResponse, Stats } from "../schemas.ts";
 import type { AppDeps } from "../types.ts";
 
 const getStatsRoute = createRoute({
@@ -18,7 +18,7 @@ const getStatsRoute = createRoute({
     "of the published full CRLs and the DER bytes of the certificates and current CRLs.",
   tags: ["stats"],
   responses: {
-    200: { description: "The statistics", content: jsonContent(Stats) },
+    200: jsonResponse("The statistics", Stats),
     500: { ...INTERNAL_ERROR, description: "The store failed (logged, never sent); retry later" },
   },
 });

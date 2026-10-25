@@ -16,7 +16,7 @@ import {
   CertificateIdParam,
   CertificateListItem,
   INTERNAL_ERROR,
-  jsonContent,
+  jsonResponse,
   NotFoundError,
 } from "../schemas.ts";
 import type { AppDeps } from "../types.ts";
@@ -33,7 +33,7 @@ const listCertificatesRoute = createRoute({
     "download paths and the targets it issues CRLs for. The whole list: no pagination.",
   tags: TAGS,
   responses: {
-    200: { description: "The certificates", content: jsonContent(CertificateListItem.array()) },
+    200: jsonResponse("The certificates", CertificateListItem.array()),
     500: INTERNAL_ERROR,
   },
 });
@@ -49,12 +49,9 @@ const getCertificateRoute = createRoute({
   tags: TAGS,
   request: { params: CertificateIdParam },
   responses: {
-    200: { description: "The certificate", content: jsonContent(CertificateDetail) },
-    400: { description: "The id is not 64 hex digits", content: jsonContent(BadRequestError) },
-    404: {
-      description: "No certificate with this id is imported",
-      content: jsonContent(NotFoundError),
-    },
+    200: jsonResponse("The certificate", CertificateDetail),
+    400: jsonResponse("The id is not 64 hex digits", BadRequestError),
+    404: jsonResponse("No certificate with this id is imported", NotFoundError),
     500: INTERNAL_ERROR,
   },
 });

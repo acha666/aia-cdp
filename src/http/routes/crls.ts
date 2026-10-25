@@ -33,6 +33,7 @@ import {
   CrlTargetListItem,
   INTERNAL_ERROR,
   jsonContent,
+  jsonResponse,
   NotFoundError,
   PAYLOAD_TOO_LARGE,
   PublishedCrl,
@@ -82,39 +83,32 @@ function uploadCrlRoute(settings: AppSettings) {
     middleware: uploadGate(settings),
     request: { body: rawBody(CRL_MEDIA_TYPES) },
     responses: {
-      200: {
-        description: "Updated; or `unchanged`: the same bytes are current, nothing was written",
-        content: jsonContent(PublishedCrl),
-      },
-      201: {
-        description: "Published to a target without a current CRL",
-        content: jsonContent(PublishedCrl),
-      },
-      400: {
-        description: "A malformed Authorization header, or an empty body",
-        content: jsonContent(BadRequestError),
-      },
+      200: jsonResponse(
+        "Updated; or `unchanged`: the same bytes are current, nothing was written",
+        PublishedCrl
+      ),
+      201: jsonResponse("Published to a target without a current CRL", PublishedCrl),
+      400: jsonResponse("A malformed Authorization header, or an empty body", BadRequestError),
       401: {
         description: "AIA_UPLOAD_TOKEN is set, and the token is missing or wrong",
         headers: z.object({ "WWW-Authenticate": z.string() }),
         content: jsonContent(UnauthorizedError),
       },
-      409: {
-        description:
-          "Not newer than the target's current CRL (`details.current`): stale_crl, conflict " +
+      409: jsonResponse(
+        "Not newer than the target's current CRL (`details.current`): stale_crl, conflict " +
           "(other bytes for the same CRL Number and thisUpdate) or non_orderable (a CRL Number " +
           "on one side only); or concurrent_update (the catalog kept changing: retry)",
-        content: jsonContent(CrlConflictError),
-      },
+        CrlConflictError
+      ),
       413: PAYLOAD_TOO_LARGE,
-      415: {
-        description: "The Content-Type is missing or not one of the request body's media types",
-        content: jsonContent(CrlMediaTypeError),
-      },
-      422: {
-        description: "Not a CRL this service publishes: the code and `details` say why",
-        content: jsonContent(CrlRejectedError),
-      },
+      415: jsonResponse(
+        "The Content-Type is missing or not one of the request body's media types",
+        CrlMediaTypeError
+      ),
+      422: jsonResponse(
+        "Not a CRL this service publishes: the code and `details` say why",
+        CrlRejectedError
+      ),
       500: INTERNAL_ERROR,
     },
   });
@@ -133,7 +127,7 @@ const listCrlTargetsRoute = createRoute({
     "list: no pagination.",
   tags: TAGS,
   responses: {
-    200: { description: "The targets", content: jsonContent(CrlTargetListItem.array()) },
+    200: jsonResponse("The targets", CrlTargetListItem.array()),
     500: INTERNAL_ERROR,
   },
 });
@@ -150,12 +144,9 @@ const getCrlTargetRoute = createRoute({
   tags: TAGS,
   request: { params: TargetIdParam },
   responses: {
-    200: { description: "The target", content: jsonContent(CrlTargetDetail) },
-    400: { description: "The target id is not a UUID", content: jsonContent(BadRequestError) },
-    404: {
-      description: "config.json defines no target with this id",
-      content: jsonContent(NotFoundError),
-    },
+    200: jsonResponse("The target", CrlTargetDetail),
+    400: jsonResponse("The target id is not a UUID", BadRequestError),
+    404: jsonResponse("config.json defines no target with this id", NotFoundError),
     500: INTERNAL_ERROR,
   },
 });
