@@ -229,14 +229,14 @@ export const CURVE_NAMES: Record<string, string> = {
 export const CRL_REASON_CODES: Record<number, string> = {
   0: "unspecified",
   1: "keyCompromise",
-  2: "caCompromise",
+  2: "cACompromise",
   3: "affiliationChanged",
   4: "superseded",
   5: "cessationOfOperation",
   6: "certificateHold",
   8: "removeFromCRL",
   9: "privilegeWithdrawn",
-  10: "aaCompromise",
+  10: "aACompromise",
 };
 
 export const HOLD_INSTRUCTION_NAMES: Record<string, string> = {
