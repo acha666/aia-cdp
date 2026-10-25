@@ -7,12 +7,11 @@
 // Health is "degraded" on the empty store. The CLI's main, as seed-dev and docker-smoke use it
 // (both tokens are harness secrets), imports certs/root-ca.der and certs/issuing-ca-1.der and
 // applies a configuration that serves the root under /ca/root-ca.crt, with a full CRL target of
-// each CA under /crl/<name>.crl. Then
-// scripts/smoke.sh runs against it (health "healthy", downloads, the root's ECDSA P-384 CRL upload,
-// the reads, the UI). The uploads after it verify signatures on workerd's WebCrypto, not only
-// Node's: RSA PKCS#1 v1.5, RSASSA-PSS and SHA-1 (issuing-ca-1) and a broken RSA signature (422
-// invalid_signature); without the upload token an upload is 401. Last, issuing-ca-1's target
-// detail shows what the uploads left.
+// each CA under /crl/<name>.crl. Then scripts/smoke.sh runs against it (health "healthy",
+// downloads, the root's ECDSA P-384 CRL upload, the reads, the UI). The uploads after it verify
+// signatures on workerd's WebCrypto, not only Node's: RSA PKCS#1 v1.5, RSASSA-PSS and SHA-1
+// (issuing-ca-1) and a broken RSA signature (422 invalid_signature); without the upload token an
+// upload is 401. Last, issuing-ca-1's target detail shows what the uploads left.
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
@@ -38,7 +37,7 @@ function check(ok: boolean, description: string): void {
   failed ||= !ok;
 }
 
-/** The status and the JSON body ({} when it is not JSON) of a response. */
+/** The status and the JSON body of a response ({ text: its first 300 characters } if not JSON). */
 async function json(res: Response): Promise<{ status: number; body: Record<string, unknown> }> {
   const text = await res.text();
   try {

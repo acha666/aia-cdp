@@ -112,7 +112,7 @@ function checkTokenTransport(ctx: Context, name: string): void {
   }
 }
 
-/** The admin token (import, config) or the upload token (publish). */
+/** The admin token (import, config, history, delete-certificate) or the upload token (publish). */
 type TokenVariable = "AIA_ADMIN_TOKEN" | "AIA_UPLOAD_TOKEN";
 
 const TOKEN_NAMES: Record<TokenVariable, string> = {
