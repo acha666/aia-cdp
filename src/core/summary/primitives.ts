@@ -94,7 +94,13 @@ export function buildSignatureValue(bitString: Asn1BitString, algorithmId: strin
   if (!family) {
     return base;
   }
-  const decoded = fromBER(bitString.valueBlock.valueHexView);
+  let decoded: ReturnType<typeof fromBER>;
+  try {
+    decoded = fromBER(bitString.valueBlock.valueHexView);
+  } catch {
+    // asn1js throws instead of reporting some malformed values (a GeneralizedTime string).
+    return base;
+  }
   if (decoded.offset === -1 || !(decoded.result instanceof Sequence)) {
     return base;
   }
