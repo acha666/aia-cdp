@@ -4,8 +4,8 @@
   "compilerOptions": {
     "noEmit": true,
     "target": "ES2024",
-    // ESNext.TypedArrays: Uint8Array toBase64 / fromBase64 / toHex, which workerd and Node 26 have
-    // (core/pki/pem.ts, core/digest.ts).
+    // ESNext.TypedArrays: Uint8Array toBase64 / fromBase64 / toHex / fromHex, which workerd and
+    // Node 26 have (core/pki/pem.ts, core/digest.ts; asn1.test uses fromHex).
     "lib": ["ES2024", "ESNext.TypedArrays"],
     "module": "NodeNext",
     "moduleDetection": "force",

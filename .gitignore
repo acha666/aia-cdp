@@ -10,10 +10,6 @@ dist/
 .wrangler/
 .data/
 
-# Staging directories of an interrupted tests/fixtures/generate-test-data.sh run (the fixtures
-# themselves, tests/fixtures/pki/, are committed)
-/tests/fixtures/pki.tmp.*/
-
 # Environment and secrets
 .env*.local
 .dev.vars*
