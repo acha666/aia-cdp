@@ -303,18 +303,7 @@ function extensionValue<const T extends string, S extends z.ZodRawShape>(
 
 const ParsedExtensionValueSchema = z.discriminatedUnion("extensionType", [
   extensionValue("basicConstraints", { cA: z.boolean(), pathLenConstraint: z.number().optional() }),
-  extensionValue("keyUsage", {
-    digitalSignature: z.boolean(),
-    nonRepudiation: z.boolean(),
-    keyEncipherment: z.boolean(),
-    dataEncipherment: z.boolean(),
-    keyAgreement: z.boolean(),
-    keyCertSign: z.boolean(),
-    cRLSign: z.boolean(),
-    encipherOnly: z.boolean(),
-    decipherOnly: z.boolean(),
-    usages: z.array(z.string()),
-  }),
+  extensionValue("keyUsage", { usages: z.array(z.string()) }),
   extensionValue("extendedKeyUsage", { purposes: z.array(ObjectIdentifierSchema) }),
   extensionValue("subjectAltName", { names: z.array(GeneralNameSchema) }),
   extensionValue("authorityKeyIdentifier", {

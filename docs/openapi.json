@@ -1246,33 +1246,6 @@
               "keyUsage"
             ]
           },
-          "digitalSignature": {
-            "type": "boolean"
-          },
-          "nonRepudiation": {
-            "type": "boolean"
-          },
-          "keyEncipherment": {
-            "type": "boolean"
-          },
-          "dataEncipherment": {
-            "type": "boolean"
-          },
-          "keyAgreement": {
-            "type": "boolean"
-          },
-          "keyCertSign": {
-            "type": "boolean"
-          },
-          "cRLSign": {
-            "type": "boolean"
-          },
-          "encipherOnly": {
-            "type": "boolean"
-          },
-          "decipherOnly": {
-            "type": "boolean"
-          },
           "usages": {
             "type": "array",
             "items": {
@@ -1282,15 +1255,6 @@
         },
         "required": [
           "extensionType",
-          "digitalSignature",
-          "nonRepudiation",
-          "keyEncipherment",
-          "dataEncipherment",
-          "keyAgreement",
-          "keyCertSign",
-          "cRLSign",
-          "encipherOnly",
-          "decipherOnly",
           "usages"
         ]
       },

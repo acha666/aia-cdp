@@ -328,20 +328,7 @@ const EXTENSION_PARSERS = {
     if (contents(bits).length === 1) {
       return undefined; // an empty BIT STRING: nothing to show
     }
-    const has = (flag: string) => usages.includes(flag);
-    return {
-      extensionType: "keyUsage",
-      digitalSignature: has("digitalSignature"),
-      nonRepudiation: has("nonRepudiation"),
-      keyEncipherment: has("keyEncipherment"),
-      dataEncipherment: has("dataEncipherment"),
-      keyAgreement: has("keyAgreement"),
-      keyCertSign: has("keyCertSign"),
-      cRLSign: has("cRLSign"),
-      encipherOnly: has("encipherOnly"),
-      decipherOnly: has("decipherOnly"),
-      usages,
-    };
+    return { extensionType: "keyUsage", usages };
   },
 
   // Private Key Usage Period (2.5.29.16): [0] / [1] IMPLICIT GeneralizedTime, both OPTIONAL
