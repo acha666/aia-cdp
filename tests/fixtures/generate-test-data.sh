@@ -524,7 +524,7 @@ crl $I1 17 $EDGE $EDGE_NEXT crl_ext $I1/full-no-next-update.der
 resign "$OUT/crls/$I1/full-no-next-update.der" "$WORK/keys/$I1.pem" sha256 \
   " 17 0d$(text_bytes "${EDGE_NEXT:2}")" ""
 CRL_NEXT=-
-crl_entry created "nextUpdate removed and re-signed: never expired"
+crl_entry created "nextUpdate removed and re-signed: never expires"
 crl $I1 18 $EDGE $EDGE_NEXT crl_ext $I1/full-bad-time.der
 resign "$OUT/crls/$I1/full-bad-time.der" "$WORK/keys/$I1.pem" sha256 \
   " 17 0d$(text_bytes "${EDGE:2}")" " 17 0b$(text_bytes "${EDGE:2:10}Z")"
