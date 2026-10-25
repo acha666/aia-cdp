@@ -118,7 +118,10 @@ aia-cdp/
       node.ts          serve + SIGTERM / SIGINT
       node-ui.ts       serveStatic + index.html 兜底（Node 的 deps.ui）
       settings.ts      环境变量 schema（zod，两条运行时共用）
-    cli/aia.ts         薄 HTTP 客户端
+    cli/               薄 HTTP 客户端 aia
+      aia.ts           入口：用法、参数解析与分派
+      client.ts        服务访问：服务 URL、令牌来源与发送规则、带超时的请求、错误信封
+      commands.ts      各子命令（import / publish 逐项报告加汇总行、config、history 等）
     web/               Vue UI（Vite root；按 §8 重建）
       client/          hc<AppType> 客户端（不得叫 api：dev server 会把 src/web 下的目录当 URL 服务）
       components/ui/   shadcn-vue 生成的组件（入库）

@@ -22,7 +22,8 @@ const nonEmpty = (message: string) => z.string().min(1, message);
 
 // RFC 6750 b64token, the only token syntax a Bearer Authorization header carries (bearerAuth's own
 // pattern): a token with any other character (`$`, `!`, a space, …) could never authenticate, as
-// every request would get 400, so it is an invalid setting instead.
+// every request would get 400, so it is an invalid setting instead. src/cli/client.ts checks the
+// CLI's tokens against the same pattern.
 const bearerToken = z
   .string()
   .min(1, { message: "must not be empty when set", abort: true })

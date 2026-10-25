@@ -1,0 +1,470 @@
+// The aia commands, which src/cli/aia.ts dispatches. From the core they share isDerSequence /
+// splitPemBlocks (the API takes one certificate per request, so a PEM bundle goes block by block)
+// and the static config rules (`config validate` runs offline). Success bodies are typed by the
+// service's schemas (type-only imports) and not checked again here.
+import type { z } from "zod";
+import { validateConfig } from "../core/admin.ts";
+import type { ConfigIssue } from "../core/admin.ts";
+import { decodeJson } from "../core/catalog.ts";
+import type { CertificateReference } from "../core/certificates.ts";
+import type { HealthReport } from "../core/health.ts";
+import { isDerSequence, splitPemBlocks } from "../core/pki/pem.ts";
+import type { CrlHistory, ImportedCertificate, PublishedCrl } from "../http/schemas.ts";
+import {
+  accepted,
+  adminHeaders,
+  bearerToken,
+  describeHttp,
+  Failure,
+  httpError,
+  jsonOf,
+  readBytes,
+  reasonOf,
+  request,
+  serviceUrl,
+  UsageError,
+} from "./client.ts";
+import type { CliIo, Context, HttpError } from "./client.ts";
+
+// Output -----------------------------------------------------------------------------------------
+
+/** A command's result on stdout: `value` as JSON with --json, else `text`. */
+function output(ctx: Context, value: unknown, text: string): void {
+  ctx.io.stdout(ctx.json ? `${JSON.stringify(value, null, 2)}\n` : text);
+}
+
+// Field names print dotted; map keys (ids, paths) bracketed: paths["/ca/root.crt"].certificate.
+function pathText(path: readonly (string | number)[]): string {
+  if (path.length === 0) {
+    return "(document)";
+  }
+  return path
+    .map((key, index) => {
+      if (typeof key === "string" && /^[A-Za-z]+$/.test(key)) {
+        return index === 0 ? key : `.${key}`;
+      }
+      return `[${JSON.stringify(key)}]`;
+    })
+    .join("");
+}
+
+function issuesText(title: string, issues: readonly ConfigIssue[]): string {
+  const lines = issues.map((issue) => `  ${issue.rule}  ${pathText(issue.path)}: ${issue.message}`);
+  const count = `${issues.length} issue${issues.length === 1 ? "" : "s"}`;
+  return `${title} (${count}):\n${lines.join("\n")}\n`;
+}
+
+// import, publish --------------------------------------------------------------------------------
+
+/** Where a result comes from: the file, and the 1-based block number within a PEM bundle. */
+interface Where {
+  file: string;
+  block?: number;
+}
+
+type ItemFailure = Where & { ok: false; error: { message: string } & Partial<HttpError> };
+
+/** One line of the import or publish report (`--json`: the array `results`). */
+type ItemResult<T> = (Where & { ok: true } & T) | ItemFailure;
+
+/** An import or publish file that cannot be read; its report line names the file. */
+function unreadable(reason: string): Failure {
+  return new Failure(`cannot read the file: ${reason}`);
+}
+
+/** A Failure as the result of the item it stopped; any other error propagates. */
+function failedItem(where: Where, error: unknown): ItemFailure {
+  if (!(error instanceof Failure)) {
+    throw error;
+  }
+  return { ...where, ok: false, error: { message: error.message } };
+}
+
+/** What one POST sends, and the source its report line names. */
+interface Upload {
+  where: Where;
+  source: string;
+  body: Uint8Array | string;
+}
+
+/** Where the uploads go, and the success outcomes the summary counts (before "failed"). */
+interface Route {
+  url: string;
+  headers: Record<string, string>;
+  outcomes: readonly string[];
+}
+
+/** A failure's details beyond `reason` (which describeHttp prints), for the text report. */
+function detailsText(details: unknown): string {
+  if (typeof details !== "object" || details === null) {
+    return "";
+  }
+  const parts = Object.entries(details).flatMap(([key, value]) => {
+    if (key === "reason") {
+      return [];
+    }
+    const current = value as { crlNumber?: unknown; thisUpdate?: unknown } | null;
+    if (key === "current" && typeof current?.thisUpdate === "string") {
+      const number =
+        typeof current.crlNumber === "string" ? `CRL Number ${current.crlNumber}` : "no CRL Number";
+      return [`current: ${number}, thisUpdate ${current.thisUpdate}`];
+    }
+    return [`${key} ${typeof value === "string" ? value : JSON.stringify(value)}`];
+  });
+  return parts.length === 0 ? "" : ` (${parts.join("; ")})`;
+}
+
+/**
+ * POSTs one upload. The service recognizes the format from the bytes, so every body goes as
+ * application/octet-stream. An error response, or a Failure on the way, is the item's failure.
+ */
+async function postItem<T>(
+  ctx: Context,
+  route: Route,
+  { where, body }: Upload
+): Promise<ItemResult<T>> {
+  try {
+    const reply = await request(ctx, route.url, {
+      method: "POST",
+      headers: { ...route.headers, "Content-Type": "application/octet-stream" },
+      body,
+    });
+    if (reply.status !== 200 && reply.status !== 201) {
+      const error = httpError(reply);
+      const message = `${describeHttp(error)}${detailsText(error.details)}`;
+      return { ...where, ok: false, error: { ...error, message } };
+    }
+    return { ...where, ok: true, ...(jsonOf(reply) as T) };
+  } catch (error) {
+    return failedItem(where, error);
+  }
+}
+
+/** The report line of one item as it completes; `okText` writes what a success names. */
+function printItem<T extends { outcome: string }>(
+  ctx: Context,
+  result: ItemResult<T>,
+  source: string,
+  okText: (body: T) => string
+): void {
+  if (ctx.json) {
+    return;
+  }
+  if (result.ok) {
+    ctx.io.stdout(`${result.outcome.padEnd(10)} ${okText(result)}  ${source}\n`);
+  } else {
+    ctx.io.stderr(`${"failed".padEnd(10)} ${source}: ${result.error.message}\n`);
+  }
+}
+
+/**
+ * Prints the summary, the count of each of `outcomes` and then of the failures (`--json`: after
+ * `results`), and returns the exit code: 1 when anything failed.
+ */
+function finish(
+  ctx: Context,
+  results: readonly ItemResult<{ outcome: string }>[],
+  outcomes: readonly string[]
+): number {
+  const summary = Object.fromEntries(
+    [...outcomes, "failed"].map((outcome) => [
+      outcome,
+      results.filter((result) => (result.ok ? result.outcome : "failed") === outcome).length,
+    ])
+  );
+  const counts = Object.entries(summary).map(([outcome, count]) => `${count} ${outcome}`);
+  output(ctx, { results, ...summary }, `${counts.join(", ")}\n`);
+  return summary.failed === 0 ? 0 : 1;
+}
+
+/**
+ * Reads each file once, POSTs its uploads one by one and reports each as it completes; a file or
+ * an upload that fails does not stop the others. Returns finish's exit code.
+ */
+async function postFiles<T extends { outcome: string }>(
+  ctx: Context,
+  files: readonly string[],
+  route: Route,
+  uploadsOf: (file: string, bytes: Uint8Array) => Upload[],
+  okText: (body: T) => string
+): Promise<number> {
+  const results: ItemResult<T>[] = [];
+  const report = (result: ItemResult<T>, source: string) => {
+    results.push(result);
+    printItem(ctx, result, source, okText);
+  };
+  for (const file of files) {
+    let uploads: Upload[];
+    try {
+      uploads = uploadsOf(file, await readBytes(ctx.io, file, unreadable));
+    } catch (error) {
+      report(failedItem({ file }, error), file);
+      continue;
+    }
+    for (const upload of uploads) {
+      report(await postItem<T>(ctx, route, upload), upload.source);
+    }
+  }
+  return finish(ctx, results, route.outcomes);
+}
+
+// import -----------------------------------------------------------------------------------------
+
+type Imported = z.infer<typeof ImportedCertificate>;
+
+/**
+ * The uploads of one file, recognized from the bytes as the service does (toDer): one DER
+ * SEQUENCE is sent as is; text with PEM boundaries is split into its CERTIFICATE blocks (other
+ * labels, such as a key, are skipped and never sent); anything else is sent as is for the service
+ * to report. A block's source is `<file> [block i/n]` when the file has more than one.
+ */
+function certificateUploads(file: string, bytes: Uint8Array): Upload[] {
+  const text = new TextDecoder().decode(bytes);
+  if (isDerSequence(bytes) || !text.includes("-----BEGIN ")) {
+    return [{ where: { file }, source: file, body: bytes }];
+  }
+  let blocks: string[];
+  try {
+    blocks = splitPemBlocks(text, "certificate");
+  } catch (error) {
+    throw new Failure(reasonOf(error));
+  }
+  if (blocks.length === 0) {
+    throw new Failure("no CERTIFICATE PEM block");
+  }
+  return blocks.map((body, index) => ({
+    where: { file, block: index + 1 },
+    source: blocks.length === 1 ? file : `${file} [block ${index + 1}/${blocks.length}]`,
+    body,
+  }));
+}
+
+export async function importFiles(ctx: Context, files: string[]): Promise<number> {
+  const url = `${serviceUrl(ctx)}/api/v1/admin/certificates`;
+  const route = { url, headers: await adminHeaders(ctx), outcomes: ["created", "unchanged"] };
+  return postFiles<Imported>(
+    ctx,
+    files,
+    route,
+    certificateUploads,
+    (cert) => `${cert.id}  ${cert.summary.subjectCN ?? "(no CN)"}`
+  );
+}
+
+// publish ----------------------------------------------------------------------------------------
+
+type Published = z.infer<typeof PublishedCrl>;
+
+/**
+ * Each file is one upload, sent as is (a PEM bundle is the service's pem_blocks, never split
+ * here).
+ */
+export async function publishFiles(ctx: Context, files: string[]): Promise<number> {
+  const url = `${serviceUrl(ctx)}/api/v1/crls`;
+  const token = await bearerToken(ctx, "AIA_UPLOAD_TOKEN");
+  const headers: Record<string, string> =
+    token === undefined ? {} : { Authorization: `Bearer ${token}` };
+  const route = { url, headers, outcomes: ["created", "updated", "unchanged"] };
+  const asIs = (file: string, body: Uint8Array): Upload[] => [
+    { where: { file }, source: file, body },
+  ];
+  return postFiles<Published>(ctx, files, route, asIs, (crl) => {
+    const number = crl.crlNumber === null ? "(no CRL Number)" : `#${crl.crlNumber}`;
+    return `${crl.target}  ${crl.kind} ${number}`;
+  });
+}
+
+// config -----------------------------------------------------------------------------------------
+
+function configUrl(ctx: Context): string {
+  return `${serviceUrl(ctx)}/api/v1/admin/config`;
+}
+
+export async function configShow(ctx: Context): Promise<number> {
+  const url = configUrl(ctx);
+  const reply = await request(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
+  if (reply.status === 404) {
+    throw new Failure("nothing has been configured yet (HTTP 404)");
+  }
+  // As stored, also when an out-of-band write broke it: the GET exists to allow repairs.
+  const { headers, text } = accepted(reply);
+  const etag = headers.get("ETag");
+  let config: unknown = null;
+  if (ctx.json) {
+    try {
+      config = JSON.parse(text);
+    } catch {
+      throw new Failure("the stored config.json is not JSON: run without --json to see it as is");
+    }
+  }
+  output(ctx, { etag, config }, text.endsWith("\n") ? text : `${text}\n`);
+  return 0;
+}
+
+async function loadConfigFile(io: CliIo, file: string): Promise<unknown> {
+  const fail = (reason: string) => new Failure(`cannot read ${file}: ${reason}`);
+  const bytes = await readBytes(io, file, fail);
+  try {
+    return decodeJson(bytes);
+  } catch (error) {
+    throw new Failure(`${file} is not JSON: ${reasonOf(error)}`);
+  }
+}
+
+export async function configValidate(ctx: Context, file: string): Promise<number> {
+  const checked = validateConfig(await loadConfigFile(ctx.io, file));
+  if (!ctx.json && !checked.ok) {
+    ctx.io.stderr(issuesText(`${file} is invalid`, checked.issues));
+  } else {
+    output(
+      ctx,
+      checked.ok ? { ok: true } : { ok: false, issues: checked.issues },
+      `${file}: valid offline (V1-V3, static parts of V4 / V6); ` +
+        "the service checks the catalog and current-config rules (V4-V9) on apply\n"
+    );
+  }
+  return checked.ok ? 0 : 1;
+}
+
+export async function configApply(ctx: Context, file: string): Promise<number> {
+  const checked = validateConfig(await loadConfigFile(ctx.io, file));
+  if (!checked.ok) {
+    ctx.io.stderr(issuesText(`${file} is invalid, nothing was sent`, checked.issues));
+    return 1;
+  }
+  const url = configUrl(ctx);
+  const headers = await adminHeaders(ctx);
+
+  // The precondition comes from a fresh GET: If-Match its ETag, or If-None-Match: * on 404.
+  const current = await request(ctx, url, { method: "GET", headers });
+  let precondition: Record<string, string>;
+  if (current.status === 404) {
+    precondition = { "If-None-Match": "*" };
+  } else if (current.ok) {
+    const etag = current.headers.get("ETag");
+    if (etag === null) {
+      throw new Failure(`GET ${url} answered without an ETag`);
+    }
+    precondition = { "If-Match": etag };
+  } else {
+    throw new Failure(`cannot read the current configuration: ${describeHttp(httpError(current))}`);
+  }
+
+  const reply = await request(ctx, url, {
+    method: "PUT",
+    headers: { ...headers, ...precondition, "Content-Type": "application/json" },
+    body: JSON.stringify(checked.config),
+  });
+  if (reply.status === 200) {
+    const etag = reply.headers.get("ETag");
+    const config = jsonOf(reply);
+    output(ctx, { etag, config }, `applied ${file} (ETag ${etag ?? "missing"})\n`);
+    return 0;
+  }
+  const error = httpError(reply);
+  // Not retried: the configuration that is there now may be one the operator has not seen.
+  if (reply.status === 412) {
+    throw new Failure(
+      `${describeHttp(error)}\nconfig.json changed after it was read (another apply?): ` +
+        'review it with "aia config show" and apply again'
+    );
+  }
+  if (reply.status === 422 && error.code === "config_invalid") {
+    const { issues } = error.details as { issues: ConfigIssue[] };
+    ctx.io.stderr(issuesText(`the service rejected ${file}: ${describeHttp(error)}`, issues));
+    return 1;
+  }
+  throw new Failure(describeHttp(error));
+}
+
+// history, delete-certificate --------------------------------------------------------------------
+
+type History = z.infer<typeof CrlHistory>;
+
+function historyUrl(ctx: Context, targetId: string): string {
+  return `${serviceUrl(ctx)}/api/v1/admin/crls/${encodeURIComponent(targetId)}/history`;
+}
+
+export async function listHistory(ctx: Context, targetId: string): Promise<number> {
+  const url = historyUrl(ctx, targetId);
+  const reply = await request(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
+  const history = jsonOf(accepted(reply)) as History;
+  const numbers = history.entries.map((entry) =>
+    entry.crlNumber === null ? "(no CRL Number)" : `#${entry.crlNumber}`
+  );
+  const width = Math.max(0, ...numbers.map((number) => number.length));
+  const lines = history.entries.map((entry, index) => {
+    const line = [
+      entry.thisUpdate,
+      (numbers[index] ?? "").padEnd(width),
+      entry.sha256,
+      `${entry.size} B`,
+      entry.current ? "current" : "",
+    ];
+    return `${line.join("  ").trimEnd()}\n`;
+  });
+  const count = `${history.entries.length} version${history.entries.length === 1 ? "" : "s"}`;
+  const removed = history.configured ? "" : "; the target is not in config.json (retired)";
+  output(ctx, history, `${lines.join("")}${count}${removed}\n`);
+  return 0;
+}
+
+export async function historyVersion(
+  ctx: Context,
+  targetId: string,
+  sha256: string
+): Promise<number> {
+  const file = ctx.out;
+  if (file === undefined) {
+    throw new UsageError("history <targetId> <sha256> needs --out <file>");
+  }
+  const url = `${historyUrl(ctx, targetId)}/${encodeURIComponent(sha256)}`;
+  const reply = await request(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
+  const der = accepted(reply).bytes;
+  try {
+    await ctx.io.writeFile(file, der);
+  } catch (error) {
+    throw new Failure(`cannot write ${file}: ${reasonOf(error)}`);
+  }
+  output(ctx, { file, size: der.byteLength }, `wrote ${file} (${der.byteLength} B)\n`);
+  return 0;
+}
+
+export async function deleteCertificate(ctx: Context, id: string): Promise<number> {
+  const url = `${serviceUrl(ctx)}/api/v1/admin/certificates/${encodeURIComponent(id)}`;
+  const reply = await request(ctx, url, { method: "DELETE", headers: await adminHeaders(ctx) });
+  if (reply.status === 204) {
+    output(ctx, { deleted: id }, `deleted ${id}\n`);
+    return 0;
+  }
+  const error = httpError(reply);
+  if (error.code === "referenced") {
+    const { references } = error.details as { references: CertificateReference[] };
+    const lines = references.map(
+      (reference) => `  ${reference.object} ${pathText(reference.path)}`
+    );
+    ctx.io.stderr(`aia: ${describeHttp(error)}\n${lines.join("\n")}\n`);
+    return 1;
+  }
+  throw new Failure(describeHttp(error));
+}
+
+// new-target-id, health --------------------------------------------------------------------------
+
+export function newTargetId(ctx: Context): number {
+  // Target ids are assigned by tools, never by the service.
+  const id = crypto.randomUUID();
+  output(ctx, { id }, `${id}\n`);
+  return 0;
+}
+
+export async function health(ctx: Context): Promise<number> {
+  const url = `${serviceUrl(ctx)}/api/v1/health`;
+  const reply = await request(ctx, url, { method: "GET" });
+  // 200 (healthy, degraded) and 503 (unhealthy) carry the report.
+  const hasReport = reply.status === 200 || reply.status === 503;
+  const report = jsonOf(accepted(reply, hasReport)) as HealthReport;
+  const { store, configuration } = report.checks;
+  output(ctx, report, `${report.status}: store ${store}, configuration ${configuration}\n`);
+  return report.status === "healthy" ? 0 : 1;
+}

@@ -4,7 +4,7 @@
 
 把 pki.acha.top 从旧 Worker `aia-cdp-worker`（线上跑旧仓库 `main` = `worker-aia-cdp@0ea3130`，下文称 Gen B）切到新服务：下载 URL 返回的 DER 不变（决策 7），旧对象不删，随时可回滚。交付物：
 
-- `scripts/migrate-from-v2.ts`（入口，`parseArgs` 子命令 `inventory` / `plan` / `apply` / `verify`）与 `scripts/migrate-v2/*.ts`（纯逻辑，可单测）；复用 `src/core/pki` 解析验签与 `src/cli` 的 HTTP 客户端函数。
+- `scripts/migrate-from-v2.ts`（入口，`parseArgs` 子命令 `inventory` / `plan` / `apply` / `verify`）与 `scripts/migrate-v2/*.ts`（纯逻辑，可单测）；复用 `src/core/pki` 解析验签与 `src/cli/client.ts` 的 HTTP 客户端函数。
 - 仅迁移期存在的 `POST /api/v1/admin/crls/{targetId}/history`（切换后删除）。
 - 非生产演练记录、生产切换（含 AD CS 助手替换与令牌）、`docs/operations.md` 迁移与回滚章。
 
@@ -14,7 +14,7 @@
 
 ## 前置
 
-- 切片 2：`src/core/pki` 严格解析（M1）、路径规则（M17）、管理路由 import / config、`src/cli/aia.ts` 的 HTTP 客户端函数。
+- 切片 2：`src/core/pki` 严格解析（M1）、路径规则（M17）、管理路由 import / config、`src/cli/client.ts` 的 HTTP 客户端函数。
 - 切片 3：下载路由（步骤 7 逐条比对）。
 - 切片 4：`checkCrlPolicy`、`src/core/pki/verify.ts`（`verifyWithPublicKey`，B21）、`crlBlobKey`（步骤 2）、history 标记（步骤 6，C8）、`POST /api/v1/crls`、改写的 `scripts/adcs-crl-uploader.ps1`（含 `-UploadTokenFile`）。
 - 切片 5a：扩展解析器（读 AIA、CDP、Freshest CRL、CRL Self CDP `.21.14` 里的 URL）与证书 / CRL 详情路由。
