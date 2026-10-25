@@ -110,8 +110,8 @@ aia-cdp/
       app.ts           createApp(deps) → OpenAPIHono；中间件与挂载顺序
       routes/          health.ts  certificates.ts  crls.ts  stats.ts  admin.ts  downloads.ts
       schemas.ts       API v1 的请求 / 响应 / 错误 schema
-      errors.ts        ApiError、onError、defaultHook、onMethodNotAllowed → 错误信封
-      ui.ts            保留前缀与 UI 兜底、UI 缓存头（§4.4）
+      errors.ts        ApiError、createErrorHandler（onError）、validationHook（defaultHook）→ 错误信封
+      ui.ts            保留前缀与 UI 兜底（uiFallback）、onMethodNotAllowed、UI 缓存头（§4.4）
     storage/           memory.ts  fs.ts  r2.ts（s3.ts 后续）
     runtime/
       worker.ts        export default { fetch }
@@ -666,10 +666,11 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   无 AKI / 畸形时间 / SHA-1 / AD CS 形态（用例矩阵见 implementation 附录 D）。不用真实 PKI 的证书与 CRL（决策 13）。
 - 存储一致性：同一套用例对 memory 与 fs 每次运行；r2 在 `AIA_TEST_R2=1`（`pnpm run test:r2`）下经
   `getPlatformProxy({ configPath: "wrangler.jsonc", persist: false })` 运行，`ci:worker` 包含它且要求 passed 而不是 skipped。
-- Node 端到端：在临时目录起真实服务与 fs 存储，经 CLI 导入、应用配置、上传，再查读路由与下载。
+- Node 端到端：在临时目录起真实服务与 fs 存储，经 CLI 导入、应用配置、上传，再查下载（GET 与 HEAD）与静态 UI。
 - Worker：`wrangler deploy --dry-run --outdir dist/worker`（先 `build:web`）；`smoke:worker`（`scripts/worker-smoke.ts`）用 `createTestHarness`
-  运行 dry-run 产物，经管理接口导入并应用配置，跑与运行时无关的 `scripts/smoke.sh`（health、一次证书下载与 304、一次原始体 CRL 上传及其下载、
-  读路由、UI），再在 workerd 上发布并验签（RSA PKCS#1 v1.5、RSASSA-PSS、SHA-1、坏签名）。`wrangler dev` 冒烟是切片出口里的人工步骤。
+  运行 dry-run 产物，经进程内 CLI（`main()`，与 `seed-dev.ts` 相同）`aia import` 与 `config apply` 导入并应用配置，跑与运行时无关的
+  `scripts/smoke.sh`（health、一次证书下载与 304、一次原始体 CRL 上传及其下载、读路由、UI），再在 workerd 上发布并验签（RSA PKCS#1 v1.5、
+  RSASSA-PSS、SHA-1、坏签名）。`wrangler dev` 冒烟是切片出口里的人工步骤。
 - Web：组件与逻辑在 vitest `web` 项目；`tests/http/app.test.ts` 查 UI、JSON 与下载响应都带同一 CSP。
 - Docker（`scripts/docker-smoke.sh`）：构建镜像、启动、健康检查 `healthy` 而 API 报 `degraded`、uid 1000、经镜像内 CLI `aia import` 与
   `config apply` 后 health `healthy`，再跑 `scripts/smoke.sh`，`docker stop` < 5 s。
