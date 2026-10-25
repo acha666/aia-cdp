@@ -3,22 +3,18 @@
 // not authorize anything: a certificate only becomes an issuer once a config target names it.
 import { z } from "zod";
 import { certificateBlobKey, certificateReferences, readCatalog, updateState } from "./catalog.ts";
-import type { CatalogCertificate, CertificateSummary, State } from "./catalog.ts";
+import type { CatalogCertificate, CatalogDeps, CertificateSummary, State } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { PkiParseError } from "./pki/errors.ts";
 import type { PkiParseReason } from "./pki/errors.ts";
 import { parseCertificate, sameSignatureAlgorithms } from "./pki/parsers.ts";
 import { toDer } from "./pki/pem.ts";
-import type { ObjectStore } from "./store.ts";
 import { buildCertificateSummary } from "./summary/catalog-summary.ts";
 
 // Import ------------------------------------------------------------------------------------------
 
-export interface ImportDeps {
-  store: ObjectStore;
+export interface ImportDeps extends CatalogDeps {
   now: () => Date;
-  /** Backoff between catalog write attempts; a timer when omitted. */
-  sleep?: (ms: number) => Promise<void>;
 }
 
 /** created added the catalog entry; unchanged found the id in the catalog and added none. */
@@ -90,20 +86,16 @@ export async function importCertificate(
     importedAt: now.toISOString(),
     summary,
   };
-  const update = await updateState<Omit<ImportSuccess, "id">>(
-    deps.store,
-    ({ catalog: current }) => {
-      const raced = current.certificates[id];
-      if (raced !== undefined) {
-        return { result: { outcome: "unchanged", entry: raced } };
-      }
-      return {
-        next: { ...current, certificates: { ...current.certificates, [id]: entry } },
-        result: { outcome: "created", entry },
-      };
-    },
-    deps.sleep
-  );
+  const update = await updateState<Omit<ImportSuccess, "id">>(deps, ({ catalog: current }) => {
+    const raced = current.certificates[id];
+    if (raced !== undefined) {
+      return { result: { outcome: "unchanged", entry: raced } };
+    }
+    return {
+      next: { ...current, certificates: { ...current.certificates, [id]: entry } },
+      result: { outcome: "created", entry },
+    };
+  });
   if ("error" in update) {
     return { error: update.error, id };
   }
@@ -163,25 +155,21 @@ function referencesOf(state: State, id: string): CertificateReference[] {
  * later import of the same certificate writes again.
  */
 export async function deleteCertificate(
-  deps: { store: ObjectStore; sleep?: (ms: number) => Promise<void> },
+  deps: CatalogDeps,
   id: string
 ): Promise<DeleteCertificateResult> {
-  const outcome = await updateState<DeleteCertificateResult | { key: string }>(
-    deps.store,
-    (state) => {
-      const entry = state.catalog.certificates[id];
-      if (entry === undefined) {
-        return { result: { error: "not_found" } };
-      }
-      const references = referencesOf(state, id);
-      if (references.length > 0) {
-        return { result: { error: "referenced", details: { references } } };
-      }
-      const { [id]: _deleted, ...certificates } = state.catalog.certificates;
-      return { next: { ...state.catalog, certificates }, result: { key: entry.key } };
-    },
-    deps.sleep
-  );
+  const outcome = await updateState<DeleteCertificateResult | { key: string }>(deps, (state) => {
+    const entry = state.catalog.certificates[id];
+    if (entry === undefined) {
+      return { result: { error: "not_found" } };
+    }
+    const references = referencesOf(state, id);
+    if (references.length > 0) {
+      return { result: { error: "referenced", details: { references } } };
+    }
+    const { [id]: _deleted, ...certificates } = state.catalog.certificates;
+    return { next: { ...state.catalog, certificates }, result: { key: entry.key } };
+  });
   if ("error" in outcome) {
     return outcome;
   }

@@ -9,7 +9,14 @@ import {
   Sha256Hex,
   updateState,
 } from "./catalog.ts";
-import type { CatalogMutation, CrlKind, CrlSummary, CurrentCrl, State } from "./catalog.ts";
+import type {
+  CatalogDeps,
+  CatalogMutation,
+  CrlKind,
+  CrlSummary,
+  CurrentCrl,
+  State,
+} from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { crlBlobKey, crlHistoryKey } from "./history.ts";
 import type { HistoryMarker } from "./history.ts";
@@ -104,11 +111,8 @@ export interface PublishLogRecord extends Trace {
   ms: number;
 }
 
-export interface PublishDeps {
-  store: ObjectStore;
+export interface PublishDeps extends CatalogDeps {
   now: () => Date;
-  /** Backoff between catalog write attempts; a timer when omitted. */
-  sleep?: (ms: number) => Promise<void>;
   /** Receives exactly one record per call (the HTTP route passes its structured logger). */
   log: (record: PublishLogRecord) => void;
 }
@@ -424,7 +428,7 @@ async function publish(
     };
   };
 
-  const update = await updateState(deps.store, attempt, deps.sleep);
+  const update = await updateState(deps, attempt);
   if ("error" in update) {
     trace.detail = `The catalog write was lost ${trace.attempts} times`;
     return { error: "concurrent_update" };
