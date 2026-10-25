@@ -226,8 +226,9 @@ async function readBytes(
 
 // Output -----------------------------------------------------------------------------------------
 
-function printJson(io: CliIo, value: unknown): void {
-  io.stdout(`${JSON.stringify(value, null, 2)}\n`);
+/** A command's result on stdout: `value` as JSON with --json, else `text`. */
+function output(ctx: Context, value: unknown, text: string): void {
+  ctx.io.stdout(ctx.json ? `${JSON.stringify(value, null, 2)}\n` : text);
 }
 
 function reasonOf(error: unknown): string {
@@ -534,12 +535,8 @@ function finish(
       results.filter((result) => (result.ok ? result.outcome : "failed") === outcome).length,
     ])
   );
-  if (ctx.json) {
-    printJson(ctx.io, { results, ...summary });
-  } else {
-    const counts = Object.entries(summary).map(([outcome, count]) => `${count} ${outcome}`);
-    ctx.io.stdout(`${counts.join(", ")}\n`);
-  }
+  const counts = Object.entries(summary).map(([outcome, count]) => `${count} ${outcome}`);
+  output(ctx, { results, ...summary }, `${counts.join(", ")}\n`);
   return summary.failed === 0 ? 0 : 1;
 }
 
@@ -687,17 +684,15 @@ async function configShow(ctx: Context): Promise<number> {
   const etag = res.headers.get("ETag");
   // As stored, also when an out-of-band write broke it: the GET exists to allow repairs.
   const text = await readText(res, url);
-  if (!ctx.json) {
-    ctx.io.stdout(text.endsWith("\n") ? text : `${text}\n`);
-    return 0;
+  let config: unknown = null;
+  if (ctx.json) {
+    try {
+      config = JSON.parse(text);
+    } catch {
+      throw new Failure("the stored config.json is not JSON: run without --json to see it as is");
+    }
   }
-  let config: unknown;
-  try {
-    config = JSON.parse(text);
-  } catch {
-    throw new Failure("the stored config.json is not JSON: run without --json to see it as is");
-  }
-  printJson(ctx.io, { etag, config });
+  output(ctx, { etag, config }, text.endsWith("\n") ? text : `${text}\n`);
   return 0;
 }
 
@@ -713,15 +708,15 @@ async function loadConfigFile(io: CliIo, file: string): Promise<unknown> {
 
 async function configValidate(ctx: Context, file: string): Promise<number> {
   const checked = validateConfig(await loadConfigFile(ctx.io, file));
-  if (ctx.json) {
-    printJson(ctx.io, checked.ok ? { ok: true } : { ok: false, issues: checked.issues });
-  } else if (checked.ok) {
-    ctx.io.stdout(
+  if (!ctx.json && !checked.ok) {
+    ctx.io.stderr(issuesText(`${file} is invalid`, checked.issues));
+  } else {
+    output(
+      ctx,
+      checked.ok ? { ok: true } : { ok: false, issues: checked.issues },
       `${file}: valid offline (V1-V3, static parts of V4 / V6); ` +
         "the service checks the catalog and current-config rules (V4-V9) on apply\n"
     );
-  } else {
-    ctx.io.stderr(issuesText(`${file} is invalid`, checked.issues));
   }
   return checked.ok ? 0 : 1;
 }
@@ -762,11 +757,7 @@ async function configApply(ctx: Context, file: string): Promise<number> {
   if (res.status === 200) {
     const etag = res.headers.get("ETag");
     const config = await jsonOf(res, url);
-    if (ctx.json) {
-      printJson(ctx.io, { etag, config });
-    } else {
-      ctx.io.stdout(`applied ${file} (ETag ${etag ?? "missing"})\n`);
-    }
+    output(ctx, { etag, config }, `applied ${file} (ETag ${etag ?? "missing"})\n`);
     return 0;
   }
   const error = await httpError(res, url);
@@ -800,15 +791,11 @@ async function listHistory(ctx: Context, targetId: string): Promise<number> {
     throw new Failure(describeHttp(await httpError(res, url)));
   }
   const history = (await jsonOf(res, url)) as History;
-  if (ctx.json) {
-    printJson(ctx.io, history);
-    return 0;
-  }
   const numbers = history.entries.map((entry) =>
     entry.crlNumber === null ? "(no CRL Number)" : `#${entry.crlNumber}`
   );
   const width = Math.max(0, ...numbers.map((number) => number.length));
-  history.entries.forEach((entry, index) => {
+  const lines = history.entries.map((entry, index) => {
     const line = [
       entry.thisUpdate,
       (numbers[index] ?? "").padEnd(width),
@@ -816,11 +803,11 @@ async function listHistory(ctx: Context, targetId: string): Promise<number> {
       `${entry.size} B`,
       entry.current ? "current" : "",
     ];
-    ctx.io.stdout(`${line.join("  ").trimEnd()}\n`);
+    return `${line.join("  ").trimEnd()}\n`;
   });
   const count = `${history.entries.length} version${history.entries.length === 1 ? "" : "s"}`;
   const removed = history.configured ? "" : "; the target is not in config.json (retired)";
-  ctx.io.stdout(`${count}${removed}\n`);
+  output(ctx, history, `${lines.join("")}${count}${removed}\n`);
   return 0;
 }
 
@@ -840,11 +827,7 @@ async function historyVersion(ctx: Context, targetId: string, sha256: string): P
   } catch (error) {
     throw new Failure(`cannot write ${file}: ${reasonOf(error)}`);
   }
-  if (ctx.json) {
-    printJson(ctx.io, { file, size: der.byteLength });
-  } else {
-    ctx.io.stdout(`wrote ${file} (${der.byteLength} B)\n`);
-  }
+  output(ctx, { file, size: der.byteLength }, `wrote ${file} (${der.byteLength} B)\n`);
   return 0;
 }
 
@@ -853,11 +836,7 @@ async function deleteCertificate(ctx: Context, id: string): Promise<number> {
   const res = await send(ctx, url, { method: "DELETE", headers: await adminHeaders(ctx) });
   if (res.status === 204) {
     await readText(res, url);
-    if (ctx.json) {
-      printJson(ctx.io, { deleted: id });
-    } else {
-      ctx.io.stdout(`deleted ${id}\n`);
-    }
+    output(ctx, { deleted: id }, `deleted ${id}\n`);
     return 0;
   }
   const error = await httpError(res, url);
@@ -877,11 +856,7 @@ async function deleteCertificate(ctx: Context, id: string): Promise<number> {
 function newTargetId(ctx: Context): number {
   // Target ids are assigned by tools, never by the service.
   const id = crypto.randomUUID();
-  if (ctx.json) {
-    printJson(ctx.io, { id });
-  } else {
-    ctx.io.stdout(`${id}\n`);
-  }
+  output(ctx, { id }, `${id}\n`);
   return 0;
 }
 
@@ -893,12 +868,8 @@ async function health(ctx: Context): Promise<number> {
     throw new Failure(describeHttp(await httpError(res, url)));
   }
   const report = (await jsonOf(res, url)) as HealthReport;
-  if (ctx.json) {
-    printJson(ctx.io, report);
-  } else {
-    const { store, configuration } = report.checks;
-    ctx.io.stdout(`${report.status}: store ${store}, configuration ${configuration}\n`);
-  }
+  const { store, configuration } = report.checks;
+  output(ctx, report, `${report.status}: store ${store}, configuration ${configuration}\n`);
   return report.status === "healthy" ? 0 : 1;
 }
 
