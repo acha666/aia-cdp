@@ -5,7 +5,7 @@
   "compilerOptions": {
     // ESNext.TypedArrays only for the core files AppType reaches: src/web never calls those
     // methods, which browsers before Chrome 140 lack.
-    "lib": ["ES2024", "ESNext.TypedArrays", "DOM", "DOM.Iterable"],
+    "lib": ["ES2024", "ESNext.TypedArrays", "DOM"],
     "types": ["vite/client"],
     // Generated shadcn-vue code imports without extensions.
     "module": "ESNext",
