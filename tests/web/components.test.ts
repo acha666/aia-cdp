@@ -325,10 +325,7 @@ describe("ExtensionView", () => {
         extensionType: "freshestCRL",
         distributionPoints: [
           { distributionPoint: { fullName: [uri("http://a.test/a.crl")] } },
-          {
-            distributionPoint: { fullName: [uri("http://b.test/b.crl")] },
-            reasons: ["keyCompromise"],
-          },
+          { distributionPoint: { fullName: [uri("http://b.test/b.crl")] } },
         ],
       })
     );

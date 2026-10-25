@@ -261,7 +261,7 @@ describe("publishCrl: what an upload writes", () => {
     });
   });
 
-  it("records the superseded current as a history marker named like its blob", async () => {
+  it("records the superseded current as a history marker", async () => {
     const { base, setup } = await fresh();
     const targetId = setup.target("issuing-ca-1", "full");
     await publishFile(base, FULL_01);

@@ -40,14 +40,14 @@ function uploadFile(app: App, file: string, headers: HeaderFields = {}) {
   return upload(app, fixture(file), "application/pkix-crl", headers);
 }
 
-/** The success body for the CRL fixture `file` (a .der) published to its target in `setup`. */
-async function publishedBody(file: string, outcome: string, setup: PublishSetup) {
+/** The 201 created body for the CRL fixture `file` (a .der) published to its target in `setup`. */
+async function publishedBody(file: string, setup: PublishSetup) {
   const entry = crlEntry(file);
   const target = setup.target(entry.issuer, entry.kind);
   const current = await currentCrl(file, target);
   const { crlNumber, baseCrlNumber, thisUpdate, nextUpdate } = current.summary;
   return {
-    outcome,
+    outcome: "created",
     target,
     kind: entry.kind,
     sha256: entry.sha256,
@@ -64,7 +64,7 @@ describe("POST /api/v1/crls: bodies", () => {
   it("publishes the body as sent; the repeat is 200 unchanged", async () => {
     const { app, base, setup } = await readService();
     const der = fixture(ROOT_FULL_01);
-    const expected = await publishedBody(ROOT_FULL_01, "created", setup);
+    const expected = await publishedBody(ROOT_FULL_01, setup);
     expect(expected.downloads).toEqual(["/crl/root-ca.crl", "/crl/root-ca.crl.pem"]);
 
     const created = await upload(app, der, "application/pkix-crl");
@@ -88,7 +88,7 @@ describe("POST /api/v1/crls: bodies", () => {
     const { app, setup } = await readService();
     const res = await upload(app, body(), contentType);
     expect(res.status).toBe(201);
-    expect(await res.json()).toEqual(await publishedBody(FULL_01, "created", setup));
+    expect(await res.json()).toEqual(await publishedBody(FULL_01, setup));
   });
 
   it.each<[string, Body]>([
@@ -141,7 +141,7 @@ describe("POST /api/v1/crls: token and size", () => {
 
     const authorized = await uploadFile(app, ROOT_FULL_01, AUTH);
     expect(authorized.status).toBe(201);
-    expect(await authorized.json()).toEqual(await publishedBody(ROOT_FULL_01, "created", setup));
+    expect(await authorized.json()).toEqual(await publishedBody(ROOT_FULL_01, setup));
   });
 
   // An anonymous client never gets its body read, nor a 413 that tells it the limit.
