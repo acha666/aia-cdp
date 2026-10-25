@@ -8,8 +8,9 @@ import type { ConfigIssue } from "../core/admin.ts";
 import { decodeJson } from "../core/catalog.ts";
 import type { CertificateReference } from "../core/certificates.ts";
 import type { HealthReport } from "../core/health.ts";
+import type { TargetHistory } from "../core/history.ts";
 import { isDerSequence, splitPemBlocks } from "../core/pki/pem.ts";
-import type { CrlHistory, ImportedCertificate, PublishedCrl } from "../http/schemas.ts";
+import type { ImportedCertificate, PublishedCrl } from "../http/schemas.ts";
 import {
   accepted,
   adminHeaders,
@@ -378,8 +379,6 @@ export async function configApply(ctx: Context, file: string): Promise<number> {
 
 // history, delete-certificate --------------------------------------------------------------------
 
-type History = z.infer<typeof CrlHistory>;
-
 function historyUrl(ctx: Context, targetId: string): string {
   return `${serviceUrl(ctx)}/api/v1/admin/crls/${encodeURIComponent(targetId)}/history`;
 }
@@ -387,7 +386,7 @@ function historyUrl(ctx: Context, targetId: string): string {
 export async function listHistory(ctx: Context, targetId: string): Promise<number> {
   const url = historyUrl(ctx, targetId);
   const reply = await request(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
-  const history = jsonOf(accepted(reply)) as History;
+  const history = jsonOf(accepted(reply)) as TargetHistory;
   const numbers = history.entries.map((entry) =>
     entry.crlNumber === null ? "(no CRL Number)" : `#${entry.crlNumber}`
   );

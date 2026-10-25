@@ -1,8 +1,8 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
-import { checkHealth } from "../../core/health.ts";
+import { checkHealth, HealthOk, HealthUnavailable } from "../../core/health.ts";
 import { NO_STORE } from "../errors.ts";
 import { describeError } from "../log.ts";
-import { HealthOk, HealthUnavailable, jsonContent } from "../schemas.ts";
+import { jsonContent } from "../schemas.ts";
 import type { AppDeps } from "../types.ts";
 
 const healthRoute = createRoute({

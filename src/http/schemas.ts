@@ -9,6 +9,7 @@ import {
   Timestamp,
 } from "../core/catalog.ts";
 import { CertificateReference } from "../core/certificates.ts";
+import { Size } from "../core/history.ts";
 import { PKI_PARSE_REASONS } from "../core/pki/errors.ts";
 import { CurrentCrlVersion } from "../core/publish.ts";
 import {
@@ -100,8 +101,6 @@ export function rawBody(mediaTypes: readonly string[]) {
 /** Why an upload is not a certificate or CRL this service accepts. */
 const ParseReason = z.enum(PKI_PARSE_REASONS);
 
-const Size = z.number().int().positive().openapi({ description: "DER size in bytes" });
-
 // Shared failures ---------------------------------------------------------------------------------
 
 export const BadRequestError = errorSchema(["bad_request"]).openapi("BadRequestError");
@@ -135,28 +134,6 @@ export const PAYLOAD_TOO_LARGE = {
   description: "The body is larger than AIA_MAX_UPLOAD_BYTES",
   content: jsonContent(PayloadTooLargeError),
 };
-
-/** 200: the store answers. `degraded` while config.json is missing or invalid. */
-export const HealthOk = z
-  .object({
-    status: z.enum(["healthy", "degraded"]),
-    checks: z.object({
-      store: z.literal("ok"),
-      configuration: z.enum(["ok", "missing", "invalid"]),
-    }),
-  })
-  .openapi("HealthOk");
-
-/** 503: the store failed, so the configuration could not be checked. */
-export const HealthUnavailable = z
-  .object({
-    status: z.literal("unhealthy"),
-    checks: z.object({
-      store: z.literal("error"),
-      configuration: z.literal("unknown"),
-    }),
-  })
-  .openapi("HealthUnavailable");
 
 // Admin --------------------------------------------------------------------------------------------
 
@@ -451,35 +428,8 @@ export const Stats = z
   })
   .openapi("Stats");
 
-// Admin: history and certificate deletion ----------------------------------------------------------
-// The bodies of src/core/history.ts and src/core/certificates.ts deleteCertificate.
-
-/** One version of a target's history. */
-const CrlHistoryEntry = z
-  .object({
-    /** SHA-256 of the DER. */
-    sha256: Sha256Hex,
-    crlNumber: CrlSummarySchema.shape.crlNumber,
-    thisUpdate: CrlSummarySchema.shape.thisUpdate,
-    size: Size,
-    current: z.boolean().openapi({
-      description: "The version the target serves: its current CRL, while it is in config.json",
-    }),
-  })
-  .openapi("CrlHistoryEntry");
-
-/** GET /api/v1/admin/crls/{targetId}/history. */
-export const CrlHistory = z
-  .object({
-    targetId: TargetId,
-    configured: z.boolean().openapi({
-      description: "false once the target was removed from config.json: nothing serves it",
-    }),
-    entries: z.array(CrlHistoryEntry).openapi({
-      description: "Newest first: by thisUpdate, then CRL Number",
-    }),
-  })
-  .openapi("CrlHistory");
+// Admin: certificate deletion ----------------------------------------------------------------------
+// The failure of src/core/certificates.ts deleteCertificate (the history body: core/history.ts).
 
 /** 409 of DELETE /api/v1/admin/certificates/{id}. */
 export const CertificateConflictError = z

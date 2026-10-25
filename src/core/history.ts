@@ -6,7 +6,8 @@
 // orphan of a lost publish race or a crash and is not listed. The catalog is read before the lists:
 // a publish writes the blob and the marker before the catalog and nothing removes them, so the
 // lists hold every version that catalog names.
-import { readState } from "./catalog.ts";
+import { z } from "zod";
+import { CrlSummarySchema, readState, Sha256Hex, TargetId } from "./catalog.ts";
 import type { CrlSummary, CurrentCrl } from "./catalog.ts";
 import { formatGeneralizedTime } from "./pki/asn1.ts";
 import { readBlob } from "./store.ts";
@@ -94,24 +95,36 @@ function versionName(key: string, prefix: string, extension: string): string {
 
 // History -----------------------------------------------------------------------------------------
 
-export interface HistoryEntry {
-  /** SHA-256 of the DER. */
-  sha256: string;
-  crlNumber: string | null;
-  thisUpdate: string;
-  /** DER size in bytes. */
-  size: number;
-  /** The version the target serves: its current CRL, while the target is in config.json. */
-  current: boolean;
-}
+/** A DER size in bytes (the http bodies share it). */
+export const Size = z.number().int().positive().describe("DER size in bytes");
 
-export interface TargetHistory {
-  targetId: string;
-  /** false once the target was removed from config.json (retired): nothing serves it any more. */
-  configured: boolean;
-  /** Newest first: by thisUpdate, then CRL Number. */
-  entries: HistoryEntry[];
-}
+/** One version of a target's history. */
+const CrlHistoryEntry = z
+  .object({
+    /** SHA-256 of the DER. */
+    sha256: Sha256Hex,
+    crlNumber: CrlSummarySchema.shape.crlNumber,
+    thisUpdate: CrlSummarySchema.shape.thisUpdate,
+    size: Size,
+    current: z
+      .boolean()
+      .describe("The version the target serves: its current CRL, while it is in config.json"),
+  })
+  .meta({ id: "CrlHistoryEntry" });
+
+/** GET /api/v1/admin/crls/{targetId}/history. */
+export const CrlHistory = z
+  .object({
+    targetId: TargetId,
+    configured: z
+      .boolean()
+      .describe("false once the target was removed from config.json: nothing serves it"),
+    entries: z.array(CrlHistoryEntry).describe("Newest first: by thisUpdate, then CRL Number"),
+  })
+  .meta({ id: "CrlHistory" });
+
+export type HistoryEntry = z.infer<typeof CrlHistoryEntry>;
+export type TargetHistory = z.infer<typeof CrlHistory>;
 
 /** An entry with the key of its blob, which never leaves this module. */
 type StoredEntry = HistoryEntry & { key: string };

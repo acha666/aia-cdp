@@ -3,20 +3,31 @@
 //
 // The configuration is what readState returns: the config rules are checked when a config is
 // applied, so a stored config is only invalid when it is not JSON or fails its schema.
+import { z } from "zod";
 import { InvalidStoredObjectError, readState } from "./catalog.ts";
 import type { ObjectStore } from "./store.ts";
 
-export type ConfigurationCheck = "ok" | "missing" | "invalid";
+/** 200: the store answers. `degraded` while config.json is missing or invalid. */
+export const HealthOk = z
+  .object({
+    status: z.enum(["healthy", "degraded"]),
+    checks: z.object({
+      store: z.literal("ok"),
+      configuration: z.enum(["ok", "missing", "invalid"]),
+    }),
+  })
+  .meta({ id: "HealthOk" });
 
-export type HealthReport =
-  | {
-      status: "healthy" | "degraded";
-      checks: { store: "ok"; configuration: ConfigurationCheck };
-    }
-  | {
-      status: "unhealthy";
-      checks: { store: "error"; configuration: "unknown" };
-    };
+/** 503: the store failed, so the configuration could not be checked. */
+export const HealthUnavailable = z
+  .object({
+    status: z.literal("unhealthy"),
+    checks: z.object({ store: z.literal("error"), configuration: z.literal("unknown") }),
+  })
+  .meta({ id: "HealthUnavailable" });
+
+export type HealthReport = z.infer<typeof HealthOk> | z.infer<typeof HealthUnavailable>;
+type ConfigurationCheck = z.infer<typeof HealthOk>["checks"]["configuration"];
 
 const UNHEALTHY: HealthReport = {
   status: "unhealthy",

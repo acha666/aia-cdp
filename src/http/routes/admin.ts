@@ -19,7 +19,7 @@ import { CONFIG_KEY, ConfigSchema, encodeJson } from "../../core/catalog.ts";
 import type { Config } from "../../core/catalog.ts";
 import { deleteCertificate, importCertificate } from "../../core/certificates.ts";
 import { sha256Hex } from "../../core/digest.ts";
-import { getHistoryBlob, listHistory } from "../../core/history.ts";
+import { CrlHistory, getHistoryBlob, listHistory } from "../../core/history.ts";
 import { ApiError, NO_STORE, validationError } from "../errors.ts";
 import { mediaTypeGate } from "../media.ts";
 import {
@@ -31,7 +31,6 @@ import {
   CertificateIdParam,
   ConcurrentUpdateError,
   ConfigInvalidError,
-  CrlHistory,
   HistoryVersionParam,
   ImportedCertificate,
   InvalidCertificateError,
