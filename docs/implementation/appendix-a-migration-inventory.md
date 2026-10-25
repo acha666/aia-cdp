@@ -39,7 +39,7 @@
 | `tests/worker/crl-upload.test.ts` | rewrite | tests/core/publish.test.ts + tests/core/freshness.test.ts + tests/http/crls-upload.test.ts + tests/integration/node-e2e.test.ts + tests/core/admin.test.ts (slice 2) | 2,4 |
 | `tests/worker/r2-listing.test.ts` | drop | — | none |
 | `tests/worker/r2-metadata.test.ts` | drop | — | none |
-| `tests/worker/r2-summary.test.ts` | migrate-adapt | tests/core/summary.test.ts + tests/core/certificates.test.ts + tests/core/catalog.test.ts | 2,4 |
+| `tests/worker/r2-summary.test.ts` | migrate-adapt | tests/core/summary/catalog-summary.test.ts + tests/core/certificates.test.ts + tests/core/catalog.test.ts | 2,4 |
 | `tests/worker/cache-config.test.ts` | migrate-adapt | tests/core/resources.test.ts + tests/http/downloads.test.ts | 3 |
 | `tests/helpers/r2.ts` | migrate-adapt | tests/storage/fakes/r2-bucket.ts | 1 |
 | `src/worker/worker.ts` | rewrite | src/runtime/worker.ts + src/http/app.ts + src/http/routes/downloads.ts | 1,3,5a |

@@ -1,15 +1,15 @@
 import { createHash } from "node:crypto";
 import * as asn1 from "asn1js";
 import { describe, expect, it } from "vitest";
-import { CrlSummarySchema } from "../../src/core/catalog.ts";
-import type { CertificateSummary } from "../../src/core/catalog.ts";
-import { NEXT_CRL_PUBLISH_OID, parseCertificate, parseCRL } from "../../src/core/pki/parsers.ts";
+import { CrlSummarySchema } from "../../../src/core/catalog.ts";
+import type { CertificateSummary } from "../../../src/core/catalog.ts";
+import { NEXT_CRL_PUBLISH_OID, parseCertificate, parseCRL } from "../../../src/core/pki/parsers.ts";
 import {
   buildCertificateSummary,
   buildCrlSummary,
-} from "../../src/core/summary/catalog-summary.ts";
-import { cert, fixture, manifest } from "../fixtures/pki.ts";
-import { attribute, extension, nameOf, pkiError } from "../helpers/pki.ts";
+} from "../../../src/core/summary/catalog-summary.ts";
+import { cert, fixture, manifest } from "../../fixtures/pki.ts";
+import { attribute, extension, nameOf, pkiError } from "../../helpers/pki.ts";
 
 // The catalog summaries: buildCertificateSummary on every fixture certificate, buildCrlSummary on
 // every parsable fixture CRL.
