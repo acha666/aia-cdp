@@ -375,25 +375,44 @@ async function adminHeaders(ctx: Context): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${token}` };
 }
 
-/** fetch with a timeout; a request that gets no response at all is a Failure. */
-async function send(ctx: Context, url: string, init: RequestInit): Promise<Response> {
-  try {
-    return await ctx.io.fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-  } catch (error) {
-    throw new Failure(`cannot reach ${url}: ${reasonOf(error)}`);
-  }
+/** A response with its body read in full. */
+interface Reply {
+  status: number;
+  statusText: string;
+  ok: boolean;
+  headers: Headers;
+  bytes: Uint8Array;
+  /** `bytes` as UTF-8, as Response.text() decodes them. */
+  text: string;
 }
 
 /**
- * The body of a response from `url` as text. Every body is read through here: one that fails
- * after the headers (a reset connection, the timeout firing mid-body) is a Failure too.
+ * fetch with a timeout, and the whole body read: a request that gets no response, or a body that
+ * fails after the headers (a reset connection, the timeout firing mid-body), is a Failure.
  */
-async function readText(res: Response, url: string): Promise<string> {
+async function request(ctx: Context, url: string, init: RequestInit): Promise<Reply> {
+  let res: Response;
   try {
-    return await res.text();
+    res = await ctx.io.fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch (error) {
+    throw new Failure(`cannot reach ${url}: ${reasonOf(error)}`);
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await res.arrayBuffer());
   } catch (error) {
     throw new Failure(`cannot read the response from ${url}: ${reasonOf(error)}`);
   }
+  const { status, statusText, ok, headers } = res;
+  return { status, statusText, ok, headers, bytes, text: new TextDecoder().decode(bytes) };
+}
+
+/** `reply`, if `ok` (by default: a 2xx status); otherwise its HTTP error is the Failure. */
+function accepted(reply: Reply, ok = reply.ok): Reply {
+  if (!ok) {
+    throw new Failure(describeHttp(httpError(reply)));
+  }
+  return reply;
 }
 
 /** A non-success response: the error envelope's fields, or the status line without one. */
@@ -404,13 +423,12 @@ interface HttpError {
   details?: unknown;
 }
 
-async function httpError(res: Response, url: string): Promise<HttpError> {
-  const text = await readText(res, url);
+function httpError(reply: Reply): HttpError {
   try {
-    const { error } = JSON.parse(text) as { error?: Record<string, unknown> };
+    const { error } = JSON.parse(reply.text) as { error?: Record<string, unknown> };
     if (typeof error?.code === "string" && typeof error.message === "string") {
       return {
-        status: res.status,
+        status: reply.status,
         code: error.code,
         message: error.message,
         ...(error.details === undefined ? {} : { details: error.details }),
@@ -419,7 +437,7 @@ async function httpError(res: Response, url: string): Promise<HttpError> {
   } catch {
     // Not an envelope (a proxy's page, say): fall through.
   }
-  return { status: res.status, message: res.statusText || "unexpected response" };
+  return { status: reply.status, message: reply.statusText || "unexpected response" };
 }
 
 function describeHttp(error: HttpError): string {
@@ -429,22 +447,12 @@ function describeHttp(error: HttpError): string {
   return `HTTP ${error.status}${code}${reason}: ${error.message}`;
 }
 
-/** The body of a success response as bytes; one that fails to arrive is a Failure. */
-async function readBody(res: Response, url: string): Promise<Uint8Array> {
-  try {
-    return new Uint8Array(await res.arrayBuffer());
-  } catch (error) {
-    throw new Failure(`cannot read the response from ${url}: ${reasonOf(error)}`);
-  }
-}
-
 /** The JSON body of a success response; a body that is not JSON is a Failure. */
-async function jsonOf(res: Response, url: string): Promise<unknown> {
-  const text = await readText(res, url);
+function jsonOf(reply: Reply): unknown {
   try {
-    return JSON.parse(text) as unknown;
+    return JSON.parse(reply.text) as unknown;
   } catch {
-    throw new Failure(`HTTP ${res.status}, but the body is not JSON`);
+    throw new Failure(`HTTP ${reply.status}, but the body is not JSON`);
   }
 }
 
@@ -488,16 +496,16 @@ async function postItem<T>(
   describe: (error: HttpError) => string = describeHttp
 ): Promise<ItemResult<T>> {
   try {
-    const res = await send(ctx, url, {
+    const reply = await request(ctx, url, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/octet-stream" },
       body,
     });
-    if (res.status !== 200 && res.status !== 201) {
-      const error = await httpError(res, url);
+    if (reply.status !== 200 && reply.status !== 201) {
+      const error = httpError(reply);
       return { ...where, ok: false, error: { ...error, message: describe(error) } };
     }
-    return { ...where, ok: true, ...((await jsonOf(res, url)) as T) };
+    return { ...where, ok: true, ...(jsonOf(reply) as T) };
   } catch (error) {
     return failedItem(where, error);
   }
@@ -673,17 +681,13 @@ function configUrl(ctx: Context): string {
 
 async function configShow(ctx: Context): Promise<number> {
   const url = configUrl(ctx);
-  const res = await send(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
-  if (res.status === 404) {
-    await readText(res, url);
+  const reply = await request(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
+  if (reply.status === 404) {
     throw new Failure("nothing has been configured yet (HTTP 404)");
   }
-  if (!res.ok) {
-    throw new Failure(describeHttp(await httpError(res, url)));
-  }
-  const etag = res.headers.get("ETag");
   // As stored, also when an out-of-band write broke it: the GET exists to allow repairs.
-  const text = await readText(res, url);
+  const { headers, text } = accepted(reply);
+  const etag = headers.get("ETag");
   let config: unknown = null;
   if (ctx.json) {
     try {
@@ -731,44 +735,40 @@ async function configApply(ctx: Context, file: string): Promise<number> {
   const headers = await adminHeaders(ctx);
 
   // The precondition comes from a fresh GET: If-Match its ETag, or If-None-Match: * on 404.
-  const current = await send(ctx, url, { method: "GET", headers });
+  const current = await request(ctx, url, { method: "GET", headers });
   let precondition: Record<string, string>;
   if (current.status === 404) {
-    await readText(current, url);
     precondition = { "If-None-Match": "*" };
   } else if (current.ok) {
     const etag = current.headers.get("ETag");
-    await readText(current, url);
     if (etag === null) {
       throw new Failure(`GET ${url} answered without an ETag`);
     }
     precondition = { "If-Match": etag };
   } else {
-    throw new Failure(
-      `cannot read the current configuration: ${describeHttp(await httpError(current, url))}`
-    );
+    throw new Failure(`cannot read the current configuration: ${describeHttp(httpError(current))}`);
   }
 
-  const res = await send(ctx, url, {
+  const reply = await request(ctx, url, {
     method: "PUT",
     headers: { ...headers, ...precondition, "Content-Type": "application/json" },
     body: JSON.stringify(checked.config),
   });
-  if (res.status === 200) {
-    const etag = res.headers.get("ETag");
-    const config = await jsonOf(res, url);
+  if (reply.status === 200) {
+    const etag = reply.headers.get("ETag");
+    const config = jsonOf(reply);
     output(ctx, { etag, config }, `applied ${file} (ETag ${etag ?? "missing"})\n`);
     return 0;
   }
-  const error = await httpError(res, url);
+  const error = httpError(reply);
   // Not retried: the configuration that is there now may be one the operator has not seen.
-  if (res.status === 412) {
+  if (reply.status === 412) {
     throw new Failure(
       `${describeHttp(error)}\nconfig.json changed after it was read (another apply?): ` +
         'review it with "aia config show" and apply again'
     );
   }
-  if (res.status === 422 && error.code === "config_invalid") {
+  if (reply.status === 422 && error.code === "config_invalid") {
     const { issues } = error.details as { issues: ConfigIssue[] };
     ctx.io.stderr(issuesText(`the service rejected ${file}: ${describeHttp(error)}`, issues));
     return 1;
@@ -786,11 +786,8 @@ function historyUrl(ctx: Context, targetId: string): string {
 
 async function listHistory(ctx: Context, targetId: string): Promise<number> {
   const url = historyUrl(ctx, targetId);
-  const res = await send(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
-  if (!res.ok) {
-    throw new Failure(describeHttp(await httpError(res, url)));
-  }
-  const history = (await jsonOf(res, url)) as History;
+  const reply = await request(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
+  const history = jsonOf(accepted(reply)) as History;
   const numbers = history.entries.map((entry) =>
     entry.crlNumber === null ? "(no CRL Number)" : `#${entry.crlNumber}`
   );
@@ -817,11 +814,8 @@ async function historyVersion(ctx: Context, targetId: string, sha256: string): P
     throw new UsageError("history <targetId> <sha256> needs --out <file>");
   }
   const url = `${historyUrl(ctx, targetId)}/${encodeURIComponent(sha256)}`;
-  const res = await send(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
-  if (!res.ok) {
-    throw new Failure(describeHttp(await httpError(res, url)));
-  }
-  const der = await readBody(res, url);
+  const reply = await request(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
+  const der = accepted(reply).bytes;
   try {
     await ctx.io.writeFile(file, der);
   } catch (error) {
@@ -833,13 +827,12 @@ async function historyVersion(ctx: Context, targetId: string, sha256: string): P
 
 async function deleteCertificate(ctx: Context, id: string): Promise<number> {
   const url = `${serviceUrl(ctx)}/api/v1/admin/certificates/${encodeURIComponent(id)}`;
-  const res = await send(ctx, url, { method: "DELETE", headers: await adminHeaders(ctx) });
-  if (res.status === 204) {
-    await readText(res, url);
+  const reply = await request(ctx, url, { method: "DELETE", headers: await adminHeaders(ctx) });
+  if (reply.status === 204) {
     output(ctx, { deleted: id }, `deleted ${id}\n`);
     return 0;
   }
-  const error = await httpError(res, url);
+  const error = httpError(reply);
   if (error.code === "referenced") {
     const { references } = error.details as { references: CertificateReference[] };
     const lines = references.map(
@@ -862,12 +855,10 @@ function newTargetId(ctx: Context): number {
 
 async function health(ctx: Context): Promise<number> {
   const url = `${serviceUrl(ctx)}/api/v1/health`;
-  const res = await send(ctx, url, { method: "GET" });
+  const reply = await request(ctx, url, { method: "GET" });
   // 200 (healthy, degraded) and 503 (unhealthy) carry the report.
-  if (res.status !== 200 && res.status !== 503) {
-    throw new Failure(describeHttp(await httpError(res, url)));
-  }
-  const report = (await jsonOf(res, url)) as HealthReport;
+  const hasReport = reply.status === 200 || reply.status === 503;
+  const report = jsonOf(accepted(reply, hasReport)) as HealthReport;
   const { store, configuration } = report.checks;
   output(ctx, report, `${report.status}: store ${store}, configuration ${configuration}\n`);
   return report.status === "healthy" ? 0 : 1;
