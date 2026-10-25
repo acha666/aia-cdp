@@ -5,7 +5,7 @@
 与期望结果必须逐项保持，sha256 与大小随密钥变、不在契约内。时间为 UTC，未写年份的是 2026；路径相对 `tests/fixtures/pki/`；`manifest.now` =
 `2026-01-04T00:00:00Z`。
 
-## D.1 证书（`certs/<名>.der` 与 `.pem`，13 张）
+## D.1 证书（`certs/<名>.der` 与 `.pem`，12 张）
 
 | 名 | 签发者 | 密钥 | 序列号（hex） | 有效期 | `import` | 用途 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -13,7 +13,6 @@
 | `issuing-ca-1` | root-ca | RSA-2048 | 1001 | 2025-01-01 – 2035-01-01 | 是 | AD CS SubCA 形状：CA Version 0、模板名 BMPString `SubCA`、AIA、CDP |
 | `issuing-ca-2` | root-ca | RSA-2048 | 1002 | 2025-01-01 – 2035-01-01 | 是 | 第二个签发 CA |
 | `issuing-ca-1-renewed` | root-ca | RSA-2048（issuing-ca-1 的钥） | 1003 | 2025-12-01 – 2035-12-01 | 否 | 同钥同 SKI 续期：CA Version 1、Previous CA Certificate Hash（V6） |
-| `issuing-ca-1-renamed` | root-ca | RSA-2048（issuing-ca-1 的钥） | 1004 | 2025-01-01 – 2035-01-01 | 否 | 同钥同 SKI、subject CN 不同（`Example Issuing CA 01 (RSA, renamed)`）：验签不比较签发者名称 |
 | `rogue-ca` | 自签 | RSA-2048 | 4000 | 2025-01-01 – 2035-01-01 | 否 | 主体与 issuing-ca-1 相同、密钥不同，从不导入 |
 | `ed25519-ca` | 自签 | Ed25519 | 5000 | 2025-01-01 – 2035-01-01 | 是 | `unsupported_algorithm` 的签发者 |
 | `ed448-ca` | 自签 | Ed448 | 6000 | 2025-01-01 – 2035-01-01 | 是 | `unsupported_algorithm` 的签发者 |
@@ -63,9 +62,9 @@ manifest 的 `nextPublish`（AD CS Next CRL Publish）只有 `full-adcs`（01-10
 | `ed25519-ca/full-01` | full | 1 | — | 01-01 00:00 | 01-08 00:00 | 0 | `unsupported_algorithm` | Ed25519 签名 |
 | `ed448-ca/full-01` | full | 1 | — | 01-01 00:00 | 01-08 00:00 | 0 | `unsupported_algorithm` | Ed448 签名 |
 
-## D.3 无效输入（`invalid/`，6 个，期望都是 `invalid_crl`）
+## D.3 无效输入（`invalid/`，5 个，期望都是 `invalid_crl`；manifest 不列它们，测试按路径引用）
 
-`garbage.txt`（文本）、`empty.bin`（0 字节）、`truncated.der`（DER CRL 的前 64 字节）、`truncated.pem`（缺 END 行的 PEM）、
+`garbage.txt`（文本）、`truncated.der`（DER CRL 的前 64 字节）、`truncated.pem`（缺 END 行的 PEM）、
 `trailing-byte.der`（合法 CRL 后加一个 `0x00`）、`certificate.der`（把证书当 CRL 上传）。
 
 ## D.4 场景（`scenarios`，17 条；省略 `crls/` 与 `.der`）

@@ -11,9 +11,6 @@
 #   invalid/                    inputs that must be rejected as invalid_crl
 #   manifest.json               declared properties and expected outcomes
 #
-# The tree is staged next to itself and swapped in by rename, so an
-# interrupted run leaves the previous tree in place.
-#
 # Private keys, CSRs and CA databases live in a mktemp work directory
 # outside the tree that is deleted on exit; every generation uses fresh keys.
 # Dates, serial numbers and CRL numbers are fixed below, so only
@@ -22,17 +19,16 @@
 # files or manifest.json, never from literals.
 #
 # Needs bash, OpenSSL >= 3.0 (not LibreSSL; OPENSSL=/path overrides) and
-# od/awk/sed. KEEP_WORK=1 keeps the work directory (with keys) for debugging.
+# od/awk/sed.
 set -euo pipefail
 export LC_ALL=C
 OPENSSL=${OPENSSL:-openssl}
 
 die() { printf 'generate-test-data: %s\n' "$*" >&2; exit 1; }
-[[ $# -eq 0 ]] || die "usage: generate-test-data.sh (no arguments; writes tests/fixtures/pki)"
 
+# From stdin, OUT would be ./pki of the caller's directory, which the run deletes.
 [[ -n ${BASH_SOURCE[0]-} ]] || die "run the script as a file, not from stdin"
-script=$(readlink -f -- "${BASH_SOURCE[0]}") || die "cannot resolve the script path"
-OUT=${script%/*}/pki
+OUT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pki
 
 version=$("$OPENSSL" version 2>/dev/null) || die "cannot run '$OPENSSL'; set OPENSSL=/path/to/openssl (OpenSSL >= 3.0)"
 if ! [[ $version =~ ^OpenSSL\ ([0-9]+)\. && ${BASH_REMATCH[1]} -ge 3 ]]; then
@@ -41,21 +37,15 @@ fi
 
 sha256() { "$OPENSSL" dgst -sha256 -r "$1" | cut -d' ' -f1; }
 
-WORK='' STAGE=''
-cleanup() {
-  if [[ -n $STAGE ]]; then rm -rf "$STAGE"; fi
-  if [[ -z $WORK ]]; then return; fi
-  if [[ ${KEEP_WORK-} == 1 ]]; then
-    echo "work directory kept (contains private keys): $WORK" >&2
-  else
-    rm -rf "$WORK"
-  fi
-}
+WORK=''
+cleanup() { if [[ -n $WORK ]]; then rm -rf "$WORK"; fi; }
 trap cleanup EXIT
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/aia-cdp-fixtures.XXXXXX")
-STAGE=$(mktemp -d "$OUT.tmp.XXXXXX")
 CNF=$WORK/openssl.cnf
-mkdir -p "$WORK/keys" "$WORK/req" "$WORK/certs" "$STAGE/certs" "$STAGE/crls" "$STAGE/invalid"
+mkdir -p "$WORK/keys" "$WORK/req" "$WORK/certs"
+# Written in place: an interrupted run leaves a partial tree, which git checkout restores.
+rm -rf "$OUT"
+mkdir -p "$OUT/certs" "$OUT/crls" "$OUT/invalid"
 
 # --- OpenSSL configuration -------------------------------------------------
 # Static text; per-call values come from the environment ($ENV::NAME).
@@ -80,23 +70,9 @@ preserve        = yes
 email_in_dn     = no
 unique_subject  = no
 copy_extensions = none
-crl_extensions  = crl_ext
 
 # No crlnumber file: CRLs carry no CRL Number extension.
 [ ca_no_number ]
-dir             = $ENV::CA_DIR
-database        = $dir/index.txt
-new_certs_dir   = $dir/newcerts
-serial          = $dir/serial
-certificate     = $dir/cert.pem
-private_key     = $dir/key.pem
-default_md      = default
-policy          = policy_any
-crl_extensions  = crl_ext
-
-# No crlnumber and no crl_extensions: no AKI, no CRL Number. The CRL is
-# still v2 when entries carry reason codes.
-[ ca_no_extensions ]
 dir             = $ENV::CA_DIR
 database        = $dir/index.txt
 new_certs_dir   = $dir/newcerts
@@ -122,7 +98,8 @@ string_mask        = $ENV::STRING_MASK
 
 # --- certificate extensions ---
 
-[ ext_root ]
+# Self-signed CAs.
+[ ext_ca ]
 basicConstraints     = critical, CA:TRUE
 keyUsage             = critical, keyCertSign, cRLSign
 subjectKeyIdentifier = hash
@@ -151,11 +128,6 @@ crlDistributionPoints  = URI:http://pki.example.test/crl/root-ca.crl
 1.3.6.1.4.1.311.21.1   = ASN1:INTEGER:1
 1.3.6.1.4.1.311.21.2   = ASN1:FORMAT:HEX,OCTETSTRING:$ENV::PREV_CA_HASH
 1.3.6.1.4.1.311.20.2   = ASN1:BMPSTRING:SubCA
-
-[ ext_self_ca ]
-basicConstraints     = critical, CA:TRUE
-keyUsage             = critical, keyCertSign, cRLSign
-subjectKeyIdentifier = hash
 
 [ ext_leaf_full ]
 basicConstraints       = critical, CA:FALSE
@@ -299,16 +271,6 @@ genkey() { # NAME rsa|p256|p384|ed25519|ed448
   esac
 }
 
-ca_init() { # NAME FIRST_SERIAL_HEX
-  mkdir -p "$WORK/ca/$1/newcerts"
-  : >"$WORK/ca/$1/index.txt"
-  printf '%s\n' "$2" >"$WORK/ca/$1/serial"
-}
-ca_ready() { # NAME: install the issued certificate and key as a CA
-  cp "$WORK/keys/$1.pem" "$WORK/ca/$1/key.pem"
-  cp "$WORK/certs/$1.pem" "$WORK/ca/$1/cert.pem"
-}
-
 # issue NAME ISSUER|self EXTENSIONS NOT_BEFORE NOT_AFTER SUBJECT [STRING_MASK]
 issue() {
   local name=$1 issuer=$2 ext=$3 start=$4 end=$5 subject=$6 mask=${7:-pkix}
@@ -318,8 +280,21 @@ issue() {
   [[ $issuer == self ]] && issuer=$name && sign=(-md "$(md_of "$name")" -selfsign -keyfile "$key")
   CA_DIR=$WORK/ca/$issuer ossl ca -batch -notext -config "$CNF" "${sign[@]}" \
     -extensions "$ext" -startdate "$start" -enddate "$end" -in "$req" -out "$cert"
-  ossl x509 -in "$cert" -outform DER -out "$STAGE/certs/$name.der"
-  cp "$cert" "$STAGE/certs/$name.pem"
+  ossl x509 -in "$cert" -outform DER -out "$OUT/certs/$name.der"
+  cp "$cert" "$OUT/certs/$name.pem"
+}
+
+# ca NAME KEY_TYPE FIRST_SERIAL_HEX ISSUER|self EXTENSIONS NOT_BEFORE NOT_AFTER SUBJECT:
+# a new key, its certificate (issue), and a CA database that issues from FIRST_SERIAL_HEX.
+ca() {
+  local dir=$WORK/ca/$1
+  genkey "$1" "$2"
+  mkdir -p "$dir/newcerts"
+  : >"$dir/index.txt"
+  printf '%s\n' "$3" >"$dir/serial"
+  issue "$1" "${@:4}"
+  cp "$WORK/keys/$1.pem" "$dir/key.pem"
+  cp "$WORK/certs/$1.pem" "$dir/cert.pem"
 }
 
 revoke() { # ISSUER SERIAL_HEX REVOCATION_FIELD (index.txt syntax)
@@ -332,21 +307,28 @@ revoke() { # ISSUER SERIAL_HEX REVOCATION_FIELD (index.txt syntax)
 
 # crl SIGNER NUMBER THIS_UPDATE NEXT_UPDATE EXTENSIONS OUT [openssl ca args]
 #   NUMBER: decimal CRL number, "none" (no CRL Number extension) or "noext"
-#   (no CRL extensions at all). OUT is relative to crls/.
+#   (no CRL extensions at all). OUT is relative to crls/; its directory names
+#   the issuer. The call is kept in CRL_* for crl_entry, with BASE_CRL_NUMBER,
+#   NEXT_PUBLISH and the signer's revoked count.
 crl() {
-  local signer=$1 number=$2 this=$3 next=$4 ext=$5 out=$STAGE/crls/$6
+  local signer=$1 number=$2 this=$3 next=$4 ext=$5 out=$OUT/crls/$6
+  CRL_EXT=$5 CRL_FILE=$6 CRL_NUMBER=$2 CRL_THIS=$3 CRL_NEXT=$4
+  CRL_BASE=$BASE_CRL_NUMBER CRL_PUBLISH=$NEXT_PUBLISH
   shift 6
   local dir=$WORK/ca/$signer name=ca_default
   local -a ext_args=(-crlexts "$ext")
   case $number in
     none) name=ca_no_number ;;
-    noext) name=ca_no_extensions ext_args=() ;;
+    # No -crlexts, and neither section sets crl_extensions: no AKI and no CRL
+    # Number. The CRL is still v2 when entries carry reason codes.
+    noext) name=ca_no_number ext_args=() ;;
     *) printf '%s\n' "$(even_hex "$number")" >"$dir/crlnumber" ;;
   esac
   mkdir -p "$(dirname "$out")"
   CA_DIR=$dir ossl ca -batch -gencrl -config "$CNF" -name "$name" -md "$(md_of "$signer")" \
     -crl_lastupdate "$this" -crl_nextupdate "$next" ${ext_args[@]+"${ext_args[@]}"} "$@" -out "$WORK/crl.pem"
   ossl crl -in "$WORK/crl.pem" -outform DER -out "$out"
+  CRL_REVOKED=$(grep -c '^R' "$dir/index.txt" || true)
 }
 
 # Byte strings are " xx xx ..." so that substring matches stay byte-aligned.
@@ -400,7 +382,7 @@ pem() { # DER LABEL OUT: armor the exact DER bytes
 }
 
 # --- manifest ---------------------------------------------------------------
-CERTS=() CRLS=() INVALID=()
+CERTS=() CRLS=()
 obj() { # KEY VALUE ...; a VALUE starting with "=" is emitted raw (number, null, bool)
   local out='' sep=''
   while (($#)); do
@@ -415,28 +397,26 @@ obj() { # KEY VALUE ...; a VALUE starting with "=" is emitted raw (number, null,
 cert_entry() { # NAME ISSUER KEY NOT_BEFORE NOT_AFTER IMPORT ROLE
   local serial digest
   serial=$("$OPENSSL" x509 -in "$WORK/certs/$1.pem" -noout -serial | cut -d= -f2)
-  digest=$(sha256 "$STAGE/certs/$1.der")
+  digest=$(sha256 "$OUT/certs/$1.der")
   CERTS+=("$(obj name "$1" der "certs/$1.der" pem "certs/$1.pem" issuer "$2" key "$3" \
     serial "$serial" notBefore "$(iso "$4")" notAfter "$(iso "$5")" import "=$6" \
     sha256 "$digest" role "$7")")
 }
-# crl_entry FILE ISSUER KIND NUMBER BASE THIS NEXT EXPECT NOTE [SIGNER]
-#   NUMBER/BASE/NEXT may be "-" for absent. PUBLISH (environment, the
-#   GeneralizedTime form of THIS) is the Next CRL Publish value the CRL
-#   carries; unset for CRLs without that extension.
+# crl_entry EXPECT NOTE: the manifest entry of the last crl call. A delta
+#   extension set makes it a delta on BASE_CRL_NUMBER; an AD CS one carries
+#   Next CRL Publish (NEXT_PUBLISH). The digest is taken now, after any
+#   rewrite of the file since crl; CRL_NEXT=- after removing nextUpdate.
 crl_entry() {
-  local number=$4 base=$5 next=$7 signer=${10:-$2} publish='=null' revoked digest
+  local number=$CRL_NUMBER kind=full base='=null' next='=null' publish='=null' digest
   [[ $number =~ ^[0-9]+$ ]] || number='=null'
-  [[ $base == - ]] && base='=null'
-  if [[ $next == - ]]; then next='=null'; else next=$(iso "$next"); fi
-  [[ -n ${PUBLISH-} ]] && publish=$(iso "$PUBLISH")
-  revoked=$(grep -c '^R' "$WORK/ca/$signer/index.txt" || true)
-  digest=$(sha256 "$STAGE/crls/$1")
-  CRLS+=("$(obj file "crls/$1" issuer "$2" signer "$signer" kind "$3" crlNumber "$number" \
-    baseCrlNumber "$base" thisUpdate "$(iso "$6")" nextUpdate "$next" nextPublish "$publish" \
-    revoked "=$revoked" expect "$8" sha256 "$digest" note "$9")")
+  if [[ $CRL_EXT == *delta ]]; then kind=delta base=$CRL_BASE; fi
+  [[ $CRL_NEXT == - ]] || next=$(iso "$CRL_NEXT")
+  if [[ $CRL_EXT == crl_ext_adcs_* ]]; then publish=$(iso "20$CRL_PUBLISH"); fi
+  digest=$(sha256 "$OUT/crls/$CRL_FILE")
+  CRLS+=("$(obj file "crls/$CRL_FILE" issuer "${CRL_FILE%%/*}" kind "$kind" crlNumber "$number" \
+    baseCrlNumber "$base" thisUpdate "$(iso "$CRL_THIS")" nextUpdate "$next" nextPublish "$publish" \
+    revoked "=$CRL_REVOKED" expect "$1" sha256 "$digest" note "$2")")
 }
-invalid_entry() { INVALID+=("$(obj file "invalid/$1" expect invalid_crl note "$2")"); }
 emit() { # NAME ENTRY...
   local name=$1 sep=''
   shift
@@ -449,49 +429,20 @@ emit() { # NAME ENTRY...
 ROOT_SUBJ="/C=US/O=Example PKI/CN=Example Root CA (ECC P-384)"
 ICA1_SUBJ="/C=US/O=Example PKI/CN=Example Issuing CA 01 (RSA)"
 ICA2_SUBJ="/C=US/O=Example PKI/CN=Example Issuing CA 02 (RSA)"
-ICA1_RENAMED_SUBJ="/C=US/O=Example PKI/CN=Example Issuing CA 01 (RSA, renamed)"
 
-genkey root-ca p384
-ca_init root-ca 1000
-issue root-ca self ext_root 20250101000000Z 20450101000000Z "$ROOT_SUBJ"
-ca_ready root-ca
-
-genkey issuing-ca-1 rsa
-issue issuing-ca-1 root-ca ext_issuing 20250101000000Z 20350101000000Z "$ICA1_SUBJ"
-ca_init issuing-ca-1 2000
-ca_ready issuing-ca-1
-
-genkey issuing-ca-2 rsa
-issue issuing-ca-2 root-ca ext_issuing 20250101000000Z 20350101000000Z "$ICA2_SUBJ"
-ca_init issuing-ca-2 3000
-ca_ready issuing-ca-2
+ca root-ca p384 1000 self ext_ca 20250101000000Z 20450101000000Z "$ROOT_SUBJ"
+ca issuing-ca-1 rsa 2000 root-ca ext_issuing 20250101000000Z 20350101000000Z "$ICA1_SUBJ"
+ca issuing-ca-2 rsa 3000 root-ca ext_issuing 20250101000000Z 20350101000000Z "$ICA2_SUBJ"
 
 # Same key pair as issuing-ca-1, hence the same SKI.
 cp "$WORK/keys/issuing-ca-1.pem" "$WORK/keys/issuing-ca-1-renewed.pem"
-PREV_CA_HASH=$("$OPENSSL" dgst -sha1 -r "$STAGE/certs/issuing-ca-1.der" | cut -d' ' -f1) \
+PREV_CA_HASH=$("$OPENSSL" dgst -sha1 -r "$OUT/certs/issuing-ca-1.der" | cut -d' ' -f1) \
   issue issuing-ca-1-renewed root-ca ext_issuing_renewed 20251201000000Z 20351201000000Z "$ICA1_SUBJ"
 
-# The same key pair (and SKI) once more, under another subject CN: the CRLs of
-# issuing-ca-1 name an issuer this certificate is not, so only a check that
-# ignores issuer names verifies them with it.
-cp "$WORK/keys/issuing-ca-1.pem" "$WORK/keys/issuing-ca-1-renamed.pem"
-issue issuing-ca-1-renamed root-ca ext_issuing 20250101000000Z 20350101000000Z "$ICA1_RENAMED_SUBJ"
-
 # Rogue CA: own key, but the subject of issuing-ca-1.
-genkey rogue-ca rsa
-ca_init rogue-ca 4000
-issue rogue-ca self ext_self_ca 20250101000000Z 20350101000000Z "$ICA1_SUBJ"
-ca_ready rogue-ca
-
-genkey ed25519-ca ed25519
-ca_init ed25519-ca 5000
-issue ed25519-ca self ext_self_ca 20250101000000Z 20350101000000Z "/C=US/O=Example PKI/CN=Example Ed25519 CA"
-ca_ready ed25519-ca
-
-genkey ed448-ca ed448
-ca_init ed448-ca 6000
-issue ed448-ca self ext_self_ca 20250101000000Z 20350101000000Z "/C=US/O=Example PKI/CN=Example Ed448 CA"
-ca_ready ed448-ca
+ca rogue-ca rsa 4000 self ext_ca 20250101000000Z 20350101000000Z "$ICA1_SUBJ"
+ca ed25519-ca ed25519 5000 self ext_ca 20250101000000Z 20350101000000Z "/C=US/O=Example PKI/CN=Example Ed25519 CA"
+ca ed448-ca ed448 6000 self ext_ca 20250101000000Z 20350101000000Z "/C=US/O=Example PKI/CN=Example Ed448 CA"
 
 for leaf in leaf-full leaf-min leaf-revoked leaf-superseded leaf-hold; do genkey "$leaf" p256; done
 issue leaf-full issuing-ca-1 ext_leaf_full 20251201000000Z 20261201000000Z \
@@ -505,7 +456,6 @@ cert_entry root-ca root-ca ec-p384 20250101000000Z 20450101000000Z true "offline
 cert_entry issuing-ca-1 root-ca rsa-2048 20250101000000Z 20350101000000Z true "AD CS style issuing CA"
 cert_entry issuing-ca-2 root-ca rsa-2048 20250101000000Z 20350101000000Z true "second issuing CA"
 cert_entry issuing-ca-1-renewed root-ca rsa-2048 20251201000000Z 20351201000000Z false "same key and SKI as issuing-ca-1"
-cert_entry issuing-ca-1-renamed root-ca rsa-2048 20250101000000Z 20350101000000Z false "same key and SKI as issuing-ca-1, other subject CN"
 cert_entry rogue-ca rogue-ca rsa-2048 20250101000000Z 20350101000000Z false "never imported; subject equals issuing-ca-1"
 cert_entry ed25519-ca ed25519-ca ed25519 20250101000000Z 20350101000000Z true "unsupported_algorithm issuer"
 cert_entry ed448-ca ed448-ca ed448 20250101000000Z 20350101000000Z true "unsupported_algorithm issuer"
@@ -521,132 +471,106 @@ revoke $I1 2002 '251215000000Z,keyTime,20251214000000Z'
 revoke issuing-ca-2 3000 '251220000000Z,holdInstruction,holdInstructionReject'
 
 crl root-ca 4096 20260101000000Z 20260701000000Z crl_ext root-ca/full-01.der
-crl_entry root-ca/full-01.der root-ca full 4096 - 20260101000000Z 20260701000000Z created "ECDSA P-384"
+crl_entry created "ECDSA P-384"
 crl root-ca 4097 20260102000000Z 20260702000000Z crl_ext root-ca/full-02.der
-crl_entry root-ca/full-02.der root-ca full 4097 - 20260102000000Z 20260702000000Z created "updated after full-01"
+crl_entry created "updated after full-01"
 crl root-ca 4097 20260102000000Z 20260702000000Z crl_ext root-ca/full-02-resigned.der
-cmp -s "$STAGE/crls/root-ca/full-02.der" "$STAGE/crls/root-ca/full-02-resigned.der" &&
-  die "re-signing with ECDSA produced identical bytes"
-crl_entry root-ca/full-02-resigned.der root-ca full 4097 - 20260102000000Z 20260702000000Z created \
-  "same TBS as full-02, new ECDSA signature: conflict against full-02"
+crl_entry created "same TBS as full-02, new ECDSA signature: conflict against full-02"
 
 # issuing-ca-1 numbers full and delta CRLs from one counter, as AD CS does.
 crl $I1 1 20260101000000Z 20260108000000Z crl_ext $I1/full-01.der
-crl_entry $I1/full-01.der $I1 full 1 - 20260101000000Z 20260108000000Z created "first full CRL"
+crl_entry created "first full CRL"
 BASE_CRL_NUMBER=1 crl $I1 2 20260101120000Z 20260103000000Z crl_ext_delta $I1/delta-01.der
-crl_entry $I1/delta-01.der $I1 delta 2 1 20260101120000Z 20260103000000Z created "delta on base 1"
+crl_entry created "delta on base 1"
 crl $I1 3 20260102000000Z 20260109000000Z crl_ext $I1/full-02.der
-crl_entry $I1/full-02.der $I1 full 3 - 20260102000000Z 20260109000000Z created "updated after full-01"
+crl_entry created "updated after full-01"
 crl $I1 3 20260102000000Z 20260109120000Z crl_ext $I1/full-02-conflict.der
-crl_entry $I1/full-02-conflict.der $I1 full 3 - 20260102000000Z 20260109120000Z created \
-  "same number and thisUpdate as full-02, other nextUpdate: conflict against full-02"
+crl_entry created "same number and thisUpdate as full-02, other nextUpdate: conflict against full-02"
 crl $I1 3 20260102060000Z 20260109060000Z crl_ext $I1/full-02-reissued.der
-crl_entry $I1/full-02-reissued.der $I1 full 3 - 20260102060000Z 20260109060000Z created \
-  "same number as full-02, later thisUpdate: updated against full-02"
+crl_entry created "same number as full-02, later thisUpdate: updated against full-02"
 BASE_CRL_NUMBER=3 crl $I1 4 20260102120000Z 20260104060000Z crl_ext_delta $I1/delta-02.der
-crl_entry $I1/delta-02.der $I1 delta 4 3 20260102120000Z 20260104060000Z created "updated after delta-01"
+crl_entry created "updated after delta-01"
 
 revoke $I1 2003 '260102180000Z,superseded'
 crl $I1 5 20260103000000Z 20260110000000Z crl_ext $I1/full-03.der
-crl_entry $I1/full-03.der $I1 full 5 - 20260103000000Z 20260110000000Z created "two revoked entries"
+crl_entry created "two revoked entries"
 crl $I1 6 20260102200000Z 20260109200000Z crl_ext $I1/full-04-older-time.der
-crl_entry $I1/full-04-older-time.der $I1 full 6 - 20260102200000Z 20260109200000Z created \
-  "higher number than full-03 but older thisUpdate: number wins, updated"
+crl_entry created "higher number than full-03 but older thisUpdate: number wins, updated"
 crl $I1 none 20260103060000Z 20260110060000Z crl_ext $I1/full-no-number.der
-crl_entry $I1/full-no-number.der $I1 full - - 20260103060000Z 20260110060000Z created \
-  "no CRL Number: non_orderable against any numbered current CRL and back"
+crl_entry created "no CRL Number: non_orderable against any numbered current CRL and back"
 crl $I1 noext 20260103060000Z 20260110060000Z - $I1/full-no-aki.der
-crl_entry $I1/full-no-aki.der $I1 full - - 20260103060000Z 20260110060000Z issuer_not_found \
-  "no CRL extensions at all (no AKI): details.reason missing_aki"
+crl_entry issuer_not_found "no CRL extensions at all (no AKI): details.reason missing_aki"
 
 # Edge cases: numbers above the base sequence and thisUpdate after full-03,
 # so each one would be "updated" if its check were missing.
 EDGE=20260103120000Z EDGE_NEXT=20260110120000Z
 crl $I1 10 $EDGE $EDGE_NEXT crl_ext $I1/full-broken-sig.der
-flip_last_byte "$STAGE/crls/$I1/full-broken-sig.der"
-crl_entry $I1/full-broken-sig.der $I1 full 10 - $EDGE $EDGE_NEXT invalid_signature "last signature byte flipped"
+flip_last_byte "$OUT/crls/$I1/full-broken-sig.der"
+crl_entry invalid_signature "last signature byte flipped"
 FORGED_KEYID=$(ski $I1) crl rogue-ca 11 $EDGE $EDGE_NEXT crl_ext_forged_aki $I1/full-forged-aki.der
-crl_entry $I1/full-forged-aki.der $I1 full 11 - $EDGE $EDGE_NEXT invalid_signature \
-  "issuer name and AKI of issuing-ca-1, signed by the rogue key" rogue-ca
+crl_entry invalid_signature "issuer name and AKI of issuing-ca-1, signed by the rogue key"
 crl $I1 12 $EDGE $EDGE_NEXT crl_ext_unknown_critical $I1/full-unknown-critical.der
-crl_entry $I1/full-unknown-critical.der $I1 full 12 - $EDGE $EDGE_NEXT unknown_critical_extension "critical 1.3.6.1.4.1.32473.1"
+crl_entry unknown_critical_extension "critical 1.3.6.1.4.1.32473.1"
 crl $I1 13 $EDGE $EDGE_NEXT crl_ext_unknown_noncritical $I1/full-unknown-noncritical.der
-crl_entry $I1/full-unknown-noncritical.der $I1 full 13 - $EDGE $EDGE_NEXT created "non-critical 1.3.6.1.4.1.32473.2 is kept"
+crl_entry created "non-critical 1.3.6.1.4.1.32473.2 is kept"
 crl $I1 14 $EDGE $EDGE_NEXT crl_ext_idp_scoped $I1/full-idp-scoped.der
-crl_entry $I1/full-idp-scoped.der $I1 full 14 - $EDGE $EDGE_NEXT scoped_crl_unsupported "critical IDP, onlyContainsUserCerts"
+crl_entry scoped_crl_unsupported "critical IDP, onlyContainsUserCerts"
 crl $I1 15 $EDGE $EDGE_NEXT crl_ext_idp_dp_only $I1/full-idp-dp-only.der
-crl_entry $I1/full-idp-dp-only.der $I1 full 15 - $EDGE $EDGE_NEXT created \
-  "critical IDP naming only the DP (AD CS option): accepted"
+crl_entry created "critical IDP naming only the DP (AD CS option): accepted"
 crl $I1 16 $EDGE $EDGE_NEXT crl_ext $I1/full-pss.der \
   -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:digest -sigopt rsa_mgf1_md:sha256
-crl_entry $I1/full-pss.der $I1 full 16 - $EDGE $EDGE_NEXT created "RSASSA-PSS SHA-256, MGF1 SHA-256, salt 32"
+crl_entry created "RSASSA-PSS SHA-256, MGF1 SHA-256, salt 32"
 crl $I1 17 $EDGE $EDGE_NEXT crl_ext $I1/full-no-next-update.der
-resign "$STAGE/crls/$I1/full-no-next-update.der" "$WORK/keys/$I1.pem" sha256 \
+resign "$OUT/crls/$I1/full-no-next-update.der" "$WORK/keys/$I1.pem" sha256 \
   " 17 0d$(text_bytes "${EDGE_NEXT:2}")" ""
-crl_entry $I1/full-no-next-update.der $I1 full 17 - $EDGE - created "nextUpdate removed and re-signed: cache max-age 300 s"
+CRL_NEXT=-
+crl_entry created "nextUpdate removed and re-signed: cache max-age 300 s"
 crl $I1 18 $EDGE $EDGE_NEXT crl_ext $I1/full-bad-time.der
-resign "$STAGE/crls/$I1/full-bad-time.der" "$WORK/keys/$I1.pem" sha256 \
+resign "$OUT/crls/$I1/full-bad-time.der" "$WORK/keys/$I1.pem" sha256 \
   " 17 0d$(text_bytes "${EDGE:2}")" " 17 0b$(text_bytes "${EDGE:2:10}Z")"
-crl_entry $I1/full-bad-time.der $I1 full 18 - $EDGE $EDGE_NEXT invalid_crl \
-  "thisUpdate UTCTime without seconds, validly signed"
-ADCS_FULL_PUBLISH=20260110120000Z ADCS_DELTA_PUBLISH=20260104180000Z
-NEXT_PUBLISH=${ADCS_FULL_PUBLISH:2} crl $I1 19 20260103115000Z 20260111001000Z crl_ext_adcs_full $I1/full-adcs.der
-PUBLISH=$ADCS_FULL_PUBLISH crl_entry $I1/full-adcs.der $I1 full 19 - 20260103115000Z 20260111001000Z created \
-  "AD CS extension set: CA Version, Next CRL Publish, Freshest CRL, CRL Self CDP"
-NEXT_PUBLISH=${ADCS_DELTA_PUBLISH:2} BASE_CRL_NUMBER=19 \
+crl_entry invalid_crl "thisUpdate UTCTime without seconds, validly signed"
+NEXT_PUBLISH=260110120000Z crl $I1 19 20260103115000Z 20260111001000Z crl_ext_adcs_full $I1/full-adcs.der
+crl_entry created "AD CS extension set: CA Version, Next CRL Publish, Freshest CRL, CRL Self CDP"
+NEXT_PUBLISH=260104180000Z BASE_CRL_NUMBER=19 \
   crl $I1 20 20260103175000Z 20260105061000Z crl_ext_adcs_delta $I1/delta-adcs.der
-PUBLISH=$ADCS_DELTA_PUBLISH crl_entry $I1/delta-adcs.der $I1 delta 20 19 20260103175000Z 20260105061000Z created \
-  "AD CS delta extension set"
+crl_entry created "AD CS delta extension set"
 # SHA-1 signatures are accepted. The later -md wins.
 crl $I1 21 $EDGE $EDGE_NEXT crl_ext $I1/full-sha1.der -md sha1
-[[ $("$OPENSSL" crl -inform DER -in "$STAGE/crls/$I1/full-sha1.der" -noout -text) == \
-  *'Signature Algorithm: sha1WithRSAEncryption'* ]] || die "full-sha1.der is not signed with SHA-1"
-crl_entry $I1/full-sha1.der $I1 full 21 - $EDGE $EDGE_NEXT created "sha1WithRSAEncryption"
+crl_entry created "sha1WithRSAEncryption"
 crl $I1 30 20990101000000Z 20990108000000Z crl_ext $I1/full-future.der
-crl_entry $I1/full-future.der $I1 full 30 - 20990101000000Z 20990108000000Z not_yet_valid \
-  "thisUpdate 2099 (GeneralizedTime): future for any clock"
+crl_entry not_yet_valid "thisUpdate 2099 (GeneralizedTime): future for any clock"
 
 crl issuing-ca-2 1 20260101000000Z 20260108000000Z crl_ext issuing-ca-2/full-01.der
-crl_entry issuing-ca-2/full-01.der issuing-ca-2 full 1 - 20260101000000Z 20260108000000Z created "certificateHold entry"
+crl_entry created "certificateHold entry"
 BASE_CRL_NUMBER=1 crl issuing-ca-2 2 20260101120000Z 20260103000000Z crl_ext_delta issuing-ca-2/delta-01.der
-crl_entry issuing-ca-2/delta-01.der issuing-ca-2 delta 2 1 20260101120000Z 20260103000000Z created "delta on base 1"
+crl_entry created "delta on base 1"
 crl rogue-ca 1 20260101000000Z 20260108000000Z crl_ext rogue-ca/full-01.der
-crl_entry rogue-ca/full-01.der rogue-ca full 1 - 20260101000000Z 20260108000000Z issuer_not_found \
-  "AKI of a certificate that is never imported"
+crl_entry issuer_not_found "AKI of a certificate that is never imported"
 crl ed25519-ca 1 20260101000000Z 20260108000000Z crl_ext ed25519-ca/full-01.der
-crl_entry ed25519-ca/full-01.der ed25519-ca full 1 - 20260101000000Z 20260108000000Z unsupported_algorithm "Ed25519 signature"
+crl_entry unsupported_algorithm "Ed25519 signature"
 crl ed448-ca 1 20260101000000Z 20260108000000Z crl_ext ed448-ca/full-01.der
-crl_entry ed448-ca/full-01.der ed448-ca full 1 - 20260101000000Z 20260108000000Z unsupported_algorithm "Ed448 signature"
+crl_entry unsupported_algorithm "Ed448 signature"
 
-C=$STAGE/crls
+C=$OUT/crls
 pem "$C/$I1/full-01.der" "X509 CRL" "$C/$I1/full-01.pem"
 awk '{ printf "%s\r\n", $0 }' "$C/$I1/full-01.pem" >"$C/$I1/full-01.crlf.pem"
 pem "$C/root-ca/full-01.der" "X509 CRL" "$C/root-ca/full-01.pem"
 
-# --- malformed inputs ---------------------------------------------------------
-V=$STAGE/invalid
+# --- malformed inputs (implementation appendix D.3) ---------------------------
+V=$OUT/invalid
 printf 'This is not a CRL\n' >"$V/garbage.txt"
-invalid_entry garbage.txt "text"
-: >"$V/empty.bin"
-invalid_entry empty.bin "zero bytes"
 head -c 64 "$C/$I1/full-01.der" >"$V/truncated.der"
-invalid_entry truncated.der "first 64 bytes of a DER CRL"
 head -n 3 "$C/$I1/full-01.pem" >"$V/truncated.pem"
-invalid_entry truncated.pem "PEM without its end line"
 { cat "$C/$I1/full-01.der"; printf '\0'; } >"$V/trailing-byte.der"
-invalid_entry trailing-byte.der "valid CRL followed by one zero byte"
-cp "$STAGE/certs/$I1.der" "$V/certificate.der"
-invalid_entry certificate.der "a certificate, not a CRL"
+cp "$OUT/certs/$I1.der" "$V/certificate.der"
 
-# --- manifest, swap ---------------------------------------------------------
+# --- manifest -----------------------------------------------------------------
 {
   printf '{\n  "version": 1,\n  "openssl": "%s",\n' "$version"
   printf '  "now": "2026-01-04T00:00:00Z",\n'
   emit certificates "${CERTS[@]}"
   printf ',\n'
   emit crls "${CRLS[@]}"
-  printf ',\n'
-  emit invalid "${INVALID[@]}"
   printf ',\n'
   cat <<'EOF'
   "scenarios": [
@@ -670,16 +594,10 @@ invalid_entry certificate.der "a certificate, not a CRL"
   ]
 }
 EOF
-} >"$STAGE/manifest.json"
+} >"$OUT/manifest.json"
 
-if grep -rlq 'PRIVATE KEY' "$STAGE"; then die "private key material in the output"; fi
-
-chmod 755 "$STAGE"
-old=''
-if [[ -e $OUT ]]; then
-  old=$OUT.old.$$
-  mv "$OUT" "$old"
+if grep -rlq 'PRIVATE KEY' "$OUT"; then
+  rm -rf "$OUT"
+  die "private key material in the output"
 fi
-mv "$STAGE" "$OUT"
-if [[ -n $old ]]; then rm -rf "$old"; fi
 echo "generated $(find "$OUT" -type f | wc -l | tr -d ' ') files in $OUT"

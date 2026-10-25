@@ -657,7 +657,7 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   `vitest.config.ts`（不继承 `vite.config.ts` 的 `root`），没有 `globalSetup`。HTTP 测试通过
   `createApp({ store: new MemoryStore(), now, … }).request()` 进程内运行，不起端口；只有真实 socket 才看得到的差异
   （HEAD 的 `Content-Length`、传输编码、信号）放 `tests/integration`。OpenAPI 的漂移检查是 `tests/http/openapi.test.ts` 的深等（§7.3）。
-- 夹具：`tests/fixtures/generate-test-data.sh`（`pnpm run fixtures`，不带参数）每次完整重写 `tests/fixtures/pki/`（暂存后按 rename 换入），
+- 夹具：`tests/fixtures/generate-test-data.sh`（`pnpm run fixtures`，不带参数）每次完整重写 `tests/fixtures/pki/`，
   产物入库；改了脚本由开发者重新生成并提交。契约：日期、序列号、CRL 号固定；私钥、CSR、CA 库只在 `mktemp -d` 临时目录，退出即删，
   产物含 `PRIVATE KEY` 即失败；产出证书、CRL、`invalid/`、`manifest.json`（`now = 2026-01-04T00:00:00Z`、声明值、期望结果、场景）。
   生成需要 bash 与 OpenSSL ≥ 3.0（不是 LibreSSL）；`pnpm test` 只读入库的文件，两者都不需要。测试里的摘要、key id、序列号、大小一律从文件或
