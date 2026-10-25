@@ -524,7 +524,7 @@ crl $I1 17 $EDGE $EDGE_NEXT crl_ext $I1/full-no-next-update.der
 resign "$OUT/crls/$I1/full-no-next-update.der" "$WORK/keys/$I1.pem" sha256 \
   " 17 0d$(text_bytes "${EDGE_NEXT:2}")" ""
 CRL_NEXT=-
-crl_entry created "nextUpdate removed and re-signed: cache max-age 300 s"
+crl_entry created "nextUpdate removed and re-signed: never expired"
 crl $I1 18 $EDGE $EDGE_NEXT crl_ext $I1/full-bad-time.der
 resign "$OUT/crls/$I1/full-bad-time.der" "$WORK/keys/$I1.pem" sha256 \
   " 17 0d$(text_bytes "${EDGE:2}")" " 17 0b$(text_bytes "${EDGE:2:10}Z")"
@@ -564,7 +564,7 @@ head -n 3 "$C/$I1/full-01.pem" >"$V/truncated.pem"
 { cat "$C/$I1/full-01.der"; printf '\0'; } >"$V/trailing-byte.der"
 cp "$OUT/certs/$I1.der" "$V/certificate.der"
 
-# --- manifest -----------------------------------------------------------------
+# --- manifest.json ------------------------------------------------------------
 {
   printf '{\n  "version": 1,\n  "openssl": "%s",\n' "$version"
   printf '  "now": "2026-01-04T00:00:00Z",\n'

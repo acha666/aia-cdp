@@ -50,7 +50,7 @@ manifest 的 `nextPublish`（AD CS Next CRL Publish）只有 `full-adcs`（01-10
 | `issuing-ca-1/full-idp-scoped` | full | 14 | — | 01-03 12:00 | 01-10 12:00 | 2 | `scoped_crl_unsupported` | 关键 IDP，onlyContainsUserCerts |
 | `issuing-ca-1/full-idp-dp-only` | full | 15 | — | 01-03 12:00 | 01-10 12:00 | 2 | `created` | 只含 DP 的关键 IDP（AD CS 选项），附录 C 切片 4 第 2 项接受 |
 | `issuing-ca-1/full-pss` | full | 16 | — | 01-03 12:00 | 01-10 12:00 | 2 | `created` | RSASSA-PSS：SHA-256、MGF1 SHA-256、salt 32 |
-| `issuing-ca-1/full-no-next-update` | full | 17 | — | 01-03 12:00 | — | 2 | `created` | 去掉 nextUpdate 后重签：下载缓存 300 s |
+| `issuing-ca-1/full-no-next-update` | full | 17 | — | 01-03 12:00 | — | 2 | `created` | 去掉 nextUpdate 后重签：任何时钟下都不算过期 |
 | `issuing-ca-1/full-bad-time` | full | 18 | — | 01-03 12:00 | 01-10 12:00 | 2 | `invalid_crl` | thisUpdate 为无秒 UTCTime `2601031200Z`，签名有效 |
 | `issuing-ca-1/full-adcs` | full | 19 | — | 01-03 11:50 | 01-11 00:10 | 2 | `created` | AD CS 扩展集：CA Version、Next CRL Publish（01-10 12:00）、Freshest CRL、CRL Self CDP，均非关键 |
 | `issuing-ca-1/delta-adcs` | delta | 20 | 19 | 01-03 17:50 | 01-05 06:10 | 2 | `created` | AD CS delta 扩展集：关键 Delta 指示、Next CRL Publish（01-04 18:00） |
