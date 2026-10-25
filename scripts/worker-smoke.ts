@@ -6,8 +6,8 @@
 //
 // Health is "degraded" on the empty store. The CLI's main, as seed-dev and docker-smoke use it
 // (both tokens are harness secrets), imports certs/root-ca.der and certs/issuing-ca-1.der and
-// applies a configuration that serves the root under /ca/root-ca.crt, with a full CRL target of
-// each CA under /crl/<name>.crl. Then scripts/smoke.sh runs against it (health "healthy",
+// applies the configuration configFor builds: each CA at /ca/<name>.crt, with a full CRL target
+// at /crl/<name>.crl. Then scripts/smoke.sh runs against it (health "healthy",
 // downloads, the root's ECDSA P-384 CRL upload, the reads, the UI). The uploads after it verify
 // signatures on workerd's WebCrypto, not only Node's: RSA PKCS#1 v1.5, RSASSA-PSS and SHA-1
 // (issuing-ca-1) and a broken RSA signature (422 invalid_signature); without the upload token an
@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { main, processIo } from "../src/cli/aia.ts";
 import { encodeJson } from "../src/core/catalog.ts";
 import { cert, crlEntry, fixture, fixturePath } from "../tests/fixtures/pki.ts";
+import { configFor } from "../tests/helpers/catalog.ts";
 
 // Before wrangler is loaded: no telemetry, no banner or update check (implementation §2.4).
 process.env.WRANGLER_SEND_METRICS = "false";
@@ -49,23 +50,7 @@ async function json(res: Response): Promise<{ status: number; body: Record<strin
 
 /** Imports the two CAs and applies the configuration; returns issuing-ca-1's target id. */
 async function configure(base: URL): Promise<string> {
-  // A certificate id is the SHA-256 of the DER, which the manifest records.
-  const rootCa = cert("root-ca").sha256;
-  const issuingCa = cert("issuing-ca-1").sha256;
-  const [rootTarget, issuingTarget] = [crypto.randomUUID(), crypto.randomUUID()];
-  const config = {
-    version: 1,
-    certificates: { [rootCa]: { label: "Root CA" }, [issuingCa]: { label: "Issuing CA 1" } },
-    targets: {
-      [rootTarget]: { issuer: rootCa, kind: "full", label: "Root CA" },
-      [issuingTarget]: { issuer: issuingCa, kind: "full", label: "Issuing CA 1" },
-    },
-    paths: {
-      "/ca/root-ca.crt": { certificate: rootCa },
-      "/crl/root-ca.crl": { target: rootTarget },
-      "/crl/issuing-ca-1.crl": { target: issuingTarget },
-    },
-  };
+  const config = configFor(["root-ca", "issuing-ca-1"]);
 
   // As in seed-dev, the CLI reads the configuration as a file that never touches the disk. The
   // harness listens on a loopback host, so the admin token may go over http://.
@@ -80,7 +65,8 @@ async function configure(base: URL): Promise<string> {
   const ders = ["root-ca", "issuing-ca-1"].map((name) => fixturePath(cert(name).der));
   check((await main(["import", ...ders], cli)) === 0, "aia import (root-ca, issuing-ca-1)");
   check((await main(["config", "apply", file], cli)) === 0, "aia config apply");
-  return issuingTarget;
+  const path = config.paths["/crl/issuing-ca-1.crl"];
+  return path !== undefined && "target" in path ? path.target : "";
 }
 
 async function smokeScript(base: URL): Promise<void> {
