@@ -27,23 +27,23 @@ die() {
 }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/aia-cdp-docker-smoke.XXXXXX")
-created=0
+# The names are this run's own, and removing one that does not exist is no error.
 cleanup() {
   rm -rf "$T"
-  if ((created)); then
-    docker rm -f -v "$NAME" >/dev/null 2>&1 || true
-    docker volume rm -f "$VOLUME" >/dev/null 2>&1 || true
-    docker image rm "$IMAGE" >/dev/null 2>&1 || true
-  fi
+  docker rm -f -v "$NAME" >/dev/null 2>&1 || true
+  docker volume rm -f "$VOLUME" >/dev/null 2>&1 || true
+  docker image rm "$IMAGE" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 failures=0
-check() { # OK_STATUS DESCRIPTION
-  if [[ $1 == 0 ]]; then
-    printf 'ok    %s\n' "$2"
+check() { # DESCRIPTION COMMAND...: ok when the command succeeds
+  local description=$1
+  shift
+  if "$@"; then
+    printf 'ok    %s\n' "$description"
   else
-    printf 'FAIL  %s\n' "$2"
+    printf 'FAIL  %s\n' "$description"
     failures=$((failures + 1))
   fi
 }
@@ -52,7 +52,6 @@ logs() {
   docker logs "$NAME" >&2 2>&1 || true
 }
 
-created=1
 echo "docker-smoke: building $IMAGE"
 docker build -t "$IMAGE" .
 docker volume create "$VOLUME" >/dev/null
@@ -74,15 +73,14 @@ if [[ $state != running/healthy ]]; then
   logs
   die "container state $state after $(($(date +%s%3N) - started)) ms, want running/healthy"
 fi
-check 0 "container healthy after $(($(date +%s%3N) - started)) ms ($BASE)"
+check "container healthy after $(($(date +%s%3N) - started)) ms ($BASE)" true
 
 out=$(curl -sS --max-time 5 -w '\n%{http_code}' "$BASE/api/v1/health" 2>&1) || true
 if [[ ${out##*$'\n'} == 200 && $out == *'"status":"degraded"'* ]]; then ok=0; else ok=1; fi
-check "$ok" "health is degraded: ${out//$'\n'/ }"
+check "health is degraded: ${out//$'\n'/ }" test "$ok" = 0
 
 uid=$(docker exec "$NAME" id -u)
-if [[ $uid == 1000 ]]; then ok=0; else ok=1; fi
-check "$ok" "runs as uid $uid (want 1000)"
+check "runs as uid $uid (want 1000)" test "$uid" = 1000
 
 # The CLI inside the image. docker exec inherits the container's AIA_ADMIN_TOKEN; the CLI only
 # needs the URL.
@@ -92,7 +90,7 @@ aia_check() { # DESCRIPTION ERE ARGS...: the CLI exits 0 and its output matches 
   shift 2
   out=$(aia "$@" 2>&1) || status=$?
   if ((status == 0)) && [[ $out =~ $want ]]; then ok=0; fi
-  check "$ok" "$description (exit $status): ${out//$'\n'/ | }"
+  check "$description (exit $status): ${out//$'\n'/ | }" test "$ok" = 0
 }
 
 # One DER file and one PEM bundle of two blocks; the config serves the root and its CRL target as
@@ -123,18 +121,14 @@ aia_check "aia import" '3 created, 0 unchanged, 0 failed' \
 aia_check "aia config apply" '^applied /tmp/aia-smoke/config.json \(ETag "[0-9a-f]{64}"\)$' \
   config apply /tmp/aia-smoke/config.json
 
-smoke=0
-bash scripts/smoke.sh "$BASE" || smoke=$?
-check "$smoke" "scripts/smoke.sh $BASE"
+check "scripts/smoke.sh $BASE" bash scripts/smoke.sh "$BASE"
 
 started=$(date +%s%3N)
 docker stop "$NAME" >/dev/null
 elapsed=$(($(date +%s%3N) - started))
-if ((elapsed < 5000)); then ok=0; else ok=1; fi
-check "$ok" "docker stop took $elapsed ms (want < 5000)"
+check "docker stop took $elapsed ms (want < 5000)" test "$elapsed" -lt 5000
 code=$(docker inspect -f '{{.State.ExitCode}}' "$NAME")
-if [[ $code == 0 ]]; then ok=0; else ok=1; fi
-check "$ok" "exit code $code after docker stop (want 0)"
+check "exit code $code after docker stop (want 0)" test "$code" = 0
 
 if ((failures > 0)); then
   logs
