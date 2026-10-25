@@ -47,19 +47,9 @@ const ENCODING_BY_TAG: Record<number, AttributeValue["encoding"]> = {
   30: "bmpString",
 };
 
-/** RFC 4514 §2.4 escaping for a single attribute value. */
+/** RFC 4514 §2.4: specials anywhere, a space first or last, # first, NUL as \00. */
 function escapeRdnValue(value: string): string {
-  let escaped = value
-    .replace(/\\/g, "\\\\")
-    .replace(/[,+"<>;]/g, (char) => `\\${char}`)
-    .replace(/\0/g, "\\00");
-  if (escaped.startsWith("#") || escaped.startsWith(" ")) {
-    escaped = `\\${escaped}`;
-  }
-  if (escaped.endsWith(" ") && !escaped.endsWith("\\ ")) {
-    escaped = `${escaped.slice(0, -1)}\\ `;
-  }
-  return escaped;
+  return value.replace(/[\\,+"<>;]|^[ #]| $|\0/g, (char) => (char === "\0" ? "\\00" : `\\${char}`));
 }
 
 function attributeLabel(oid: string): string {

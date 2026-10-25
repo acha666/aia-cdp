@@ -53,7 +53,7 @@ describe("distinguished names", () => {
         ],
         [attribute("2.5.4.5", new asn1.Integer({ value: 7 }))],
         [attribute("2.5.4.3", new asn1.TeletexString({ value: "#1 <Root>" }))],
-        [attribute("2.5.4.11", new asn1.Utf8String({ value: " a\\b;c" }))]
+        [attribute("2.5.4.11", new asn1.Utf8String({ value: " a\\b;c\\ " }))]
       )
     );
     expect(built.rdnSequence.map((rdn) => rdn.attributes.map((a) => a.value.encoding))).toEqual([
@@ -68,7 +68,7 @@ describe("distinguished names", () => {
       rawHex: "020107",
     });
     expect(built.rfc4514).toBe(
-      "OU=\\ a\\\\b\\;c,CN=\\#1 \\<Root\\>,serialNumber=#020107,DC=example+O=Acme\\, Inc.\\ ,C=CA"
+      "OU=\\ a\\\\b\\;c\\\\\\ ,CN=\\#1 \\<Root\\>,serialNumber=#020107,DC=example+O=Acme\\, Inc.\\ ,C=CA"
     );
     expect(built.commonName).toBe("#1 <Root>");
   });
