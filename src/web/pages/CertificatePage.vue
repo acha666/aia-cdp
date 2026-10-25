@@ -11,6 +11,7 @@ import StatusBadge from "@/components/StatusBadge.vue";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ExtensionList from "@/components/x509/ExtensionList.vue";
 import { useClock } from "@/composables/useClock";
+import { relativeTime } from "@/utils/dates";
 import { computeCertificateStatus } from "@/utils/status";
 
 // One certificate (plan §8), in DetailLayout's frame: header with name, status and downloads; tabs
@@ -22,7 +23,8 @@ import { computeCertificateStatus } from "@/utils/status";
 // another certificate (a link from a target page) starts on its overview.
 const props = defineProps<{ id: string }>();
 
-const { t } = useI18n();
+const i18n = useI18n();
+const { t } = i18n;
 const now = useClock();
 const { data, error, refetch } = useCertificate(() => props.id);
 
@@ -39,6 +41,20 @@ const state = computed(() => {
     ? computeCertificateStatus(summary.notBefore, summary.notAfter, now.value.getTime())
     : null;
 });
+
+/**
+ * Time to notAfter (or since it, once expired) next to the status badge; to notBefore while not
+ * yet valid, as on CrlTargetPage.
+ */
+const statusDetail = computed(() => {
+  const summary = data.value?.summary;
+  if (!summary || state.value === "unknown") {
+    return null;
+  }
+  const boundary = state.value === "not-yet-valid" ? summary.notBefore : summary.notAfter;
+  return relativeTime(boundary, now.value.getTime(), i18n, true);
+});
+
 const extensions = computed(() => data.value?.tbsCertificate.extensions?.items ?? []);
 const pemPath = computed(() => data.value?.downloads.find((path) => path.endsWith(".pem")) ?? null);
 
@@ -53,6 +69,13 @@ const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
           <h1 class="text-2xl font-semibold tracking-tight break-all">{{ name }}</h1>
           <KindBadge kind="certificate" />
           <StatusBadge v-if="state" :state="state" />
+          <span
+            v-if="statusDetail"
+            class="text-sm text-muted-foreground"
+            data-testid="status-detail"
+          >
+            ({{ statusDetail }})
+          </span>
         </div>
         <p
           v-if="data.label !== null && data.summary.subjectCN"

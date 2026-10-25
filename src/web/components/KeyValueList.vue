@@ -3,10 +3,8 @@ import ValueView from "@/components/ValueView.vue";
 import type { Row } from "@/utils/values";
 
 // Label / value rows as a description list, shared by the detail views and the extension bodies:
-// a 12rem label column beside the value (stacked on phones). Values are drawn by ValueView; the
-// `value` slot replaces that for any item.
+// a 12rem label column beside the value (stacked on phones). Values are drawn by ValueView.
 defineProps<{ items: readonly Row[] }>();
-defineSlots<{ value?: (props: { item: Row; index: number }) => unknown }>();
 </script>
 
 <template>
@@ -16,9 +14,7 @@ defineSlots<{ value?: (props: { item: Row; index: number }) => unknown }>();
     <template v-for="(item, index) in items" :key="index">
       <dt class="text-muted-foreground sm:break-words" :title="item.title">{{ item.label }}</dt>
       <dd class="mb-2 min-w-0 break-words sm:mb-0">
-        <slot name="value" :item="item" :index="index">
-          <ValueView :value="item.value" />
-        </slot>
+        <ValueView :value="item.value" />
       </dd>
     </template>
   </dl>

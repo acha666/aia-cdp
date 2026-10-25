@@ -80,7 +80,7 @@ const SECTIONS = ["information", "validity", "cryptography", "fingerprints"] as 
 
 /**
  * Time to nextUpdate (or since it, once expired) next to the status badge; to thisUpdate while not
- * yet valid (a browser clock behind the server's), as the certificate overview does.
+ * yet valid (a browser clock behind the server's), as on CertificatePage.
  */
 const statusDetail = computed(() => {
   const summary = current.value?.summary;

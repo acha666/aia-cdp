@@ -5,47 +5,29 @@ import { RouterLink } from "vue-router";
 import type { CertificateDetail } from "@/client/types";
 import KeyValueList from "@/components/KeyValueList.vue";
 import KindBadge from "@/components/KindBadge.vue";
-import StatusBadge from "@/components/StatusBadge.vue";
 import NameDetails from "@/components/x509/NameDetails.vue";
-import { useClock } from "@/composables/useClock";
-import { formatDate, relativeTime } from "@/utils/dates";
+import { formatDate } from "@/utils/dates";
 import { compareTargets } from "@/utils/labels";
-import { computeCertificateStatus } from "@/utils/status";
 import { rows } from "@/utils/values";
 import { formatAlgorithm } from "@/utils/x509";
 
-// The overview tab of a certificate: subject and issuer, validity (status with the detailed time
-// to its next boundary), serial number, public key summary, the signature algorithm with its
-// parameters, the ECDSA / DSA (r, s) values, fingerprints, unique identifiers when present, and
-// the CRL targets this certificate issues for, in the overview table's order.
+// The overview tab of a certificate: subject and issuer, validity (the status is in the page
+// header), serial number, public key summary, the signature algorithm with its parameters, the
+// ECDSA / DSA (r, s) values, fingerprints, unique identifiers when present, and the CRL targets
+// this certificate issues for, in the overview table's order.
 const props = defineProps<{ certificate: CertificateDetail }>();
 
 const i18n = useI18n();
 const { t, locale } = i18n;
-const now = useClock();
 
 const tbs = computed(() => props.certificate.tbsCertificate);
 
 const validity = computed(() => {
   const { notBefore, notAfter } = tbs.value.validity;
-  const nowMs = now.value.getTime();
-  const state = computeCertificateStatus(notBefore.iso, notAfter.iso, nowMs);
-  const boundary = state === "not-yet-valid" ? notBefore.iso : notAfter.iso;
-  return {
-    items: [
-      {
-        label: t("details.certificate.notBefore"),
-        value: formatDate(notBefore.iso, i18n),
-      },
-      {
-        label: t("details.certificate.notAfter"),
-        value: formatDate(notAfter.iso, i18n),
-      },
-      { label: t("details.certificate.status"), value: state },
-    ],
-    state,
-    detail: state === "unknown" ? null : relativeTime(boundary, nowMs, i18n, true),
-  };
+  return [
+    { label: t("details.certificate.notBefore"), value: formatDate(notBefore.iso, i18n) },
+    { label: t("details.certificate.notAfter"), value: formatDate(notAfter.iso, i18n) },
+  ];
 });
 
 const general = computed(() => [
@@ -133,21 +115,7 @@ const uniqueIds = computed(() => {
 
     <section class="space-y-2">
       <h2 class="text-sm font-medium">{{ t("details.certificate.validity") }}</h2>
-      <KeyValueList :items="validity.items">
-        <template #value="{ item, index }">
-          <span v-if="index === 2" class="inline-flex flex-wrap items-center gap-2">
-            <StatusBadge :state="validity.state" />
-            <span
-              v-if="validity.detail"
-              class="text-muted-foreground"
-              data-testid="validity-detail"
-            >
-              ({{ validity.detail }})
-            </span>
-          </span>
-          <span v-else>{{ item.value }}</span>
-        </template>
-      </KeyValueList>
+      <KeyValueList :items="validity" />
     </section>
 
     <section class="space-y-2">
