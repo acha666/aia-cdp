@@ -137,7 +137,7 @@ describe("usage", () => {
   it.each<[string[], Record<string, string>, RegExp]>([
     [[], ENV, /missing command/],
     [["frobnicate"], ENV, /unknown command "frobnicate"/],
-    [["import"], ENV, /import needs at least one file/],
+    [["import"], ENV, /usage: aia import <file\.\.\.>/],
     [["config", "edit"], ENV, /unknown config command "edit"/],
     [["history", "a", "b", "--json"], ENV, /history <targetId> <sha256> needs --out <file>/],
     [["health", "--out", "x"], ENV, /--out is only for history <targetId> <sha256>/],
