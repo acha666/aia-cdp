@@ -6,9 +6,10 @@ import type { CertificateDetail } from "@/client/types";
 import KeyValueList from "@/components/KeyValueList.vue";
 import KindBadge from "@/components/KindBadge.vue";
 import NameDetails from "@/components/x509/NameDetails.vue";
+import type en from "@/locales/en.json";
 import { formatDate } from "@/utils/dates";
 import { compareTargets } from "@/utils/labels";
-import { rows } from "@/utils/values";
+import { rowOf, rows } from "@/utils/values";
 import { formatAlgorithm } from "@/utils/x509";
 
 // The overview tab of a certificate: subject and issuer, validity (the status is in the page
@@ -19,28 +20,24 @@ const props = defineProps<{ certificate: CertificateDetail }>();
 
 const i18n = useI18n();
 const { t, locale } = i18n;
+const row = rowOf<keyof typeof en.details.certificate>(i18n, "details.certificate");
+const sig = rowOf<keyof typeof en.details.signature>(i18n, "details.signature");
 
 const tbs = computed(() => props.certificate.tbsCertificate);
 
 const validity = computed(() => {
   const { notBefore, notAfter } = tbs.value.validity;
   return [
-    { label: t("details.certificate.notBefore"), value: formatDate(notBefore.iso, i18n) },
-    { label: t("details.certificate.notAfter"), value: formatDate(notAfter.iso, i18n) },
+    row("notBefore", formatDate(notBefore.iso, i18n)),
+    row("notAfter", formatDate(notAfter.iso, i18n)),
   ];
 });
 
 const general = computed(() => [
-  { label: t("details.certificate.x509Version"), value: tbs.value.version.display },
-  { label: t("details.certificate.serialNumber"), value: { hex: tbs.value.serialNumber.hex } },
-  {
-    label: t("details.certificate.imported"),
-    value: formatDate(props.certificate.importedAt, i18n),
-  },
-  {
-    label: t("details.certificate.size"),
-    value: t("common.bytes", { count: props.certificate.size }),
-  },
+  row("x509Version", tbs.value.version.display),
+  row("serialNumber", { hex: tbs.value.serialNumber.hex }),
+  row("imported", formatDate(props.certificate.importedAt, i18n)),
+  row("size", t("common.bytes", { count: props.certificate.size })),
 ]);
 
 /** Key type and size or curve. */
@@ -48,20 +45,11 @@ const publicKey = computed(() => {
   const spki = tbs.value.subjectPublicKeyInfo;
   const key = spki.parsed;
   return rows(
-    {
-      label: t("details.certificate.publicKeyAlgorithm"),
-      value: formatAlgorithm(spki.algorithm, i18n),
-    },
-    key.type === "rsa" && {
-      label: t("details.certificate.keySize"),
-      value: `${String(key.modulus.bitLength)} ${t("common.bits")}`,
-    },
-    key.type === "ec" && {
-      label: t("details.certificate.curve"),
-      value: key.curve.name ?? key.curve.oid,
-    },
-    { label: t("details.certificate.publicKeySha1"), value: { hex: spki.fingerprints.sha1 } },
-    { label: t("details.certificate.publicKeySha256"), value: { hex: spki.fingerprints.sha256 } }
+    row("publicKeyAlgorithm", formatAlgorithm(spki.algorithm, i18n)),
+    key.type === "rsa" && row("keySize", `${String(key.modulus.bitLength)} ${t("common.bits")}`),
+    key.type === "ec" && row("curve", key.curve.name ?? key.curve.oid),
+    row("publicKeySha1", { hex: spki.fingerprints.sha1 }),
+    row("publicKeySha256", { hex: spki.fingerprints.sha256 })
   );
 });
 
@@ -69,16 +57,10 @@ const signature = computed(() => {
   const { signatureAlgorithm, signatureValue } = props.certificate;
   const parsed = signatureValue.parsed;
   return [
-    {
-      label: t("details.certificate.signatureAlgorithm"),
-      value: formatAlgorithm(signatureAlgorithm, i18n),
-    },
+    row("signatureAlgorithm", formatAlgorithm(signatureAlgorithm, i18n)),
     ...(parsed
-      ? [
-          { label: t("details.signature.r"), value: { hex: parsed.r } },
-          { label: t("details.signature.s"), value: { hex: parsed.s } },
-        ]
-      : [{ label: t("details.signature.value"), value: { hex: signatureValue.hex } }]),
+      ? [sig("r", { hex: parsed.r }), sig("s", { hex: parsed.s })]
+      : [sig("value", { hex: signatureValue.hex })]),
   ];
 });
 
@@ -94,14 +76,8 @@ const targets = computed(() =>
 const uniqueIds = computed(() => {
   const { issuerUniqueID, subjectUniqueID } = tbs.value;
   return rows(
-    issuerUniqueID !== undefined && {
-      label: t("details.certificate.issuerUniqueId"),
-      value: { hex: issuerUniqueID.hex },
-    },
-    subjectUniqueID !== undefined && {
-      label: t("details.certificate.subjectUniqueId"),
-      value: { hex: subjectUniqueID.hex },
-    }
+    issuerUniqueID !== undefined && row("issuerUniqueId", { hex: issuerUniqueID.hex }),
+    subjectUniqueID !== undefined && row("subjectUniqueId", { hex: subjectUniqueID.hex })
   );
 });
 </script>
