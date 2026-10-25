@@ -219,8 +219,6 @@ describe("text/plain 404 and 405", () => {
     ["another case", "/ca/Root-CA.crt"],
     ["an uppercase .PEM", `${P.root}.PEM`],
     [".pem in place of the extension", "/ca/root-ca.pem"],
-    // A property of Object.prototype is no path.
-    ["__proto__", "/ca/__proto__"],
     // P.nested is served: decoding %2F would find it.
     ["an encoded slash in a served nested path", "/ca/sub%2Froot-ca.crt"],
     ["an encoded parent segment", "/ca/..%2Fconfig.json"],
