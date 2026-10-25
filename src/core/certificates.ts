@@ -21,7 +21,7 @@ export interface ImportDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
-/** created added the catalog entry; unchanged found the id already imported and wrote nothing. */
+/** created added the catalog entry; unchanged found the id in the catalog and added none. */
 export interface ImportSuccess {
   outcome: "created" | "unchanged";
   /** SHA-256 of the DER. */
@@ -119,6 +119,7 @@ export async function importCertificate(
 export const CertificateReference = z
   .object({
     object: z.enum(["config.json", "catalog.json"]),
+    /** Keys from the object's root. */
     path: z.array(z.string()),
   })
   .meta({ id: "CertificateReference" });
@@ -156,11 +157,10 @@ function referencesOf(state: State, id: string): CertificateReference[] {
 /**
  * Removes an unreferenced certificate (`id`, the SHA-256 of its DER) from the catalog, then deletes
  * its blob. The verifier of a target's current CRL stays referenced, also once the target is
- * removed from config.json. The
- * catalog write is conditional and retried (updateState); config.json is not written, and an apply
- * that adds a reference in between is the accepted cross-object window (one operator at a time). A
- * crash between the two writes leaves an unreferenced blob, which a later import of the same
- * certificate writes again.
+ * removed from config.json. The catalog write is conditional and retried (updateState); config.json
+ * is not written, and an apply that adds a reference in between is the accepted cross-object window
+ * (one operator at a time). A crash between the two writes leaves an unreferenced blob, which a
+ * later import of the same certificate writes again.
  */
 export async function deleteCertificate(
   deps: { store: ObjectStore; sleep?: (ms: number) => Promise<void> },

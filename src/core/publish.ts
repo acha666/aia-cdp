@@ -113,7 +113,7 @@ export interface PublishDeps {
   log: (record: PublishLogRecord) => void;
 }
 
-/** created / updated wrote `current`; unchanged found the same bytes current and wrote nothing. */
+/** created / updated wrote `current`; unchanged found the same bytes current and kept it. */
 export interface PublishSuccess {
   outcome: "created" | "updated" | "unchanged";
   targetId: string;
