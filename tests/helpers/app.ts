@@ -37,8 +37,8 @@ export function testDeps(overrides: TestOverrides = {}): TestDeps {
     store: new MemoryStore(),
     now: () => new Date(NOW),
     sleep: async () => undefined,
-    log: (line) => {
-      lines.push(line);
+    log: (record) => {
+      lines.push(JSON.stringify(record));
     },
     ...overrides,
     settings: { ...defaultSettings(), ...overrides.settings },

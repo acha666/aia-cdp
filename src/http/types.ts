@@ -1,4 +1,5 @@
 import type { ObjectStore } from "../core/store.ts";
+import type { Logger } from "./log.ts";
 
 /** Runtime-independent settings (plan §4.2); parsed from the environment by src/runtime/settings.ts. */
 export interface AppSettings {
@@ -16,8 +17,11 @@ export interface AppDeps {
   /** Backoff between conditional catalog writes; a real timer when omitted (tests pass a no-op). */
   sleep?: (ms: number) => Promise<void>;
   settings: AppSettings;
-  /** Receives one finished log line per call. Node: stdout; Workers: console.log. */
-  log: (line: string) => void;
+  /**
+   * Receives each log record; the runtime writes it as one JSON line (Node: stdout; Workers:
+   * console.log).
+   */
+  log: Logger;
   /**
    * UI fallback for GET / HEAD on paths outside the reserved prefixes. Workers: env.ASSETS.fetch;
    * Node: serveStatic + index.html (src/runtime/node-ui.ts). The app copies the response before

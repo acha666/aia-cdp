@@ -6,7 +6,8 @@ import type { Server } from "node:http";
 import process from "node:process";
 import { serve } from "@hono/node-server";
 import { createApp } from "../http/app.ts";
-import { createLogger, describeError } from "../http/log.ts";
+import { describeError } from "../http/log.ts";
+import type { Logger } from "../http/log.ts";
 import { FsStore } from "../storage/fs.ts";
 import { createNodeUi } from "./node-ui.ts";
 import { parseSettings, resolveFileVariants } from "./settings.ts";
@@ -28,10 +29,9 @@ async function main(): Promise<void> {
     return;
   }
   const settings = parsed.value;
-  const write = (line: string) => {
-    process.stdout.write(`${line}\n`);
+  const log: Logger = (record) => {
+    process.stdout.write(`${JSON.stringify(record)}\n`);
   };
-  const log = createLogger({ log: write });
 
   try {
     if (!statSync(settings.dataDir).isDirectory()) {
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
     store: new FsStore(settings.dataDir),
     now: () => new Date(),
     settings: settings.app,
-    log: write,
+    log,
     ui: createNodeUi(settings.staticDir),
   });
 

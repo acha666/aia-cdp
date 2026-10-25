@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { checkHealth } from "../../core/health.ts";
 import { NO_STORE } from "../errors.ts";
-import { createLogger, describeError } from "../log.ts";
+import { describeError } from "../log.ts";
 import { HealthOk, HealthUnavailable, jsonContent } from "../schemas.ts";
 import type { AppDeps } from "../types.ts";
 
@@ -27,10 +27,9 @@ const healthRoute = createRoute({
 });
 
 export function healthRoutes(deps: AppDeps) {
-  const log = createLogger(deps);
   return new OpenAPIHono().openapi(healthRoute, async (c) => {
     const report = await checkHealth(deps.store, (error) => {
-      log({ level: "error", msg: "health_store_error", error: describeError(error) });
+      deps.log({ level: "error", msg: "health_store_error", error: describeError(error) });
     });
     if (report.status === "unhealthy") {
       return c.json(report, 503, NO_STORE);

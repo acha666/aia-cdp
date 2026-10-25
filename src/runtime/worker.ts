@@ -54,8 +54,8 @@ function appFor(env: WorkerEnv): { ok: true; app: AppType } | { ok: false; error
     store: new R2Store(env.STORE),
     now: () => new Date(),
     settings: parsed.value.app,
-    log: (line) => {
-      console.log(line);
+    log: (record) => {
+      console.log(JSON.stringify(record));
     },
     ui: (req) => env.ASSETS.fetch(req),
   });

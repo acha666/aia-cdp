@@ -8,7 +8,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { methodNotAllowed } from "hono/method-not-allowed";
 import { securityHeaders } from "./csp.ts";
 import { createErrorHandler, validationHook } from "./errors.ts";
-import { createLogger, requestLog } from "./log.ts";
+import { requestLog } from "./log.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { certificateRoutes } from "./routes/certificates.ts";
 import { crlRoutes } from "./routes/crls.ts";
@@ -33,10 +33,9 @@ export const OPENAPI_CONFIG = {
 };
 
 export function createApp(deps: AppDeps) {
-  const log = createLogger(deps);
   const app = new OpenAPIHono({ defaultHook: validationHook });
 
-  app.onError(createErrorHandler(log));
+  app.onError(createErrorHandler(deps.log));
   app.notFound(uiFallback(deps));
 
   // Order (plan §7.3): secureHeaders → request log → methodNotAllowed → (admin: token check,
@@ -45,7 +44,7 @@ export function createApp(deps: AppDeps) {
   // secureHeaders covers every response, the UI's too (ui.ts copies the deps.ui answer first); its
   // CSP is the UI's (csp.ts) and changes nothing for JSON or downloads.
   app.use(securityHeaders);
-  app.use(requestLog(log));
+  app.use(requestLog(deps.log));
   app.use(methodNotAllowed({ app, onMethodNotAllowed }));
 
   // Generated from the route registry on the first request and kept for the life of this app

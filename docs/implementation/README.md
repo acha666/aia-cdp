@@ -211,7 +211,7 @@ D8：批次 1 = 本目录（当时为单文件 `docs/implementation.md`）+ plan
   `Not Found`，方法不符 → `text/plain` 405 + `Allow: GET, HEAD`（CryptoAPI 客户端）；其余 405 走 `onMethodNotAllowed` 的信封 + `Allow`。
 - 鉴权：管理令牌未配置 → 503 `admin_disabled`（先于鉴权与读体）；令牌缺失或错误 → 401 + `WWW-Authenticate`；`Authorization` 畸形 →
   400 `bad_request`（B9）。上传令牌可选，未设置时上传不鉴权。
-- 日志只经 `deps.log(line)`（Node 写 stdout，Workers `console.log`），每行一个 JSON 对象，必有 `level` 与 `msg`；`msg` 为事件名：
+- 日志只经 `deps.log(record)`，运行时把每条记录写成一行 JSON 对象（Node 写 stdout，Workers `console.log`），必有 `level` 与 `msg`；`msg` 为事件名：
   `request`（每请求恰好一行，`method`、`path`、`status`、`ms`）、`import`、`publish`、`unhandled_error`（500 的异常）、`listening`、`shutdown`、
   `closed`、`invalid_settings`、`data_dir_unusable`、`health_store_error` 等。只输出 JSON，没有给人读的格式。永不记录令牌、请求体与查询串。
 - 不记客户端 IP：需要时由边缘（Cloudflare）或反向代理的访问日志记录。

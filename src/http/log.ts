@@ -1,8 +1,7 @@
-// Structured logging (implementation §2.6, plan §4.3). Every line goes through deps.log as one JSON
-// object with `level` and `msg` (an event name). Never log tokens, request bodies, headers or
-// query strings.
+// Structured logging (implementation §2.6, plan §4.3). Every line is a record with `level` and
+// `msg` (an event name) passed to deps.log, which writes it as one JSON object. Never log tokens,
+// request bodies, headers or query strings.
 import { createMiddleware } from "hono/factory";
-import type { AppDeps } from "./types.ts";
 
 type LogLevel = "info" | "warn" | "error";
 
@@ -13,12 +12,6 @@ export interface LogRecord {
 }
 
 export type Logger = (record: LogRecord) => void;
-
-export function createLogger(deps: Pick<AppDeps, "log">): Logger {
-  return (record) => {
-    deps.log(JSON.stringify(record));
-  };
-}
 
 /** Loggable summary of a thrown value. The stack only when asked (unexpected errors). */
 export function describeError(
@@ -36,8 +29,7 @@ export function describeError(
 /**
  * Exactly one `request` line per request, written after `next()`: it runs outside
  * methodNotAllowed and onError, so it records the final status (405, the 500 envelope, …).
- * `path` is `c.req.path`, without the query string. `log` is the structured logger of
- * createLogger, not deps.log.
+ * `path` is `c.req.path`, without the query string.
  */
 export function requestLog(log: Logger) {
   return createMiddleware(async (c, next) => {

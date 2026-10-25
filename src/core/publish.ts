@@ -104,7 +104,7 @@ export interface PublishLogRecord extends Trace {
 
 export interface PublishDeps extends CatalogDeps {
   now: () => Date;
-  /** Receives exactly one record per call (the HTTP route passes its structured logger). */
+  /** Receives exactly one record per call (the HTTP route passes AppDeps.log). */
   log: (record: PublishLogRecord) => void;
 }
 

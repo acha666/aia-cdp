@@ -160,9 +160,9 @@ aia-cdp/
 - 绑定类型：`wrangler types --env-file=/dev/null` 生成 `.wrangler/types/worker-configuration.d.ts`（不读 `.dev.vars`，结果确定），不入库；
   `pnpm run types` 在 check / typecheck / lint 之前重生成，ESLint 与 Prettier 排除它。
 - 入口：按 `env` 缓存一个 app（`WeakMap<Env, AppType>`），`createApp({ store: new R2Store(env.STORE), now, settings,
-  log: (line) => console.log(line), ui: (req) => env.ASSETS.fetch(req) })`，`app.fetch(req, env, ctx)`；设置无效时每个请求返回 500 信封并记一行 error 日志。
-  ASSETS 只经 `deps.ui` 调用，保留前缀与 UI 兜底规则在应用内（§4.4）：`/api/*` 与下载前缀的未命中不会被 SPA 兜底答成
-  200 HTML。
+  log: (record) => console.log(JSON.stringify(record)), ui: (req) => env.ASSETS.fetch(req) })`，`app.fetch(req, env, ctx)`；
+  设置无效时每个请求返回 500 信封并记一行 error 日志。ASSETS 只经 `deps.ui` 调用，保留前缀与 UI 兜底规则在应用内（§4.4）：
+  `/api/*` 与下载前缀的未命中不会被 SPA 兜底答成 200 HTML。
 - 令牌是可选的 `wrangler secret`（`AIA_ADMIN_TOKEN` / `AIA_UPLOAD_TOKEN`），代码里类型为可选，不用 `secrets.required`；
   `AIA_MAX_UPLOAD_BYTES` 有默认值，需要时用 `vars`。入口把每个变量作为字符串交给 `parseSettings`：不是字符串的值（如写成 JSON 数字）
   取其 JSON 文本，`null` 视为未设，有效与否由 `parseSettings` 判定。

@@ -22,7 +22,6 @@ import { publishCrl } from "../../core/publish.ts";
 import type { PublishErrorCode, PublishFailure } from "../../core/publish.ts";
 import { crlTargetDetail, crlTargetList } from "../../core/views.ts";
 import { ApiError, NO_STORE } from "../errors.ts";
-import { createLogger } from "../log.ts";
 import { mediaTypeGate } from "../media.ts";
 import {
   BadRequestError,
@@ -192,7 +191,6 @@ function publishError(failure: PublishFailure): ApiError {
 // Sub-app ---------------------------------------------------------------------------------------
 
 export function crlRoutes(deps: AppDeps) {
-  const log = createLogger(deps);
   const crls = new OpenAPIHono();
 
   crls.openAPIRegistry.registerComponent("securitySchemes", SECURITY_SCHEME, {
@@ -221,10 +219,7 @@ export function crlRoutes(deps: AppDeps) {
         throw new ApiError("bad_request", "Expected a CRL, but the upload is empty");
       }
       // Logs the call's one `publish` line, also when it throws (then onError's 500).
-      const result = await publishCrl(
-        { store: deps.store, now: deps.now, sleep: deps.sleep, log },
-        bytes
-      );
+      const result = await publishCrl(deps, bytes);
       if ("error" in result) {
         throw publishError(result);
       }

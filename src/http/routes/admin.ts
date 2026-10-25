@@ -21,7 +21,6 @@ import { deleteCertificate, importCertificate } from "../../core/certificates.ts
 import { sha256Hex } from "../../core/digest.ts";
 import { getHistoryBlob, listHistory } from "../../core/history.ts";
 import { ApiError, NO_STORE, validationError } from "../errors.ts";
-import { createLogger } from "../log.ts";
 import { mediaTypeGate } from "../media.ts";
 import {
   AdminDisabledError,
@@ -326,7 +325,7 @@ function configResponse(bytes: Uint8Array, sha256: string) {
 // Sub-app ----------------------------------------------------------------------------------------
 
 export function adminRoutes(deps: AppDeps) {
-  const log = createLogger(deps);
+  const { log } = deps;
   const admin = new OpenAPIHono();
 
   admin.openAPIRegistry.registerComponent("securitySchemes", SECURITY_SCHEME, {
