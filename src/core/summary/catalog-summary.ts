@@ -1,9 +1,8 @@
 // Catalog summaries (plan §5.3). A summary is always built whole and replaces the previous one (no
 // merge, no summary version), so there is one implementation of each summary.
-import type { Certificate, CertificateRevocationList, RelativeDistinguishedNames } from "pkijs";
+import type { Certificate, CertificateRevocationList } from "pkijs";
 import type { CertificateSummary, CrlSummary } from "../catalog.ts";
 import { sha1Hex, toUpperHex } from "../digest.ts";
-import { stringOf } from "../pki/asn1.ts";
 import { PkiParseError } from "../pki/errors.ts";
 import type { PkiKind } from "../pki/errors.ts";
 import {
@@ -12,6 +11,7 @@ import {
   getNextCRLPublish,
   getSKIHex,
 } from "../pki/parsers.ts";
+import { buildName } from "./names.ts";
 
 /** `read()`, with whatever it throws reported as a malformed extension of `kind`. */
 export function readExtension<T>(kind: PkiKind, name: string, read: () => T): T {
@@ -22,16 +22,6 @@ export function readExtension<T>(kind: PkiKind, name: string, read: () => T): T 
       cause: error,
     });
   }
-}
-
-/** The first CN with a string value, the rule of the detail's Name.commonName; else null. */
-function commonName(name: RelativeDistinguishedNames): string | null {
-  return (
-    name.typesAndValues
-      .filter((attribute) => attribute.type === "2.5.4.3")
-      .map((attribute) => stringOf(attribute.value))
-      .find((text) => text !== undefined) ?? null
-  );
 }
 
 // A malformed SKI / AKI rejects the certificate, never skipped silently. An empty key id is
@@ -54,8 +44,8 @@ export async function buildCertificateSummary(
   der: Uint8Array
 ): Promise<CertificateSummary> {
   return {
-    subjectCN: commonName(cert.subject),
-    issuerCN: commonName(cert.issuer),
+    subjectCN: buildName(cert.subject).commonName,
+    issuerCN: buildName(cert.issuer).commonName,
     serialNumber: toUpperHex(cert.serialNumber.valueBlock.valueHexView),
     notBefore: cert.notBefore.value.toISOString(),
     notAfter: cert.notAfter.value.toISOString(),
