@@ -40,51 +40,14 @@
       }
     },
     "schemas": {
-      "HealthOk": {
+      "Health": {
         "type": "object",
         "properties": {
           "status": {
             "type": "string",
             "enum": [
               "healthy",
-              "degraded"
-            ]
-          },
-          "checks": {
-            "type": "object",
-            "properties": {
-              "store": {
-                "type": "string",
-                "enum": [
-                  "ok"
-                ]
-              },
-              "configuration": {
-                "type": "string",
-                "enum": [
-                  "ok",
-                  "missing",
-                  "invalid"
-                ]
-              }
-            },
-            "required": [
-              "store",
-              "configuration"
-            ]
-          }
-        },
-        "required": [
-          "status",
-          "checks"
-        ]
-      },
-      "HealthUnavailable": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
+              "degraded",
               "unhealthy"
             ]
           },
@@ -94,12 +57,16 @@
               "store": {
                 "type": "string",
                 "enum": [
+                  "ok",
                   "error"
                 ]
               },
               "configuration": {
                 "type": "string",
                 "enum": [
+                  "ok",
+                  "missing",
+                  "invalid",
                   "unknown"
                 ]
               }
@@ -3371,7 +3338,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HealthOk"
+                  "$ref": "#/components/schemas/Health"
                 }
               }
             }
@@ -3381,7 +3348,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HealthUnavailable"
+                  "$ref": "#/components/schemas/Health"
                 }
               }
             }

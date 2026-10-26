@@ -1,5 +1,5 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
-import { checkHealth, HealthOk, HealthUnavailable } from "../../core/health.ts";
+import { checkHealth, Health } from "../../core/health.ts";
 import { NO_STORE } from "../errors.ts";
 import { describeError } from "../log.ts";
 import { jsonResponse } from "../schemas.ts";
@@ -17,12 +17,9 @@ const healthRoute = createRoute({
   responses: {
     200: jsonResponse(
       "The store answers: healthy, or degraded (configuration missing or invalid)",
-      HealthOk
+      Health
     ),
-    503: jsonResponse(
-      "The store failed; the configuration could not be checked",
-      HealthUnavailable
-    ),
+    503: jsonResponse("The store failed; the configuration could not be checked", Health),
   },
 });
 
