@@ -144,18 +144,17 @@ function readDistributionPointName(block: BaseBlock): DistributionPoint["distrib
   throw new Error("Invalid DistributionPointName");
 }
 
+/** ReasonFlags (the reasons of a DistributionPoint and an IDP's onlySomeReasons). */
+const readReasons = (block: BaseBlock) => readBits(block, REASON_FLAGS);
+
 /** DistributionPoint ::= SEQUENCE { [0] name, [1] reasons, [2] cRLIssuer }, all OPTIONAL. */
 function readDistributionPoint(block: BaseBlock): DistributionPoint {
   const point = new DerReader(block);
-  const name = point.optional(context(0));
-  const reasons = point.optional(context(1));
-  const issuer = point.optional(context(2));
+  const distributionPoint = point.optional(context(0), readDistributionPointName);
+  const reasons = point.optional(context(1), readReasons);
+  const cRLIssuer = point.optional(context(2), (names) => readGeneralNames(names, context(2)));
   point.end();
-  return {
-    distributionPoint: name && readDistributionPointName(name),
-    reasons: reasons && readBits(reasons, REASON_FLAGS),
-    cRLIssuer: issuer && readGeneralNames(issuer, context(2)),
-  };
+  return { distributionPoint, reasons, cRLIssuer };
 }
 
 /** CRLDistributionPoints ::= SEQUENCE SIZE (1..MAX) OF DistributionPoint (also Freshest CRL). */
@@ -179,14 +178,10 @@ function readAccessDescriptions(root: BaseBlock): AccessDescription[] {
 function readGeneralSubtree(block: BaseBlock): GeneralSubtree {
   const subtree = new DerReader(block);
   const base = readGeneralName(subtree.any());
-  const minimum = subtree.optional(context(0));
-  const maximum = subtree.optional(context(1));
+  const minimum = subtree.optional(context(0), readInteger) ?? 0;
+  const maximum = subtree.optional(context(1), readInteger);
   subtree.end();
-  return {
-    base,
-    minimum: minimum ? readInteger(minimum) : 0,
-    maximum: maximum && readInteger(maximum),
-  };
+  return { base, minimum, maximum };
 }
 
 // =============================================================================
@@ -333,33 +328,17 @@ const EXTENSION_PARSERS = {
     if (contents(bits).length === 1) {
       return undefined; // an empty BIT STRING: nothing to show
     }
-    const has = (flag: string) => usages.includes(flag);
-    return {
-      extensionType: "keyUsage",
-      digitalSignature: has("digitalSignature"),
-      nonRepudiation: has("nonRepudiation"),
-      keyEncipherment: has("keyEncipherment"),
-      dataEncipherment: has("dataEncipherment"),
-      keyAgreement: has("keyAgreement"),
-      keyCertSign: has("keyCertSign"),
-      cRLSign: has("cRLSign"),
-      encipherOnly: has("encipherOnly"),
-      decipherOnly: has("decipherOnly"),
-      usages,
-    };
+    return { extensionType: "keyUsage", usages };
   },
 
   // Private Key Usage Period (2.5.29.16): [0] / [1] IMPLICIT GeneralizedTime, both OPTIONAL
   "2.5.29.16": (value): Parsed<"privateKeyUsagePeriod"> => {
     const period = new DerReader(value);
-    const notBefore = period.optional(context(0));
-    const notAfter = period.optional(context(1));
+    const time = (block: BaseBlock) => timeFromBlock(asUniversal(block, GENERALIZED_TIME));
+    const notBefore = period.optional(context(0), time);
+    const notAfter = period.optional(context(1), time);
     period.end();
-    return {
-      extensionType: "privateKeyUsagePeriod",
-      notBefore: notBefore && timeFromBlock(asUniversal(notBefore, GENERALIZED_TIME)),
-      notAfter: notAfter && timeFromBlock(asUniversal(notAfter, GENERALIZED_TIME)),
-    };
+    return { extensionType: "privateKeyUsagePeriod", notBefore, notAfter };
   },
 
   // Subject Alternative Name (2.5.29.17)
@@ -377,14 +356,10 @@ const EXTENSION_PARSERS = {
   // Basic Constraints (2.5.29.19)
   "2.5.29.19": (value): Parsed<"basicConstraints"> => {
     const bc = new DerReader(value);
-    const cA = bc.optional(BOOLEAN);
-    const pathLen = bc.optional(INTEGER);
+    const cA = bc.optional(BOOLEAN, readBoolean) ?? false;
+    const pathLenConstraint = bc.optional(INTEGER, readInteger);
     bc.end();
-    return {
-      extensionType: "basicConstraints",
-      cA: cA ? readBoolean(cA) : false,
-      pathLenConstraint: pathLen && readInteger(pathLen),
-    };
+    return { extensionType: "basicConstraints", cA, pathLenConstraint };
   },
 
   // CRL Number (2.5.29.20)
@@ -427,23 +402,20 @@ const EXTENSION_PARSERS = {
   // Issuing Distribution Point (2.5.29.28)
   "2.5.29.28": (value): Parsed<"issuingDistributionPoint"> => {
     const idp = new DerReader(value);
-    const name = idp.optional(context(0));
-    const flag = (num: number) => {
-      const block = idp.optional(context(num));
-      return block ? readBoolean(block) : false;
-    };
+    const flag = (num: number) => idp.optional(context(num), readBoolean) ?? false;
+    const distributionPoint = idp.optional(context(0), readDistributionPointName);
     const onlyContainsUserCerts = flag(1);
     const onlyContainsCACerts = flag(2);
-    const reasons = idp.optional(context(3));
+    const onlySomeReasons = idp.optional(context(3), readReasons);
     const indirectCRL = flag(4);
     const onlyContainsAttributeCerts = flag(5);
     idp.end();
     return {
       extensionType: "issuingDistributionPoint",
-      distributionPoint: name && readDistributionPointName(name),
+      distributionPoint,
       onlyContainsUserCerts,
       onlyContainsCACerts,
-      onlySomeReasons: reasons && readBits(reasons, REASON_FLAGS),
+      onlySomeReasons,
       indirectCRL,
       onlyContainsAttributeCerts,
     };
@@ -509,14 +481,10 @@ const EXTENSION_PARSERS = {
   // Policy Constraints (2.5.29.36)
   "2.5.29.36": (value): Parsed<"policyConstraints"> => {
     const constraints = new DerReader(value);
-    const requireExplicitPolicy = constraints.optional(context(0));
-    const inhibitPolicyMapping = constraints.optional(context(1));
+    const requireExplicitPolicy = constraints.optional(context(0), readInteger);
+    const inhibitPolicyMapping = constraints.optional(context(1), readInteger);
     constraints.end();
-    return {
-      extensionType: "policyConstraints",
-      requireExplicitPolicy: requireExplicitPolicy && readInteger(requireExplicitPolicy),
-      inhibitPolicyMapping: inhibitPolicyMapping && readInteger(inhibitPolicyMapping),
-    };
+    return { extensionType: "policyConstraints", requireExplicitPolicy, inhibitPolicyMapping };
   },
 
   // Extended Key Usage (2.5.29.37)
@@ -660,16 +628,11 @@ const EXTENSION_PARSERS = {
   // Microsoft Certificate Template Information v2 (1.3.6.1.4.1.311.21.7)
   "1.3.6.1.4.1.311.21.7": (value): Parsed<"msCertificateTemplate"> => {
     const template = new DerReader(value);
-    const templateId = readOid(template.read(OBJECT_IDENTIFIER));
-    const major = template.optional(INTEGER);
-    const minor = template.optional(INTEGER);
+    const templateId = buildObjectIdentifier(readOid(template.read(OBJECT_IDENTIFIER)));
+    const majorVersion = template.optional(INTEGER, readInteger);
+    const minorVersion = template.optional(INTEGER, readInteger);
     template.end();
-    return {
-      extensionType: "msCertificateTemplate",
-      templateId: buildObjectIdentifier(templateId),
-      majorVersion: major && readInteger(major),
-      minorVersion: minor && readInteger(minor),
-    };
+    return { extensionType: "msCertificateTemplate", templateId, majorVersion, minorVersion };
   },
 
   // Microsoft Application Policies (1.3.6.1.4.1.311.21.10)

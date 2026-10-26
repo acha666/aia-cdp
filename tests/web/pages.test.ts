@@ -215,7 +215,7 @@ describe("CertificatePage", () => {
     expect(wrapper.get("h1").text()).toBe("Root CA");
     expect(document.title).toBe("Root CA · Test PKI");
     expect(wrapper.get("header [data-kind]").attributes("data-kind")).toBe("certificate");
-    expect(wrapper.find('section [data-state="valid"]').exists()).toBe(true);
+    expect(wrapper.find('header [data-state="valid"]').exists()).toBe(true);
 
     const text = wrapper.text();
     expect(text).toContain("CN=Example Root CA (ECC P-384),O=Example PKI,C=US");
@@ -225,8 +225,8 @@ describe("CertificatePage", () => {
     expect(wrapper.get('[data-testid="signature"]').text()).toContain("Signature r");
     expect(wrapper.get('[data-testid="signature"]').text()).toContain("7A:7A:7A");
     expect(text).not.toContain("Unknown");
-    // The validity detail: time to notAfter.
-    expect(wrapper.get('[data-testid="validity-detail"]').text()).toBe("(in 6937d)");
+    // The status detail: time to notAfter.
+    expect(wrapper.get('[data-testid="status-detail"]').text()).toBe("(in 6937d)");
     // The targets this certificate issues.
     const target = wrapper.get('[data-testid="crl-targets"] a');
     expect(target.text()).toBe("Root CA");

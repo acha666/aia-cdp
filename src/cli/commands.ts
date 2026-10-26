@@ -22,7 +22,6 @@ import {
   reasonOf,
   request,
   serviceUrl,
-  UsageError,
 } from "./client.ts";
 import type { CliIo, Context, HttpError } from "./client.ts";
 
@@ -412,12 +411,9 @@ export async function listHistory(ctx: Context, targetId: string): Promise<numbe
 export async function historyVersion(
   ctx: Context,
   targetId: string,
-  sha256: string
+  sha256: string,
+  file: string
 ): Promise<number> {
-  const file = ctx.out;
-  if (file === undefined) {
-    throw new UsageError("history <targetId> <sha256> needs --out <file>");
-  }
   const url = `${historyUrl(ctx, targetId)}/${encodeURIComponent(sha256)}`;
   const reply = await request(ctx, url, { method: "GET", headers: await adminHeaders(ctx) });
   const der = accepted(reply).bytes;

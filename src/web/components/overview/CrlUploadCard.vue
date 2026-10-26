@@ -15,7 +15,7 @@ import type { ComponentPublicInstance } from "vue";
 import { useI18n } from "vue-i18n";
 import { toast } from "vue-sonner";
 import { ApiError } from "@/client/errors";
-import { cachedTargetLabel, useUploadCrl } from "@/client/queries";
+import { queries, useUploadCrl } from "@/client/queries";
 import type { PublishedCrl } from "@/client/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -106,8 +106,11 @@ async function submit() {
       : submitted;
   try {
     const published = await upload.mutateAsync({ file: crl, token: token.value.trim() });
+    // The target's label from the cached list, when that list has it.
+    const cached = client.getQueryData(queries.crls().queryKey);
     const target =
-      cachedTargetLabel(client, published.target) ?? t(`upload.kindTarget.${published.kind}`);
+      cached?.find((item) => item.targetId === published.target)?.label ??
+      t(`upload.kindTarget.${published.kind}`);
     const message = t(`upload.outcome.${published.outcome}`, { target });
     success.value = { message, published };
     toast.success(message);

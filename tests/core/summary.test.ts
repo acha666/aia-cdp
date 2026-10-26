@@ -9,7 +9,7 @@ import {
   buildCrlSummary,
 } from "../../src/core/summary/catalog-summary.ts";
 import { cert, fixture, manifest } from "../fixtures/pki.ts";
-import { extension, pkiError } from "../helpers/pki.ts";
+import { attribute, extension, nameOf, pkiError } from "../helpers/pki.ts";
 
 // The catalog summaries: buildCertificateSummary on every fixture certificate, buildCrlSummary on
 // every parsable fixture CRL.
@@ -51,9 +51,9 @@ describe("buildCertificateSummary", () => {
     expect(await summaryOf("leaf-min")).toMatchObject({ subjectKeyId: null, authorityKeyId: null });
     const der = fixture(cert("leaf-full").der);
     const certificate = parseCertificate(der);
-    certificate.subject.typesAndValues = certificate.subject.typesAndValues.filter(
-      (attribute) => attribute.type !== "2.5.4.3"
-    );
+    certificate.subject = nameOf([
+      attribute("2.5.4.10", new asn1.Utf8String({ value: "Example" })),
+    ]);
     expect((await buildCertificateSummary(certificate, der)).subjectCN).toBeNull();
   });
 

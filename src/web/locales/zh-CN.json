@@ -230,7 +230,6 @@
       "validity": "有效期",
       "notBefore": "生效时间",
       "notAfter": "过期时间",
-      "status": "状态",
       "cryptography": "密码学信息",
       "signatureAlgorithm": "签名算法",
       "publicKeyAlgorithm": "公钥算法",

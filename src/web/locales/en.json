@@ -230,7 +230,6 @@
       "validity": "Validity",
       "notBefore": "Not Before",
       "notAfter": "Not After",
-      "status": "Status",
       "cryptography": "Cryptography",
       "signatureAlgorithm": "Signature Algorithm",
       "publicKeyAlgorithm": "Public Key Algorithm",

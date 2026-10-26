@@ -118,8 +118,8 @@ describe("allow-list", () => {
       bytes[bytes.length - 1] = (bytes[bytes.length - 1] ?? 0) ^ 1;
       expect(await verifyCrlSignature(tampered, spki)).toMatchObject({
         ok: false,
-        reason: "invalid_signature",
-        algorithm: SIGNATURE_ALG_NAMES[oid],
+        error: "invalid_signature",
+        details: { algorithm: SIGNATURE_ALG_NAMES[oid] },
       });
     }
   );
@@ -141,7 +141,7 @@ describe("allow-list", () => {
     const spy = cryptoSpy();
     expect(await verifyCrlSignature(crl, spki)).toMatchObject({
       ok: false,
-      reason: "unsupported_algorithm",
+      error: "unsupported_algorithm",
     });
     expect(spy).not.toHaveBeenCalled();
   });
@@ -155,7 +155,7 @@ describe("refusals before the cryptography", () => {
     const spy = cryptoSpy();
     expect(await verifyCrlSignature(crlOf(file), spkiOf(ca))).toMatchObject({
       ok: false,
-      reason: "invalid_signature",
+      error: "invalid_signature",
     });
     expect(spy).not.toHaveBeenCalled();
   });
@@ -168,7 +168,7 @@ describe("refusals before the cryptography", () => {
     });
     expect(await verifyCrlSignature(crl, spkiOf("issuing-ca-1"))).toMatchObject({
       ok: false,
-      reason: "invalid_signature",
+      error: "invalid_signature",
     });
   });
 
@@ -205,8 +205,8 @@ describe("refusals before the cryptography", () => {
     const spy = cryptoSpy();
     expect(await verifyCrlSignature(crl, spki)).toMatchObject({
       ok: false,
-      reason: "invalid_signature",
-      algorithm: "ecdsa-with-SHA384",
+      error: "invalid_signature",
+      details: { algorithm: "ecdsa-with-SHA384" },
     });
     expect(spy).not.toHaveBeenCalled();
   });

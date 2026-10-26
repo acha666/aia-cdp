@@ -9,7 +9,14 @@ import {
   Sha256Hex,
   updateState,
 } from "./catalog.ts";
-import type { CatalogMutation, CrlKind, CrlSummary, CurrentCrl, State } from "./catalog.ts";
+import type {
+  CatalogDeps,
+  CatalogMutation,
+  CrlKind,
+  CrlSummary,
+  CurrentCrl,
+  State,
+} from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { crlBlobKey, crlHistoryKey } from "./history.ts";
 import type { HistoryMarker } from "./history.ts";
@@ -21,7 +28,7 @@ import { getAuthorityKeyIdHex, parseCertificate, parseCRL, parseCrlHeader } from
 import type { ReceivedCrl } from "./pki/parsers.ts";
 import { toDer } from "./pki/pem.ts";
 import { verifyCrlSignature } from "./pki/verify.ts";
-import type { SignatureCheck } from "./pki/verify.ts";
+import type { SignatureCheck, SignatureFailure } from "./pki/verify.ts";
 import { downloadPaths } from "./resources.ts";
 import { readBlob } from "./store.ts";
 import type { ObjectStore } from "./store.ts";
@@ -104,11 +111,8 @@ export interface PublishLogRecord extends Trace {
   ms: number;
 }
 
-export interface PublishDeps {
-  store: ObjectStore;
+export interface PublishDeps extends CatalogDeps {
   now: () => Date;
-  /** Backoff between catalog write attempts; a timer when omitted. */
-  sleep?: (ms: number) => Promise<void>;
   /** Receives exactly one record per call (the HTTP route passes its structured logger). */
   log: (record: PublishLogRecord) => void;
 }
@@ -178,7 +182,7 @@ class Rejection extends Error {
   }
 }
 
-function rejectPolicy({ ok: _ok, detail, ...failure }: CrlPolicyFailure): never {
+function reject({ ok: _ok, detail, ...failure }: CrlPolicyFailure | SignatureFailure): never {
   throw new Rejection(failure, detail);
 }
 
@@ -209,7 +213,7 @@ function checkHeader(der: Uint8Array, now: Date, trace: Trace): Header {
 
   const policy = checkCrlPolicy(crl, now);
   if (!policy.ok) {
-    rejectPolicy(policy);
+    reject(policy);
   }
   trace.expired = policy.expired;
   return { crl, fields, kind, aki };
@@ -222,7 +226,7 @@ async function checkWhole(der: Uint8Array): Promise<CrlSummary> {
   const crl = parseCRL(der);
   const policy = checkEntryPolicy(crl);
   if (!policy.ok) {
-    rejectPolicy(policy);
+    reject(policy);
   }
   return buildCrlSummary(crl, der);
 }
@@ -365,10 +369,7 @@ async function publish(
 
     const check = await verifyWithIssuer(deps.store, state, issuer, crl);
     if (!check.ok) {
-      throw new Rejection(
-        { error: check.reason, details: { algorithm: check.algorithm } },
-        `${check.algorithm}: ${check.detail}`
-      );
+      reject(check);
     }
 
     // Terminal outcomes end the call without a write (bytes already current were answered by
@@ -427,7 +428,7 @@ async function publish(
     };
   };
 
-  const update = await updateState(deps.store, attempt, deps.sleep);
+  const update = await updateState(deps, attempt);
   if ("error" in update) {
     trace.detail = `The catalog write was lost ${trace.attempts} times`;
     return { error: "concurrent_update" };

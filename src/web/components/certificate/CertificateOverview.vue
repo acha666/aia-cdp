@@ -5,60 +5,39 @@ import { RouterLink } from "vue-router";
 import type { CertificateDetail } from "@/client/types";
 import KeyValueList from "@/components/KeyValueList.vue";
 import KindBadge from "@/components/KindBadge.vue";
-import StatusBadge from "@/components/StatusBadge.vue";
 import NameDetails from "@/components/x509/NameDetails.vue";
-import { useClock } from "@/composables/useClock";
-import { formatDate, relativeTime } from "@/utils/dates";
+import type en from "@/locales/en.json";
+import { formatDate } from "@/utils/dates";
 import { compareTargets } from "@/utils/labels";
-import { computeCertificateStatus } from "@/utils/status";
-import { rows } from "@/utils/values";
+import { rowOf, rows } from "@/utils/values";
 import { formatAlgorithm } from "@/utils/x509";
 
-// The overview tab of a certificate: subject and issuer, validity (status with the detailed time
-// to its next boundary), serial number, public key summary, the signature algorithm with its
-// parameters, the ECDSA / DSA (r, s) values, fingerprints, unique identifiers when present, and
-// the CRL targets this certificate issues for, in the overview table's order.
+// The overview tab of a certificate: subject and issuer, validity (the status is in the page
+// header), serial number, public key summary, the signature algorithm with its parameters, the
+// ECDSA / DSA (r, s) values, fingerprints, unique identifiers when present, and the CRL targets
+// this certificate issues for, in the overview table's order.
 const props = defineProps<{ certificate: CertificateDetail }>();
 
 const i18n = useI18n();
 const { t, locale } = i18n;
-const now = useClock();
+const row = rowOf<keyof typeof en.details.certificate>(i18n, "details.certificate");
+const sig = rowOf<keyof typeof en.details.signature>(i18n, "details.signature");
 
 const tbs = computed(() => props.certificate.tbsCertificate);
 
 const validity = computed(() => {
   const { notBefore, notAfter } = tbs.value.validity;
-  const nowMs = now.value.getTime();
-  const state = computeCertificateStatus(notBefore.iso, notAfter.iso, nowMs);
-  const boundary = state === "not-yet-valid" ? notBefore.iso : notAfter.iso;
-  return {
-    items: [
-      {
-        label: t("details.certificate.notBefore"),
-        value: formatDate(notBefore.iso, i18n),
-      },
-      {
-        label: t("details.certificate.notAfter"),
-        value: formatDate(notAfter.iso, i18n),
-      },
-      { label: t("details.certificate.status"), value: state },
-    ],
-    state,
-    detail: state === "unknown" ? null : relativeTime(boundary, nowMs, i18n, true),
-  };
+  return [
+    row("notBefore", formatDate(notBefore.iso, i18n)),
+    row("notAfter", formatDate(notAfter.iso, i18n)),
+  ];
 });
 
 const general = computed(() => [
-  { label: t("details.certificate.x509Version"), value: tbs.value.version.display },
-  { label: t("details.certificate.serialNumber"), value: { hex: tbs.value.serialNumber.hex } },
-  {
-    label: t("details.certificate.imported"),
-    value: formatDate(props.certificate.importedAt, i18n),
-  },
-  {
-    label: t("details.certificate.size"),
-    value: t("common.bytes", { count: props.certificate.size }),
-  },
+  row("x509Version", tbs.value.version.display),
+  row("serialNumber", { hex: tbs.value.serialNumber.hex }),
+  row("imported", formatDate(props.certificate.importedAt, i18n)),
+  row("size", t("common.bytes", { count: props.certificate.size })),
 ]);
 
 /** Key type and size or curve. */
@@ -66,20 +45,11 @@ const publicKey = computed(() => {
   const spki = tbs.value.subjectPublicKeyInfo;
   const key = spki.parsed;
   return rows(
-    {
-      label: t("details.certificate.publicKeyAlgorithm"),
-      value: formatAlgorithm(spki.algorithm, i18n),
-    },
-    key.type === "rsa" && {
-      label: t("details.certificate.keySize"),
-      value: `${String(key.modulus.bitLength)} ${t("common.bits")}`,
-    },
-    key.type === "ec" && {
-      label: t("details.certificate.curve"),
-      value: key.curve.name ?? key.curve.oid,
-    },
-    { label: t("details.certificate.publicKeySha1"), value: { hex: spki.fingerprints.sha1 } },
-    { label: t("details.certificate.publicKeySha256"), value: { hex: spki.fingerprints.sha256 } }
+    row("publicKeyAlgorithm", formatAlgorithm(spki.algorithm, i18n)),
+    key.type === "rsa" && row("keySize", `${String(key.modulus.bitLength)} ${t("common.bits")}`),
+    key.type === "ec" && row("curve", key.curve.name ?? key.curve.oid),
+    row("publicKeySha1", { hex: spki.fingerprints.sha1 }),
+    row("publicKeySha256", { hex: spki.fingerprints.sha256 })
   );
 });
 
@@ -87,16 +57,10 @@ const signature = computed(() => {
   const { signatureAlgorithm, signatureValue } = props.certificate;
   const parsed = signatureValue.parsed;
   return [
-    {
-      label: t("details.certificate.signatureAlgorithm"),
-      value: formatAlgorithm(signatureAlgorithm, i18n),
-    },
+    row("signatureAlgorithm", formatAlgorithm(signatureAlgorithm, i18n)),
     ...(parsed
-      ? [
-          { label: t("details.signature.r"), value: { hex: parsed.r } },
-          { label: t("details.signature.s"), value: { hex: parsed.s } },
-        ]
-      : [{ label: t("details.signature.value"), value: { hex: signatureValue.hex } }]),
+      ? [sig("r", { hex: parsed.r }), sig("s", { hex: parsed.s })]
+      : [sig("value", { hex: signatureValue.hex })]),
   ];
 });
 
@@ -112,14 +76,8 @@ const targets = computed(() =>
 const uniqueIds = computed(() => {
   const { issuerUniqueID, subjectUniqueID } = tbs.value;
   return rows(
-    issuerUniqueID !== undefined && {
-      label: t("details.certificate.issuerUniqueId"),
-      value: { hex: issuerUniqueID.hex },
-    },
-    subjectUniqueID !== undefined && {
-      label: t("details.certificate.subjectUniqueId"),
-      value: { hex: subjectUniqueID.hex },
-    }
+    issuerUniqueID !== undefined && row("issuerUniqueId", { hex: issuerUniqueID.hex }),
+    subjectUniqueID !== undefined && row("subjectUniqueId", { hex: subjectUniqueID.hex })
   );
 });
 </script>
@@ -133,21 +91,7 @@ const uniqueIds = computed(() => {
 
     <section class="space-y-2">
       <h2 class="text-sm font-medium">{{ t("details.certificate.validity") }}</h2>
-      <KeyValueList :items="validity.items">
-        <template #value="{ item, index }">
-          <span v-if="index === 2" class="inline-flex flex-wrap items-center gap-2">
-            <StatusBadge :state="validity.state" />
-            <span
-              v-if="validity.detail"
-              class="text-muted-foreground"
-              data-testid="validity-detail"
-            >
-              ({{ validity.detail }})
-            </span>
-          </span>
-          <span v-else>{{ item.value }}</span>
-        </template>
-      </KeyValueList>
+      <KeyValueList :items="validity" />
     </section>
 
     <section class="space-y-2">

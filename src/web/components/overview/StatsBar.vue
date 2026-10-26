@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { useQuery } from "@tanstack/vue-query";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { useCrlTargets, useStats } from "@/client/queries";
+import { queries } from "@/client/queries";
 import QueryError from "@/components/QueryError.vue";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useClock } from "@/composables/useClock";
@@ -11,8 +12,8 @@ import { computeTargetStatus, needsAttention } from "@/utils/status";
 // has no time-dependent field; that one is counted here from the target list with the page's clock
 // and the badges' rule (stale, expired or unknown), so the number always matches the badges in the
 // table below.
-const stats = useStats();
-const targets = useCrlTargets();
+const stats = useQuery(queries.stats());
+const targets = useQuery(queries.crls());
 const now = useClock();
 const { t } = useI18n();
 

@@ -266,6 +266,13 @@ function realSleep(ms: number): Promise<void> {
 /** What a mutation decided: write `next` and return `result`, or return `result` without a write. */
 export type CatalogMutation<R> = { next: Catalog; result: R } | { result: R };
 
+/** The dependencies updateState uses (ImportDeps and PublishDeps extend it). */
+export interface CatalogDeps {
+  store: ObjectStore;
+  /** Backoff between catalog write attempts; a timer when omitted (tests pass a no-op). */
+  sleep?: (ms: number) => Promise<void>;
+}
+
 /**
  * Read-modify-write of catalog.json under the store's precondition. Every attempt starts with
  * readState, and the catalog write is conditional on the catalog ETag of that read (`ifMatch`, or
@@ -281,9 +288,8 @@ export type CatalogMutation<R> = { next: Catalog; result: R } | { result: R };
  * An invalid stored config.json or catalog.json throws InvalidStoredObjectError.
  */
 export async function updateState<R>(
-  store: ObjectStore,
-  mutate: (state: State) => CatalogMutation<R> | Promise<CatalogMutation<R>>,
-  sleep: (ms: number) => Promise<void> = realSleep
+  { store, sleep = realSleep }: CatalogDeps,
+  mutate: (state: State) => CatalogMutation<R> | Promise<CatalogMutation<R>>
 ): Promise<{ result: R } | { error: "concurrent_update" }> {
   for (let attempt = 0; attempt <= BACKOFF_MS.length; attempt++) {
     const wait = BACKOFF_MS[attempt - 1];

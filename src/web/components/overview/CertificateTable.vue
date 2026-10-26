@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { useQuery } from "@tanstack/vue-query";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
-import { useCertificates } from "@/client/queries";
+import { queries } from "@/client/queries";
 import DownloadLinks from "@/components/DownloadLinks.vue";
 import OverviewTable from "@/components/overview/OverviewTable.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
@@ -17,7 +18,7 @@ import { computeCertificateStatus } from "@/utils/status";
 // and the status show: with every column the table scrolls sideways inside its card, which hides
 // the status; issuer, validity and downloads are on the detail page. From sm up, where the table
 // may still scroll, the name keeps a minimum width instead of one word per line.
-const { data, error, refetch } = useCertificates();
+const { data, error, refetch } = useQuery(queries.certificates());
 
 const SECONDARY = "hidden sm:table-cell";
 const COLUMNS = [

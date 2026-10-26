@@ -22,7 +22,7 @@ import type {
 import type { I18nText } from "@/i18n";
 import type en from "@/locales/en.json";
 import { formatDate } from "@/utils/dates";
-import { rows } from "@/utils/values";
+import { rowOf, rows } from "@/utils/values";
 import type { Row, Value } from "@/utils/values";
 import { formatAttribute, formatGeneralName } from "@/utils/x509";
 
@@ -64,17 +64,12 @@ const names = (list: readonly GeneralName[], i18n: I18nText): Value => ({
 function pointRows(point: DistributionPoint, i18n: I18nText): Row[] {
   const { distributionPoint: name, reasons, cRLIssuer } = point;
   const relative = name?.nameRelativeToCRLIssuer?.attributes.map(formatAttribute).join("+");
+  const row = rowOf<FieldKey>(i18n, "extension.fields");
   return rows(
-    name?.fullName !== undefined && {
-      label: field("fullName", i18n),
-      value: names(name.fullName, i18n),
-    },
-    relative !== undefined && {
-      label: field("nameRelativeToCRLIssuer", i18n),
-      value: { lines: [relative] },
-    },
-    reasons !== undefined && { label: field("reasons", i18n), value: { tags: reasons } },
-    cRLIssuer !== undefined && { label: field("crlIssuer", i18n), value: names(cRLIssuer, i18n) }
+    name?.fullName !== undefined && row("fullName", names(name.fullName, i18n)),
+    relative !== undefined && row("nameRelativeToCRLIssuer", { lines: [relative] }),
+    reasons !== undefined && row("reasons", { tags: reasons }),
+    cRLIssuer !== undefined && row("crlIssuer", names(cRLIssuer, i18n))
   );
 }
 
@@ -111,10 +106,7 @@ export function describeExtension(value: ParsedExtensionValue, i18n: I18nText): 
 }
 
 function sectionsOf(value: ParsedExtensionValue, i18n: I18nText): Section[] | null {
-  const row = (key: FieldKey, rowValue: Value | null | undefined): Row => ({
-    label: field(key, i18n),
-    value: rowValue,
-  });
+  const row = rowOf<FieldKey>(i18n, "extension.fields");
   /** An ISO date-time in the viewer's time zone and language; N/A when absent. */
   const time = (iso: string | undefined) => formatDate(iso, i18n);
   const yesNo = (flag: boolean) => i18n.t(flag ? "common.yes" : "common.no");

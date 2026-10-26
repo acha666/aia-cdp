@@ -12,16 +12,17 @@ import { DerReader, INTEGER, contents, readDer } from "./der.ts";
 import { messageOf } from "./errors.ts";
 import { toDigestInput } from "../digest.ts";
 
-export type SignatureCheck =
-  | { ok: true }
-  | {
-      ok: false;
-      reason: "invalid_signature" | "unsupported_algorithm";
-      /** The CRL's signature algorithm: its SIGNATURE_ALG_NAMES name, else the OID. */
-      algorithm: string;
-      /** Why, for the log only (it may hold exception text). */
-      detail: string;
-    };
+/** A refusal shaped like CrlPolicyFailure (crl-policy.ts): publishCrl maps both alike. */
+export interface SignatureFailure {
+  ok: false;
+  error: "invalid_signature" | "unsupported_algorithm";
+  /** `algorithm`: the CRL's signature algorithm, its SIGNATURE_ALG_NAMES name, else the OID. */
+  details: { algorithm: string };
+  /** The algorithm and why, for the log only (it may hold exception text). */
+  detail: string;
+}
+
+export type SignatureCheck = { ok: true } | SignatureFailure;
 
 type Scheme = "pkcs1" | "pss" | "ecdsa";
 
@@ -63,7 +64,7 @@ const ALLOWED_CURVES: ReadonlyMap<string, number> = new Map([
 ]);
 
 interface Refusal {
-  reason: "invalid_signature" | "unsupported_algorithm";
+  error: SignatureFailure["error"];
   detail: string;
 }
 
@@ -131,7 +132,7 @@ function admit(
   const algorithm = crl.signatureAlgorithm;
   const scheme = ALLOWED_SIGNATURES.get(algorithm.algorithmId);
   if (scheme === undefined) {
-    return { reason: "unsupported_algorithm", detail: "Not in the signature algorithm allow-list" };
+    return { error: "unsupported_algorithm", detail: "Not in the signature algorithm allow-list" };
   }
   const params: unknown = algorithm.algorithmParams;
   const paramsProblem =
@@ -141,7 +142,7 @@ function admit(
         ? undefined
         : "Parameters where the algorithm has none";
   if (paramsProblem !== undefined) {
-    return { reason: "unsupported_algorithm", detail: paramsProblem };
+    return { error: "unsupported_algorithm", detail: paramsProblem };
   }
 
   const key = issuerSpki.algorithm;
@@ -149,7 +150,7 @@ function admit(
   let orderLength: number | undefined;
   if (scheme === "ecdsa") {
     if (key.algorithmId !== EC_PUBLIC_KEY) {
-      return { reason: "invalid_signature", detail: `An ECDSA signature, but a ${keyName} key` };
+      return { error: "invalid_signature", detail: `An ECDSA signature, but a ${keyName} key` };
     }
     const curve: unknown = key.algorithmParams;
     const curveOid = curve instanceof ObjectIdentifier ? curve.valueBlock.toString() : undefined;
@@ -157,23 +158,23 @@ function admit(
     if (orderLength === undefined) {
       const curveName =
         curveOid === undefined ? "explicit parameters" : name(CURVE_NAMES, curveOid);
-      return { reason: "unsupported_algorithm", detail: `An issuer key on ${curveName}` };
+      return { error: "unsupported_algorithm", detail: `An issuer key on ${curveName}` };
     }
   } else if (key.algorithmId === RSASSA_PSS) {
     // WebCrypto imports RSA public keys only as rsaEncryption.
-    return { reason: "unsupported_algorithm", detail: "An RSASSA-PSS-restricted issuer key" };
+    return { error: "unsupported_algorithm", detail: "An RSASSA-PSS-restricted issuer key" };
   } else if (key.algorithmId !== RSA_ENCRYPTION) {
-    return { reason: "invalid_signature", detail: `An RSA signature, but a ${keyName} key` };
+    return { error: "invalid_signature", detail: `An RSA signature, but a ${keyName} key` };
   }
 
   const signature = crl.signatureValue.valueBlock;
   if (signature.unusedBits !== 0) {
-    return { reason: "invalid_signature", detail: "The signature BIT STRING has unused bits" };
+    return { error: "invalid_signature", detail: "The signature BIT STRING has unused bits" };
   }
   if (orderLength !== undefined) {
     const problem = ecdsaSignatureProblem(signature.valueHexView, orderLength);
     if (problem !== undefined) {
-      return { reason: "invalid_signature", detail: problem };
+      return { error: "invalid_signature", detail: problem };
     }
   }
   return undefined;
@@ -194,9 +195,15 @@ export async function verifyCrlSignature(
 ): Promise<SignatureCheck> {
   const algorithm =
     SIGNATURE_ALG_NAMES[crl.signatureAlgorithm.algorithmId] ?? crl.signatureAlgorithm.algorithmId;
+  const refuse = (error: SignatureFailure["error"], why: string): SignatureFailure => ({
+    ok: false,
+    error,
+    details: { algorithm },
+    detail: `${algorithm}: ${why}`,
+  });
   const refusal = admit(crl, issuerSpki);
   if (refusal !== undefined) {
-    return { ok: false, algorithm, ...refusal };
+    return refuse(refusal.error, refusal.detail);
   }
 
   const engine = pkijs.getCrypto(true);
@@ -207,20 +214,8 @@ export async function verifyCrlSignature(
       issuerSpki,
       crl.signatureAlgorithm
     );
-    return verified
-      ? { ok: true }
-      : {
-          ok: false,
-          reason: "invalid_signature",
-          algorithm,
-          detail: "The signature does not match",
-        };
+    return verified ? { ok: true } : refuse("invalid_signature", "The signature does not match");
   } catch (error) {
-    return {
-      ok: false,
-      reason: "invalid_signature",
-      algorithm,
-      detail: messageOf(error),
-    };
+    return refuse("invalid_signature", messageOf(error));
   }
 }

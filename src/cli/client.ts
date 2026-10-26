@@ -30,8 +30,6 @@ export interface Context {
   tokenFile: string | undefined;
   /** --allow-insecure-http: a token may go over http:// to any host. */
   allowInsecureHttp: boolean;
-  /** --out: only for history <targetId> <sha256>. */
-  out: string | undefined;
 }
 
 /** io.readFile; a file that cannot be read throws `fail(reason)`. */

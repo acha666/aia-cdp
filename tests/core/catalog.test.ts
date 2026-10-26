@@ -159,7 +159,7 @@ describe("updateState", () => {
     const base = new MemoryStore();
     const store = recordingStore(base);
     const sleep = vi.fn(() => Promise.resolve());
-    expect(await updateState(store, addRoot, sleep)).toEqual({ result: "created" });
+    expect(await updateState({ store, sleep }, addRoot)).toEqual({ result: "created" });
     const first = await base.get(CATALOG_KEY);
     expect(first!.bytes).toEqual(encodeJson((await readCatalog(base)).catalog));
 
@@ -167,7 +167,7 @@ describe("updateState", () => {
       next: { ...current, certificates: { ...current.certificates, [ISSUING.id]: ISSUING.entry } },
       result: "added",
     });
-    expect(await updateState(store, addIssuing, sleep)).toEqual({ result: "added" });
+    expect(await updateState({ store, sleep }, addIssuing)).toEqual({ result: "added" });
 
     expect(puts(store)).toEqual([
       { key: CATALOG_KEY, opts: { contentType: "application/json", ifNoneMatch: "*" }, ok: true },
@@ -196,7 +196,7 @@ describe("updateState", () => {
       seen.push(state);
       return addRoot(state);
     };
-    expect(await updateState(store, mutate, sleep)).toEqual({ result: "created" });
+    expect(await updateState({ store, sleep }, mutate)).toEqual({ result: "created" });
     expect(sleep.mock.calls).toEqual([[250]]);
     const minimal = JSON.parse(MINIMAL_CONFIG) as unknown;
     expect(seen.map((state) => state.config)).toEqual([minimal, minimal]);
@@ -213,7 +213,7 @@ describe("updateState", () => {
     const before = await base.get(CATALOG_KEY);
     const store = recordingStore(flakyStore(base, { failIfMatch: 4 }));
     const sleep = vi.fn(() => Promise.resolve());
-    expect(await updateState(store, addRoot, sleep)).toEqual({ error: "concurrent_update" });
+    expect(await updateState({ store, sleep }, addRoot)).toEqual({ error: "concurrent_update" });
     expect(sleep.mock.calls).toEqual([[250], [500], [1000]]);
     expect(store.writes).toHaveLength(4);
     expect(puts(store).filter((put) => put.ok)).toEqual([]);
@@ -224,7 +224,7 @@ describe("updateState", () => {
     const failure = new Error("429 too many writes");
     const store = flakyStore(new MemoryStore(), { putError: failure });
     const sleep = vi.fn(() => Promise.resolve());
-    await expect(updateState(store, addRoot, sleep)).rejects.toBe(failure);
+    await expect(updateState({ store, sleep }, addRoot)).rejects.toBe(failure);
     expect(sleep).not.toHaveBeenCalled();
   });
 });

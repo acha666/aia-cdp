@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { useQuery } from "@tanstack/vue-query";
 import { computed } from "vue";
 import { I18nT, useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
-import { useCrlTarget } from "@/client/queries";
+import { queries } from "@/client/queries";
 import RevokedTable from "@/components/crl/RevokedTable.vue";
 import DetailLayout from "@/components/DetailLayout.vue";
 import DownloadLinks from "@/components/DownloadLinks.vue";
@@ -13,9 +14,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ExtensionList from "@/components/x509/ExtensionList.vue";
 import NameDetails from "@/components/x509/NameDetails.vue";
 import { useClock } from "@/composables/useClock";
+import type en from "@/locales/en.json";
 import { formatDate, relativeTime } from "@/utils/dates";
 import { computeTargetStatus } from "@/utils/status";
-import { rows } from "@/utils/values";
+import { rowOf, rows } from "@/utils/values";
 import { formatAlgorithm } from "@/utils/x509";
 
 // One CRL target (plan §8), in DetailLayout's frame: header with label, kind, status and
@@ -29,13 +31,14 @@ const props = defineProps<{ targetId: string }>();
 const i18n = useI18n();
 const { t } = i18n;
 const now = useClock();
-const { data, error, refetch } = useCrlTarget(() => props.targetId);
+const { data, error, refetch } = useQuery(() => queries.crl(props.targetId));
 
 const current = computed(() => data.value?.current ?? null);
 const status = computed(() => computeTargetStatus(current.value, now.value.getTime()));
 const extensions = computed(() => current.value?.tbsCertList.crlExtensions?.items ?? []);
 
 const time = (iso: string | null | undefined) => formatDate(iso, i18n);
+const row = rowOf<keyof typeof en.details.crl>(i18n, "details.crl");
 
 /** The overview of the current CRL, in sections; the issuer link and the status are in the header. */
 const overview = computed(() => {
@@ -46,29 +49,18 @@ const overview = computed(() => {
   const { summary } = crl;
   return {
     information: rows(
-      { label: t("details.crl.crlNumber"), value: summary.crlNumber },
-      summary.baseCrlNumber !== null && {
-        label: t("details.crl.baseCrlNumber"),
-        value: summary.baseCrlNumber,
-      },
-      { label: t("details.crl.version"), value: crl.tbsCertList.version.display },
-      { label: t("details.crl.publishedAt"), value: time(crl.publishedAt) },
-      { label: t("details.crl.size"), value: t("common.bytes", { count: crl.size }) }
+      row("crlNumber", summary.crlNumber),
+      summary.baseCrlNumber !== null && row("baseCrlNumber", summary.baseCrlNumber),
+      row("version", crl.tbsCertList.version.display),
+      row("publishedAt", time(crl.publishedAt)),
+      row("size", t("common.bytes", { count: crl.size }))
     ),
     validity: rows(
-      { label: t("details.crl.thisUpdate"), value: time(summary.thisUpdate) },
-      { label: t("details.crl.nextUpdate"), value: time(summary.nextUpdate) },
-      summary.nextPublish !== null && {
-        label: t("details.crl.nextPublish"),
-        value: time(summary.nextPublish),
-      }
+      row("thisUpdate", time(summary.thisUpdate)),
+      row("nextUpdate", time(summary.nextUpdate)),
+      summary.nextPublish !== null && row("nextPublish", time(summary.nextPublish))
     ),
-    cryptography: [
-      {
-        label: t("details.crl.signatureAlgorithm"),
-        value: formatAlgorithm(crl.signatureAlgorithm, i18n),
-      },
-    ],
+    cryptography: [row("signatureAlgorithm", formatAlgorithm(crl.signatureAlgorithm, i18n))],
     fingerprints: [
       { label: "SHA-1", value: { hex: crl.fingerprints.sha1 } },
       { label: "SHA-256", value: { hex: crl.fingerprints.sha256 } },
@@ -80,7 +72,7 @@ const SECTIONS = ["information", "validity", "cryptography", "fingerprints"] as 
 
 /**
  * Time to nextUpdate (or since it, once expired) next to the status badge; to thisUpdate while not
- * yet valid (a browser clock behind the server's), as the certificate overview does.
+ * yet valid (a browser clock behind the server's), as on CertificatePage.
  */
 const statusDetail = computed(() => {
   const summary = current.value?.summary;

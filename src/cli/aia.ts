@@ -104,9 +104,8 @@ export async function main(argv: readonly string[], io: CliIo): Promise<number> 
       url: values.url ?? io.env.AIA_URL,
       tokenFile: values["token-file"],
       allowInsecureHttp: values["allow-insecure-http"] === true,
-      out: values.out,
     };
-    return await run(ctx, positionals);
+    return await run(ctx, positionals, values.out);
   } catch (error) {
     if (error instanceof UsageError) {
       io.stderr(`aia: ${error.message}\nRun "aia --help" for usage.\n`);
@@ -120,18 +119,16 @@ export async function main(argv: readonly string[], io: CliIo): Promise<number> 
   }
 }
 
-async function run(ctx: Context, positionals: string[]): Promise<number> {
+async function run(ctx: Context, positionals: string[], out: string | undefined): Promise<number> {
   const [command, ...args] = positionals;
-  if (ctx.out !== undefined && (command !== "history" || args.length !== 2)) {
+  if (out !== undefined && (command !== "history" || args.length !== 2)) {
     throw new UsageError("--out is only for history <targetId> <sha256>");
   }
   switch (command) {
     case undefined:
       throw new UsageError("missing command");
     case "import":
-      if (args.length === 0) {
-        throw new UsageError("import needs at least one file");
-      }
+      expectArgs(args, 1, "import <file...>", Infinity);
       return importFiles(ctx, args);
     case "config": {
       const [sub, ...rest] = args;
@@ -155,18 +152,18 @@ async function run(ctx: Context, positionals: string[]): Promise<number> {
       expectArgs(args, 0, "new-target-id");
       return newTargetId(ctx);
     case "publish":
-      if (args.length === 0) {
-        throw new UsageError("publish needs at least one file");
-      }
+      expectArgs(args, 1, "publish <file...>", Infinity);
       return publishFiles(ctx, args);
     case "history": {
-      const [targetId, sha256, ...rest] = args;
-      if (targetId === undefined || rest.length > 0) {
-        throw new UsageError("usage: aia history <targetId> [<sha256> --out <file>]");
+      expectArgs(args, 1, "history <targetId> [<sha256> --out <file>]", 2);
+      const [targetId = "", sha256] = args;
+      if (sha256 === undefined) {
+        return listHistory(ctx, targetId);
       }
-      return sha256 === undefined
-        ? listHistory(ctx, targetId)
-        : historyVersion(ctx, targetId, sha256);
+      if (out === undefined) {
+        throw new UsageError("history <targetId> <sha256> needs --out <file>");
+      }
+      return historyVersion(ctx, targetId, sha256, out);
     }
     case "delete-certificate":
       expectArgs(args, 1, "delete-certificate <id>");
@@ -179,8 +176,8 @@ async function run(ctx: Context, positionals: string[]): Promise<number> {
   }
 }
 
-function expectArgs(args: string[], count: number, form: string): void {
-  if (args.length !== count) {
+function expectArgs(args: string[], count: number, form: string, max = count): void {
+  if (args.length < count || args.length > max) {
     throw new UsageError(`usage: aia ${form}`);
   }
 }
