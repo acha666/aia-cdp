@@ -22,7 +22,7 @@
 | 12  | shadcn-vue 风格 | 2026-10-18：`--style nova`、base color `neutral`、图标库 lucide（`@lucide/vue`） |
 | 13  | 测试数据   | 2026-10-18：测试只用夹具脚本生成的合成 AD CS 风格夹具（fixtures spike 证明 CA Version / 模板名编码逐字节一致、扩展嵌套相同），仓库里不放真实 PKI 的证书与 CRL |
 | 14  | 迁移源     | 2026-10-18：`~/aia-cdp/worker-aia-cdp` 本地分支 `parsing-2026-10-18` 的提交 `5b570aa`；只有附录 A 与切片 7 还引用它（`worker-aia-cdp@5b570aa:<path>`） |
-| 15  | 检查与 devcontainer | 2026-10-23：检查只用常规的一套（§10）：`wrangler types` + `vue-tsc -b`（worker / node / web 三个程序）、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、vitest、构建、OpenAPI 快照；撤回 2026-10-19 加的边界护栏（ESLint 分层规则、`typecheck:boundary`、Worker 包的 `"node:` 断言）。切片 1 建 devcontainer（Node 26 镜像、PowerShell feature、非 root、无 `act`） |
+| 15  | 检查与 devcontainer | 2026-10-23：检查只用常规的一套（§10）：`wrangler types` + `vue-tsc -b`（worker / node / web 三个程序）、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、knip（2026-10-25 加）、vitest、构建、OpenAPI 快照；撤回 2026-10-19 加的边界护栏（ESLint 分层规则、`typecheck:boundary`、Worker 包的 `"node:` 断言）。切片 1 建 devcontainer（Node 26 镜像、PowerShell feature、非 root、无 `act`） |
 | 16  | 切片 2 两项 | 2026-10-19：不记证书路径改绑账本——V7 只与当前 config 比对，"先删再加"不拦截、由操作员负责，`applyConfig` 只写 `config.json`（§5.2）；`PUT /api/v1/admin/config` 缺可用前置条件回 428 `precondition_required`，不用 400（§7.2、§7.3） |
 | 17  | 切片 6 | 2026-10-24：退役 = 从 `config.json` 删除目标，取消规则 V8，没有 retire 路由、命令与 catalog 字段（§5.2、§6）；证书删除保护：被 config 引用或作为任一目标 current 的 `verifier` 的证书不可删，不做删除后的复核与补偿（§5.5）；历史可列可下载（§7.2）；不写 `docs/api.md`、不补 operations.md 的部署等章节；S3（切片 8）列为远期计划 |
 
@@ -72,7 +72,7 @@
 | Cloudflare    | `wrangler`                                      | 4.152.0（精确锁定）               | `wrangler types` 生成绑定类型 `worker-configuration.d.ts`（不入库）；不装 `@cloudflare/workers-types`；`compatibility_date` 随 wrangler 一起升 |
 | CLI           | `node:util` `parseArgs` + `fetch`               | 内置                              | 零依赖                                                                                         |
 | 后续          | `@aws-sdk/client-s3`                            | 3.1152.0                          | S3 适配器切片，仅进 Node bundle                                                                |
-| 质量          | `typescript`；`eslint` + `@eslint/js` + `typescript-eslint` + `eslint-plugin-vue` + `vue-eslint-parser` + `jiti`；`prettier` | 6.0.3；10.13.0 / 10.0.1 / 8.72.0 / 10.11.1 / 10.4.1 / 2.7.0；3.9.10 | `typescript` 精确锁 6.0.3（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）；`jiti` 供 ESLint 10 加载 `eslint.config.ts`；`@types/node` 26.6.5 |
+| 质量          | `typescript`；`eslint` + `@eslint/js` + `typescript-eslint` + `eslint-plugin-vue` + `vue-eslint-parser` + `jiti`；`prettier`；`knip` | 6.0.3；10.13.0 / 10.0.1 / 8.72.0 / 10.11.1 / 10.4.1 / 2.7.0；3.9.10；6.43.0 | `typescript` 精确锁 6.0.3（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）；`jiti` 供 ESLint 10 加载 `eslint.config.ts`；`knip` 查未用的文件、导出与依赖（§10）；`@types/node` 26.6.5 |
 | 开发前置      | OpenSSL CLI、bash、Docker Engine                 | OpenSSL ≥ 3.0（不是 LibreSSL）、Docker ≥ 25 | 只在开发与 CI 用：OpenSSL 只在重新生成测试夹具时需要，bash 用于夹具生成与冒烟脚本（`smoke:worker`、`ci:docker`）（§10，`pnpm test` 两者都不需要），Docker 构建镜像（`HEALTHCHECK --start-interval` 需要 25）；运行时都不需要 |
 
 `dependencies` 只放 Node 运行时要的包（`hono`、`@hono/zod-openapi`、`zod`、`@hono/node-server`，切片 2 起加 `pkijs`、`asn1js`）；
@@ -92,7 +92,7 @@ aia-cdp/
   tsconfig.json  tsconfig.base.json  tsconfig.worker.json  tsconfig.node.json
   tsconfig.build.json  tsconfig.web.json
   wrangler.jsonc  .wrangler/types/worker-configuration.d.ts（`pnpm run types` 生成，不入库）
-  Dockerfile  vite.config.ts  vitest.config.ts  eslint.config.ts  components.json（shadcn-vue）
+  Dockerfile  vite.config.ts  vitest.config.ts  eslint.config.ts  knip.json  components.json（shadcn-vue）
   .github/             workflows/ci.yml  workflows/docker-publish.yml  dependabot.yml
   .devcontainer/       devcontainer.json（决策 15）
   src/
@@ -629,9 +629,9 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 - shadcn-vue 在切片 1 初始化：`pnpm dlx shadcn-vue@2.8.2 init --base reka --style nova --icon-library lucide --base-color neutral
   --font inter --yes --no-rtl --no-pointer`（永不用 `--defaults`，它等于 `--preset nova --template nuxt`），之后删掉 `main.css` 的
   Google Fonts `@import` 与 `components.json` 的 `font` 键；`components.json`、生成文件与 lockfile 一并入库（registry 是线上的，
-  重跑 `add` 可能得到不同代码），生成代码按仓库 Prettier 风格重排。web spike 用 `vega` 风格验证过 init + Vite 8 + Tailwind 4.3，
-  `nova` 在切片 1 首次生成。nova 组件的 `data-open:`、`data-active:` 等状态变体定义在 shadcn-vue 包自带的 CSS 里，CLI 不导入它，`main.css` 抄了其中用到的
-  5 个 `@custom-variant`。
+  重跑 `add` 可能得到不同代码），生成代码按仓库 Prettier 风格重排；`add` 生成的 `index.ts` 再导出全部部件，没用上的删掉（否则 knip 报未用导出）。
+  web spike 用 `vega` 风格验证过 init + Vite 8 + Tailwind 4.3，`nova` 在切片 1 首次生成。nova 组件的 `data-open:`、`data-active:` 等状态变体
+  定义在 shadcn-vue 包自带的 CSS 里，CLI 不导入它，`main.css` 抄了其中用到的 5 个 `@custom-variant`。
 
 ## 9. AD CS 助手
 
@@ -654,6 +654,8 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   一次报出全部错误；各程序 `noEmit`，`.tsbuildinfo` 写到 `node_modules/.tmp`。
 - Lint 与格式：ESLint 常规预设（`@eslint/js`、`typescript-eslint`、`eslint-plugin-vue`），另加一条导入规则：`src/web` 对 `src/core`、`src/http`、
   `src/storage`、`src/runtime` 只许 `import type`，Hono 只许 `hono/client`；`prettier --check`。
+- 未用代码：knip（`knip.json`，默认模式，测试也算入口）报未用的文件、导出与依赖；类型导出不报（`rules.types` 关），
+  `src/web/lib/utils.ts`（`components.json` 的 `utils` 别名）不报未用文件。
 - vitest 5 两个 `projects`：`node`（`tests/` 下除 `tests/web` 外的 `*.test.ts`，node 环境）与 `web`（`tests/web`，happy-dom）；独立的
   `vitest.config.ts`（不继承 `vite.config.ts` 的 `root`），没有 `globalSetup`。HTTP 测试通过
   `createApp({ store: new MemoryStore(), now, … }).request()` 进程内运行，不起端口；只有真实 socket 才看得到的差异
@@ -675,7 +677,7 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 - Web：组件与逻辑在 vitest `web` 项目；`tests/http/app.test.ts` 查 UI、JSON 与下载响应都带同一 CSP。
 - Docker（`scripts/docker-smoke.sh`）：构建镜像、启动、健康检查 `healthy` 而 API 报 `degraded`、uid 1000、经镜像内 CLI `aia import` 与
   `config apply` 后 health `healthy`，再跑 `scripts/smoke.sh`，`docker stop` < 5 s。
-- CI：`.github/workflows/ci.yml` 四个任务，每个只用 `pnpm/setup` 装 Node（`.nvmrc`）、pnpm（`devEngines`）与依赖，再调用 `pnpm run ci:<job>`：`ci:check` = typecheck + ESLint + `prettier --check`；
+- CI：`.github/workflows/ci.yml` 四个任务，每个只用 `pnpm/setup` 装 Node（`.nvmrc`）、pnpm（`devEngines`）与依赖，再调用 `pnpm run ci:<job>`：`ci:check` = typecheck + ESLint + `prettier --check` + knip；
   `ci:test` = test + build；`ci:worker` = `build:web` + `wrangler deploy --dry-run` + `smoke:worker` + `test:r2`；`ci:docker` =
   `scripts/docker-smoke.sh`。`.github/dependabot.yml` 管 npm、github-actions、docker。GitHub Actions 在推送 `main` 与 PR 时运行（决策 10），
   本机执行的是同一组脚本。`pnpm verify` = check + test + build。

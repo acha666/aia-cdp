@@ -33,7 +33,7 @@ owner 决策（逐项询问后确定：D1–D8 为 2026-10-18，D9、D10 为 202
 | D6 | shadcn-vue 风格 | `--style nova`、base color `neutral`、图标库 lucide（`@lucide/vue`） |
 | D7 | 测试数据 | 测试只用夹具脚本生成的合成 AD CS 风格夹具（fixtures spike 证明 CA Version / 模板名编码逐字节一致、扩展嵌套相同）；仓库里不放真实 PKI 的证书与 CRL |
 | D8 | 批次 1 | 本目录 + plan.md 修订 + 切片 1（已完成，见 §1.2） |
-| D9 | 检查（2026-10-23 撤回 2026-10-19 加的边界护栏：core / http 的 ESLint 分层规则、`typecheck:boundary` 与其 canary、Worker 包的 `"node:` 断言） | 只用常规的一套：`wrangler types` + `vue-tsc -b`（worker / node / web 三个程序）、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、vitest、构建、OpenAPI 快照（plan §10）。剩余风险见总则 §2.2 |
+| D9 | 检查（2026-10-23 撤回 2026-10-19 加的边界护栏：core / http 的 ESLint 分层规则、`typecheck:boundary` 与其 canary、Worker 包的 `"node:` 断言） | 只用常规的一套：`wrangler types` + `vue-tsc -b`（worker / node / web 三个程序）、ESLint 常规预设加一条 `src/web` 导入规则、`prettier --check`、knip（2026-10-25 加）、vitest、构建、OpenAPI 快照（plan §10）。剩余风险见总则 §2.2 |
 | D10 | devcontainer | 切片 1 建 `.devcontainer/devcontainer.json`：Node 26 镜像（自带 pnpm）、PowerShell feature（AD CS 助手）、非 root `remoteUser`、不装 `act`、OpenSSL ≥ 3.0 可生成夹具；容器内 Docker 可选；不以 root 生成文件 |
 | D11 | 证书路径改绑（推翻推荐的改绑账本 `catalog.certificatePaths`） | 不记账本：V7 只与当前 config 比对，直接改绑拒绝，"先删再加"两步改绑不拦截，由操作员负责（证书下载 `immutable` 缓存一年，换 CA 证书用新路径）；`applyConfig` 只写 `config.json`。落实：plan §5.2 |
 | D12 | `PUT /api/v1/admin/config` 缺可用前置条件（推翻推荐的 400 `bad_request`） | 428 + 新错误码 `precondition_required`：`If-Match` 与 `If-None-Match: *` 两者都缺、都有、或 `If-None-Match` 不是 `*`；不匹配仍是 412。落实：plan §7.2 / §7.3 |
@@ -168,7 +168,7 @@ D8：批次 1 = 本目录（当时为单文件 `docs/implementation.md`）+ plan
 
 - `pnpm run ci:<job>` 是 CI 任务的可执行定义；`.github/workflows/ci.yml` 的每个任务只装依赖并调用它，本机与 GitHub Actions 跑的是
   同一组脚本：
-  - `ci:check` = `check` = `typecheck`（`types` + `vue-tsc -b` 查 worker / node / web）+ `eslint --max-warnings 0` + `prettier --check`；
+  - `ci:check` = `check` = `typecheck`（`types` + `vue-tsc -b` 查 worker / node / web）+ `eslint --max-warnings 0` + `prettier --check` + `knip`；
   - `ci:test` = `test` + `build`；
   - `ci:worker` = `build:web` + `wrangler deploy --dry-run` + `smoke:worker` + `test:r2`；
   - `ci:docker` = `bash scripts/docker-smoke.sh`；
