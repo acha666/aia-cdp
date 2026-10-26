@@ -1,6 +1,6 @@
 // aia: the command-line client of the admin API and the CRL upload route (plan §7.4). A thin HTTP
-// client on node:util parseArgs and fetch, with no dependencies of its own. This file parses the
-// command line and dispatches; client.ts holds the service access and the token rules,
+// client using Commander and fetch. This file declares the command tree; Commander parses the
+// arguments and generates help. client.ts holds the service access and the token rules,
 // commands.ts the commands.
 //
 //   node src/cli/aia.ts <command> …          (pnpm aia …; Node runs the source)
@@ -11,8 +11,8 @@
 // printed, and go over plain http:// only to a loopback host or with --allow-insecure-http.
 import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
-import { parseArgs } from "node:util";
-import { Failure, reasonOf, UsageError } from "./client.ts";
+import { Command, CommanderError } from "commander";
+import { Failure, UsageError } from "./client.ts";
 import type { CliIo, Context } from "./client.ts";
 import {
   configApply,
@@ -28,84 +28,138 @@ import {
 
 export type { CliIo } from "./client.ts";
 
-export const USAGE = `Usage: aia [options] <command>
+interface Options {
+  url?: string;
+  tokenFile?: string;
+  allowInsecureHttp?: boolean;
+  out?: string;
+  json?: boolean;
+}
 
-Commands:
-  import <file...>        Import CA certificates: DER, or PEM with one or more blocks
-                          (each block is imported on its own)
-  config show             Print the stored config.json
-  config validate <file>  Check a configuration offline: rules V1-V3 and the static parts of
-                          V4 / V6; the rest (V4-V9) needs the service and is checked on apply
-  config apply <file>     Validate, then replace config.json as a whole (If-Match: the ETag of a
-                          fresh GET; If-None-Match: * for the first configuration). What is
-                          stored is overwritten, also changes you have not seen: the precondition
-                          only catches one made between this command's GET and PUT. Removing a
-                          target retires it: nothing serves it, its history stays
-  new-target-id           Print a new target id (a random UUID)
-  publish <file...>       Publish CRLs, DER or PEM, one upload per file: created, updated and
-                          unchanged succeed; anything else (stale_crl, ...) fails that file
-  history <targetId>      List the CRL versions a target has published, newest first (also
-                          once the target is removed from config.json)
-  history <targetId> <sha256> --out <file>
-                          Write the DER of one of those versions to <file>
-  delete-certificate <id> Delete an imported certificate that nothing references (the
-                          verifier of a target's current CRL stays referenced)
-  health                  Exit 0 only if the service reports healthy
-
-Options:
-  --url <url>             Service base URL (default: $AIA_URL)
-  --token-file <file>     File holding the token of the command. import, config, history and
-                          delete-certificate: the admin token (default: $AIA_ADMIN_TOKEN_FILE,
-                          else $AIA_ADMIN_TOKEN).
-                          publish: the upload token (default: $AIA_UPLOAD_TOKEN_FILE, else
-                          $AIA_UPLOAD_TOKEN, else none: the service needs it only when set)
-  --allow-insecure-http   Send the token over plain http:// to a host other than localhost,
-                          127.0.0.0/8 or [::1] (refused otherwise: it would cross the network
-                          in clear text)
-  --out <file>            history <targetId> <sha256>: where to write the DER
-  --json                  Print results as JSON on stdout (errors stay text on stderr)
-  -h, --help              Show this help
-
-Exit codes: 0 success, 1 failure or not healthy, 2 usage error.
-`;
-
-const OPTIONS = {
-  url: { type: "string" },
-  "token-file": { type: "string" },
-  "allow-insecure-http": { type: "boolean" },
-  out: { type: "string" },
-  json: { type: "boolean" },
-  help: { type: "boolean", short: "h" },
-} as const;
-
-/** Runs one command line (without `node` and the script). Resolves to the exit code. */
+/** A fresh command tree per invocation: options and injected I/O never leak between runs. */
 export async function main(argv: readonly string[], io: CliIo): Promise<number> {
-  try {
-    let parsed;
-    try {
-      parsed = parseArgs({
-        args: [...argv],
-        options: OPTIONS,
-        strict: true,
-        allowPositionals: true,
-      });
-    } catch (error) {
-      throw new UsageError(reasonOf(error));
-    }
-    const { values, positionals } = parsed;
-    if (values.help === true || positionals[0] === "help") {
-      io.stdout(USAGE);
-      return 0;
-    }
-    const ctx: Context = {
-      io,
-      json: values.json === true,
-      url: values.url ?? io.env.AIA_URL,
-      tokenFile: values["token-file"],
-      allowInsecureHttp: values["allow-insecure-http"] === true,
+  let code = 0;
+  const program = new Command()
+    .name("aia")
+    .description("Manage CA certificates, configuration and CRLs")
+    .option("--url <url>", "Service base URL (default: $AIA_URL)")
+    .option(
+      "--token-file <file>",
+      "Token file; overrides $AIA_ADMIN_TOKEN_FILE / $AIA_ADMIN_TOKEN, or " +
+        "$AIA_UPLOAD_TOKEN_FILE / $AIA_UPLOAD_TOKEN for publish (optional)"
+    )
+    .option(
+      "--allow-insecure-http",
+      "Allow sending a token over plain HTTP beyond localhost, 127.0.0.0/8 or [::1]"
+    )
+    .option("--out <file>", "history <targetId> <sha256>: write the DER to this file")
+    .option("--json", "Print results as JSON (errors stay text on stderr)")
+    .addHelpText("afterAll", "\nExit codes: 0 success, 1 failure or not healthy, 2 usage error.")
+    .configureHelp({ showGlobalOptions: true })
+    .configureOutput({
+      writeOut: io.stdout,
+      writeErr: () => {
+        // The catch below reports usage errors once, with the CLI's prefix and exit code.
+      },
+    })
+    .exitOverride()
+    .hook("preAction", (_, command) => {
+      if (
+        program.opts<Options>().out !== undefined &&
+        (command.name() !== "history" || command.args.length !== 2)
+      ) {
+        throw new UsageError("--out is only for history <targetId> <sha256>");
+      }
+    });
+
+  // Command handlers share Context first; Commander supplies their positional arguments.
+  const action =
+    <Args extends unknown[]>(run: (ctx: Context, ...args: Args) => number | Promise<number>) =>
+    async (...args: Args): Promise<void> => {
+      const options = program.opts<Options>();
+      code = await run(
+        {
+          io,
+          json: options.json === true,
+          url: options.url ?? io.env.AIA_URL,
+          tokenFile: options.tokenFile,
+          allowInsecureHttp: options.allowInsecureHttp === true,
+        },
+        ...args
+      );
     };
-    return await run(ctx, positionals, values.out);
-  } catch (error) {
+
+  program
+    .command("import <files...>")
+    .description(
+      "Import CA certificates (DER or PEM; each certificate block is imported separately)"
+    )
+    .action(action((ctx, files: string[]) => uploadFiles(ctx, files, "certificate")));
+
+  const config = program.command("config").description("Read, validate or replace config.json");
+  config.command("show").description("Print the stored config.json").action(action(configShow));
+  config
+    .command("validate <file>")
+    .description("Validate offline: V1-V3 and static parts of V4 / V6; apply checks the rest")
+    .action(action(configValidate));
+  config
+    .command("apply <file>")
+    .summary("Validate, then replace config.json as a whole")
+    .description(
+      "Validate, then replace config.json using the ETag of a fresh GET (If-None-Match: * " +
+        "for the first configuration). Overwrites changes you have not seen; the precondition " +
+        "only catches changes between this command's GET and PUT. Removing a target retires " +
+        "it: nothing serves it, its history stays."
+    )
+    .action(action(configApply));
+
+  program
+    .command("new-target-id")
+    .description("Print a new target id (a random UUID)")
+    .action(action(newTargetId));
+  program
+    .command("publish <files...>")
+    .description(
+      "Publish CRLs (DER or PEM): one upload per file; failed files do not stop the rest"
+    )
+    .action(action((ctx, files: string[]) => uploadFiles(ctx, files, "crl")));
+  program
+    .command("history <targetId> [sha256]")
+    .description("List CRL history newest first, or download one version with --out <file>")
+    .action(
+      action(async (ctx, targetId: string, sha256: string | undefined) => {
+        if (sha256 === undefined) {
+          return listHistory(ctx, targetId);
+        }
+        const { out } = program.opts<Options>();
+        if (out === undefined) {
+          throw new UsageError("history <targetId> <sha256> needs --out <file>");
+        }
+        return historyVersion(ctx, targetId, sha256, out);
+      })
+    );
+  program
+    .command("delete-certificate <id>")
+    .description("Delete an unreferenced certificate (a current CRL's verifier stays referenced)")
+    .action(action(deleteCertificate));
+  program
+    .command("health")
+    .description("Exit 0 only if the service reports healthy")
+    .action(action(health));
+
+  try {
+    await program.parseAsync([...argv], { from: "user" });
+    return code;
+  } catch (cause) {
+    let error = cause;
+    if (error instanceof CommanderError) {
+      if (error.exitCode === 0) {
+        return 0;
+      }
+      error = new UsageError(
+        error.code === "commander.help" ? "missing command" : error.message.replace(/^error: /, "")
+      );
+    }
     if (error instanceof UsageError) {
       io.stderr(`aia: ${error.message}\nRun "aia --help" for usage.\n`);
       return 2;
@@ -115,69 +169,6 @@ export async function main(argv: readonly string[], io: CliIo): Promise<number> 
       return 1;
     }
     throw error;
-  }
-}
-
-async function run(ctx: Context, positionals: string[], out: string | undefined): Promise<number> {
-  const [command, ...args] = positionals;
-  if (out !== undefined && (command !== "history" || args.length !== 2)) {
-    throw new UsageError("--out is only for history <targetId> <sha256>");
-  }
-  switch (command) {
-    case undefined:
-      throw new UsageError("missing command");
-    case "import":
-      expectArgs(args, 1, "import <file...>", Infinity);
-      return uploadFiles(ctx, args, "certificate");
-    case "config": {
-      const [sub, ...rest] = args;
-      switch (sub) {
-        case "show":
-          expectArgs(rest, 0, "config show");
-          return configShow(ctx);
-        case "validate":
-          expectArgs(rest, 1, "config validate <file>");
-          return configValidate(ctx, rest[0] ?? "");
-        case "apply":
-          expectArgs(rest, 1, "config apply <file>");
-          return configApply(ctx, rest[0] ?? "");
-        case undefined:
-          throw new UsageError("config needs show, validate or apply");
-        default:
-          throw new UsageError(`unknown config command ${JSON.stringify(sub)}`);
-      }
-    }
-    case "new-target-id":
-      expectArgs(args, 0, "new-target-id");
-      return newTargetId(ctx);
-    case "publish":
-      expectArgs(args, 1, "publish <file...>", Infinity);
-      return uploadFiles(ctx, args, "crl");
-    case "history": {
-      expectArgs(args, 1, "history <targetId> [<sha256> --out <file>]", 2);
-      const [targetId = "", sha256] = args;
-      if (sha256 === undefined) {
-        return listHistory(ctx, targetId);
-      }
-      if (out === undefined) {
-        throw new UsageError("history <targetId> <sha256> needs --out <file>");
-      }
-      return historyVersion(ctx, targetId, sha256, out);
-    }
-    case "delete-certificate":
-      expectArgs(args, 1, "delete-certificate <id>");
-      return deleteCertificate(ctx, args[0] ?? "");
-    case "health":
-      expectArgs(args, 0, "health");
-      return health(ctx);
-    default:
-      throw new UsageError(`unknown command ${JSON.stringify(command)}`);
-  }
-}
-
-function expectArgs(args: string[], count: number, form: string, max = count): void {
-  if (args.length < count || args.length > max) {
-    throw new UsageError(`usage: aia ${form}`);
   }
 }
 

@@ -70,7 +70,7 @@
 | 前端工具      | `@vueuse/core`                                   | 15.0.0                            | reka-ui 2.11.0 仍依赖 `^14.1.0`，web 包里暂有两份（多约 0.4 kB gzip），reka-ui 跟上后自然合一；`useNow`（统一时钟快照，15 起间隔经 `scheduler` 传 `useIntervalFn`）、`useStorage`；复制不用 `useClipboard`（其 `execCommand` 退路失败也报成功） |
 | 测试          | `vitest`、`@vue/test-utils`、`happy-dom`        | 5.0.5 / 2.5.1 / 21.0.4            | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`；夹具由脚本生成后入库（§10） |
 | Cloudflare    | `wrangler`                                      | 4.152.0（精确锁定）               | `wrangler types` 生成绑定类型 `worker-configuration.d.ts`（不入库）；不装 `@cloudflare/workers-types`；`compatibility_date` 随 wrangler 一起升 |
-| CLI           | `node:util` `parseArgs` + `fetch`               | 内置                              | 零依赖                                                                                         |
+| CLI           | `commander` + 内置 `fetch`                      | 15.0.0                            | 无传递依赖；声明式子命令、参数检查和自动帮助；`exitOverride` / 注入输出保留进程内测试与 0/1/2 退出码 |
 | 后续          | `@aws-sdk/client-s3`                            | 3.1152.0                          | S3 适配器切片，仅进 Node bundle                                                                |
 | 质量          | `typescript`；`eslint` + `@eslint/js` + `typescript-eslint` + `eslint-plugin-vue` + `vue-eslint-parser` + `jiti`；`prettier`；`knip` | 6.0.3；10.13.0 / 10.0.1 / 8.72.0 / 10.11.1 / 10.4.1 / 2.7.0；3.9.10；6.43.0 | `typescript` 精确锁 6.0.3（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）；`jiti` 供 ESLint 10 加载 `eslint.config.ts`；`knip` 查未用的文件、导出与依赖（§10）；`@types/node` 26.6.5 |
 | 开发前置      | OpenSSL CLI、bash、Docker Engine                 | OpenSSL ≥ 3.0（不是 LibreSSL）、Docker ≥ 25 | 只在开发与 CI 用：OpenSSL 只在重新生成测试夹具时需要，bash 用于夹具生成与冒烟脚本（`smoke:worker`、`ci:docker`）（§10，`pnpm test` 两者都不需要），Docker 构建镜像（`HEALTHCHECK --start-interval` 需要 25）；运行时都不需要 |
@@ -571,8 +571,10 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
 之外都算该文件失败）、`history <targetId>`（列历史）、`history <targetId> <sha256> --out <file>`（把一条历史的 DER 写进文件）、
 `delete-certificate <id>`（被引用时逐行列出引用来源，退出 1）、`health`。`config validate` 离线只跑静态规则（V1–V3、V4 / V6 的静态部分，
 与服务端共用不带 context 的 `validateConfig`），不连服务、不要令牌；状态与迁移规则（V4–V7、V9 的其余部分）由服务端在
-apply 时判定，以服务端为准。参数解析用 `parseArgs`，输出为每个文件（块）一行加汇总行，或 `--json`；退出码 0 成功、1 失败（或服务
-不健康）、2 用法错误。
+apply 时判定，以服务端为准。参数解析、子命令分发、参数数量检查和帮助由 `commander` 的命令树生成；每次 `main()` 新建实例，
+输出与退出处理可注入，不在库内终止进程。`createClient` 按命令解析 URL 与令牌，保留代理路径前缀，统一认证头、超时、响应读取和错误处理；
+命令只提供 `/api/v1` 下的相对路径。批量上传按文件和 PEM 块顺序发送，失败不中断后续项，边处理边累计统计；文本模式逐项输出，
+只有 `--json` 保存完整结果数组。输出为每个文件（块）一行加汇总行，或 `--json`；退出码 0 成功、1 失败（或服务不健康）、2 用法错误。
 
 ## 8. 前端
 

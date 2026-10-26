@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { main, USAGE } from "../../src/cli/aia.ts";
+import { main } from "../../src/cli/aia.ts";
 import type { CliIo } from "../../src/cli/aia.ts";
 import { CONFIG_KEY, TargetId } from "../../src/core/catalog.ts";
 import { sha256Hex } from "../../src/core/digest.ts";
@@ -129,19 +129,35 @@ async function storedEtag(svc: Service): Promise<string> {
 }
 
 describe("usage", () => {
-  it("prints the usage on stdout with --help and exits 0", async () => {
-    expect(await aia(["--help"])).toEqual({ code: 0, stdout: USAGE, stderr: "" });
+  it.each<[string[], string, string]>([
+    [["--help"], "Usage: aia ", "config"],
+    [["help"], "Usage: aia ", "publish"],
+    [["config", "--help"], "Usage: aia config ", "validate <file>"],
+    [["config", "apply", "--help"], "Usage: aia config apply ", "If-None-Match: *"],
+    [["help", "history"], "Usage: aia history ", "--out <file>"],
+  ])("prints help for %j without service access", async (argv, usage, detail) => {
+    const run = await aia(argv);
+    expect(run.code).toBe(0);
+    expect(run.stderr).toBe("");
+    expect(run.stdout).toContain(usage);
+    expect(run.stdout.replace(/\s+/g, " ")).toContain(detail);
+    expect(run.stdout).toContain("Exit codes: 0 success, 1 failure or not healthy, 2 usage error.");
   });
 
   // The default fetch is offline: none of these sends anything.
   it.each<[string[], Record<string, string>, RegExp]>([
     [[], ENV, /missing command/],
-    [["frobnicate"], ENV, /unknown command "frobnicate"/],
-    [["import"], ENV, /usage: aia import <file\.\.\.>/],
-    [["config", "edit"], ENV, /unknown config command "edit"/],
+    [["config"], ENV, /missing command/],
+    [["config", "apply"], ENV, /missing required argument 'file'/],
+    [["health", "extra"], ENV, /too many arguments/],
+    [["config", "show", "extra"], ENV, /too many arguments/],
+    [["health", "--url"], ENV, /argument missing/],
+    [["frobnicate"], ENV, /unknown command 'frobnicate'/],
+    [["import"], ENV, /missing required argument 'files'/],
+    [["config", "edit"], ENV, /unknown command 'edit'/],
     [["history", "a", "b", "--json"], ENV, /history <targetId> <sha256> needs --out <file>/],
     [["health", "--out", "x"], ENV, /--out is only for history <targetId> <sha256>/],
-    [["health", "--nope"], ENV, /Unknown option '--nope'/],
+    [["health", "--nope"], ENV, /unknown option '--nope'/],
     [["health"], { AIA_ADMIN_TOKEN: TOKEN }, /no service URL: pass --url or set AIA_URL/],
     [["import", ROOT_DER], { AIA_URL: BASE }, /no admin token: pass --token-file/],
     // Both variables are refused before the file is read.
@@ -161,6 +177,25 @@ describe("usage", () => {
     expect(run.stdout).toBe("");
     expect(run.stderr).toMatch(message);
     expect(run.stderr).toMatch(/Run "aia --help" for usage\.\n$/);
+  });
+
+  it("keeps global options before or after nested commands, with no state shared between runs", async () => {
+    const svc = service();
+    const args = ["--url", BASE, "--json"];
+    const before = await aia([...args, "health"], { fetch: svc.fetch });
+    const after = await aia(["health", ...args], { fetch: svc.fetch });
+    expect(before).toEqual(after);
+    expect(before.code).toBe(1);
+    expect(JSON.parse(before.stdout)).toMatchObject({ status: "degraded" });
+
+    const nested = await aia(["--json", "config", "--url", BASE, "validate", EXAMPLE]);
+    expect(nested.code).toBe(0);
+    expect(nested.stderr).toBe("");
+    expect(JSON.parse(nested.stdout)).toEqual({ ok: true });
+    const text = await aia(["config", "validate", EXAMPLE]);
+    expect(text.code).toBe(0);
+    expect(text.stdout).toContain("valid offline");
+    expect((await aia(["health"])).code).toBe(2);
   });
 });
 
@@ -240,6 +275,101 @@ describe("health", () => {
       stderr:
         "aia: cannot reach https://aia.test/api/v1/health: fetch failed " +
         "(connect ECONNREFUSED 127.0.0.1:1)\n",
+    });
+  });
+});
+
+describe("API client", () => {
+  it.each([
+    [
+      new Response("<html>proxy failed</html>", { status: 502, statusText: "Bad Gateway" }),
+      "HTTP 502: Bad Gateway",
+    ],
+    [new Response("not JSON"), "HTTP 200, but the body is not JSON"],
+    [
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new Error("body reset"));
+          },
+        })
+      ),
+      "cannot read the response from https://aia.test/api/v1/health: body reset",
+    ],
+  ])("reports response failures without exposing the body", async (response, message) => {
+    const run = await aia(["health"], { env: ENV, fetch: async () => response });
+    expect(run).toEqual({ code: 1, stdout: "", stderr: `aia: ${message}\n` });
+  });
+
+  it("accepts a 503 health report without sending an admin token", async () => {
+    const report = { status: "unhealthy", checks: { store: "error", configuration: "unknown" } };
+    const run = await aia(["health", "--json"], {
+      env: ENV,
+      fetch: async (_, init) => {
+        expect(new Headers(init.headers).has("Authorization")).toBe(false);
+        return Response.json(report, { status: 503 });
+      },
+    });
+    expect(run.code).toBe(1);
+    expect(run.stderr).toBe("");
+    expect(JSON.parse(run.stdout)).toEqual(report);
+  });
+
+  it("keeps a proxy path prefix and merges authentication with config preconditions", async () => {
+    const file = await configFile("proxy-config.json", JSON.parse(MINIMAL_CONFIG));
+    const calls: { url: string; method: string; headers: Headers }[] = [];
+    const etag = `"${"a".repeat(64)}"`;
+    const run = await aia(["config", "apply", file], {
+      env: { ...ENV, AIA_URL: `${BASE}/proxy///?ignored=1#ignored` },
+      fetch: async (url, init) => {
+        calls.push({ url, method: init.method ?? "GET", headers: new Headers(init.headers) });
+        return new Response(MINIMAL_CONFIG, { headers: { ETag: etag } });
+      },
+    });
+    expect(run.code).toBe(0);
+    expect(calls.map(({ url, method }) => [url, method])).toEqual([
+      [`${BASE}/proxy/api/v1/admin/config`, "GET"],
+      [`${BASE}/proxy/api/v1/admin/config`, "PUT"],
+    ]);
+    expect(calls.map(({ headers }) => headers.get("Authorization"))).toEqual([
+      `Bearer ${TOKEN}`,
+      `Bearer ${TOKEN}`,
+    ]);
+    expect(calls[1]?.headers.get("If-Match")).toBe(etag);
+    expect(calls[1]?.headers.get("Content-Type")).toBe("application/json");
+  });
+
+  it("does not write a config when its current ETag is missing", async () => {
+    const file = await configFile("missing-etag.json", JSON.parse(MINIMAL_CONFIG));
+    let requests = 0;
+    const run = await aia(["config", "apply", file], {
+      env: ENV,
+      fetch: async () => {
+        requests++;
+        return new Response(MINIMAL_CONFIG);
+      },
+    });
+    expect(requests).toBe(1);
+    expect(run).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: `aia: GET ${BASE}/api/v1/admin/config answered without an ETag\n`,
+    });
+  });
+
+  it("keeps damaged stored config readable as text, while --json reports a failure", async () => {
+    const svc = service();
+    await putText(svc.deps.store, CONFIG_KEY, "{broken");
+    expect(await against(svc, ["config", "show"])).toEqual({
+      code: 0,
+      stdout: "{broken\n",
+      stderr: "",
+    });
+    const json = await against(svc, ["config", "show", "--json"]);
+    expect(json).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: "aia: the stored config.json is not JSON: run without --json to see it as is\n",
     });
   });
 });
@@ -529,6 +659,44 @@ describe("publish", () => {
       updated: 0,
       unchanged: 0,
       failed: 1,
+    });
+  });
+});
+
+describe("batch response failures", () => {
+  it("continues after a connection failure and invalid JSON, preserving JSON result order", async () => {
+    const { svc } = await publishing();
+    let requests = 0;
+    const run = await aia(["publish", ROOT_CRL, ROOT_CRL, ROOT_CRL, "--json"], {
+      env: ENV,
+      fetch: (url, init) => {
+        requests++;
+        if (requests === 1) {
+          return Promise.reject(new Error("connection reset"));
+        }
+        if (requests === 2) {
+          return Promise.resolve(new Response("not JSON"));
+        }
+        return svc.fetch(url, init);
+      },
+    });
+    expect(requests).toBe(3);
+    expect(run.code).toBe(1);
+    expect(run.stderr).toBe("");
+    expect(JSON.parse(run.stdout)).toMatchObject({
+      created: 1,
+      updated: 0,
+      unchanged: 0,
+      failed: 2,
+      results: [
+        {
+          file: ROOT_CRL,
+          ok: false,
+          error: { message: `cannot reach ${BASE}/api/v1/crls: connection reset` },
+        },
+        { file: ROOT_CRL, ok: false, error: { message: "HTTP 200, but the body is not JSON" } },
+        { file: ROOT_CRL, ok: true, outcome: "created" },
+      ],
     });
   });
 });
