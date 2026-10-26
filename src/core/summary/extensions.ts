@@ -22,11 +22,12 @@ import {
   QC_STATEMENT_NAMES,
 } from "../pki/constants.ts";
 import {
+  plainExtension,
   readAuthorityKeyId,
   readCRLInteger,
-  readExtensionDer,
   readSubjectKeyId,
 } from "../pki/extensions.ts";
+import type { PlainExtension } from "../pki/extensions.ts";
 import {
   BIT_STRING,
   BOOLEAN,
@@ -50,6 +51,7 @@ import {
   readBigInt,
   readBits,
   readBoolean,
+  readDer,
   readInteger,
   readOid,
   sequenceOf,
@@ -87,7 +89,12 @@ export function buildExtensions(extensions: pkijs.Extension[] | undefined): Exte
 }
 
 export function buildExtension(ext: pkijs.Extension): Extension {
-  const bytes = ext.extnValue.valueBlock.valueHexView;
+  return extensionOf(plainExtension(ext));
+}
+
+/** The detail of an extension as plain values: a revoked entry's (parseCRL), or buildExtension's. */
+export function extensionOf(ext: PlainExtension): Extension {
+  const bytes = ext.value;
   const result: Extension = {
     extnID: buildObjectIdentifier(ext.extnID, EXTENSION_NAMES),
     critical: ext.critical,
@@ -95,7 +102,7 @@ export function buildExtension(ext: pkijs.Extension): Extension {
     parseStatus: "unsupported",
   };
   try {
-    result.parsed = PARSER_BY_OID[ext.extnID]?.(readExtensionDer(ext));
+    result.parsed = PARSER_BY_OID[ext.extnID]?.(readDer(bytes));
     if (result.parsed) {
       result.parseStatus = "parsed";
     }

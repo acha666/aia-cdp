@@ -61,6 +61,31 @@ describe("parseCertificate / parseCRL", () => {
       }
     }
   });
+
+  // asn1js reads the last RDN past the issuer's end, so it still sees the CRL as it was, revoked
+  // list included, where the TLV split of parseCrlHeader sees none: parseCRL would skip the entries.
+  it("rejects a CRL whose issuer is one octet shorter than its RDNs", () => {
+    const der = fixture("crls/issuing-ca-1/full-01.der").slice();
+    der[26] = 72; // the issuer's length, 73 in the fixture
+    for (const parse of [parseCrlHeader, parseCRL]) {
+      expect(() => parse(der)).toThrow(pkiError("crl", "der"));
+    }
+  });
+
+  // Without the revoked list, a nextUpdate after it would be read as the nextUpdate of the header.
+  it("rejects a CRL with a field between revokedCertificates and crlExtensions", () => {
+    const crl = fixture("crls/issuing-ca-1/full-01.der");
+    const [nextUpdate, revoked] = [crl.subarray(115, 130), crl.subarray(130, 193)];
+    const der = Uint8Array.from([
+      ...crl.subarray(0, 115),
+      ...revoked,
+      ...nextUpdate,
+      ...crl.subarray(193),
+    ]);
+    for (const parse of [parseCrlHeader, parseCRL]) {
+      expect(() => parse(der)).toThrow(pkiError("crl", "structure"));
+    }
+  });
 });
 
 describe("key identifiers", () => {

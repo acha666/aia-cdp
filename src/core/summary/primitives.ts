@@ -45,9 +45,13 @@ export function buildVersion(version: number | undefined): X509Version {
   return { raw, display };
 }
 
-export function buildSerialNumber(integer: Integer): SerialNumber {
-  const hex = toUpperHex(integer.valueBlock.valueHexView);
+export function serialNumberOf(octets: Uint8Array): SerialNumber {
+  const hex = toUpperHex(octets);
   return { hex, decimal: BigInt(`0x${hex}`).toString() };
+}
+
+export function buildSerialNumber(integer: Integer): SerialNumber {
+  return serialNumberOf(integer.valueBlock.valueHexView);
 }
 
 const bitStringOf = (bytes: Uint8Array, unusedBits: number): BitString => ({

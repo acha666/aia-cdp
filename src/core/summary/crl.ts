@@ -1,21 +1,16 @@
 // The TBSCertList projection of the CRL detail, built whole on every request: every revoked entry
 // is returned (no pages and no cursor), and there is no CRL type here, since the kind of a target
 // comes from config.json, not from the presence of a Delta CRL Indicator.
-import type * as pkijs from "pkijs";
 import { SIGNATURE_ALG_NAMES } from "../pki/constants.ts";
+import type { CrlEntry, WholeCrl } from "../pki/parsers.ts";
 import type { TBSCertList, RevokedCertificate } from "./schemas.ts";
-import {
-  buildVersion,
-  buildSerialNumber,
-  buildAlgorithmIdentifier,
-  buildTime,
-} from "./primitives.ts";
+import { buildVersion, serialNumberOf, buildAlgorithmIdentifier, buildTime } from "./primitives.ts";
 import { buildName } from "./names.ts";
-import { buildExtensions, buildExtension } from "./extensions.ts";
+import { buildExtensions, extensionOf } from "./extensions.ts";
 
-export function buildTBSCertList(crl: pkijs.CertificateRevocationList): TBSCertList {
+export function buildTBSCertList(crl: WholeCrl): TBSCertList {
   // An absent list is an empty one.
-  const items = (crl.revokedCertificates ?? []).map(buildRevokedCertificate);
+  const items = crl.entries.map(buildRevokedCertificate);
   return {
     version: buildVersion(crl.version),
     signature: buildAlgorithmIdentifier(crl.signature, SIGNATURE_ALG_NAMES),
@@ -27,13 +22,13 @@ export function buildTBSCertList(crl: pkijs.CertificateRevocationList): TBSCertL
   };
 }
 
-function buildRevokedCertificate(revoked: pkijs.RevokedCertificate): RevokedCertificate {
-  const extensions = revoked.crlEntryExtensions?.extensions;
+function buildRevokedCertificate(entry: CrlEntry): RevokedCertificate {
+  const extensions = entry.extensions;
   return {
-    userCertificate: buildSerialNumber(revoked.userCertificate),
-    revocationDate: buildTime(revoked.revocationDate),
-    crlEntryExtensions: extensions?.length
-      ? { count: extensions.length, items: extensions.map(buildExtension) }
+    userCertificate: serialNumberOf(entry.serial),
+    revocationDate: buildTime(entry.revocationDate),
+    crlEntryExtensions: extensions.length
+      ? { count: extensions.length, items: extensions.map(extensionOf) }
       : undefined,
   };
 }

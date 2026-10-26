@@ -374,16 +374,17 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 2. 读 `config.json` 与 `catalog.json`（各一次 `get`，记下 catalog 的 ETag）。`sha256` 等于某个已配置目标的 `current.sha256` →
    200 `unchanged`，不解析、不验签、不写。
 3. 头部：外层 SEQUENCE 须是定长 DER 且恰好覆盖全部字节（否则 `der` / `trailing_bytes`）；TBSCertList 里的吊销列表只按它的 TLV
-   头切出、不解码，其余字段拼回后按严格 DER 解析（asn1js 默认限额）。读出 AKI、CRL 号、delta 指示与时间，再做 CRL 级检查：外层算法
-   与 TBS 内的字节不同、`thisUpdate` 超前 5 分钟以上、未识别的关键扩展、作用域 IDP，各是独立拒绝原因。每次调用至多做一次。
+   头切出、不解码，其余字段拼回后按严格 DER 解析（asn1js 默认限额，读出的字段须与切分一致）。读出 AKI、CRL 号、delta 指示与
+   时间，再做 CRL 级检查：外层算法与 TBS 内的字节不同、`thisUpdate` 超前 5 分钟以上、未识别的关键扩展、作用域 IDP，各是独立
+   拒绝原因。每次调用至多做一次。
 4. 用 AKI 在 catalog 的证书摘要里找 SKI 相等的证书，再在 config 里找绑定它且 kind 匹配的目标。
    无 AKI `keyIdentifier` 或找不到证书是 `issuer_not_found`，证书存在但无目标是 `target_not_configured`；两个匹配目标只会来自绕过
    规则 V6 手写的 config，按服务端故障 500。
 5. 读签发者 DER（按已知键），用目标配置的签发者对收到的原始 TBSCertList（含吊销列表）验签（同 SKI 的续期证书不影响选择）。
 6. 与 `targets[id].current` 比较：按 catalog 里的 `crlNumber` / `thisUpdate` 摘要判新鲜度，不必再读当前 DER；`stale_crl`、`conflict`、
    `non_orderable` 到此结束。
-7. 只有将成为 `created` / `updated` 的 CRL 才完整解码（限额随输入放大），检查吊销条目的扩展，生成带 `revokedCount` 的摘要。
-   每次调用至多做一次。
+7. 只有将成为 `created` / `updated` 的 CRL 才完整解码（吊销条目逐条解码，各用 asn1js 默认限额，嵌套深度仍从 CRL 算起），
+   检查吊销条目的扩展，生成带 `revokedCount` 的摘要。每次调用至多做一次。
 8. `put` blob（内容寻址，`ifNoneMatch: "*"`，已存在即视为成功，幂等）。
 9. 若有旧 `current`，先 create-only 写它的 history 标记（§5.1）；再 `put catalog.json` 带 `ifMatch` 更新 `current`。
    失败则重读 config 与 catalog 回到第 2 步（重新找目标并验签），重试三次（共 4 次尝试，250 ms、500 ms、

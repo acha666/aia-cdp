@@ -6,11 +6,13 @@ import { DerReader, INTEGER, SEQUENCE, context, readInteger } from "./der.ts";
 import { messageOf, PkiParseError } from "./errors.ts";
 import type { PkiKind } from "./errors.ts";
 import {
+  plainExtension,
   readAuthorityKeyId,
   readCRLInteger,
   readExtensionSchema,
   readSubjectKeyId,
 } from "./extensions.ts";
+import type { PlainExtension } from "./extensions.ts";
 import { encodeTlv, readTlv } from "./pem.ts";
 import type { Tlv } from "./pem.ts";
 import { toHex } from "../digest.ts";
@@ -20,12 +22,9 @@ const LABELS: Record<PkiKind, string> = { certificate: "certificate", crl: "CRL"
 // Strict DER: one top-level element, no decoder errors, RFC 5280 times. A Uint8Array may be a view
 // into a larger buffer: asn1js decodes the view, so the end offset is compared with the view's
 // byteLength, never the buffer's (whatever surrounds the view is not part of the input).
-// asn1js's default limits (10 000 nodes, 16 MiB of contents) apply unless `limits` says otherwise.
-function decodeDer(
-  der: ArrayBuffer | Uint8Array,
-  kind: PkiKind,
-  limits?: { maxNodes: number; maxContentLength: number }
-) {
+// asn1js's default limits (10 000 nodes, 16 MiB of contents, 100 levels) apply unless `limits` says
+// otherwise.
+function decodeDer(der: ArrayBuffer | Uint8Array, kind: PkiKind, limits?: { maxDepth: number }) {
   const label = LABELS[kind];
   let asn1: ReturnType<typeof fromBER>;
   try {
@@ -70,7 +69,7 @@ export interface ReceivedAlgorithms {
 /** A certificate from parseCertificate: PKIjs's object plus its AlgorithmIdentifiers as received. */
 export interface ReceivedCertificate extends pkijs.Certificate, ReceivedAlgorithms {}
 
-/** A CRL from parseCRL: PKIjs's object plus its AlgorithmIdentifiers as received. */
+/** A CRL from parseCrlHeader: PKIjs's object plus its AlgorithmIdentifiers as received. */
 export interface ReceivedCrl extends pkijs.CertificateRevocationList, ReceivedAlgorithms {}
 
 /** Whether the outer signatureAlgorithm and the TBS signature are the same octets (OID and parameters). */
@@ -144,23 +143,10 @@ function crlOf(schema: BaseBlock): ReceivedCrl {
   return construct("crl", schema, () => new pkijs.CertificateRevocationList({ schema }));
 }
 
-/**
- * The whole CRL, every revoked entry included. Throws PkiParseError (kind "crl", reason der /
- * trailing_bytes / time / structure). The decoding limits scale with the input: asn1js's default
- * of 10 000 nodes fails a valid CRL of some 1 250 entries with a reasonCode (8 nodes each), and an
- * input holds at most half as many nodes as octets (each has an identifier and a length octet)
- * and no contents longer than itself. Building the entries then takes far more memory than the
- * input, so this is only for a CRL whose signature verified or one already stored; an upload is
- * checked on parseCrlHeader first.
- */
-export function parseCRL(der: ArrayBuffer | Uint8Array): ReceivedCrl {
-  const limits = { maxNodes: der.byteLength, maxContentLength: der.byteLength };
-  return crlOf(decodeDer(der, "crl", limits));
-}
-
 const SEQUENCE_TAG = 0x30;
 const UTC_TIME_TAG = 0x17;
 const GENERALIZED_TIME_TAG = 0x18;
+const CRL_EXTENSIONS_TAG = 0xa0;
 
 // A CRL without its entries is the issuer name, the times, a few extensions and the signature: well
 // under 4 KiB for any real CA. The cap keeps the decoding before the signature check small.
@@ -190,11 +176,16 @@ function fieldsOf(der: Uint8Array, parent: Tlv, max: number): Tlv[] {
  * The outer SEQUENCE must be DER and span `der` exactly, filled by exactly its three fields; the
  * revokedCertificates of the TBSCertList is the SEQUENCE after thisUpdate or nextUpdate. A
  * CertificateList re-assembled from every other field, octet for octet, must fit in 16 KiB and then
- * goes through the strict decoding of parseCRL with asn1js's default limits. `tbsView` is the
- * TBSCertList as received, entries included, which the signature covers; `revokedCertificates` is
- * undefined. Throws PkiParseError like parseCRL.
+ * goes through the strict decoding, which must read the same fields. `tbsView` is the TBSCertList
+ * as received, entries included, which the signature covers; `revokedCertificates` is undefined.
+ * Throws PkiParseError like parseCRL.
  */
 export function parseCrlHeader(der: Uint8Array): ReceivedCrl {
+  return splitCrl(der).crl;
+}
+
+/** parseCrlHeader's CRL and the TLV of its revokedCertificates, undefined when the list is absent. */
+function splitCrl(der: Uint8Array): { crl: ReceivedCrl; revoked: Tlv | undefined } {
   const outer = readTlv(der, 0, der.length);
   if (outer === undefined) {
     throw new PkiParseError("crl", "der", "Bad CRL DER: not one definite-length DER TLV");
@@ -216,6 +207,15 @@ export function parseCrlHeader(der: Uint8Array): ReceivedCrl {
       field.tag === SEQUENCE_TAG &&
       [UTC_TIME_TAG, GENERALIZED_TIME_TAG].includes(fields[index - 1]?.tag ?? 0)
   );
+  // The header is read without the list, so a field after it but crlExtensions would take its
+  // place there (a nextUpdate, a second list) where the whole CRL fails PKIjs's schema.
+  if (revoked !== -1 && ![undefined, CRL_EXTENSIONS_TAG].includes(fields[revoked + 1]?.tag)) {
+    throw new PkiParseError(
+      "crl",
+      "structure",
+      "Bad CRL structure: a field other than crlExtensions after revokedCertificates"
+    );
+  }
   const octets = (tlv: Tlv) => der.subarray(tlv.start, tlv.end);
   const header = encodeTlv(SEQUENCE_TAG, [
     encodeTlv(SEQUENCE_TAG, fields.filter((_, index) => index !== revoked).map(octets)),
@@ -228,9 +228,68 @@ export function parseCrlHeader(der: Uint8Array): ReceivedCrl {
       "Bad CRL structure: more than 16 KiB besides the entries"
     );
   }
-  const crl = crlOf(decodeDer(header, "crl"));
+  const schema = decodeDer(header, "crl");
+  // asn1js reads the elements of a constructed value as far as its input goes, not only as far as
+  // the value: a field whose elements overrun it makes asn1js read other fields than the split
+  // above (a revoked list among them, whose entries parseCRL would then skip).
+  const tbsFields = new DerReader(new DerReader(schema).read(SEQUENCE)).rest(0);
+  const overruns = ({ idBlock, lenBlock, valueBlock }: BaseBlock) =>
+    idBlock.isConstructed && valueBlock.blockLength !== lenBlock.length;
+  if (tbsFields.some(overruns)) {
+    throw new PkiParseError("crl", "der", "Bad CRL DER: a field's elements overrun it");
+  }
+  const crl = crlOf(schema);
   crl.tbsView = octets(tbs);
-  return crl;
+  return { crl, revoked: fields[revoked] };
+}
+
+/** A revoked entry from parseCRL as plain values: its asn1js tree is not kept. */
+export interface CrlEntry {
+  /** The contents octets of userCertificate. */
+  serial: Uint8Array;
+  revocationDate: pkijs.Time;
+  /** [] when crlEntryExtensions is absent. */
+  extensions: PlainExtension[];
+}
+
+/** A CRL from parseCRL: parseCrlHeader's CRL plus every revoked entry in order, [] for none. */
+export interface WholeCrl extends ReceivedCrl {
+  entries: CrlEntry[];
+}
+
+/** One entry of revokedCertificates (its TLV), decoded in strict DER on its own. */
+function readEntry(der: Uint8Array): CrlEntry {
+  // An entry sits three levels below the CertificateList (TBSCertList, revokedCertificates).
+  const schema = decodeDer(der, "crl", { maxDepth: 97 });
+  let entry: pkijs.RevokedCertificate;
+  try {
+    entry = new pkijs.RevokedCertificate({ schema });
+  } catch (error) {
+    throw new PkiParseError("crl", "structure", `Bad CRL structure: ${messageOf(error)}`, {
+      cause: error,
+    });
+  }
+  return {
+    serial: entry.userCertificate.valueBlock.valueHexView,
+    revocationDate: entry.revocationDate,
+    extensions: entry.crlEntryExtensions?.extensions.map(plainExtension) ?? [],
+  };
+}
+
+/**
+ * The whole CRL, every revoked entry included. Throws PkiParseError (kind "crl", reason der /
+ * trailing_bytes / time / structure). parseCrlHeader's checks come first; then each entry is
+ * decoded on its own and kept as plain values, so that one entry's asn1js tree is alive at a time
+ * (the tree of a whole CRL takes some 140 bytes of heap per octet). The entries still take far
+ * more memory than the input, so this is only for a CRL whose signature verified or one already
+ * stored; an upload is checked on parseCrlHeader first.
+ */
+export function parseCRL(der: Uint8Array): WholeCrl {
+  const { crl, revoked } = splitCrl(der);
+  const entries = revoked
+    ? fieldsOf(der, revoked, Infinity).map((tlv) => readEntry(der.subarray(tlv.start, tlv.end)))
+    : [];
+  return Object.assign(crl, { entries });
 }
 
 /**

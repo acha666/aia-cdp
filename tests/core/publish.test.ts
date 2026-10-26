@@ -159,7 +159,7 @@ describe("publishCrl: rejections", () => {
   // Unverified revoked entries are never decoded: an anonymous upload costs one signature check.
   it("answers invalid_signature, not invalid_crl, for a revoked list of 50 000 NULLs", async () => {
     const { base } = await fresh();
-    const crl = parseCRL(fixture(FULL_01));
+    const crl = pkijs.CertificateRevocationList.fromBER(fixture(FULL_01));
     const schema = crl.toSchema(true) as asn1.Sequence;
     const fields = (schema.valueBlock.value[0] as asn1.Sequence).valueBlock.value;
     const revoked = fields.findIndex(

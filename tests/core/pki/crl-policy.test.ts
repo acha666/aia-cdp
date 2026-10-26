@@ -7,6 +7,7 @@ import {
   checkEntryPolicy,
   ISSUING_DISTRIBUTION_POINT_OID,
 } from "../../../src/core/pki/crl-policy.ts";
+import { plainExtension } from "../../../src/core/pki/extensions.ts";
 import { parseCRL } from "../../../src/core/pki/parsers.ts";
 import type { ReceivedCrl } from "../../../src/core/pki/parsers.ts";
 import { cert, crlEntry, fixture, NOW } from "../../fixtures/pki.ts";
@@ -35,10 +36,8 @@ function withCrlExtension(crl: ReceivedCrl, added: pkijs.Extension) {
 /** full-01 with `added` appended to the extensions of its one entry (leaf-revoked). */
 function withEntryExtension(added: pkijs.Extension) {
   const crl = crlOf(FULL_01);
-  const revoked = crl.revokedCertificates![0]!;
-  revoked.crlEntryExtensions = new pkijs.Extensions({
-    extensions: [...(revoked.crlEntryExtensions?.extensions ?? []), added],
-  });
+  const entry = crl.entries[0]!;
+  entry.extensions.push(plainExtension(added));
   return crl;
 }
 
@@ -115,9 +114,9 @@ describe("checkEntryPolicy", () => {
 
   it("accepts reasonCode, invalidityDate and holdInstructionCode marked critical", () => {
     const crl = crlOf(FULL_01);
-    const extensions = crl.revokedCertificates![0]!.crlEntryExtensions!.extensions;
+    const extensions = crl.entries[0]!.extensions;
     const hold = new asn1.ObjectIdentifier({ value: "1.2.840.10040.2.3" });
-    extensions.push(extension("2.5.29.23", hold));
+    extensions.push(plainExtension(extension("2.5.29.23", hold)));
     for (const ext of extensions) {
       ext.critical = true;
     }

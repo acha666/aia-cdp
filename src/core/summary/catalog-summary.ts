@@ -11,6 +11,7 @@ import {
   getNextCRLPublish,
   getSKIHex,
 } from "../pki/parsers.ts";
+import type { WholeCrl } from "../pki/parsers.ts";
 import { buildName } from "./names.ts";
 
 /** `read()`, with whatever it throws reported as a malformed extension of `kind`. */
@@ -82,14 +83,11 @@ export function readCrlFields(crl: CertificateRevocationList): CrlFields {
  * Summary of a CRL parsed by parseCRL from `der`, in the catalog format of `current.summary`.
  * Throws like readCrlFields.
  */
-export async function buildCrlSummary(
-  crl: CertificateRevocationList,
-  der: Uint8Array
-): Promise<CrlSummary> {
+export async function buildCrlSummary(crl: WholeCrl, der: Uint8Array): Promise<CrlSummary> {
   const { nextPublish, ...fields } = readCrlFields(crl);
   return {
     ...fields,
-    revokedCount: crl.revokedCertificates?.length ?? 0,
+    revokedCount: crl.entries.length,
     sha1: await sha1Hex(der),
     nextPublish,
   };

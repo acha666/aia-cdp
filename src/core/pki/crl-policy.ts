@@ -2,13 +2,13 @@
 // CRL before the signature check (verify.ts), checkEntryPolicy on the whole CRL once the signature
 // verified. The signature check bypasses PKIjs's own CRL check and with it PKIjs's list of critical
 // extensions: these tables are the only extension gate.
-import type { CertificateRevocationList, Extension } from "pkijs";
+import type { Extension } from "pkijs";
 import { toHex, toUpperHex } from "../digest.ts";
 import { SEQUENCE, context, hasTag, sequenceOf } from "./der.ts";
 import { messageOf } from "./errors.ts";
 import { readExtensionSchema } from "./extensions.ts";
 import { sameSignatureAlgorithms } from "./parsers.ts";
-import type { ReceivedCrl } from "./parsers.ts";
+import type { ReceivedCrl, WholeCrl } from "./parsers.ts";
 
 /** How far thisUpdate may lie ahead of the clock: exactly five minutes is still accepted. */
 const MAX_CLOCK_SKEW_MS = 300_000;
@@ -168,15 +168,15 @@ export function checkCrlPolicy(crl: ReceivedCrl, now: Date): CrlPolicyResult {
  * scoped_crl_unsupported; any other critical one → unknown_critical_extension, both with the
  * entry's serial number. Pure, like checkCrlPolicy.
  */
-export function checkEntryPolicy(crl: CertificateRevocationList): { ok: true } | CrlPolicyFailure {
-  for (const entry of crl.revokedCertificates ?? []) {
-    for (const extension of entry.crlEntryExtensions?.extensions ?? []) {
+export function checkEntryPolicy(crl: WholeCrl): { ok: true } | CrlPolicyFailure {
+  for (const entry of crl.entries) {
+    for (const extension of entry.extensions) {
       const oid = extension.extnID;
       if (RECOGNIZED_ENTRY_EXTENSIONS.has(oid)) {
         continue;
       }
       if (oid === CERTIFICATE_ISSUER_OID) {
-        const serialNumber = toUpperHex(entry.userCertificate.valueBlock.valueHexView);
+        const serialNumber = toUpperHex(entry.serial);
         return {
           ok: false,
           error: "scoped_crl_unsupported",
@@ -185,7 +185,7 @@ export function checkEntryPolicy(crl: CertificateRevocationList): { ok: true } |
         };
       }
       if (extension.critical) {
-        const serialNumber = toUpperHex(entry.userCertificate.valueBlock.valueHexView);
+        const serialNumber = toUpperHex(entry.serial);
         return {
           ok: false,
           error: "unknown_critical_extension",

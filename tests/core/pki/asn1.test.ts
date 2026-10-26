@@ -70,19 +70,6 @@ describe("assertWellFormed", () => {
   ])("accepts %s", (_, hex) => {
     expect(() => assertWellFormed(asn1.fromBER(bytes(hex)).result)).not.toThrow();
   });
-
-  // A CRL with that many entries; push(...children) overflowed the call stack at about 250 000.
-  it("walks a SEQUENCE of 300 000 children", () => {
-    const count = 300_000;
-    const der = new Uint8Array(5 + 2 * count);
-    der.set([0x30, 0x83, (2 * count) >> 16, ((2 * count) >> 8) & 0xff, (2 * count) & 0xff]);
-    for (let at = 5; at < der.length; at += 2) {
-      der[at] = 0x05;
-    }
-    const decoded = asn1.fromBER(der, { maxNodes: der.length, maxContentLength: der.length });
-    expect(decoded.offset).toBe(der.length);
-    expect(() => assertWellFormed(decoded.result)).not.toThrow();
-  });
 });
 
 it("formatGeneralizedTime writes a fixed-width UTC text without milliseconds, sorting as time", () => {

@@ -1,7 +1,7 @@
 // Extension values that both the upload path and the detail views read: key identifiers and CRL
 // numbers. An upload holds the certificate or CRL to DER but not the contents of its extension
 // values (plan §6), so it reads them with readExtensionSchema; the detail views decode every value
-// in strict DER (readExtensionDer). The readers below take the decoded value either way.
+// in strict DER (readDer). The readers below take the decoded value either way.
 import type { BaseBlock } from "asn1js";
 import type { Extension } from "pkijs";
 import {
@@ -12,7 +12,6 @@ import {
   contents,
   expectTag,
   readBigInt,
-  readDer,
   readOne,
   sequenceOf,
 } from "./der.ts";
@@ -21,9 +20,19 @@ import {
 export const readExtensionSchema = (extension: Extension): BaseBlock =>
   readOne(extension.extnValue.valueBlock.valueHexView);
 
-/** The extension value as one element in strict DER (the detail views). */
-export const readExtensionDer = (extension: Extension): BaseBlock =>
-  readDer(extension.extnValue.valueBlock.valueHexView);
+/** An extension as plain values, without asn1js blocks: how parseCRL keeps a revoked entry's. */
+export interface PlainExtension {
+  extnID: string;
+  critical: boolean;
+  /** The contents octets of extnValue. */
+  value: Uint8Array;
+}
+
+export const plainExtension = (extension: Extension): PlainExtension => ({
+  extnID: extension.extnID,
+  critical: extension.critical,
+  value: extension.extnValue.valueBlock.valueHexView,
+});
 
 /** SubjectKeyIdentifier ::= KeyIdentifier (a primitive OCTET STRING): its octets. */
 export const readSubjectKeyId = (value: BaseBlock): Uint8Array =>
