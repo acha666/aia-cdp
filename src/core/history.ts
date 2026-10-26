@@ -8,7 +8,7 @@
 // lists hold every version that catalog names.
 import { z } from "zod";
 import { CrlSummarySchema, readState, Sha256Hex, TargetId } from "./catalog.ts";
-import type { CrlSummary, CurrentCrl } from "./catalog.ts";
+import type { CrlSummary } from "./catalog.ts";
 import { formatGeneralizedTime } from "./pki/asn1.ts";
 import { readBlob } from "./store.ts";
 import type { ObjectStore } from "./store.ts";
@@ -77,15 +77,6 @@ export function crlHistoryKey(
 ): string {
   return `${crlHistoryPrefix(targetId)}${crlVersionName(summary, sha256)}${MARKER_EXTENSION}`;
 }
-
-/**
- * Body of a history marker written when a publish supersedes `current`: that record verbatim. No
- * time of its own: a marker is create-only and may come from a call whose catalog write was then
- * lost (concurrent_update) while the version stayed current, so a time written then would stay
- * wrong forever. When the version was superseded is the `publishedAt` of the version that
- * superseded it.
- */
-export type HistoryMarker = CurrentCrl;
 
 // The version name of a listed key: the key without `prefix` and `extension`; "" (which is no
 // version name) for a key with another extension.

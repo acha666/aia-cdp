@@ -200,7 +200,7 @@ D8：批次 1 = 本目录（当时为单文件 `docs/implementation.md`）+ plan
 
 ### 2.6 错误信封、状态码与日志（plan §4.3、§7.3、B12）
 
-- 失败体 `{ "error": { "code", "message", "details"? } }`，每个状态码一个 schema，code 枚举按路由收窄；成功体直接返回资源，不包
+- 失败体 `{ "error": { "code", "message", "details"? } }`，共用一个 `ErrorResponse` schema，code 为字符串、details 为可选数据；HTTP 状态码在抛错处明确指定；成功体直接返回资源，不包
   `{ data }`。异常文本与栈只进日志；未预期错误一律 500 `internal` + 固定文案。
 - `details.reason` 词表：`invalid_certificate` / `invalid_crl` 用 `der`、`trailing_bytes`、`time`、`structure`、`extension_value`、
   `pem_label`、`pem_blocks`、`pem_base64`、`signature_algorithm_mismatch`（外层与 TBS 签名算法收到的字节不同）；`issuer_not_found` 另有

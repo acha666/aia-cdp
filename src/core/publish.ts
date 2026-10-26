@@ -1,8 +1,7 @@
 // CRL publishing (plan §5.5): the freshness rule and publishCrl, which writes the blob and history
 // marker keys of ./history.ts. There is one commit point, the catalog write: no PEM or alias
 // companions, no edge cache. The HTTP route maps the result.
-import { z } from "zod";
-import { CrlSummarySchema, encodeJson, Sha256Hex, updateState } from "./catalog.ts";
+import { encodeJson, updateState } from "./catalog.ts";
 import type {
   CatalogDeps,
   CatalogMutation,
@@ -13,7 +12,6 @@ import type {
 } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { crlBlobKey, crlHistoryKey } from "./history.ts";
-import type { HistoryMarker } from "./history.ts";
 import { checkCrlPolicy, checkEntryPolicy } from "./pki/crl-policy.ts";
 import type { CrlPolicyFailure } from "./pki/crl-policy.ts";
 import { PkiParseError } from "./pki/errors.ts";
@@ -124,16 +122,12 @@ export interface PublishSuccess {
   downloads: string[];
 }
 
-/** The stored current CRL a 409 refers to (`details.current`; the HTTP schema uses this one). */
-export const CurrentCrlVersion = z
-  .object({
-    sha256: Sha256Hex,
-    crlNumber: CrlSummarySchema.shape.crlNumber,
-    thisUpdate: CrlSummarySchema.shape.thisUpdate,
-  })
-  .meta({ id: "CurrentCrlVersion" });
-
-export type CurrentVersion = z.infer<typeof CurrentCrlVersion>;
+/** The current CRL a conflict refers to (`details.current`). */
+export interface CurrentVersion {
+  sha256: string;
+  crlNumber: string | null;
+  thisUpdate: string;
+}
 
 /**
  * The failures (implementation §2.6), `details` as the envelope carries them. The route answers
@@ -387,8 +381,8 @@ async function publish(
     await putOnce(key, der);
     const publishedAt = now.toISOString();
     if (current !== null) {
-      const marker: HistoryMarker = current;
-      await putOnce(crlHistoryKey(targetId, current.summary, current.sha256), encodeJson(marker));
+      // Keep the superseded record verbatim. A lost race must not leave a false retirement time.
+      await putOnce(crlHistoryKey(targetId, current.summary, current.sha256), encodeJson(current));
     }
     const record: CurrentCrl = {
       sha256,
@@ -418,9 +412,8 @@ async function publish(
   const update = await updateState(deps, attempt);
   if ("error" in update) {
     trace.detail = `The catalog write was lost ${trace.attempts} times`;
-    return { error: "concurrent_update" };
   }
-  return update.result;
+  return update;
 }
 
 /** The longest `detail` of a log line: it can quote the upload (a PEM label, a hex dump). */

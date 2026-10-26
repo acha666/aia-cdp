@@ -65,7 +65,8 @@ interface Where {
 type ItemFailure = Where & { ok: false; error: { message: string } & Partial<HttpError> };
 
 /** One line of the import or publish report (`--json`: the array `results`). */
-type ItemResult<T> = (Where & { ok: true } & T) | ItemFailure;
+type UploadBody = z.infer<typeof ImportedCertificate> | z.infer<typeof PublishedCrl>;
+type ItemResult = (Where & { ok: true } & UploadBody) | ItemFailure;
 
 /** An import or publish file that cannot be read; its report line names the file. */
 function unreadable(reason: string): Failure {
@@ -85,13 +86,6 @@ interface Upload {
   where: Where;
   source: string;
   body: Uint8Array | string;
-}
-
-/** Where the uploads go, and the success outcomes the summary counts (before "failed"). */
-interface Route {
-  url: string;
-  headers: Record<string, string>;
-  outcomes: readonly string[];
 }
 
 /** A failure's details beyond `reason` (which describeHttp prints), for the text report. */
@@ -115,57 +109,10 @@ function detailsText(details: unknown): string {
 }
 
 /**
- * POSTs one upload. The service recognizes the format from the bytes, so every body goes as
- * application/octet-stream. An error response, or a Failure on the way, is the item's failure.
- */
-async function postItem<T>(
-  ctx: Context,
-  route: Route,
-  { where, body }: Upload
-): Promise<ItemResult<T>> {
-  try {
-    const reply = await request(ctx, route.url, {
-      method: "POST",
-      headers: { ...route.headers, "Content-Type": "application/octet-stream" },
-      body,
-    });
-    if (reply.status !== 200 && reply.status !== 201) {
-      const error = httpError(reply);
-      const message = `${describeHttp(error)}${detailsText(error.details)}`;
-      return { ...where, ok: false, error: { ...error, message } };
-    }
-    return { ...where, ok: true, ...(jsonOf(reply) as T) };
-  } catch (error) {
-    return failedItem(where, error);
-  }
-}
-
-/** The report line of one item as it completes; `okText` writes what a success names. */
-function printItem<T extends { outcome: string }>(
-  ctx: Context,
-  result: ItemResult<T>,
-  source: string,
-  okText: (body: T) => string
-): void {
-  if (ctx.json) {
-    return;
-  }
-  if (result.ok) {
-    ctx.io.stdout(`${result.outcome.padEnd(10)} ${okText(result)}  ${source}\n`);
-  } else {
-    ctx.io.stderr(`${"failed".padEnd(10)} ${source}: ${result.error.message}\n`);
-  }
-}
-
-/**
  * Prints the summary, the count of each of `outcomes` and then of the failures (`--json`: after
  * `results`), and returns the exit code: 1 when anything failed.
  */
-function finish(
-  ctx: Context,
-  results: readonly ItemResult<{ outcome: string }>[],
-  outcomes: readonly string[]
-): number {
+function finish(ctx: Context, results: readonly ItemResult[], outcomes: readonly string[]): number {
   const summary = Object.fromEntries(
     [...outcomes, "failed"].map((outcome) => [
       outcome,
@@ -178,39 +125,77 @@ function finish(
 }
 
 /**
- * Reads each file once, POSTs its uploads one by one and reports each as it completes; a file or
- * an upload that fails does not stop the others. Returns finish's exit code.
+ * Import certificates or publish CRLs, one request at a time. Failed files and uploads are
+ * reported without stopping the remaining files. Only certificate PEM bundles are split.
  */
-async function postFiles<T extends { outcome: string }>(
+export async function uploadFiles(
   ctx: Context,
   files: readonly string[],
-  route: Route,
-  uploadsOf: (file: string, bytes: Uint8Array) => Upload[],
-  okText: (body: T) => string
+  kind: "certificate" | "crl"
 ): Promise<number> {
-  const results: ItemResult<T>[] = [];
-  const report = (result: ItemResult<T>, source: string) => {
+  const importing = kind === "certificate";
+  const url = `${serviceUrl(ctx)}/api/v1/${importing ? "admin/certificates" : "crls"}`;
+  const headers: Record<string, string> = importing ? await adminHeaders(ctx) : {};
+  if (!importing) {
+    const token = await bearerToken(ctx, "AIA_UPLOAD_TOKEN");
+    if (token !== undefined) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  headers["Content-Type"] = "application/octet-stream";
+  const results: ItemResult[] = [];
+  const report = (result: ItemResult, source: string) => {
     results.push(result);
-    printItem(ctx, result, source, okText);
+    if (ctx.json) {
+      return;
+    }
+    if (!result.ok) {
+      ctx.io.stderr(`failed     ${source}: ${result.error.message}\n`);
+      return;
+    }
+    let text: string;
+    if ("id" in result) {
+      text = `${result.id}  ${result.summary.subjectCN ?? "(no CN)"}`;
+    } else {
+      const number = result.crlNumber === null ? "(no CRL Number)" : `#${result.crlNumber}`;
+      text = `${result.target}  ${result.kind} ${number}`;
+    }
+    ctx.io.stdout(`${result.outcome.padEnd(10)} ${text}  ${source}\n`);
   };
   for (const file of files) {
     let uploads: Upload[];
     try {
-      uploads = uploadsOf(file, await readBytes(ctx.io, file, unreadable));
+      const bytes = await readBytes(ctx.io, file, unreadable);
+      uploads = importing
+        ? certificateUploads(file, bytes)
+        : [{ where: { file }, source: file, body: bytes }];
     } catch (error) {
       report(failedItem({ file }, error), file);
       continue;
     }
-    for (const upload of uploads) {
-      report(await postItem<T>(ctx, route, upload), upload.source);
+    for (const { where, source, body } of uploads) {
+      let result: ItemResult;
+      try {
+        const reply = await request(ctx, url, { method: "POST", headers, body });
+        if (reply.status === 200 || reply.status === 201) {
+          result = { ...where, ok: true, ...(jsonOf(reply) as UploadBody) };
+        } else {
+          const error = httpError(reply);
+          const message = `${describeHttp(error)}${detailsText(error.details)}`;
+          result = { ...where, ok: false, error: { ...error, message } };
+        }
+      } catch (error) {
+        result = failedItem(where, error);
+      }
+      report(result, source);
     }
   }
-  return finish(ctx, results, route.outcomes);
+  return finish(
+    ctx,
+    results,
+    importing ? ["created", "unchanged"] : ["created", "updated", "unchanged"]
+  );
 }
-
-// import -----------------------------------------------------------------------------------------
-
-type Imported = z.infer<typeof ImportedCertificate>;
 
 /**
  * The uploads of one file, recognized from the bytes as the service does (toDer): one DER
@@ -237,41 +222,6 @@ function certificateUploads(file: string, bytes: Uint8Array): Upload[] {
     source: blocks.length === 1 ? file : `${file} [block ${index + 1}/${blocks.length}]`,
     body,
   }));
-}
-
-export async function importFiles(ctx: Context, files: string[]): Promise<number> {
-  const url = `${serviceUrl(ctx)}/api/v1/admin/certificates`;
-  const route = { url, headers: await adminHeaders(ctx), outcomes: ["created", "unchanged"] };
-  return postFiles<Imported>(
-    ctx,
-    files,
-    route,
-    certificateUploads,
-    (cert) => `${cert.id}  ${cert.summary.subjectCN ?? "(no CN)"}`
-  );
-}
-
-// publish ----------------------------------------------------------------------------------------
-
-type Published = z.infer<typeof PublishedCrl>;
-
-/**
- * Each file is one upload, sent as is (a PEM bundle is the service's pem_blocks, never split
- * here).
- */
-export async function publishFiles(ctx: Context, files: string[]): Promise<number> {
-  const url = `${serviceUrl(ctx)}/api/v1/crls`;
-  const token = await bearerToken(ctx, "AIA_UPLOAD_TOKEN");
-  const headers: Record<string, string> =
-    token === undefined ? {} : { Authorization: `Bearer ${token}` };
-  const route = { url, headers, outcomes: ["created", "updated", "unchanged"] };
-  const asIs = (file: string, body: Uint8Array): Upload[] => [
-    { where: { file }, source: file, body },
-  ];
-  return postFiles<Published>(ctx, files, route, asIs, (crl) => {
-    const number = crl.crlNumber === null ? "(no CRL Number)" : `#${crl.crlNumber}`;
-    return `${crl.target}  ${crl.kind} ${number}`;
-  });
 }
 
 // config -----------------------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 // an ApiError, whose `code` the UI maps to a message.
 //
 // Where each code comes from:
-// - a v1 code (src/http/schemas.ts, or one this build does not know yet): unwrap, from the envelope
+// - a server code (including one this build does not know yet): unwrap, from the envelope
 //   `{ error: { code, message, details? } }` of a non-2xx response; `status` is the HTTP status.
 // - invalid_response: unwrap, when the body is not JSON (a proxy's HTML page, an empty body) or a
 //   non-2xx JSON body is not the envelope; `status` is the HTTP status.

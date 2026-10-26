@@ -159,7 +159,7 @@ describe("updateState", () => {
     const base = new MemoryStore();
     const store = recordingStore(base);
     const sleep = vi.fn(() => Promise.resolve());
-    expect(await updateState({ store, sleep }, addRoot)).toEqual({ result: "created" });
+    expect(await updateState({ store, sleep }, addRoot)).toBe("created");
     const first = await base.get(CATALOG_KEY);
     expect(first!.bytes).toEqual(encodeJson((await readCatalog(base)).catalog));
 
@@ -167,7 +167,7 @@ describe("updateState", () => {
       next: { ...current, certificates: { ...current.certificates, [ISSUING.id]: ISSUING.entry } },
       result: "added",
     });
-    expect(await updateState({ store, sleep }, addIssuing)).toEqual({ result: "added" });
+    expect(await updateState({ store, sleep }, addIssuing)).toBe("added");
 
     expect(puts(store)).toEqual([
       { key: CATALOG_KEY, opts: { ifNoneMatch: "*" }, ok: true },
@@ -192,7 +192,7 @@ describe("updateState", () => {
       seen.push(state);
       return addRoot(state);
     };
-    expect(await updateState({ store, sleep }, mutate)).toEqual({ result: "created" });
+    expect(await updateState({ store, sleep }, mutate)).toBe("created");
     expect(sleep.mock.calls).toEqual([[250]]);
     const minimal = JSON.parse(MINIMAL_CONFIG) as unknown;
     expect(seen.map((state) => state.config)).toEqual([minimal, minimal]);

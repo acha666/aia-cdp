@@ -7,11 +7,9 @@ import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { describeError } from "./log.ts";
 import type { Logger } from "./log.ts";
-import { ERROR_STATUS } from "./schemas.ts";
-import type { ErrorCode } from "./schemas.ts";
 
 /** The failure envelope; an undefined `details` is left out of the JSON. */
-export function errorBody(code: ErrorCode, message: string, details?: unknown) {
+export function errorBody(code: string, message: string, details?: unknown) {
   return { error: { code, message, details } };
 }
 
@@ -24,7 +22,7 @@ export const ERROR_MESSAGES = {
   payload_too_large: "Payload too large",
   unsupported_media_type: "Unsupported media type",
   internal: "Internal server error",
-} as const satisfies Partial<Record<ErrorCode, string>>;
+} as const;
 
 /** API JSON, including every error, is never cached (implementation §2.6). */
 export const NO_STORE = { "Cache-Control": "no-store" } as const;
@@ -33,13 +31,13 @@ export const NO_STORE = { "Cache-Control": "no-store" } as const;
 export class ApiError extends Error {
   // erasableSyntaxOnly: explicit fields instead of constructor parameter properties.
   readonly status: ContentfulStatusCode;
-  readonly code: ErrorCode;
+  readonly code: string;
   readonly details: unknown;
 
-  constructor(code: ErrorCode, message: string, details?: unknown) {
+  constructor(status: ContentfulStatusCode, code: string, message: string, details?: unknown) {
     super(message);
     this.name = "ApiError";
-    this.status = ERROR_STATUS[code];
+    this.status = status;
     this.code = code;
     this.details = details;
   }
@@ -94,7 +92,7 @@ export function validationError(target: string, error: z.ZodError): ApiError {
     code: issue.code,
     message: issue.message,
   }));
-  return new ApiError("bad_request", "Request validation failed", { target, issues });
+  return new ApiError(400, "bad_request", "Request validation failed", { target, issues });
 }
 
 /**

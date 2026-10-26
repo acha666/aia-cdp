@@ -10,14 +10,14 @@ import type { Handler } from "./helpers";
 import { queries } from "@/client/queries";
 import type { PublishedCrl } from "@/client/types";
 import CrlUploadCard from "@/components/overview/CrlUploadCard.vue";
-import { useUploadToken } from "@/composables/useUploadToken";
+import { uploadToken } from "@/upload-token";
 import { createAppI18n } from "@/i18n";
 
 const PEM =
   "-----BEGIN X509 CRL-----\nMIIBszCBnAIBATANBgkqhkiG9w0BAQsFADAA\n-----END X509 CRL-----\n";
 
 afterEach(() => {
-  useUploadToken().value = "";
+  uploadToken.value = "";
 });
 
 function render(post: Handler) {

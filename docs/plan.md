@@ -63,7 +63,7 @@
 | Node 服务器   | `@hono/node-server`                             | 2.1.5                             | `serve()` + `serve-static`；替代手写 `node:http` 桥                                            |
 | 校验与 OpenAPI | `@hono/zod-openapi` + `zod`                    | 1.6.3 / 4.6.7                     | 路由声明即 schema，处理器返回值按状态码类型检查；OpenAPI 文档运行时从路由表生成，另写出提交的 `docs/openapi.json` 作漂移基线（§7.3） |
 | 类型化客户端  | `hono/client` 的 `hc<AppType>`                  | 随 hono                           | 前端类型从服务端路由推导；`init: { cache: "no-store" }`                                        |
-| PKI           | `pkijs` + `asn1js`                              | 4.0.0 / 4.0.0                     | 证书、CRL、名称与 SCT 的解析，验签；扩展值由 asn1js 之上的严格 DER 读取器（`src/core/pki/der.ts`）解码 |
+| PKI           | `pkijs` + `asn1js`                              | 4.0.0 / 4.0.0                     | 证书、CRL 与常规扩展的解析、验签；详情采用尽力展示，仅为库缺陷和未支持的结构保留小型读取器 |
 | 前端          | `vue`、`vue-router`、`@tanstack/vue-query`、`vue-i18n` | 3.5.44 / 5.4.0 / 5.104.5 / 11.4.16 | 不用 Pinia（决策 5）                                                                   |
 | 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.5 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8（Rolldown、默认 oxc 压缩）；`vue-tsc -b` 检查 worker / node / web 三个程序（§10） |
 | UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.61.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`；`@tanstack/vue-table` 不随 shadcn Table 安装，也没用上（吊销列表分页只是 `slice()`） |
@@ -445,6 +445,9 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
   （AD CS 两者共用一个号计数器）；只读 catalog 的 `current.summary`，不读当前 DER（`compareFreshness`，`src/core/publish.ts`）。
 - 时钟：注入的 `now` 是唯一时间源；`thisUpdate` 超前 5 分钟以上拒绝 `not_yet_valid`（恰好 5 分钟接受）；
   `nextUpdate` 已过去的 CRL 接受并记录日志。
+- 扩展详情仅用于展示，不重复执行上传准入校验：优先使用 PKIjs 模型；不再统一拒绝 BER 编码、空 GeneralNames 列表或额外字段，按具体展示解码器读取。
+  仍要求值恰好占满输入，避免只显示前缀；保留整数精度、有效时间和 SCT 完整性检查，无法可靠读取时显示原始 hex / ASN.1。
+  名称约束、分发点原因位、CA Version 等存在已复现库缺陷的结构继续使用小型读取器；展示 CRL Number 不套用上传的非负与 20 字节限制。
 - 扩展：识别列表为 `2.5.29.20`、`2.5.29.27`（delta 指示）、`2.5.29.35`、`2.5.29.46`、`2.5.29.18`（IAN）、
   `1.3.6.1.5.5.7.1.1`（AIA）与 AD CS 私有 `1.3.6.1.4.1.311.21.1 / .4 / .14`；识别与关键性无关，标了关键也接受。`2.5.29.28`（IDP）不论关键性都读：
   只含 `distributionPoint` 接受（AD CS 的 CDP 选项），含其他任何字段（`onlyContains*`、`onlySomeReasons`、`indirectCRL`）即作用域 CRL，
@@ -533,7 +536,7 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
 ### 7.3 信封、错误、中间件
 
 - 成功：直接返回资源体，不包 `{ data }`。
-- 失败：`{ "error": { "code": "…", "message": "…", "details"?: … } }`，每个状态码一个 schema。
+- 失败：`{ "error": { "code": "…", "message": "…", "details"?: … } }`，共用一个 `ErrorResponse` schema；HTTP 状态码在抛错处明确指定，`code` 和 `details` 不再按状态码细分 schema。
 - 错误码：`bad_request`、`unauthorized`、`not_found`、`method_not_allowed`、
   `payload_too_large`、`unsupported_media_type`、`admin_disabled`、`precondition_failed`、`precondition_required`、
   `config_invalid`、`referenced`、`invalid_crl`、`invalid_certificate`、`not_yet_valid`、

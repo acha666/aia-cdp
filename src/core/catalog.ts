@@ -261,7 +261,10 @@ function realSleep(ms: number): Promise<void> {
 }
 
 /** What a mutation decided: write `next` and return `result`, or return `result` without a write. */
-export type CatalogMutation<R> = { next: Catalog; result: R } | { result: R };
+export interface CatalogMutation<R> {
+  next?: Catalog;
+  result: R;
+}
 
 /** The dependencies updateState uses (ImportDeps and PublishDeps extend it). */
 export interface CatalogDeps {
@@ -287,7 +290,7 @@ export interface CatalogDeps {
 export async function updateState<R>(
   { store, sleep = realSleep }: CatalogDeps,
   mutate: (state: State) => CatalogMutation<R> | Promise<CatalogMutation<R>>
-): Promise<{ result: R } | { error: "concurrent_update" }> {
+): Promise<R | { error: "concurrent_update" }> {
   for (let attempt = 0; attempt <= BACKOFF_MS.length; attempt++) {
     const wait = BACKOFF_MS[attempt - 1];
     if (wait !== undefined) {
@@ -295,8 +298,8 @@ export async function updateState<R>(
     }
     const state = await readState(store);
     const mutation = await mutate(state);
-    if (!("next" in mutation)) {
-      return { result: mutation.result };
+    if (mutation.next === undefined) {
+      return mutation.result;
     }
     const next = CatalogSchema.parse(mutation.next);
     const written = await store.put(
@@ -305,7 +308,7 @@ export async function updateState<R>(
       state.catalogEtag === null ? { ifNoneMatch: "*" } : { ifMatch: state.catalogEtag }
     );
     if (written.ok) {
-      return { result: mutation.result };
+      return mutation.result;
     }
   }
   return { error: "concurrent_update" };

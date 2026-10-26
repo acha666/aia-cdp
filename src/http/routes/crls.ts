@@ -14,7 +14,6 @@
 // (no-store), and the handlers only return successes. HEAD of the reads is Hono's automatic HEAD
 // of each GET.
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import type { MiddlewareHandler } from "hono";
 import { bearerAuth } from "hono/bearer-auth";
 import { bodyLimit } from "hono/body-limit";
 import { readState } from "../../core/catalog.ts";
@@ -24,22 +23,17 @@ import { crlTargetDetail, crlTargetList } from "../../core/views.ts";
 import { ApiError, NO_STORE } from "../errors.ts";
 import { mediaTypeGate } from "../media.ts";
 import {
-  BadRequestError,
+  ErrorResponse,
   CRL_MEDIA_TYPES,
-  CrlConflictError,
-  CrlMediaTypeError,
-  CrlRejectedError,
   CrlTargetDetail,
   CrlTargetListItem,
   INTERNAL_ERROR,
   jsonContent,
   jsonResponse,
-  NotFoundError,
   PAYLOAD_TOO_LARGE,
   PublishedCrl,
   rawBody,
   TargetIdParam,
-  UnauthorizedError,
 } from "../schemas.ts";
 import type { AppDeps, AppSettings } from "../types.ts";
 
@@ -56,16 +50,6 @@ const crlMediaType = mediaTypeGate(
   "Send the CRL as application/pkix-crl, application/x-pem-file or application/octet-stream"
 );
 
-/** The route middleware, in the order of the file comment. */
-function uploadGate(settings: AppSettings): MiddlewareHandler[] {
-  const token = settings.uploadToken;
-  return [
-    ...(token === undefined ? [] : [bearerAuth({ token })]),
-    crlMediaType,
-    bodyLimit({ maxSize: settings.maxUploadBytes }),
-  ];
-}
-
 function uploadCrlRoute(settings: AppSettings) {
   return createRoute({
     method: "post",
@@ -80,7 +64,11 @@ function uploadCrlRoute(settings: AppSettings) {
       "`Authorization: Bearer <AIA_UPLOAD_TOKEN>` is needed only while that token is set.",
     tags: TAGS,
     security,
-    middleware: uploadGate(settings),
+    middleware: [
+      ...(settings.uploadToken === undefined ? [] : [bearerAuth({ token: settings.uploadToken })]),
+      crlMediaType,
+      bodyLimit({ maxSize: settings.maxUploadBytes }),
+    ],
     request: { body: rawBody(CRL_MEDIA_TYPES) },
     responses: {
       200: jsonResponse(
@@ -88,26 +76,26 @@ function uploadCrlRoute(settings: AppSettings) {
         PublishedCrl
       ),
       201: jsonResponse("Published to a target without a current CRL", PublishedCrl),
-      400: jsonResponse("A malformed Authorization header, or an empty body", BadRequestError),
+      400: jsonResponse("A malformed Authorization header, or an empty body", ErrorResponse),
       401: {
         description: "AIA_UPLOAD_TOKEN is set, and the token is missing or wrong",
         headers: z.object({ "WWW-Authenticate": z.string() }),
-        content: jsonContent(UnauthorizedError),
+        content: jsonContent(ErrorResponse),
       },
       409: jsonResponse(
         "Not newer than the target's current CRL (`details.current`): stale_crl, conflict " +
           "(other bytes for the same CRL Number and thisUpdate) or non_orderable (a CRL Number " +
           "on one side only); or concurrent_update (the catalog kept changing: retry)",
-        CrlConflictError
+        ErrorResponse
       ),
       413: PAYLOAD_TOO_LARGE,
       415: jsonResponse(
         "The Content-Type is missing or not one of the request body's media types",
-        CrlMediaTypeError
+        ErrorResponse
       ),
       422: jsonResponse(
         "Not a CRL this service publishes: the code and `details` say why",
-        CrlRejectedError
+        ErrorResponse
       ),
       500: INTERNAL_ERROR,
     },
@@ -145,15 +133,15 @@ const getCrlTargetRoute = createRoute({
   request: { params: TargetIdParam },
   responses: {
     200: jsonResponse("The target", CrlTargetDetail),
-    400: jsonResponse("The target id is not a UUID", BadRequestError),
-    404: jsonResponse("config.json defines no target with this id", NotFoundError),
+    400: jsonResponse("The target id is not a UUID", ErrorResponse),
+    404: jsonResponse("config.json defines no target with this id", ErrorResponse),
     500: INTERNAL_ERROR,
   },
 });
 
 // Failures --------------------------------------------------------------------------------------
 
-/** The message of each failure (ERROR_STATUS has its status). */
+/** The public message for each publish failure. */
 const FAILURES = {
   invalid_crl: "Not a valid X.509 CRL",
   not_yet_valid: "The CRL's thisUpdate is more than 5 minutes ahead of the service's clock",
@@ -176,7 +164,19 @@ function publishError(failure: PublishFailure): ApiError {
     failure.error === "issuer_not_found" && "reason" in failure.details
       ? "The CRL has no Authority Key Identifier keyIdentifier"
       : FAILURES[failure.error];
-  return new ApiError(failure.error, message, "details" in failure ? failure.details : undefined);
+  const status =
+    failure.error === "stale_crl" ||
+    failure.error === "conflict" ||
+    failure.error === "non_orderable" ||
+    failure.error === "concurrent_update"
+      ? 409
+      : 422;
+  return new ApiError(
+    status,
+    failure.error,
+    message,
+    "details" in failure ? failure.details : undefined
+  );
 }
 
 // Sub-app ---------------------------------------------------------------------------------------
@@ -200,14 +200,14 @@ export function crlRoutes(deps: AppDeps) {
       const { config, catalog } = await readState(deps.store);
       const detail = await crlTargetDetail(deps.store, config, catalog, targetId);
       if (detail === undefined) {
-        throw new ApiError("not_found", "No target with this id is configured");
+        throw new ApiError(404, "not_found", "No target with this id is configured");
       }
       return c.json(detail, 200, NO_STORE);
     })
     .openapi(uploadCrlRoute(deps.settings), async (c) => {
       const bytes = await c.req.bytes();
       if (bytes.byteLength === 0) {
-        throw new ApiError("bad_request", "Expected a CRL, but the upload is empty");
+        throw new ApiError(400, "bad_request", "Expected a CRL, but the upload is empty");
       }
       // Logs the call's one `publish` line, also when it throws (then onError's 500).
       const result = await publishCrl(deps, bytes);

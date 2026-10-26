@@ -1,6 +1,6 @@
 // Catalog summaries (plan §5.3). A summary is always built whole and replaces the previous one (no
 // merge, no summary version), so there is one implementation of each summary.
-import type { Certificate, CertificateRevocationList } from "pkijs";
+import type { Certificate, CertificateRevocationList, RelativeDistinguishedNames } from "pkijs";
 import type { CertificateSummary, CrlSummary } from "../catalog.ts";
 import { sha1Hex, toUpperHex } from "../digest.ts";
 import { PkiParseError } from "../pki/errors.ts";
@@ -12,7 +12,7 @@ import {
   getSKIHex,
 } from "../pki/parsers.ts";
 import type { WholeCrl } from "../pki/parsers.ts";
-import { buildName } from "./names.ts";
+import { stringOf } from "../pki/asn1.ts";
 
 /** `read()`, with whatever it throws reported as a malformed extension of `kind`. */
 export function readExtension<T>(kind: PkiKind, name: string, read: () => T): T {
@@ -35,6 +35,17 @@ function readKeyId(name: string, read: () => string | undefined): string | null 
   return keyId ?? null;
 }
 
+/** The first string CN in the attributes PKIjs has already decoded. */
+function commonName(name: RelativeDistinguishedNames): string | null {
+  for (const attribute of name.typesAndValues) {
+    const text = attribute.type === "2.5.4.3" ? stringOf(attribute.value) : undefined;
+    if (text !== undefined) {
+      return text;
+    }
+  }
+  return null;
+}
+
 /**
  * Summary of a certificate parsed by parseCertificate (so its times are valid RFC 5280 times) from
  * `der`. Throws PkiParseError (kind "certificate", reason "extension_value") when the Subject or
@@ -45,8 +56,8 @@ export async function buildCertificateSummary(
   der: Uint8Array
 ): Promise<CertificateSummary> {
   return {
-    subjectCN: buildName(cert.subject).commonName,
-    issuerCN: buildName(cert.issuer).commonName,
+    subjectCN: commonName(cert.subject),
+    issuerCN: commonName(cert.issuer),
     serialNumber: toUpperHex(cert.serialNumber.valueBlock.valueHexView),
     notBefore: cert.notBefore.value.toISOString(),
     notAfter: cert.notAfter.value.toISOString(),
@@ -84,11 +95,9 @@ export function readCrlFields(crl: CertificateRevocationList): CrlFields {
  * Throws like readCrlFields.
  */
 export async function buildCrlSummary(crl: WholeCrl, der: Uint8Array): Promise<CrlSummary> {
-  const { nextPublish, ...fields } = readCrlFields(crl);
   return {
-    ...fields,
+    ...readCrlFields(crl),
     revokedCount: crl.entries.length,
     sha1: await sha1Hex(der),
-    nextPublish,
   };
 }

@@ -1,5 +1,4 @@
 import { z } from "@hono/zod-openapi";
-import { ConfigIssue } from "../core/admin.ts";
 import {
   CertificateSummarySchema,
   CrlKind,
@@ -8,10 +7,7 @@ import {
   TargetId,
   Timestamp,
 } from "../core/catalog.ts";
-import { CertificateReference } from "../core/certificates.ts";
 import { Size } from "../core/history.ts";
-import { PKI_PARSE_REASONS } from "../core/pki/errors.ts";
-import { CurrentCrlVersion } from "../core/publish.ts";
 import {
   AlgorithmIdentifierSchema,
   FingerprintsSchema,
@@ -20,59 +16,16 @@ import {
   TBSCertListSchema,
 } from "../core/summary/schemas.ts";
 
-/**
- * Every error code of plan §7.3 with its one status (ApiError takes it from here). Each route
- * narrows the enum per status code (errorSchema).
- */
-export const ERROR_STATUS = {
-  bad_request: 400,
-  unauthorized: 401,
-  not_found: 404,
-  method_not_allowed: 405,
-  payload_too_large: 413,
-  unsupported_media_type: 415,
-  admin_disabled: 503,
-  precondition_failed: 412,
-  precondition_required: 428,
-  config_invalid: 422,
-  referenced: 409,
-  invalid_crl: 422,
-  invalid_certificate: 422,
-  not_yet_valid: 422,
-  unknown_critical_extension: 422,
-  scoped_crl_unsupported: 422,
-  unsupported_algorithm: 422,
-  issuer_not_found: 422,
-  target_not_configured: 422,
-  invalid_signature: 422,
-  stale_crl: 409,
-  conflict: 409,
-  non_orderable: 409,
-  concurrent_update: 409,
-  internal: 500,
-} as const;
-
-export type ErrorCode = keyof typeof ERROR_STATUS;
-
-type ErrorCodes = readonly [ErrorCode, ...ErrorCode[]];
-
-/**
- * The failure envelope `{ error: { code, message, details? } }` for one status code, with `code`
- * narrowed to what that status can carry. Callers name it: `errorSchema([...]).openapi("…")`.
- */
-function errorSchema<const C extends ErrorCodes>(codes: C) {
-  return detailedErrorSchema(codes, z.unknown().optional());
-}
-
-/** errorSchema with a documented `details` shape (only for docs: failures are thrown as ApiError). */
-function detailedErrorSchema<const C extends ErrorCodes, D extends z.ZodType>(
-  codes: C,
-  details: D
-) {
-  return z.object({
-    error: z.object({ code: z.enum(codes), message: z.string(), details }),
-  });
-}
+/** All API failures use the same envelope. Codes and details describe the failure. */
+export const ErrorResponse = z
+  .object({
+    error: z.object({
+      code: z.string(),
+      message: z.string(),
+      details: z.unknown().optional(),
+    }),
+  })
+  .openapi("ErrorResponse");
 
 /** The `content` of a JSON request body or response. */
 export function jsonContent<S extends z.ZodType>(schema: S) {
@@ -103,45 +56,20 @@ export function rawBody(mediaTypes: readonly string[]) {
   };
 }
 
-/** Why an upload is not a certificate or CRL this service accepts. */
-const ParseReason = z.enum(PKI_PARSE_REASONS);
-
-// Shared failures ---------------------------------------------------------------------------------
-
-export const BadRequestError = errorSchema(["bad_request"]).openapi("BadRequestError");
-
-export const UnauthorizedError = errorSchema(["unauthorized"]).openapi("UnauthorizedError");
-
-export const NotFoundError = errorSchema(["not_found"]).openapi("NotFoundError");
-
-const PayloadTooLargeError = errorSchema(["payload_too_large"]).openapi("PayloadTooLargeError");
-
-export const UnsupportedMediaTypeError = errorSchema(["unsupported_media_type"]).openapi(
-  "UnsupportedMediaTypeError"
-);
-
-export const ConcurrentUpdateError = errorSchema(["concurrent_update"]).openapi(
-  "ConcurrentUpdateError"
-);
-
-const InternalError = errorSchema(["internal"]).openapi("InternalError");
-
 /** The 500 of the certificate and CRL routes. */
 export const INTERNAL_ERROR = jsonResponse(
   "The store failed, or it cannot back what catalog.json and config.json name (logged, never " +
     "sent); retry later",
-  InternalError
+  ErrorResponse
 );
 
 /** The 413 of every route that reads a request body. */
 export const PAYLOAD_TOO_LARGE = jsonResponse(
   "The body is larger than AIA_MAX_UPLOAD_BYTES",
-  PayloadTooLargeError
+  ErrorResponse
 );
 
 // Admin --------------------------------------------------------------------------------------------
-
-export const AdminDisabledError = errorSchema(["admin_disabled"]).openapi("AdminDisabledError");
 
 /** The request media types of POST /api/v1/admin/certificates, for the raw body. */
 export const CERTIFICATE_MEDIA_TYPES = [
@@ -161,24 +89,6 @@ export const ImportedCertificate = z
     summary: CertificateSummarySchema,
   })
   .openapi("ImportedCertificate");
-
-export const InvalidCertificateError = detailedErrorSchema(
-  ["invalid_certificate"],
-  z.object({ reason: ParseReason })
-).openapi("InvalidCertificateError");
-
-export const ConfigInvalidError = detailedErrorSchema(
-  ["config_invalid"],
-  z.object({ issues: z.array(ConfigIssue) })
-).openapi("ConfigInvalidError");
-
-export const PreconditionFailedError = errorSchema(["precondition_failed"]).openapi(
-  "PreconditionFailedError"
-);
-
-export const PreconditionRequiredError = errorSchema(["precondition_required"]).openapi(
-  "PreconditionRequiredError"
-);
 
 // CRL upload ---------------------------------------------------------------------------------------
 
@@ -212,63 +122,6 @@ export const PublishedCrl = z
     downloads: z.array(z.string()),
   })
   .openapi("PublishedCrl");
-
-export const CrlConflictError = z
-  .union([
-    detailedErrorSchema(
-      ["stale_crl", "conflict", "non_orderable"],
-      z.object({ current: CurrentCrlVersion })
-    ),
-    ConcurrentUpdateError,
-  ])
-  .openapi("CrlConflictError");
-
-/** `details` of 422 by code (src/core/publish.ts PublishFailure). */
-export const CrlRejectedError = z
-  .union([
-    detailedErrorSchema(["invalid_crl"], z.object({ reason: ParseReason })),
-    detailedErrorSchema(
-      ["not_yet_valid"],
-      z.object({ thisUpdate: CrlSummarySchema.shape.thisUpdate })
-    ),
-    detailedErrorSchema(
-      ["unknown_critical_extension", "scoped_crl_unsupported"],
-      z.object({
-        oid: z.string(),
-        /** Uppercase hex: only for a CRL entry extension. */
-        serialNumber: z.string().optional(),
-      })
-    ),
-    detailedErrorSchema(
-      ["issuer_not_found"],
-      z.union([
-        z.object({ reason: z.literal("missing_aki") }),
-        z.object({ authorityKeyId: z.string() }),
-      ])
-    ),
-    detailedErrorSchema(
-      ["target_not_configured"],
-      z.object({
-        kind: CrlKind,
-        /** The imported certificates whose Subject Key Identifier is the CRL's AKI. */
-        certificates: z.array(Sha256Hex),
-      })
-    ),
-    detailedErrorSchema(
-      ["invalid_signature", "unsupported_algorithm"],
-      z.object({ algorithm: z.string() })
-    ),
-  ])
-  .openapi("CrlRejectedError");
-
-export const CrlMediaTypeError = detailedErrorSchema(
-  ["unsupported_media_type"],
-  z.object({
-    /** The request's media type (lowercase, without parameters); null without a Content-Type. */
-    received: z.string().nullable(),
-    accepted: z.array(z.enum(CRL_MEDIA_TYPES)),
-  })
-).openapi("CrlMediaTypeError");
 
 // Public reads (plan §7.1) ------------------------------------------------------------------------
 // The bodies of src/core/views.ts. The X.509 projection is the core schemas as they are (named with
@@ -431,14 +284,3 @@ export const Stats = z
     }),
   })
   .openapi("Stats");
-
-// Admin: certificate deletion ----------------------------------------------------------------------
-// The failure of src/core/certificates.ts deleteCertificate (the history body: core/history.ts).
-
-/** 409 of DELETE /api/v1/admin/certificates/{id}. */
-export const CertificateConflictError = z
-  .union([
-    detailedErrorSchema(["referenced"], z.object({ references: z.array(CertificateReference) })),
-    ConcurrentUpdateError,
-  ])
-  .openapi("CertificateConflictError");

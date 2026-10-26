@@ -57,6 +57,17 @@ describe("buildCertificateSummary", () => {
     expect((await buildCertificateSummary(certificate, der)).subjectCN).toBeNull();
   });
 
+  it("uses the first string CN from the library's parsed attributes", async () => {
+    const der = fixture(cert("leaf-full").der);
+    const certificate = parseCertificate(der);
+    certificate.subject = nameOf(
+      [attribute("2.5.4.3", new asn1.Integer({ value: 1 }))],
+      [attribute("2.5.4.3", new asn1.Utf8String({ value: "First CN" }))],
+      [attribute("2.5.4.3", new asn1.Utf8String({ value: "Later CN" }))]
+    );
+    expect((await buildCertificateSummary(certificate, der)).subjectCN).toBe("First CN");
+  });
+
   it("keeps a leading 00 of the serial number", async () => {
     const der = fixture(cert("leaf-full").der);
     const certificate = parseCertificate(der);

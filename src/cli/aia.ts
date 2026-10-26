@@ -21,10 +21,9 @@ import {
   deleteCertificate,
   health,
   historyVersion,
-  importFiles,
   listHistory,
   newTargetId,
-  publishFiles,
+  uploadFiles,
 } from "./commands.ts";
 
 export type { CliIo } from "./client.ts";
@@ -129,7 +128,7 @@ async function run(ctx: Context, positionals: string[], out: string | undefined)
       throw new UsageError("missing command");
     case "import":
       expectArgs(args, 1, "import <file...>", Infinity);
-      return importFiles(ctx, args);
+      return uploadFiles(ctx, args, "certificate");
     case "config": {
       const [sub, ...rest] = args;
       switch (sub) {
@@ -153,7 +152,7 @@ async function run(ctx: Context, positionals: string[], out: string | undefined)
       return newTargetId(ctx);
     case "publish":
       expectArgs(args, 1, "publish <file...>", Infinity);
-      return publishFiles(ctx, args);
+      return uploadFiles(ctx, args, "crl");
     case "history": {
       expectArgs(args, 1, "history <targetId> [<sha256> --out <file>]", 2);
       const [targetId = "", sha256] = args;
