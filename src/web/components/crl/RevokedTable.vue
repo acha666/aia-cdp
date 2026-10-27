@@ -2,21 +2,22 @@
 import { ChevronLeftIcon, ChevronRightIcon } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import type { RevokedCertificates } from "@/client/types";
+import type { CrlEntry } from "../../../core/pki/parsers.ts";
+import { toUpperHex } from "../../../core/digest.ts";
 import { Button } from "@/components/ui/button";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import ExtensionList from "@/components/x509/ExtensionList.vue";
-import { describeEntry } from "@/utils/crl-entries";
 import { formatDate } from "@/utils/dates";
+import { entryColumns } from "@/x509/extensions";
 
 // The revoked certificates of a target's current CRL (plan §8): serial number, revocation date,
-// reason, invalidity date and indirect issuer; an empty list says so. The API sends every entry (a
-// 10 000-entry CRL is 5.5 MB of JSON), so the table renders PAGE_SIZE rows at a time; the header row
+// reason, invalidity date and indirect issuer; an empty list says so. A CRL can have tens of
+// thousands of entries, so the table renders PAGE_SIZE rows at a time; the header row
 // stays in view while the box scrolls. On the first and the last page one page button is only
 // aria-disabled (a disabled button drops the focus to <body>). A row with entry extensions expands
 // to list them all, since the columns leave out a hold instruction, the critical flags and any
 // extension not decoded.
-const props = defineProps<{ revoked: RevokedCertificates }>();
+const props = defineProps<{ entries: readonly CrlEntry[] }>();
 
 const PAGE_SIZE = 200;
 
@@ -28,7 +29,7 @@ const expanded = ref(new Set<number>());
 
 // A refetch with other entries starts over on the first page, every row collapsed.
 watch(
-  () => props.revoked,
+  () => props.entries,
   () => {
     page.value = 0;
     expanded.value = new Set();
@@ -41,19 +42,19 @@ function toggle(key: number) {
   }
 }
 
-const total = computed(() => props.revoked.items.length);
+const total = computed(() => props.entries.length);
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)));
 const first = computed(() => page.value * PAGE_SIZE);
 const last = computed(() => Math.min(first.value + PAGE_SIZE, total.value));
 
 /** Only the rows of the current page are formatted. */
 const rows = computed(() =>
-  props.revoked.items.slice(first.value, last.value).map((entry, index) => ({
+  props.entries.slice(first.value, last.value).map((entry, index) => ({
     key: first.value + index,
-    serial: entry.userCertificate.hex,
-    revoked: formatDate(entry.revocationDate.iso, i18n),
-    extensions: entry.crlEntryExtensions?.items ?? [],
-    ...describeEntry(entry.crlEntryExtensions?.items, i18n),
+    serial: toUpperHex(entry.serial),
+    revoked: formatDate(entry.revocationDate.value.toISOString(), i18n),
+    extensions: entry.extensions,
+    ...entryColumns(entry.extensions, i18n),
   }))
 );
 </script>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import type { Asn1Line } from "@/client/types";
+import type { Asn1Line } from "../../../core/pki/asn1.ts";
 
-// The server's generic ASN.1 dump of a value it could not decode, one line per element, indented
+// The generic ASN.1 dump of a value that is not decoded, one line per element, indented
 // two spaces per depth.
 defineProps<{ lines: readonly Asn1Line[] }>();
 </script>

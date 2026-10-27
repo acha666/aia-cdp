@@ -11,7 +11,6 @@ import type { ReadService } from "../helpers/reads.ts";
 
 const CERTIFICATES = "/api/v1/certificates";
 const CRLS = "/api/v1/crls";
-const STATS = "/api/v1/stats";
 
 /** Every version of issuing-ca-1's two targets in turn, and root-ca's full CRL. */
 const PUBLISHED = [
@@ -46,20 +45,14 @@ describe("the lists", () => {
 });
 
 describe("a failing store", () => {
-  const paths = (svc: ReadService) => [
-    CERTIFICATES,
-    `${CERTIFICATES}/${cert("root-ca").sha256}`,
-    CRLS,
-    `${CRLS}/${svc.setup.target("root-ca", "full")}`,
-    STATS,
-  ];
+  const PATHS = [CERTIFICATES, CRLS, `/api/v1/blobs/${cert("root-ca").sha256}`];
 
   it("is a 500 envelope on every read, never 200 [] or the exception text", async () => {
     const secret = "private storage details";
     const svc = await readService({
       wrap: (base) => patchStore({ get: () => Promise.reject(new Error(secret)) }, base),
     });
-    for (const path of paths(svc)) {
+    for (const path of PATHS) {
       await expectInternal(await svc.app.request(path), secret);
       expect(logRecords(svc.deps).at(-2), path).toMatchObject({
         level: "error",

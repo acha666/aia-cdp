@@ -8,60 +8,75 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useClock } from "@/composables/useClock";
 import { computeTargetStatus, needsAttention } from "@/utils/status";
 
-// The overview's counts (plan §8). Everything but "needs attention" comes from /api/v1/stats, which
-// has no time-dependent field; that one is counted here from the target list with the page's clock
-// and the badges' rule (stale, expired or unknown), so the number always matches the badges in the
-// table below.
-const stats = useQuery(queries.stats());
+// The overview's counts (plan §8), counted here from the two lists: certificates, targets and
+// published targets by kind, the revocations in the published full CRLs, and "needs attention"
+// with the page's clock and the badges' rule (stale, expired or unknown), so the number always
+// matches the badges in the tables below.
+const certificates = useQuery(queries.certificates());
 const targets = useQuery(queries.crls());
 const now = useClock();
 const { t } = useI18n();
 
-const attention = computed(() => {
-  const list = targets.data.value;
-  if (list === undefined) {
-    return null;
-  }
-  const nowMs = now.value.getTime();
-  return list.filter((target) => needsAttention(computeTargetStatus(target.current, nowMs))).length;
-});
+const failed = computed(() => certificates.error.value ?? targets.error.value);
+
+function retry() {
+  void certificates.refetch();
+  void targets.refetch();
+}
 
 const tiles = computed(() => {
-  const data = stats.data.value;
-  if (data === undefined) {
+  const certificateList = certificates.data.value;
+  const targetList = targets.data.value;
+  if (certificateList === undefined || targetList === undefined) {
     return null;
   }
-  const { full, delta } = data.targets;
+  const count = (list: typeof targetList) => ({
+    full: list.filter((target) => target.kind === "full").length,
+    delta: list.filter((target) => target.kind === "delta").length,
+  });
+  const configured = count(targetList);
+  const publishedList = targetList.filter((target) => target.current !== null);
+  const published = count(publishedList);
+  const fullCrls = publishedList.filter((target) => target.kind === "full");
+  const revocations = fullCrls.reduce(
+    (sum, target) => sum + (target.current?.summary.revokedCount ?? 0),
+    0
+  );
+  const nowMs = now.value.getTime();
+  const attention = targetList.filter((target) =>
+    needsAttention(computeTargetStatus(target.current, nowMs))
+  ).length;
   return [
     {
       key: "certificates",
       label: t("stats.certificates"),
-      value: String(data.certificates),
+      value: String(certificateList.length),
       hint: t("stats.certificatesHint"),
     },
     {
       key: "targets",
       label: t("stats.targets"),
-      value: String(full + delta),
-      hint: t("stats.byKind", { full, delta }),
+      value: String(targetList.length),
+      hint: t("stats.byKind", configured),
     },
     {
       key: "published",
       label: t("stats.published"),
-      value: String(data.published.full + data.published.delta),
-      hint: t("stats.byKind", data.published),
+      value: String(publishedList.length),
+      hint: t("stats.byKind", published),
     },
     {
       key: "revocations",
       label: t("stats.revocations"),
-      value: data.totalRevocations === null ? t("common.unknown") : String(data.totalRevocations),
+      value: fullCrls.length === 0 ? t("common.unknown") : String(revocations),
       hint: t("stats.revocationsHint"),
     },
     {
       key: "attention",
       label: t("stats.needsAttention"),
-      value: attention.value === null ? "—" : String(attention.value),
+      value: String(attention),
       hint: t("stats.needsAttentionHint"),
+      warn: attention > 0,
     },
   ];
 });
@@ -70,10 +85,10 @@ const tiles = computed(() => {
 <template>
   <section :aria-label="t('stats.title')">
     <QueryError
-      v-if="tiles === null && stats.isError.value"
-      :error="stats.error.value"
+      v-if="tiles === null && failed"
+      :error="failed"
       :title="t('stats.loadFailed')"
-      @retry="stats.refetch()"
+      @retry="retry()"
     />
     <div v-else class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       <template v-if="tiles">
@@ -86,7 +101,7 @@ const tiles = computed(() => {
           <dt class="text-xs text-muted-foreground">{{ tile.label }}</dt>
           <dd
             class="mt-1 text-2xl font-semibold tabular-nums"
-            :class="{ 'text-warning': tile.key === 'attention' && attention }"
+            :class="{ 'text-warning': tile.warn }"
             data-testid="stat-value"
           >
             {{ tile.value }}

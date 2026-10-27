@@ -14,10 +14,13 @@ import ExtensionList from "@/components/x509/ExtensionList.vue";
 import { useClock } from "@/composables/useClock";
 import { relativeTime } from "@/utils/dates";
 import { computeCertificateStatus } from "@/utils/status";
+import { plainExtension } from "../../core/pki/extensions.ts";
 
 // One certificate (plan §8), in DetailLayout's frame: header with name, status and downloads; tabs
 // for the overview, the extensions and, when the configuration serves a .pem path, the PEM text.
-// `id` matched the router's pattern, so it is safe to put into the request URL. The tabs may not
+// The certificate list gives the catalog's facts, its DER (decoded in the browser) the rest; an id
+// the list does not have is not found. `id` matched the router's pattern, so it is safe to put into
+// the request URL. The tabs may not
 // widen the page (min-w-0: the PEM text and ASN.1 dumps scroll in their own boxes, the tab list
 // scrolls sideways on a phone, never down: the triggers' hidden line-variant ::after reaches below
 // it); the panels are tab stops (Reka), so they show a focus ring. The tabs are keyed by `id`:
@@ -27,14 +30,26 @@ const props = defineProps<{ id: string }>();
 const i18n = useI18n();
 const { t } = i18n;
 const now = useClock();
-const { data, error, refetch } = useQuery(() => queries.certificate(props.id));
+const list = useQuery(queries.certificates());
+const blob = useQuery(() => queries.certificateBlob(props.id));
 
-// The config label, else the subject CN.
-const name = computed(
-  () =>
-    data.value &&
-    (data.value.label ?? data.value.summary.subjectCN ?? t("details.certificate.unknownName"))
-);
+const data = computed(() => list.data.value?.find((item) => item.id === props.id));
+const missing = computed(() => list.data.value !== undefined && data.value === undefined);
+const error = computed(() => list.error.value ?? blob.error.value);
+
+function refetch() {
+  void list.refetch();
+  void blob.refetch();
+}
+
+// The config label, else the subject CN; undefined until the DER is decoded too.
+const name = computed(() => {
+  const item = data.value;
+  if (item === undefined || blob.data.value === undefined) {
+    return undefined;
+  }
+  return item.label ?? item.summary.subjectCN ?? t("details.certificate.unknownName");
+});
 
 const state = computed(() => {
   const summary = data.value?.summary;
@@ -56,15 +71,22 @@ const statusDetail = computed(() => {
   return relativeTime(boundary, now.value.getTime(), i18n, true);
 });
 
-const extensions = computed(() => data.value?.tbsCertificate.extensions?.items ?? []);
+const extensions = computed(() => blob.data.value?.extensions?.map(plainExtension) ?? []);
 const pemPath = computed(() => data.value?.downloads.find((path) => path.endsWith(".pem")) ?? null);
 
 const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
 </script>
 
 <template>
-  <DetailLayout :id="id" kind="certificate" :name="name" :error="error" @retry="refetch()">
-    <template v-if="data">
+  <DetailLayout
+    :id="id"
+    kind="certificate"
+    :name="name"
+    :missing="missing"
+    :error="error"
+    @retry="refetch()"
+  >
+    <template v-if="data && blob.data.value">
       <header class="grid gap-2">
         <div class="flex flex-wrap items-center gap-2">
           <h1 class="text-2xl font-semibold tracking-tight break-all">{{ name }}</h1>
@@ -96,7 +118,7 @@ const PANEL = "rounded-md pt-2 focus-visible:ring-3 focus-visible:ring-ring/50";
           <TabsTrigger v-if="pemPath" value="raw">{{ t("details.tabs.raw") }}</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" :class="PANEL">
-          <CertificateOverview :certificate="data" />
+          <CertificateOverview :certificate="data" :decoded="blob.data.value" />
         </TabsContent>
         <TabsContent value="extensions" :class="PANEL">
           <!-- The extensions' accordion headings are h3. -->

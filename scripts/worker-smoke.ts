@@ -118,20 +118,13 @@ async function publish(base: URL, target: string): Promise<void> {
     check(ok, `POST /api/v1/crls ${file}: ${res.status} ${got}`);
   }
 
-  // The target's detail after the uploads: crls/issuing-ca-1/full-sha1, with its entries.
+  // The target's current CRL after the uploads: crls/issuing-ca-1/full-sha1, as stored.
   const crl = crlEntry("crls/issuing-ca-1/full-sha1.der");
-  const res = await json(await fetch(new URL(`/api/v1/crls/${target}`, base)));
-  const current = res.body.current as {
-    sha256?: unknown;
-    tbsCertList?: { revokedCertificates?: { count?: unknown } };
-    signatureAlgorithm?: { algorithm?: { name?: unknown } };
-  } | null;
+  const res = await fetch(new URL(`/api/v1/blobs/${crl.sha256}`, base));
+  const bytes = new Uint8Array(await res.arrayBuffer());
   check(
-    res.status === 200 &&
-      current?.sha256 === crl.sha256 &&
-      current.tbsCertList?.revokedCertificates?.count === crl.revoked &&
-      current.signatureAlgorithm?.algorithm?.name === "sha1WithRSAEncryption",
-    `GET /api/v1/crls/${target}: ${res.status}, ${crl.file} with ${crl.revoked} entries`
+    res.status === 200 && bytes.byteLength === fixture(crl.file).byteLength,
+    `GET /api/v1/blobs/${crl.sha256}: ${res.status}, ${bytes.byteLength} bytes of ${crl.file}`
   );
 }
 

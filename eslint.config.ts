@@ -57,7 +57,8 @@ export default defineConfig(
     },
   },
   {
-    // The browser bundle may take only types from the server; of Hono, only hono/client.
+    // The browser bundle may take only types from the server, except the X.509 decoding of
+    // core/pki and core/digest.ts (the detail pages decode the DER); of Hono, only hono/client.
     files: ["src/web/**"],
     rules: {
       "@typescript-eslint/no-restricted-imports": [
@@ -72,8 +73,16 @@ export default defineConfig(
           ],
           patterns: [
             {
-              group: ["**/core/**", "**/http/**", "**/storage/**", "**/runtime/**"],
-              message: "src/web may import only types from the server (`import type`).",
+              group: [
+                "**/core/*",
+                "!**/core/pki",
+                "!**/core/digest.ts",
+                "**/http/**",
+                "**/storage/**",
+                "**/runtime/**",
+              ],
+              message:
+                "src/web may import only types from the server (`import type`), and core/pki and core/digest.ts.",
               allowTypeImports: true,
             },
             {

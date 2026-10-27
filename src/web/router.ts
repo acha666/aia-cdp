@@ -6,7 +6,7 @@ import OverviewPage from "@/pages/OverviewPage.vue";
 // Detail routes only match well-formed ids in the lowercase form the API sends (`sensitive`: the
 // router ignores case by default): a certificate id is the SHA-256 of the DER, a target id a UUID.
 // Anything else is NotFoundPage and never reaches a fetch: hono/client puts path parameters into
-// the URL unencoded, so `../stats` would otherwise request /api/v1/stats.
+// the URL unencoded, so `../crls` would otherwise request /api/v1/crls.
 const CERTIFICATE_ID = "[0-9a-f]{64}";
 const TARGET_ID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 

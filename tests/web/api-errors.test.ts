@@ -2,14 +2,14 @@
 // HTTP errors fail with a code instead of turning into an empty success. The fetch is stubbed; the
 // bodies are the v1 envelope as src/http/errors.ts writes it.
 import { describe, expect, it } from "vitest";
-import { STATS, stubApi } from "./helpers";
+import { stubApi, targetItems } from "./helpers";
 import { api } from "@/client/api";
 import { unwrap } from "@/client/errors";
 
 describe("unwrap", () => {
   it("returns the body of a 2xx response", async () => {
-    stubApi({ "GET /api/v1/stats": () => Response.json(STATS) });
-    expect(await unwrap(await api.api.v1.stats.$get())).toEqual(STATS);
+    stubApi({ "GET /api/v1/crls": () => Response.json(targetItems()) });
+    expect(await unwrap(await api.api.v1.crls.$get())).toEqual(targetItems());
   });
 
   it("throws the envelope's code, message and details with the HTTP status", async () => {

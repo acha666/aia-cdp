@@ -1,20 +1,22 @@
-// Public certificate reads (plan §7.1): GET /api/v1/certificates and /api/v1/certificates/{id}, the
-// views of src/core/views.ts. A public sub-app, so it joins the AppType chain. Each request reads
-// config.json and catalog.json once (plan §5.6); the detail also reads its blob. The id is the
-// certificate's SHA-256, never a store key (an archive-style id is a 400).
+// Public reads (plan §7.1): GET /api/v1/certificates, the list of src/core/views.ts, and GET
+// /api/v1/blobs/{sha256}, the DER the UI decodes for a certificate or CRL detail. A public sub-app,
+// so it joins the AppType chain. Each request reads config.json and catalog.json once (plan §5.6);
+// a blob request also reads the blob. The SHA-256 is never a store key (an archive-style one is a
+// 400).
 //
 // Failures are thrown: ApiError for the 404, and for the 500 a blob the catalog names that is
-// missing or wrong, or a store error, so onError writes every envelope (no-store) and the handlers
-// only return successes. HEAD is Hono's automatic HEAD of each GET.
+// missing or a store error, so onError writes every envelope (no-store) and the handlers only
+// return successes. HEAD is Hono's automatic HEAD of each GET.
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { readState } from "../../core/catalog.ts";
-import { certificateDetail, certificateList } from "../../core/views.ts";
+import { readBlob } from "../../core/store.ts";
+import { certificateList, findBlob } from "../../core/views.ts";
 import { ApiError, NO_STORE } from "../errors.ts";
 import {
-  ErrorResponse,
-  CertificateDetail,
-  CertificateIdParam,
+  binary,
+  BlobParam,
   CertificateListItem,
+  ErrorResponse,
   INTERNAL_ERROR,
   jsonResponse,
 } from "../schemas.ts";
@@ -37,20 +39,26 @@ const listCertificatesRoute = createRoute({
   },
 });
 
-const getCertificateRoute = createRoute({
+const getBlobRoute = createRoute({
   method: "get",
-  path: "/certificates/{id}",
-  operationId: "getCertificate",
-  summary: "Get a certificate",
+  path: "/blobs/{sha256}",
+  operationId: "getBlob",
+  summary: "Get a certificate or CRL",
   description:
-    "The list item plus the decoded certificate: fingerprints, TBSCertificate (names, validity, " +
-    "public key, every extension), signature algorithm with its parameters and signature value.",
-  tags: TAGS,
-  request: { params: CertificateIdParam },
+    "The DER of the imported certificate with this id, or of a configured target's current CRL " +
+    "with this SHA-256, as stored. The bytes never change, so the response may be cached for good.",
+  tags: ["blobs"],
+  request: { params: BlobParam },
   responses: {
-    200: jsonResponse("The certificate", CertificateDetail),
-    400: jsonResponse("The id is not 64 hex digits", ErrorResponse),
-    404: jsonResponse("No certificate with this id is imported", ErrorResponse),
+    200: {
+      description: "The DER",
+      content: {
+        "application/pkix-cert": { schema: binary },
+        "application/pkix-crl": { schema: binary },
+      },
+    },
+    400: jsonResponse("The SHA-256 is not 64 hex digits", ErrorResponse),
+    404: jsonResponse("No certificate or current CRL has this SHA-256", ErrorResponse),
     500: INTERNAL_ERROR,
   },
 });
@@ -61,13 +69,18 @@ export function certificateRoutes(deps: AppDeps) {
       const { config, catalog } = await readState(deps.store);
       return c.json(certificateList(config, catalog), 200, NO_STORE);
     })
-    .openapi(getCertificateRoute, async (c) => {
-      const { id } = c.req.valid("param");
+    .openapi(getBlobRoute, async (c) => {
+      const { sha256 } = c.req.valid("param");
       const { config, catalog } = await readState(deps.store);
-      const detail = await certificateDetail(deps.store, config, catalog, id);
-      if (detail === undefined) {
-        throw new ApiError(404, "not_found", "No certificate with this id is imported");
+      const blob = findBlob(config, catalog, sha256);
+      if (blob === undefined) {
+        throw new ApiError(404, "not_found", "No certificate or current CRL has this SHA-256");
       }
-      return c.json(detail, 200, NO_STORE);
+      const der = await readBlob(deps.store, blob.key);
+      return c.body(der, 200, {
+        "Content-Type": blob.kind === "crl" ? "application/pkix-crl" : "application/pkix-cert",
+        "Content-Length": String(der.byteLength),
+        "Cache-Control": "public, max-age=31536000, immutable",
+      });
     });
 }

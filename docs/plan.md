@@ -98,7 +98,7 @@ aia-cdp/
   src/
     core/              纯 TS：不引用 node:*、process、R2Bucket
       pki/             解析、扩展、验签、PEM 编解码
-      summary/         证书 / CRL 摘要与 API 投影构建器
+      summary/         catalog 的证书 / CRL 摘要
       store.ts         ObjectStore 端口
       catalog.ts       catalog.json / config.json 的 schema、读取、条件写与重试
       resources.ts     路径表解析、下载策略
@@ -108,7 +108,7 @@ aia-cdp/
       history.ts       CRL 版本名与键（crlBlobKey / crlHistoryKey）、listHistory / getHistoryBlob
     http/
       app.ts           createApp(deps) → OpenAPIHono；中间件与挂载顺序
-      routes/          health.ts  certificates.ts  crls.ts  stats.ts  admin.ts  downloads.ts
+      routes/          health.ts  certificates.ts  crls.ts  admin.ts  downloads.ts
       schemas.ts       API v1 的请求 / 响应 / 错误 schema
       errors.ts        ApiError、createErrorHandler（onError）、validationHook（defaultHook）→ 错误信封
       ui.ts            保留前缀与 UI 兜底（uiFallback）、onMethodNotAllowed、UI 缓存头（§4.4）
@@ -392,7 +392,7 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 10. 返回 `created`（之前无 current）或 `updated`。
 
 `AIA_MAX_UPLOAD_BYTES` 限制请求体（读体前按 `Content-Length` 拒绝，流式体逐块计数），因而也限制能发布的 CRL 的大小：完整解码只落在
-已验签的 CRL（第 7 步）与目标详情上，未验签的上传最多花去缓冲请求体、一次哈希、头部解码与一次验签。工具本身不做限速，
+已验签的 CRL（第 7 步）上，未验签的上传最多花去缓冲请求体、一次哈希、头部解码与一次验签。工具本身不做限速，
 限速交给前面的平台（Cloudflare、反向代理）。大 CRL 的实测见 `docs/operations.md`"容量"。
 
 第 8 步后崩溃只留下一个无人引用、不进历史的 blob，无害；第 9 步 catalog 写成功即完成，不存在"权威写成功但
@@ -411,11 +411,11 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 
 ### 5.6 读取
 
-公开读路由每个请求各 `get` 一次 `config.json` 与 `catalog.json`（两个小对象），详情再读它的一个 blob；列表与 stats 不读 blob，
-也不 `list`。config / catalog 指向的东西撑不住（blob 缺失、摘要与 catalog 不符、解析失败、目标的签发者不在 catalog）→ 普通 500
+公开读路由每个请求各 `get` 一次 `config.json` 与 `catalog.json`（两个小对象），`/blobs/{sha256}` 再读它的一个 blob；列表不读 blob，
+也不 `list`。服务端不为读取解码证书或 CRL：详情页取 DER 在浏览器里解码（§8）。config / catalog 指向的东西撑不住（blob 缺失、目标的签发者不在 catalog）→ 普通 500
 （日志里是 `unhandled_error`）；config / catalog 无效或 store 抛错也是 500，绝不当作空列表或 404。
 进程内按 ETag 备忘、5 秒 TTL 是唯一允许的优化，默认关闭，切片 5a 实测后不开：两份对象的读取与解析在亚毫秒级（夹具部署 memory
-约 0.05 ms、fs 约 0.3 ms，放大 20 倍约 1 ms），远小于一次详情构建；R2 的真实延迟在切片 7 演练 B 再看。写路径永远直读，不经备忘。
+约 0.05 ms、fs 约 0.3 ms，放大 20 倍约 1 ms）；R2 的真实延迟在切片 7 演练 B 再看。写路径永远直读，不经备忘。
 
 ## 6. 领域规则
 
@@ -447,7 +447,7 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
   （AD CS 两者共用一个号计数器）；只读 catalog 的 `current.summary`，不读当前 DER（`compareFreshness`，`src/core/publish.ts`）。
 - 时钟：注入的 `now` 是唯一时间源；`thisUpdate` 超前 5 分钟以上拒绝 `not_yet_valid`（恰好 5 分钟接受）；
   `nextUpdate` 已过去的 CRL 接受并记录日志。
-- 扩展详情仅用于展示，不重复执行上传准入校验：优先使用 PKIjs 模型；不再统一拒绝 BER 编码、空 GeneralNames 列表或额外字段，按具体展示解码器读取。
+- 扩展详情（浏览器端，`src/web/x509/extensions.ts`）仅用于展示，不重复执行上传准入校验：优先使用 PKIjs 模型；不再统一拒绝 BER 编码、空 GeneralNames 列表或额外字段，按具体展示解码器读取。
   仍要求值恰好占满输入，避免只显示前缀；保留整数精度、有效时间和 SCT 完整性检查，无法可靠读取时显示原始 hex / ASN.1。
   名称约束、分发点原因位、CA Version 等存在已复现库缺陷的结构继续使用小型读取器；展示 CRL Number 不套用上传的非负与 20 字节限制。
 - 扩展：只读服务自己用到的几个（CRL 号、delta 指示、AKI、AD CS Next CRL Publish、IDP），其余扩展不论是否关键都接受，原始字节
@@ -486,11 +486,9 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 | --------------------------------- | ------------------------------------------------------ | ------------------------------------------------------- |
 | `GET /api/v1/health`              | `{ status, checks: { store, configuration } }`：`status` healthy / degraded / unhealthy；`store` ok / error；`configuration` ok / missing / invalid（store 出错时 unknown）；`no-store`。`invalid` = `config.json` 或 `catalog.json` 不是 JSON 或不合 schema（config 的其余规则只在 apply 时检查，health 不重跑） | 200（含 degraded：配置缺失或无效）；store 抛错 503 unhealthy |
 | `GET /api/v1/certificates`        | 完整数组（无分页），按 id 排序；每项 `{ id, label, importedAt, size, summary, downloads, targets }`：`label` 来自 config（未配置为 `null`），`summary` 是 catalog 的证书摘要，`targets` 是以它为签发者的 `{ targetId, kind, label }` | 200 / 500 |
-| `GET /api/v1/certificates/{id}`   | 列表项 + `fingerprints`、`tbsCertificate`（主体 / 签发者、有效期、公钥、全部扩展）、`signatureAlgorithm`（含参数）、`signatureValue`，每次全量构建；`id` 为 64 位 hex，大写规范化为小写 | 200 / 400 / 404 / 500 |
-| `GET /api/v1/crls`                | 每个 config 目标一项，按 `targetId` 排序：`{ targetId, kind, label, issuer: { id, label, subjectCN }, downloads, current }`，`current` 为 `{ sha256, size, publishedAt, summary }`（`summary` 含 `nextPublish`）或 `null` | 200 / 500 |
-| `GET /api/v1/crls/{targetId}`     | 列表项字段；`current` 另加 `verifier`、`fingerprints`、`tbsCertList`（CRL 号、base 号、时间、全部吊销条目 `{ count, items }`、扩展）、`signatureAlgorithm`、`signatureValue`；未发布为 `current: null`（200）；`targetId` 为 UUID，大写规范化 | 200 / 400 / 404 / 500 |
+| `GET /api/v1/crls`                | 每个 config 目标一项，按 `targetId` 排序：`{ targetId, kind, label, issuer: { id, label, subjectCN }, downloads, current }`，`current` 为 `{ sha256, size, publishedAt, verifier, summary }`（`summary` 含 `nextPublish`）或 `null` | 200 / 500 |
+| `GET /api/v1/blobs/{sha256}`      | catalog 证书（`sha256` 即其 id）或 config 目标的 current CRL 的 DER，原样返回（`application/pkix-cert` / `application/pkix-crl`），`public, max-age=31536000, immutable`；历史版本与 config 已删目标的 current 不在此列（404）；`sha256` 为 64 位 hex，大写规范化。详情页的其余字段都从它在浏览器里解码 | 200 / 400 / 404 / 500 |
 | `POST /api/v1/crls`               | 上传 CRL：原始请求体（`application/pkix-crl` / `application/x-pem-file` / `application/octet-stream`），不收 multipart | 201 created；200 updated / unchanged；400 / 401 / 409 / 413 / 415 / 422 / 500 |
-| `GET /api/v1/stats`               | `{ certificates, targets: { full, delta }, published: { full, delta }, totalRevocations, derBytes }`：`totalRevocations` 为已发布 full CRL 的 `revokedCount` 之和（无已发布 full 时 `null`），`derBytes` 为 catalog 证书与 config 各目标 current CRL 的字节数（历史不计）；不含时间相关字段（"需关注"数由 UI 用客户端时钟算，§8） | 200 / 500                                       |
 | `GET /api/v1/openapi.json`        | 运行时从路由表生成（`getOpenAPI31Document`），按进程 / isolate 缓存；与提交的 `docs/openapi.json` 一致（§7.3） | 200，`public, max-age=300`               |
 
 上传成功体：
@@ -580,7 +578,7 @@ apply 时判定，以服务端为准。参数解析、子命令分发、参数�
 
 owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 
-- 基座：`vue-router`（history 模式）；`@tanstack/vue-query`（列表 / 详情 `useQuery`，`staleTime: 0`，4xx 不重试、5xx 与网络失败重试一次；
+- 基座：`vue-router`（history 模式）；`@tanstack/vue-query`（列表 `useQuery`，`staleTime: 0`，4xx 不重试、5xx 与网络失败重试一次；DER 不会变，`staleTime: Infinity`，可走浏览器缓存；
   上传 `useMutation` 成功后先 `cancelQueries` 再全量 `invalidateQueries`）；shadcn-vue 生成的组件（Reka UI 原语，`--style nova`、
   base color `neutral`，源码在 `src/web/components/ui/`，生成代码用 `cn`）；`@vueuse/core`（`useNow`、`useStorage`；
   复制走 `src/web/utils/clipboard.ts`：Clipboard API，退回 `execCommand("copy")` 并检查其结果，都不行给 toast）；
@@ -591,8 +589,8 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   NotFound 页，不发请求。详情页懒加载；`document.title` = `<页面> · <站名>`。链接打开的页面从顶部开始，前进 / 后退回到
   原滚动位置。未知 UI 路径由 §4.4 的 UI 兜底返回应用（Workers `not_found_handling: "single-page-application"`，Node 回退
   `index.html`）；保留前缀与末段带扩展名的路径不兜底。
-- 总览：统计条五格——证书数、CRL 目标数（full / delta）、已发布数、吊销条目（已发布 full CRL 的合计，没有时"未知"）、需关注（stale +
-  expired + unknown 的目标数，客户端按徽标的同一时钟与规则算；`/api/v1/stats` 不含时间字段）；证书表（显示名 = 标签 ?? 主体 CN、
+- 总览：统计条五格，都由客户端从两个列表算——证书数、CRL 目标数（full / delta）、已发布数、吊销条目（已发布 full CRL 的合计，没有时
+  "未知"）、需关注（stale + expired + unknown 的目标数，按徽标的同一时钟与规则算）；证书表（显示名 = 标签 ?? 主体 CN、
   签发者、有效期与剩余时间、状态、DER / PEM 下载，按显示名排序）；CRL 目标表（标签与签发者、类别徽标（证书蓝、full 紫、delta 绿）、
   CRL 号、thisUpdate – nextUpdate、吊销数、状态、下载；未发布显示"未发布"、吊销数 "—"；按标签排序，同名 full 在前）；上传卡片
   （拖放、选择文件或粘贴 PEM，都经 hc 的 `$post` 把文件作为原始请求体（`init.body`）发送，`Content-Type: application/octet-stream`，服务端按字节识别；created / updated / unchanged 是三句成功文案，附 CRL 号与下载路径；
@@ -604,18 +602,20 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   thisUpdate（§6），所以只在浏览器时钟落后于服务端或在那 5 分钟内出现；不计入"需关注"）、`expired`（now > nextUpdate）、`stale`（带 AD CS
   Next CRL Publish 时 now 超过它 1 h；不带时（如离线 OpenSSL 根 CRL）thisUpdate → nextUpdate 剩余不足 20%）、否则 `current`。证书与 CRL
   的日期缺失、无法解析或颠倒（notAfter < notBefore、nextUpdate ≤ thisUpdate）都是 `unknown`，从不显示为有效。
-- 详情：证书页 Tabs = 概览（主体 / 签发者 DN 表含 `rfc4514`、有效期、序列号、公钥摘要、签名算法含参数与 ECDSA `(r, s)`、指纹、
-  unique ID、它作为签发者的 CRL 目标链接）/ 扩展 / PEM（有 `.pem` 路径时）。CRL 目标页头 = 标签、类别、状态、签发者链接、下载；
-  Tabs = 概览（CRL 号与 base 号、thisUpdate / nextUpdate / Next CRL Publish、算法、指纹、签发者 DN）/ 吊销列表 / 扩展；未发布目标
-  （`current: null`）只有页头与"未发布"，不显示 0 或"未知"；API 404 显示"不存在"。扩展是 Accordion（关键在前）：每个解析结果按类型
-  映射为若干区段（`src/web/utils/extension-display.ts`；分发点、策略、SCT 这类重复元素各占一段），每段是一张标签 / 值表，值只有文本、
-  十六进制、等宽行、标签四种，各由 `ValueView` 用一种样式画出，概览页的表也用它；未识别或解码失败显示解析错误、ASN.1 结构 dump
-  与原始 hex。吊销列表：序列号、吊销时间、原因、失效起始、间接签发者；有条目扩展的行可展开，用同一个扩展 Accordion 列出全部条目扩展
-  （保留指令、关键标记、未解码的扩展）；表头吸顶，超过 200 行按 200 行一页 `slice()` 分页，0 条显示空状态（不用 `@tanstack/vue-table`）。
+- 详情：页面取列表（catalog 事实：标签、导入 / 发布时间、大小、文件指纹、下载路径、目标链接）与 `/blobs/{sha256}` 的 DER，DER 在浏览器里
+  用 core/pki 的解析器（`parseCertificate` / `parseCRL`，asn1js + PKIjs，随第一个详情懒加载）解码，再由 `src/web/x509/` 直接映射成显示行，
+  没有中间 JSON 投影；列表里没有这个 id 显示"不存在"，DER 解不开显示"不是有效的证书 / CRL"。证书页 Tabs = 概览（主体 / 签发者 DN 表含
+  `rfc4514`、有效期、序列号、公钥摘要、签名算法含参数与签名值 hex、文件指纹、unique ID、它作为签发者的 CRL 目标链接）/ 扩展 / PEM（有
+  `.pem` 路径时）。CRL 目标页头 = 标签、类别、状态、签发者链接、下载；Tabs = 概览（CRL 号与 base 号、thisUpdate / nextUpdate / Next CRL
+  Publish、算法、指纹、签发者 DN）/ 吊销列表 / 扩展；未发布目标（`current: null`）只有页头与"未发布"，不取 DER，不显示 0 或"未知"。
+  扩展是 Accordion（关键在前）：每个已知 OID 的值解码成若干区段（`src/web/x509/extensions.ts`，41 种；分发点、策略、SCT 这类重复元素
+  各占一段），每段是一张标签 / 值表，值只有文本、十六进制、等宽行、标签四种，各由 `ValueView` 用一种样式画出，概览页的表也用它；
+  未识别或解码失败显示解析错误、ASN.1 结构 dump 与原始 hex。吊销列表：序列号、吊销时间、原因、失效起始、间接签发者；有条目扩展的行
+  可展开，用同一个扩展 Accordion 列出全部条目扩展（保留指令、关键标记、未解码的扩展）；表头吸顶，超过 200 行按 200 行一页 `slice()`
+  分页，0 条显示空状态（不用 `@tanstack/vue-table`）。
 - 客户端：`const api = hc<AppType>("", { init: { cache: "no-store" }, fetch: apiFetch })`，vue-query 的 `queryFn` 写
   `unwrap(await api…$get(…))`：2xx 返回 hc 推断类型的体，否则抛 `ApiError { code, message, status, details }`（v1 信封的码；非 JSON 或
-  非信封为 `invalid_response`；拿不到响应为 `network`、`status: 0`，由 `apiFetch` 产出）；响应体类型与 core 的 X.509 类型从
-  `src/web/client/types.ts` 取；错误码显示 `errors.<code>` 的文案（vue-i18n 的 `te()` 判断有无，没有则 `errors.unknown`），
+  非信封为 `invalid_response`；拿不到响应为 `network`、`status: 0`，由 `apiFetch` 产出）；响应体类型从 `src/web/client/types.ts` 取；错误码显示 `errors.<code>` 的文案（vue-i18n 的 `te()` 判断有无，没有则 `errors.unknown`），
   每个服务端码都有文案由 tests/web/locales.test.ts 检查。客户端目录是 `src/web/client/`：
   Vite `root: src/web` 时 dev server 会把 `src/web` 下的目录当 URL 服务，叫 `api` 会与 `/api/` 冲突（`ca`、`crl`、`dcrl` 同理）。
   web 对服务端模块只许 `import type`（`AppType`、core 的 X.509 类型），运行时只导入 `hono/client`（ESLint 规则，§3）。

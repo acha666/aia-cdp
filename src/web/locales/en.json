@@ -213,11 +213,6 @@
       "raw": "PEM"
     },
     "noExtensions": "No extensions.",
-    "signature": {
-      "r": "Signature r",
-      "s": "Signature s",
-      "value": "Signature value"
-    },
     "raw": {
       "loadFailed": "Could not load the PEM text"
     },
@@ -232,11 +227,10 @@
       "notAfter": "Not After",
       "cryptography": "Cryptography",
       "signatureAlgorithm": "Signature Algorithm",
+      "signatureValue": "Signature Value",
       "publicKeyAlgorithm": "Public Key Algorithm",
       "keySize": "Key Size",
       "curve": "Curve",
-      "publicKeySha1": "Public Key SHA-1",
-      "publicKeySha256": "Public Key SHA-256",
       "fingerprints": "Fingerprints",
       "extensions": "Extensions",
       "imported": "Imported",

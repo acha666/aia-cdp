@@ -6,5 +6,5 @@ import { apiFetch } from "./errors";
 // bundled, only hono/client). `cache: "no-store"` keeps the browser's HTTP cache out of every API
 // call; the API also answers with `Cache-Control: no-store`. apiFetch makes a request that gets no
 // response reject with ApiError `network`; a response is read with unwrap (errors.ts):
-// `unwrap(await api.api.v1.stats.$get())`.
+// `unwrap(await api.api.v1.crls.$get())`.
 export const api = hc<AppType>("", { init: { cache: "no-store" }, fetch: apiFetch });

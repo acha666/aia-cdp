@@ -1,31 +1,29 @@
 // CRL targets (plan §7.1): the upload POST /api/v1/crls hands one CRL, the raw request body, to
-// publishCrl (src/core/publish.ts) and maps its result; GET /api/v1/crls and
-// /api/v1/crls/{targetId} are the target views of src/core/views.ts. Public routes, so this
-// sub-app joins the AppType chain. The upload's format is recognized from the bytes. The reads
-// list one item per configured target (id = target UUID, never a store key), every revoked entry
-// in the detail, no pagination.
+// publishCrl (src/core/publish.ts) and maps its result; GET /api/v1/crls is the target list of
+// src/core/views.ts. Public routes, so this sub-app joins the AppType chain. The upload's format is
+// recognized from the bytes. The list has one item per configured target (id = target UUID, never
+// a store key), no pagination.
 //
 // The upload's route middleware, in this order: bearerAuth while AIA_UPLOAD_TOKEN is set (a
 // missing or wrong token is 401 + WWW-Authenticate, a malformed Authorization header 400; unset,
 // uploads need no token); the media type gate (415 with details); bodyLimit
 // (AIA_MAX_UPLOAD_BYTES, 413, also for a streamed body without Content-Length). So an anonymous
 // client never gets its body read, nor a 413 that tells it the limit. Failures are thrown as
-// ApiError / HTTPException (and, for the reads, store errors): onError writes every envelope
-// (no-store), and the handlers only return successes. HEAD of the reads is Hono's automatic HEAD
-// of each GET.
+// ApiError / HTTPException (and, for the list, store errors): onError writes every envelope
+// (no-store), and the handlers only return successes. HEAD of the list is Hono's automatic HEAD of
+// its GET.
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { bearerAuth } from "hono/bearer-auth";
 import { bodyLimit } from "hono/body-limit";
 import { readState } from "../../core/catalog.ts";
 import { publishCrl } from "../../core/publish.ts";
 import type { PublishErrorCode, PublishFailure } from "../../core/publish.ts";
-import { crlTargetDetail, crlTargetList } from "../../core/views.ts";
+import { crlTargetList } from "../../core/views.ts";
 import { ApiError, NO_STORE } from "../errors.ts";
 import { mediaTypeGate } from "../media.ts";
 import {
   ErrorResponse,
   CRL_MEDIA_TYPES,
-  CrlTargetDetail,
   CrlTargetListItem,
   INTERNAL_ERROR,
   jsonContent,
@@ -33,7 +31,6 @@ import {
   PAYLOAD_TOO_LARGE,
   PublishedCrl,
   rawBody,
-  TargetIdParam,
 } from "../schemas.ts";
 import type { AppDeps, AppSettings } from "../types.ts";
 
@@ -120,25 +117,6 @@ const listCrlTargetsRoute = createRoute({
   },
 });
 
-const getCrlTargetRoute = createRoute({
-  method: "get",
-  path: "/crls/{targetId}",
-  operationId: "getCrlTarget",
-  summary: "Get a CRL target",
-  description:
-    "The list item, and for a published target its current CRL decoded: verifier, fingerprints, " +
-    "TBSCertList with every revoked entry and extension, signature algorithm with its " +
-    "parameters and signature value. An unpublished target is a 200 with `current: null`.",
-  tags: TAGS,
-  request: { params: TargetIdParam },
-  responses: {
-    200: jsonResponse("The target", CrlTargetDetail),
-    400: jsonResponse("The target id is not a UUID", ErrorResponse),
-    404: jsonResponse("config.json defines no target with this id", ErrorResponse),
-    500: INTERNAL_ERROR,
-  },
-});
-
 // Failures --------------------------------------------------------------------------------------
 
 /** The public message for each publish failure. */
@@ -193,15 +171,6 @@ export function crlRoutes(deps: AppDeps) {
     .openapi(listCrlTargetsRoute, async (c) => {
       const { config, catalog } = await readState(deps.store);
       return c.json(crlTargetList(config, catalog), 200, NO_STORE);
-    })
-    .openapi(getCrlTargetRoute, async (c) => {
-      const { targetId } = c.req.valid("param");
-      const { config, catalog } = await readState(deps.store);
-      const detail = await crlTargetDetail(deps.store, config, catalog, targetId);
-      if (detail === undefined) {
-        throw new ApiError(404, "not_found", "No target with this id is configured");
-      }
-      return c.json(detail, 200, NO_STORE);
     })
     .openapi(uploadCrlRoute(deps.settings), async (c) => {
       const bytes = await c.req.bytes();

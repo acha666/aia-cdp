@@ -213,11 +213,6 @@
       "raw": "PEM"
     },
     "noExtensions": "没有扩展。",
-    "signature": {
-      "r": "签名 r",
-      "s": "签名 s",
-      "value": "签名值"
-    },
     "raw": {
       "loadFailed": "无法加载 PEM 文本"
     },
@@ -232,11 +227,10 @@
       "notAfter": "过期时间",
       "cryptography": "密码学信息",
       "signatureAlgorithm": "签名算法",
+      "signatureValue": "签名值",
       "publicKeyAlgorithm": "公钥算法",
       "keySize": "密钥长度",
       "curve": "曲线",
-      "publicKeySha1": "公钥 SHA-1",
-      "publicKeySha256": "公钥 SHA-256",
       "fingerprints": "指纹",
       "extensions": "扩展",
       "imported": "导入时间",

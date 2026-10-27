@@ -35,7 +35,7 @@ describe("createAppRouter", () => {
     const page = wrapper.findComponent(CrlTargetPage);
     expect(page.exists()).toBe(true);
     expect(page.props("targetId")).toBe(TARGET_ID);
-    expect(api.calls()).toEqual([`GET /api/v1/crls/${TARGET_ID}`]);
+    expect(api.calls()).toEqual(["GET /api/v1/crls"]);
   });
 
   it("lazy-loads CertificatePage for /certificates/:id", async () => {
@@ -45,13 +45,16 @@ describe("createAppRouter", () => {
     const page = wrapper.findComponent(CertificatePage);
     expect(page.exists()).toBe(true);
     expect(page.props("id")).toBe(CERTIFICATE_ID);
-    expect(api.calls()).toEqual([`GET /api/v1/certificates/${CERTIFICATE_ID}`]);
+    expect(api.calls()).toEqual([
+      "GET /api/v1/certificates",
+      `GET /api/v1/blobs/${CERTIFICATE_ID}`,
+    ]);
   });
 
   it.each([
     ["an uppercase certificate id", `/certificates/${CERTIFICATE_ID.toUpperCase()}`],
     ["a short certificate id", `/certificates/${CERTIFICATE_ID.slice(1)}`],
-    ["a path in the id", "/certificates/..%2Fstats"],
+    ["a path in the id", "/certificates/..%2Fcrls"],
     ["a target id that is no UUID", "/crls/not-a-uuid"],
     ["a target id one digit short", `/crls/${TARGET_ID.slice(0, -1)}`],
     ["an uppercase target id", `/crls/${TARGET_ID.toUpperCase()}`],
