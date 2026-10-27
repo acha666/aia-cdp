@@ -1,11 +1,15 @@
 // Server state of the UI: `queries`, one TanStack Query options factory (key and request) per API
-// read, and the CRL upload as a mutation. A component calls useQuery(queries.stats()); a detail
-// page passes a getter, useQuery(() => queries.certificate(props.id)), so its query follows the
-// route. The query cache dedupes requests, drops the answers of superseded ones and keeps the
+// read, and the CRL upload as a mutation. A component calls useQuery(queries.crls()); a detail
+// page passes a getter, useQuery(() => queries.certificateBlob(props.id)), so its query follows
+// the route. The query cache dedupes requests, drops the answers of superseded ones and keeps the
 // previous data while a key refetches. Every read is `unwrap(await api…$get(…))`, so a failure is
 // an ApiError (errors.ts) or an abort. ["health"] is HealthBadge's own query: its 503 body is not
 // an envelope, so it reads the status code itself.
 import { QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/vue-query";
+import { markRaw } from "vue";
+import type { Certificate } from "pkijs";
+import type * as Parsers from "../../core/pki/parsers.ts";
+import type { WholeCrl } from "../../core/pki/parsers.ts";
 import { api } from "./api";
 import { ApiError, unwrap } from "./errors";
 
@@ -30,40 +34,63 @@ export function createQueryClient(): QueryClient {
   });
 }
 
+/**
+ * GET /api/v1/blobs/{sha256}, decoded by `parse` from core/pki/parsers.ts, which is loaded with the
+ * first blob (asn1js and PKIjs are a chunk of their own). A blob never changes: it may come from
+ * the browser's cache and is never stale. The decoded object is markRaw: Vue must not wrap PKIjs's
+ * objects in proxies. A blob that does not decode fails with ApiError `code`, the server's 422 for
+ * such content: final, since another try reads the same bytes.
+ */
+function blobQuery<T extends object>(
+  sha256: string,
+  code: "invalid_certificate" | "invalid_crl",
+  parse: (parsers: typeof Parsers, der: Uint8Array) => T
+) {
+  return queryOptions({
+    queryKey: ["blob", sha256],
+    staleTime: Infinity,
+    queryFn: async ({ signal }) => {
+      const parsers = import("../../core/pki/parsers.ts");
+      const res = await v1.blobs[":sha256"].$get(
+        { param: { sha256 } },
+        { init: { signal, cache: "default" } }
+      );
+      if (!res.ok) {
+        await unwrap(res); // throws the envelope's ApiError
+      }
+      const der = new Uint8Array(await res.arrayBuffer());
+      try {
+        return markRaw(parse(await parsers, der));
+      } catch (error) {
+        throw new ApiError(422, code, `GET blob ${sha256}`, undefined, { cause: error });
+      }
+    },
+  });
+}
+
 export const queries = {
-  stats: () =>
-    queryOptions({
-      queryKey: ["stats"],
-      queryFn: async ({ signal }) => unwrap(await v1.stats.$get(undefined, { init: { signal } })),
-    }),
   certificates: () =>
     queryOptions({
       queryKey: ["certificates"],
       queryFn: async ({ signal }) =>
         unwrap(await v1.certificates.$get(undefined, { init: { signal } })),
     }),
-  /**
-   * One certificate. `id` must be one the router's pattern matched or the server sent: hono/client
-   * puts path parameters into the URL as they are.
-   */
-  certificate: (id: string) =>
-    queryOptions({
-      queryKey: ["certificate", id],
-      queryFn: async ({ signal }) =>
-        unwrap(await v1.certificates[":id"].$get({ param: { id } }, { init: { signal } })),
-    }),
   crls: () =>
     queryOptions({
       queryKey: ["crls"],
       queryFn: async ({ signal }) => unwrap(await v1.crls.$get(undefined, { init: { signal } })),
     }),
-  /** One CRL target; the same rule for `targetId` as for `certificate`'s `id`. */
-  crl: (targetId: string) =>
-    queryOptions({
-      queryKey: ["crl", targetId],
-      queryFn: async ({ signal }) =>
-        unwrap(await v1.crls[":targetId"].$get({ param: { targetId } }, { init: { signal } })),
-    }),
+  /**
+   * A certificate by its id. `sha256` must be one the router's pattern matched or the server sent:
+   * hono/client puts path parameters into the URL as they are.
+   */
+  certificateBlob: (sha256: string) =>
+    blobQuery<Certificate>(sha256, "invalid_certificate", (parsers, der) =>
+      parsers.parseCertificate(der)
+    ),
+  /** A target's current CRL by its `current.sha256`, every entry decoded. */
+  crlBlob: (sha256: string) =>
+    blobQuery<WholeCrl>(sha256, "invalid_crl", (parsers, der) => parsers.parseCRL(der)),
 };
 
 export interface UploadCrlInput {
@@ -76,8 +103,8 @@ export interface UploadCrlInput {
 /**
  * POST /api/v1/crls with the file as the raw body (the server tells PEM from DER by the bytes):
  * the route's body is not JSON, so hc takes it as `init.body`. The token, when given, goes in this
- * request's headers only. A success refreshes every query: the data is small, and lists, details
- * and stats all change.
+ * request's headers only. A success refreshes every query: the data is small, and the lists
+ * change (a blob never does).
  */
 export function useUploadCrl() {
   const client = useQueryClient();

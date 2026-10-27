@@ -12,7 +12,7 @@ X.509 CA 证书与 CRL 的 AIA/CDP 分发服务：一份代码，运行在 Cloud
   `scripts/adcs-crl-uploader.ps1`，安装与计划任务见 [docs/operations.md](docs/operations.md)。
 - 管理：导入与删除 CA 证书（被引用的证书不可删）、写入与校验配置（从配置删除目标即退役）、列出与下载 CRL 目标的历史
   （`/api/v1/admin/*`，需要 `AIA_ADMIN_TOKEN`），CLI 是 `aia import` / `aia config` / `aia history` / `aia delete-certificate`。
-- 公开只读 API：`GET /api/v1/certificates`、`/certificates/{id}`、`/crls`、`/crls/{targetId}`、`/stats`、`/health`；
+- 公开只读 API：`GET /api/v1/certificates`、`/crls`（列表与基础信息）、`/blobs/{sha256}`（证书与当前 CRL 的 DER，详情页在浏览器里解码）、`/health`；
   OpenAPI 文档在 [docs/openapi.json](docs/openapi.json)（`pnpm run openapi` 重新生成）。
 - Web UI：总览（统计与"需关注"、证书表、CRL 目标表、CRL 上传）、证书与 CRL 目标详情（X.509 扩展、吊销列表、PEM），
   `en` / `zh-CN`，亮 / 暗主题跟随系统。

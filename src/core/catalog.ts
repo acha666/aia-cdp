@@ -97,7 +97,7 @@ export function certificateReferences(config: Config): { id: string; path: strin
 /** Built by buildCertificateSummary (src/core/summary/catalog-summary.ts). */
 export const CertificateSummarySchema = z
   .strictObject({
-    /** The first CN in RDN order with a string value, as the detail's Name.commonName. */
+    /** The first CN in RDN order with a string value, as the detail page shows Common Name. */
     subjectCN: z.string().nullable(),
     issuerCN: z.string().nullable(),
     serialNumber: SerialNumber,

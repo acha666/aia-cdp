@@ -75,8 +75,8 @@
    - 路径表里每条 DER 路径两边各 GET 一次，比较 sha256。CRL 路径上，新服务的 CRL 若同一签发者签发且按切片 4 步骤 5 更新，记为 `advanced`，也算通过。
    - `.pem` 变体只比较解码后的 DER（Gen B 的 PEM 字节不同不算失败）。
    - 每个目标 `GET /api/v1/admin/crls/{id}/history` 返回的 sha256 集合必须等于 plan 的历史集加 current。
-   - 扩展解码核对（D7 后真实 AD CS 字节的唯一回归）：对每张导入的证书与每个 current CRL 调 `GET /api/v1/certificates/{id}`、`/api/v1/crls/{id}`，
-     断言没有扩展带解析错误或只回落为 ASN.1 dump，且 CA Version、证书模板名、Next CRL Publish、CRL Self CDP 都已解码；结果写进 `report.md`。
+   - 扩展解码核对（D7 后真实 AD CS 字节的唯一回归）：对每张导入的证书与每个 current CRL 取 `GET /api/v1/blobs/{sha256}`，用 UI 的
+     `describeExtension`（`src/web/x509/extensions.ts`）解码，断言没有扩展带解析错误或只回落为 ASN.1 dump，且 CA Version、证书模板名、Next CRL Publish、CRL Self CDP 都已解码；结果写进 `report.md`。
    - 重跑 URL 交叉核对。退出码 0 / 1。
 8. **演练（非生产，按顺序）**：
    - 演练 A（Node + fs）：`AIA_DATA_DIR=$(mktemp -d)`，`node --enable-source-maps dist/server/runtime/node.js`，对线上源站只读地跑步骤 1–7。清空目录再跑一次；在已导入的目录上第二次 `apply`，结果全部 `unchanged`。

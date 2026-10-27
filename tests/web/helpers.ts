@@ -1,7 +1,8 @@
 // Shared by the web tests (not a test file itself): API bodies shaped by @/client/types with the
 // facts of tests/fixtures/pki (ids, serials, validity, CRL numbers and times from manifest.json;
 // subject names from the fixture generator; repeated bytes stand in for digests the manifest does
-// not list), and a fetch stub that answers hc's requests by method and path.
+// not list), the fixtures' DER for the blob route, and a fetch stub that answers hc's requests by
+// method and path.
 import { VueQueryPlugin } from "@tanstack/vue-query";
 import type { QueryClient } from "@tanstack/vue-query";
 import { flushPromises, mount } from "@vue/test-utils";
@@ -11,19 +12,7 @@ import { createMemoryHistory } from "vue-router";
 import manifest from "../fixtures/pki/manifest.json";
 import App from "@/App.vue";
 import { createQueryClient } from "@/client/queries";
-import type {
-  AlgorithmIdentifier,
-  CertificateDetail,
-  CertificateListItem,
-  CrlTargetDetail,
-  CrlTargetListItem,
-  Extension,
-  Name,
-  PublishedCrl,
-  RevokedCertificate,
-  Stats,
-  Time,
-} from "@/client/types";
+import type { CertificateListItem, CrlTargetListItem, PublishedCrl } from "@/client/types";
 import { createAppI18n } from "@/i18n";
 import { createAppRouter } from "@/router";
 
@@ -55,96 +44,36 @@ function iso(value: string): string {
   return new Date(value).toISOString();
 }
 
-export function time(value: string): Time {
-  const normalized = iso(value);
+/** The fixtures' DER by path under tests/fixtures/pki, as data URLs (vitest.config.ts). */
+const DER_URLS = import.meta.glob<string>("../fixtures/pki/**/*.der", {
+  query: "?inline",
+  import: "default",
+  eager: true,
+});
+
+/** The bytes of the fixture `file` (e.g. "certs/root-ca.der"). */
+export function der(file: string): Uint8Array<ArrayBuffer> {
+  const url = DER_URLS[`../fixtures/pki/${file}`];
+  if (url === undefined) {
+    throw new Error(`no DER fixture ${file}`);
+  }
+  return Uint8Array.from(atob(url.slice(url.indexOf(",") + 1)), (char) => char.charCodeAt(0));
+}
+
+/** The route of GET /api/v1/blobs/{sha256} answering with the fixture `file`. */
+function blobRoute(sha256: string, file: string): Record<string, Handler> {
   return {
-    iso: normalized,
-    type: "utcTime",
-    raw: `${normalized.replace(/[-:T]/g, "").slice(2, 14)}Z`,
+    [`GET /api/v1/blobs/${sha256}`]: () =>
+      new Response(der(file), { headers: { "Content-Type": "application/octet-stream" } }),
   };
 }
 
-/** "/C=US/O=Example PKI/CN=<cn>", as the fixture generator writes the CA subjects. */
-function exampleName(commonName: string): Name {
-  const attribute = (oid: string, name: string, value: string) => ({
-    attributes: [
-      { type: { oid, name }, value: { string: value, encoding: "printableString" as const } },
-    ],
-  });
-  return {
-    commonName,
-    organization: "Example PKI",
-    organizationalUnit: null,
-    country: "US",
-    stateOrProvince: null,
-    locality: null,
-    rdnSequence: [
-      attribute("2.5.4.6", "C", "US"),
-      attribute("2.5.4.10", "O", "Example PKI"),
-      attribute("2.5.4.3", "CN", commonName),
-    ],
-    rfc4514: `CN=${commonName},O=Example PKI,C=US`,
-  };
-}
+/** The blob route of a certificate fixture (certs/<name>.der). */
+export const certificateBlob = (name: FixtureName) =>
+  blobRoute(fixtureCertificate(name).sha256, `certs/${name}.der`);
 
-const ECDSA_SHA384: AlgorithmIdentifier = {
-  algorithm: { oid: "1.2.840.10045.4.3.3", name: "ecdsa-with-SHA384" },
-};
-
-const SHA256_RSA: AlgorithmIdentifier = {
-  algorithm: { oid: "1.2.840.113549.1.1.11", name: "sha256WithRSAEncryption" },
-  parameters: { rawHex: "0500", parsed: { type: "null" } },
-};
-
-/** crls/issuing-ca-1/full-pss: "RSASSA-PSS SHA-256, MGF1 SHA-256, salt 32". */
-const RSASSA_PSS: AlgorithmIdentifier = {
-  algorithm: { oid: "1.2.840.113549.1.1.10", name: "RSASSA-PSS" },
-  parameters: {
-    rawHex:
-      "3034a00f300d06096086480165030402010500a11c301a06092a864886f70d010108300d06096086480165030402010500a203020120",
-    parsed: {
-      type: "rsassaPss",
-      hashAlgorithm: { oid: "2.16.840.1.101.3.4.2.1", name: "SHA-256" },
-      maskGenAlgorithm: { oid: "1.2.840.113549.1.1.8", name: "MGF1" },
-      maskGenHashAlgorithm: { oid: "2.16.840.1.101.3.4.2.1", name: "SHA-256" },
-      saltLength: 32,
-      trailerField: 1,
-    },
-  },
-};
-
-const BASIC_CONSTRAINTS_CA: Extension = {
-  extnID: { oid: "2.5.29.19", name: "basicConstraints" },
-  critical: true,
-  extnValue: { hex: "30030101ff", byteLength: 5 },
-  parseStatus: "parsed",
-  parsed: { extensionType: "basicConstraints", cA: true },
-};
-
-/** A small INTEGER extension value (CRL Number, Delta CRL Indicator). */
-function integerHex(number: string): string {
-  return `0201${Number(number).toString(16).padStart(2, "0")}`;
-}
-
-function crlNumberExtension(number: string): Extension {
-  return {
-    extnID: { oid: "2.5.29.20", name: "cRLNumber" },
-    critical: false,
-    extnValue: { hex: integerHex(number), byteLength: 3 },
-    parseStatus: "parsed",
-    parsed: { extensionType: "cRLNumber", number },
-  };
-}
-
-function deltaIndicatorExtension(baseCRLNumber: string): Extension {
-  return {
-    extnID: { oid: "2.5.29.27", name: "deltaCRLIndicator" },
-    critical: true,
-    extnValue: { hex: integerHex(baseCRLNumber), byteLength: 3 },
-    parseStatus: "parsed",
-    parsed: { extensionType: "deltaCRLIndicator", baseCRLNumber },
-  };
-}
+/** The blob route of a CRL fixture (its manifest file). */
+export const crlBlob = (file: string) => blobRoute(fixtureCrl(file).sha256, file);
 
 export function certificateItem(
   name: FixtureName,
@@ -173,57 +102,14 @@ export function certificateItem(
   } satisfies CertificateListItem;
 }
 
-/** root-ca as the detail route returns it: an ECDSA P-384 self-signed CA. */
-export function rootDetail(overrides: Partial<CertificateDetail> = {}): CertificateDetail {
-  const item = certificateItem("root-ca");
-  const fixture = fixtureCertificate("root-ca");
-  return {
-    ...item,
-    fingerprints: { sha1: item.summary.sha1, sha256: item.id },
-    tbsCertificate: {
-      version: { raw: 2, display: "v3" },
-      serialNumber: { hex: fixture.serial, decimal: String(Number.parseInt(fixture.serial, 16)) },
-      signature: ECDSA_SHA384,
-      issuer: exampleName(SUBJECT_CN["root-ca"]),
-      validity: { notBefore: time(fixture.notBefore), notAfter: time(fixture.notAfter) },
-      subject: exampleName(SUBJECT_CN["root-ca"]),
-      subjectPublicKeyInfo: {
-        algorithm: {
-          algorithm: { oid: "1.2.840.10045.2.1", name: "ecPublicKey" },
-          parameters: {
-            rawHex: "06052b81040022",
-            parsed: { type: "objectIdentifier", oid: { oid: "1.3.132.0.34", name: "P-384" } },
-          },
-        },
-        subjectPublicKey: { hex: `04${"ab".repeat(96)}`, bitLength: 776, unusedBits: 0 },
-        parsed: {
-          type: "ec",
-          curve: { oid: "1.3.132.0.34", name: "P-384" },
-          point: { hex: `04${"ab".repeat(96)}`, x: "ab".repeat(48), y: "ab".repeat(48) },
-          keySize: 384,
-        },
-        fingerprints: { sha1: "4d".repeat(20), sha256: "5e".repeat(32) },
-      },
-      extensions: { count: 1, critical: 1, items: [BASIC_CONSTRAINTS_CA] },
-    },
-    signatureAlgorithm: ECDSA_SHA384,
-    signatureValue: {
-      hex: "30".repeat(104),
-      bitLength: 832,
-      unusedBits: 0,
-      parsed: { type: "ecdsa", r: "7a".repeat(48), s: "7b".repeat(48) },
-    },
-    ...overrides,
-  } satisfies CertificateDetail;
-}
-
 /** The current CRL of a list item, from a manifest entry. */
-function currentOf(file: string) {
+export function currentOf(file: string) {
   const crl = fixtureCrl(file);
   return {
     sha256: crl.sha256,
     size: 400,
     publishedAt: iso("2026-01-03T12:00:00Z"),
+    verifier: fixtureCertificate(crl.issuer as FixtureName).sha256,
     summary: {
       crlNumber: crl.crlNumber,
       baseCrlNumber: crl.baseCrlNumber,
@@ -272,98 +158,6 @@ export function targetItems(): CrlTargetListItem[] {
     },
   ] satisfies CrlTargetListItem[];
 }
-
-/** `count` revoked entries with serials 01, 02, ... (no entry extensions). */
-export function revokedEntries(count: number): RevokedCertificate[] {
-  return Array.from({ length: count }, (_, index) => ({
-    userCertificate: {
-      hex: (index + 1).toString(16).toUpperCase().padStart(4, "0"),
-      decimal: String(index + 1),
-    },
-    revocationDate: time("2026-01-01T00:00:00Z"),
-  }));
-}
-
-const targetItem = (targetId: string) =>
-  targetItems().find((target) => target.targetId === targetId)!;
-
-/** `item` as its detail route returns it, with the issuing-ca-1 fixture CRL `file` as current. */
-function publishedDetail(
-  item: CrlTargetListItem,
-  file: string,
-  signature: AlgorithmIdentifier,
-  extensions: Extension[],
-  revoked: RevokedCertificate[]
-): CrlTargetDetail {
-  const crl = fixtureCrl(file);
-  const current = currentOf(file);
-  return {
-    ...item,
-    current: {
-      ...current,
-      summary: { ...current.summary, revokedCount: revoked.length },
-      verifier: ISSUING.id,
-      fingerprints: { sha1: current.summary.sha1, sha256: current.sha256 },
-      tbsCertList: {
-        version: { raw: 1, display: "v2" },
-        signature,
-        issuer: exampleName(SUBJECT_CN["issuing-ca-1"]),
-        thisUpdate: time(crl.thisUpdate),
-        ...(crl.nextUpdate === null ? {} : { nextUpdate: time(crl.nextUpdate) }),
-        revokedCertificates: { count: revoked.length, items: revoked },
-        crlExtensions: {
-          count: extensions.length,
-          critical: extensions.filter((extension) => extension.critical).length,
-          items: extensions,
-        },
-      },
-      signatureAlgorithm: signature,
-      signatureValue: { hex: "5a".repeat(256), bitLength: 2048, unusedBits: 0 },
-    },
-  } satisfies CrlTargetDetail;
-}
-
-/**
- * issuing-ca-1's full target with crls/issuing-ca-1/full-pss as its current CRL (RSASSA-PSS with
- * parameters), or unpublished with `current: null`.
- */
-export function issuingFullDetail(options: { published?: boolean } = {}): CrlTargetDetail {
-  const item = targetItem(TARGET_IDS.issuingFull);
-  if (options.published === false) {
-    return { ...item, current: null } satisfies CrlTargetDetail;
-  }
-  const crl = fixtureCrl("crls/issuing-ca-1/full-pss.der");
-  return publishedDetail(
-    item,
-    crl.file,
-    RSASSA_PSS,
-    [crlNumberExtension(crl.crlNumber ?? "0")],
-    revokedEntries(crl.revoked)
-  );
-}
-
-/**
- * issuing-ca-1's delta target with crls/issuing-ca-1/delta-adcs as its current CRL: CRL number 20
- * on base 19, with an AD CS Next CRL Publish.
- */
-export function issuingDeltaDetail(): CrlTargetDetail {
-  const crl = fixtureCrl("crls/issuing-ca-1/delta-adcs.der");
-  return publishedDetail(
-    targetItem(TARGET_IDS.issuingDelta),
-    crl.file,
-    SHA256_RSA,
-    [crlNumberExtension(crl.crlNumber!), deltaIndicatorExtension(crl.baseCrlNumber!)],
-    revokedEntries(crl.revoked)
-  );
-}
-
-export const STATS = {
-  certificates: 2,
-  targets: { full: 2, delta: 1 },
-  published: { full: 2, delta: 0 },
-  totalRevocations: 2,
-  derBytes: 2000,
-} satisfies Stats;
 
 /** The 201 / 200 body of an upload to issuing-ca-1's full target (full-02). */
 export function publishedCrl(outcome: PublishedCrl["outcome"]): PublishedCrl {

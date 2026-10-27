@@ -26,8 +26,3 @@ export function errorReason(error: unknown, { t, te }: Pick<I18nText, "t" | "te"
   const key = `upload.reasons.${reason}`;
   return te(key) ? t(key) : reason;
 }
-
-/** The API answered 404 `not_found`: the page's resource does not exist. */
-export function isNotFound(error: unknown): boolean {
-  return error instanceof ApiError && error.code === "not_found";
-}

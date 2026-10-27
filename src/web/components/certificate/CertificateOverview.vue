@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import type { Certificate } from "pkijs";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
-import type { CertificateDetail } from "@/client/types";
+import { KEY_ALG_NAMES, SIGNATURE_ALG_NAMES } from "../../../core/pki/constants.ts";
+import { toUpperHex } from "../../../core/digest.ts";
+import type { CertificateListItem } from "@/client/types";
 import KeyValueList from "@/components/KeyValueList.vue";
 import KindBadge from "@/components/KindBadge.vue";
 import NameDetails from "@/components/x509/NameDetails.vue";
@@ -10,63 +13,52 @@ import type en from "@/locales/en.json";
 import { formatDate } from "@/utils/dates";
 import { compareTargets } from "@/utils/labels";
 import { rowOf, rows } from "@/utils/values";
-import { formatAlgorithm } from "@/utils/x509";
+import { formatAlgorithm, publicKeyInfo, uniqueIdHex, versionText } from "@/x509/fields";
 
 // The overview tab of a certificate: subject and issuer, validity (the status is in the page
-// header), serial number, public key summary, the signature algorithm with its parameters, the
-// ECDSA / DSA (r, s) values, fingerprints, unique identifiers when present, and the CRL targets
-// this certificate issues for, in the overview table's order.
-const props = defineProps<{ certificate: CertificateDetail }>();
+// header), serial number, public key summary, the signature algorithm with its parameters and the
+// signature value, fingerprints (of the file, from the list item), unique identifiers when
+// present, and the CRL targets this certificate issues for, in the overview table's order.
+const props = defineProps<{ certificate: CertificateListItem; decoded: Certificate }>();
 
 const i18n = useI18n();
 const { t, locale } = i18n;
 const row = rowOf<keyof typeof en.details.certificate>(i18n, "details.certificate");
-const sig = rowOf<keyof typeof en.details.signature>(i18n, "details.signature");
 
-const tbs = computed(() => props.certificate.tbsCertificate);
-
-const validity = computed(() => {
-  const { notBefore, notAfter } = tbs.value.validity;
-  return [
-    row("notBefore", formatDate(notBefore.iso, i18n)),
-    row("notAfter", formatDate(notAfter.iso, i18n)),
-  ];
-});
+const validity = computed(() => [
+  row("notBefore", formatDate(props.decoded.notBefore.value.toISOString(), i18n)),
+  row("notAfter", formatDate(props.decoded.notAfter.value.toISOString(), i18n)),
+]);
 
 const general = computed(() => [
-  row("x509Version", tbs.value.version.display),
-  row("serialNumber", { hex: tbs.value.serialNumber.hex }),
+  row("x509Version", versionText(props.decoded.version)),
+  row("serialNumber", { hex: toUpperHex(props.decoded.serialNumber.valueBlock.valueHexView) }),
   row("imported", formatDate(props.certificate.importedAt, i18n)),
   row("size", t("common.bytes", { count: props.certificate.size })),
 ]);
 
 /** Key type and size or curve. */
 const publicKey = computed(() => {
-  const spki = tbs.value.subjectPublicKeyInfo;
-  const key = spki.parsed;
+  const spki = props.decoded.subjectPublicKeyInfo;
+  const { bits, curve } = publicKeyInfo(spki);
   return rows(
-    row("publicKeyAlgorithm", formatAlgorithm(spki.algorithm, i18n)),
-    key.type === "rsa" && row("keySize", `${String(key.modulus.bitLength)} ${t("common.bits")}`),
-    key.type === "ec" && row("curve", key.curve.name ?? key.curve.oid),
-    row("publicKeySha1", { hex: spki.fingerprints.sha1 }),
-    row("publicKeySha256", { hex: spki.fingerprints.sha256 })
+    row("publicKeyAlgorithm", formatAlgorithm(spki.algorithm, KEY_ALG_NAMES, i18n)),
+    bits !== undefined && row("keySize", `${String(bits)} ${t("common.bits")}`),
+    curve !== undefined && row("curve", curve)
   );
 });
 
-const signature = computed(() => {
-  const { signatureAlgorithm, signatureValue } = props.certificate;
-  const parsed = signatureValue.parsed;
-  return [
-    row("signatureAlgorithm", formatAlgorithm(signatureAlgorithm, i18n)),
-    ...(parsed
-      ? [sig("r", { hex: parsed.r }), sig("s", { hex: parsed.s })]
-      : [sig("value", { hex: signatureValue.hex })]),
-  ];
-});
+const signature = computed(() => [
+  row(
+    "signatureAlgorithm",
+    formatAlgorithm(props.decoded.signatureAlgorithm, SIGNATURE_ALG_NAMES, i18n)
+  ),
+  row("signatureValue", { hex: toUpperHex(props.decoded.signatureValue.valueBlock.valueHexView) }),
+]);
 
 const fingerprints = computed(() => [
-  { label: "SHA-1", value: { hex: props.certificate.fingerprints.sha1 } },
-  { label: "SHA-256", value: { hex: props.certificate.fingerprints.sha256 } },
+  { label: "SHA-1", value: { hex: props.certificate.summary.sha1 } },
+  { label: "SHA-256", value: { hex: props.certificate.id } },
 ]);
 
 const targets = computed(() =>
@@ -74,10 +66,11 @@ const targets = computed(() =>
 );
 
 const uniqueIds = computed(() => {
-  const { issuerUniqueID, subjectUniqueID } = tbs.value;
+  const issuerUniqueId = uniqueIdHex(props.decoded.issuerUniqueID);
+  const subjectUniqueId = uniqueIdHex(props.decoded.subjectUniqueID);
   return rows(
-    issuerUniqueID !== undefined && row("issuerUniqueId", { hex: issuerUniqueID.hex }),
-    subjectUniqueID !== undefined && row("subjectUniqueId", { hex: subjectUniqueID.hex })
+    issuerUniqueId !== undefined && row("issuerUniqueId", { hex: issuerUniqueId }),
+    subjectUniqueId !== undefined && row("subjectUniqueId", { hex: subjectUniqueId })
   );
 });
 </script>
@@ -85,8 +78,8 @@ const uniqueIds = computed(() => {
 <template>
   <div class="grid gap-6">
     <div class="grid gap-6 lg:grid-cols-2">
-      <NameDetails :name="tbs.subject" :title="t('details.certificate.subject')" />
-      <NameDetails :name="tbs.issuer" :title="t('details.certificate.issuer')" />
+      <NameDetails :name="decoded.subject" :title="t('details.certificate.subject')" />
+      <NameDetails :name="decoded.issuer" :title="t('details.certificate.issuer')" />
     </div>
 
     <section class="space-y-2">

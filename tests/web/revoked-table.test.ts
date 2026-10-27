@@ -1,25 +1,48 @@
-// The revoked certificates of a CRL target. The API sends every entry; the table pages them
-// itself at 200 rows and says which rows of how many a page shows.
+// The revoked certificates of a CRL target: every entry of the decoded CRL, which the table pages
+// itself at 200 rows, saying which rows of how many a page shows. Entry extensions are DER, as
+// parseCRL leaves them.
 import { mount } from "@vue/test-utils";
 import type { VueWrapper } from "@vue/test-utils";
+import { Time } from "pkijs";
 import { describe, expect, it, vi } from "vitest";
-import { revokedEntries, time } from "./helpers";
-import type { RevokedCertificate, RevokedCertificates } from "@/client/types";
+import type { PlainExtension } from "../../src/core/pki/extensions.ts";
+import type { CrlEntry } from "../../src/core/pki/parsers.ts";
 import RevokedTable from "@/components/crl/RevokedTable.vue";
 import { createAppI18n } from "@/i18n";
 import type { AppLocale } from "@/i18n";
 
-function render(revoked: RevokedCertificates, locale: AppLocale = "en") {
+function render(entries: CrlEntry[], locale: AppLocale = "en") {
   return mount(RevokedTable, {
-    props: { revoked },
+    props: { entries },
     attachTo: document.body,
     global: { plugins: [createAppI18n(locale)] },
   });
 }
 
-function list(items: RevokedCertificate[]): RevokedCertificates {
-  return { count: items.length, items };
+const bytes = (hex: string) =>
+  Uint8Array.from(hex.match(/../g) ?? [], (byte) => parseInt(byte, 16));
+const ascii = (text: string) =>
+  Array.from(text, (char) => char.charCodeAt(0).toString(16)).join("");
+
+function entry(serial: string, revoked: string, extensions: PlainExtension[] = []): CrlEntry {
+  return {
+    serial: bytes(serial),
+    revocationDate: new Time({ type: 0, value: new Date(revoked) }),
+    extensions,
+  };
 }
+
+/** `count` entries with serials 0001, 0002, ... (no entry extensions). */
+const entries = (count: number) =>
+  Array.from({ length: count }, (_, index) =>
+    entry((index + 1).toString(16).padStart(4, "0"), "2026-01-01T00:00:00Z")
+  );
+
+const extension = (extnID: string, value: string, critical = false): PlainExtension => ({
+  extnID,
+  critical,
+  value: bytes(value),
+});
 
 /** The data cells of each body row; the first cell holds the extensions toggle. */
 const rowTexts = (table: VueWrapper) =>
@@ -34,13 +57,13 @@ const serials = (table: VueWrapper) => rowTexts(table).map((row) => row[0]);
 
 describe("RevokedTable", () => {
   it("shows an empty state, not an empty table, for a CRL without entries", () => {
-    const table = render(list([]), "zh-CN");
+    const table = render([], "zh-CN");
     expect(table.find("table").exists()).toBe(false);
     expect(table.get('[data-testid="revoked-empty"]').text()).toBe("没有吊销的证书。");
   });
 
   it("shows exactly 200 entries on one page, without a pager", () => {
-    const table = render(list(revokedEntries(200)));
+    const table = render(entries(200));
     expect(serials(table)).toHaveLength(200);
     expect(serials(table).at(-1)).toBe("00C8");
     expect(table.find('[data-testid="revoked-range"]').exists()).toBe(false);
@@ -48,7 +71,7 @@ describe("RevokedTable", () => {
   });
 
   it("pages 201 entries as 200 + 1", async () => {
-    const table = render(list(revokedEntries(201)));
+    const table = render(entries(201));
     expect(serials(table)).toHaveLength(200);
     expect(table.get('[data-testid="revoked-range"]').text()).toBe("1–200 of 201");
     expect(table.get('[data-testid="previous-page"]').attributes("aria-disabled")).toBe("true");
@@ -59,48 +82,21 @@ describe("RevokedTable", () => {
     expect(table.get('[data-testid="next-page"]').attributes("aria-disabled")).toBe("true");
 
     // Another list (a refetch) starts again on the first page.
-    await table.setProps({ revoked: list(revokedEntries(250)) });
+    await table.setProps({ entries: entries(250) });
     expect(table.get('[data-testid="revoked-range"]').text()).toBe("1–200 of 250");
   });
 
   it("fills reason, invalidity date and indirect issuer from the entry extensions", () => {
     // Dates show in the browser's time zone (UTC+12 and later is already Jan 02).
     vi.stubEnv("TZ", "UTC");
-    // leaf-revoked in crls/issuing-ca-1/full-01: keyCompromise with an invalidity date.
-    const entry: RevokedCertificate = {
-      userCertificate: { hex: "2002", decimal: "8194" },
-      revocationDate: time("2026-01-01T12:00:00Z"),
-      crlEntryExtensions: {
-        count: 3,
-        items: [
-          {
-            extnID: { oid: "2.5.29.21", name: "cRLReason" },
-            critical: false,
-            extnValue: { hex: "0a0101", byteLength: 3 },
-            parseStatus: "parsed",
-            parsed: { extensionType: "cRLReason", code: 1, name: "keyCompromise" },
-          },
-          {
-            extnID: { oid: "2.5.29.24", name: "invalidityDate" },
-            critical: false,
-            extnValue: { hex: "180f", byteLength: 17 },
-            parseStatus: "parsed",
-            parsed: { extensionType: "invalidityDate", date: time("2025-12-31T12:00:00Z") },
-          },
-          {
-            extnID: { oid: "2.5.29.29", name: "certificateIssuer" },
-            critical: true,
-            extnValue: { hex: "3000", byteLength: 2 },
-            parseStatus: "parsed",
-            parsed: {
-              extensionType: "certificateIssuer",
-              names: [{ type: "dNSName", value: "ca.example.test" }],
-            },
-          },
-        ],
-      },
-    };
-    const cells = rowTexts(render(list([entry, ...revokedEntries(1)])));
+    // leaf-revoked in crls/issuing-ca-1/full-01: keyCompromise with an invalidity date; and an
+    // indirect CRL's certificate issuer.
+    const revoked = entry("2002", "2026-01-01T12:00:00Z", [
+      extension("2.5.29.21", "0a0101"),
+      extension("2.5.29.24", `180f${ascii("20251231120000Z")}`),
+      extension("2.5.29.29", `3011820f${ascii("ca.example.test")}`, true),
+    ]);
+    const cells = rowTexts(render([revoked, ...entries(1)]));
 
     expect(cells[0]![0]).toBe("2002");
     expect(cells[0]![1]).toBe("Jan 01, 2026 12:00:00 (UTC)");
@@ -112,33 +108,11 @@ describe("RevokedTable", () => {
 
   it("expands a row with entry extensions into all of them, the hold instruction too", async () => {
     // The certificateHold entry of crls/issuing-ca-2/full-01.
-    const entry: RevokedCertificate = {
-      userCertificate: { hex: "3000", decimal: "12288" },
-      revocationDate: time("2025-12-20T00:00:00Z"),
-      crlEntryExtensions: {
-        count: 2,
-        items: [
-          {
-            extnID: { oid: "2.5.29.21", name: "CRL Reason Code" },
-            critical: false,
-            extnValue: { hex: "0a0106", byteLength: 3 },
-            parseStatus: "parsed",
-            parsed: { extensionType: "cRLReason", code: 6, name: "certificateHold" },
-          },
-          {
-            extnID: { oid: "2.5.29.23", name: "Hold Instruction Code" },
-            critical: false,
-            extnValue: { hex: "06072a8648ce380203", byteLength: 9 },
-            parseStatus: "parsed",
-            parsed: {
-              extensionType: "holdInstructionCode",
-              instruction: { oid: "1.2.840.10040.2.3", name: "holdInstructionReject" },
-            },
-          },
-        ],
-      },
-    };
-    const table = render(list([entry, ...revokedEntries(1)]));
+    const hold = entry("3000", "2025-12-20T00:00:00Z", [
+      extension("2.5.29.21", "0a0106"),
+      extension("2.5.29.23", "06072a8648ce380203"),
+    ]);
+    const table = render([hold, ...entries(1)]);
     const [held, plain] = table.findAll("tbody tr");
     expect(plain!.find("button").exists()).toBe(false);
     const toggle = held!.get('[data-testid="entry-toggle"]');

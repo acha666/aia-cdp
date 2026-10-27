@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import type { Name } from "@/client/types";
+import type { RelativeDistinguishedNames } from "pkijs";
 import KeyValueList from "@/components/KeyValueList.vue";
+import { readName } from "@/x509/names";
 
 // A distinguished name: the RFC 4514 string, the six usual attributes (always listed, "(empty)"
 // when absent) and every other attribute of the RDNs (DC, emailAddress, serialNumber, ...), whose
 // string type shows on hover.
-const props = defineProps<{ name: Name; title?: string }>();
+const props = defineProps<{ name: RelativeDistinguishedNames; title?: string }>();
 
 const { t } = useI18n();
 
@@ -23,27 +24,34 @@ const FIELDS = [
 /** The attributes the fields show; the others are listed one by one. */
 const NORMALIZED_OIDS = new Set<string>(FIELDS.map(([, oid]) => oid));
 
-const items = computed(() => [
-  ...FIELDS.map(([field]) => ({
-    label: t(`nameFields.${field}`),
-    value: props.name[field]?.trim() ?? "",
-  })),
-  ...props.name.rdnSequence
-    .flatMap((rdn) => rdn.attributes)
-    .filter((attribute) => !NORMALIZED_OIDS.has(attribute.type.oid))
-    .map((attribute) => ({
-      label: attribute.type.name ?? attribute.type.oid,
-      value: attribute.value.string ?? `#${attribute.value.rawHex ?? ""}`,
-      title: attribute.value.encoding,
+const view = computed(() => readName(props.name));
+
+const items = computed(() => {
+  const attributes = view.value.rdns.flat();
+  /** The first string value of the attribute type, in RDN order. */
+  const first = (oid: string) =>
+    attributes.find((attribute) => attribute.oid === oid && attribute.string !== undefined)?.string;
+  return [
+    ...FIELDS.map(([field, oid]) => ({
+      label: t(`nameFields.${field}`),
+      value: first(oid)?.trim() ?? "",
     })),
-]);
+    ...attributes
+      .filter((attribute) => !NORMALIZED_OIDS.has(attribute.oid))
+      .map((attribute) => ({
+        label: attribute.label,
+        value: attribute.value,
+        title: attribute.encoding,
+      })),
+  ];
+});
 </script>
 
 <template>
   <section class="space-y-2">
     <h2 v-if="title" class="text-sm font-medium">{{ title }}</h2>
-    <p v-if="name.rfc4514" class="font-mono text-xs break-all text-muted-foreground">
-      {{ name.rfc4514 }}
+    <p v-if="view.rfc4514" class="font-mono text-xs break-all text-muted-foreground">
+      {{ view.rfc4514 }}
     </p>
     <KeyValueList :items="items" />
   </section>

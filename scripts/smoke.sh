@@ -7,7 +7,8 @@
 # The server must serve tests/fixtures/pki/certs/root-ca.der under /ca/root-ca.crt and a full CRL
 # target of that CA under /crl/root-ca.crl. Checks health, the certificate download and its 304, a
 # raw upload of crls/root-ca/full-01.der (with $AIA_UPLOAD_TOKEN when set) and its download, the
-# API reads, the UI, and that nothing outside the static root is served. Exits 1 if a check fails.
+# API reads (the lists and the DER of the issuer and its current CRL), the UI, and that nothing
+# outside the static root is served. Exits 1 if a check fails.
 # Needs bash, curl and cmp.
 set -uo pipefail
 
@@ -64,17 +65,19 @@ request POST /api/v1/crls -H "@$T/auth" -H 'Content-Type: application/pkix-crl' 
   --data-binary "@$PKI/crls/root-ca/full-01.der"
 target=$(grep -oE '"target": ?"[0-9a-f-]{36}"' "$T/b" | grep -oE '[0-9a-f-]{36}')
 issuer=$(grep -oE '"issuer": ?"[0-9a-f]{64}"' "$T/b" | grep -oE '[0-9a-f]{64}')
-[[ $CODE =~ ^20[01]$ && -n $target && -n $issuer ]] &&
+sha256=$(grep -oE '"sha256": ?"[0-9a-f]{64}"' "$T/b" | grep -oE '[0-9a-f]{64}')
+[[ $CODE =~ ^20[01]$ && -n $target && -n $issuer && -n $sha256 ]] &&
   grep -qE '"outcome": ?"(created|unchanged)"' "$T/b"
 report $?
 download /crl/root-ca.crl application/pkix-crl crls/root-ca/full-01.der
 
-for path in /api/v1/certificates "/api/v1/certificates/$issuer" /api/v1/crls \
-  "/api/v1/crls/$target" /api/v1/stats /api/v1/openapi.json; do
+for path in /api/v1/certificates /api/v1/crls /api/v1/openapi.json; do
   request GET "$path"
   [[ $CODE == 200 && $(header Content-Type) == application/json* ]]
   report $?
 done
+download "/api/v1/blobs/$issuer" application/pkix-cert certs/root-ca.der
+download "/api/v1/blobs/$sha256" application/pkix-crl crls/root-ca/full-01.der
 
 request GET /
 script=$(grep -oE '/assets/[A-Za-z0-9._-]+\.js' "$T/b" | head -n 1)

@@ -1,25 +1,28 @@
 // The three pages on a stubbed fetch: what the overview, a certificate and a CRL target show, and
 // their loading / error / not-found / unpublished states. Bodies come from ./helpers (fixture facts
-// from tests/fixtures/pki); the clock is manifest.now unless a case moves it.
+// from tests/fixtures/pki, the detail pages' DER from the fixture files); the clock is manifest.now
+// unless a case moves it.
 import { flushPromises } from "@vue/test-utils";
 import type { DOMWrapper, VueWrapper } from "@vue/test-utils";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  certificateBlob,
   certificateItem,
+  crlBlob,
+  currentOf,
   definitions,
   envelope,
-  issuingDeltaDetail,
-  issuingFullDetail,
   mountApp,
   NOW,
-  rootDetail,
-  STATS,
   stubApi,
   TARGET_IDS,
   targetItems,
 } from "./helpers";
 import type { Handler } from "./helpers";
-import type { CertificateList } from "@/client/types";
+import type { CertificateList, CrlTargetList } from "@/client/types";
+
+// The detail pages load the DER decoder on their first blob; loaded here, it is there at once.
+beforeAll(() => import("../../src/core/pki/parsers.ts"));
 
 beforeEach(() => {
   // Only Date: the query timers and Vue's scheduler keep running.
@@ -33,13 +36,13 @@ async function open(path: string, routes: Record<string, Handler>) {
   return { ...(await mountApp(path)), api };
 }
 
-const ROOT = rootDetail({
+const ROOT = certificateItem("root-ca", {
   label: "Root CA",
   targets: [{ targetId: TARGET_IDS.rootFull, kind: "full", label: "Root CA" }],
 });
 
 const CERTIFICATES = [
-  certificateItem("root-ca", { label: "Root CA" }),
+  ROOT,
   certificateItem("issuing-ca-1"),
   certificateItem("issuing-ca-2", {
     summary: { ...certificateItem("issuing-ca-2").summary, subjectCN: null },
@@ -48,7 +51,6 @@ const CERTIFICATES = [
 ] satisfies CertificateList;
 
 const OVERVIEW = {
-  "GET /api/v1/stats": () => Response.json(STATS),
   "GET /api/v1/certificates": () => Response.json(CERTIFICATES),
   "GET /api/v1/crls": () => Response.json(targetItems()),
 };
@@ -74,8 +76,10 @@ describe("OverviewPage", () => {
   it("shows the counts, the certificates and the targets", async () => {
     const { wrapper } = await open("/", OVERVIEW);
 
-    expect(stat(wrapper, "certificates")).toBe("2");
+    // Counted from the two lists: full-adcs's 2 and full-01's 0 revocations.
+    expect(stat(wrapper, "certificates")).toBe("3");
     expect(stat(wrapper, "targets")).toBe("3");
+    expect(wrapper.get('[data-stat="targets"]').text()).toContain("2 full · 1 delta");
     expect(stat(wrapper, "published")).toBe("2");
     expect(stat(wrapper, "revocations")).toBe("2");
     expect(stat(wrapper, "attention")).toBe("0");
@@ -137,7 +141,8 @@ describe("OverviewPage", () => {
   it("shows unknown revocations when no full CRL is published", async () => {
     const { wrapper } = await open("/", {
       ...OVERVIEW,
-      "GET /api/v1/stats": () => Response.json({ ...STATS, totalRevocations: null }),
+      "GET /api/v1/crls": () =>
+        Response.json(targetItems().map((target) => ({ ...target, current: null }))),
     });
 
     expect(stat(wrapper, "revocations")).toBe("Unknown");
@@ -186,14 +191,14 @@ describe("OverviewPage", () => {
     await vi.waitFor(() => {
       expect(wrapper.find('[data-testid="query-error"]').exists()).toBe(true);
     });
-    const alert = wrapper.get('[data-testid="query-error"]');
-    expect(alert.text()).toContain("Could not load the CRL targets");
-    expect(alert.text()).toContain("The server failed. Try again later.");
-    // Without the list, the attention count is not known yet.
-    expect(stat(wrapper, "attention")).toBe("—");
+    // The counts fail with the list they are counted from.
+    const [counts, alert] = wrapper.findAll('[data-testid="query-error"]');
+    expect(counts!.text()).toContain("Could not load the statistics");
+    expect(alert!.text()).toContain("Could not load the CRL targets");
+    expect(alert!.text()).toContain("The server failed. Try again later.");
 
     fail = false;
-    await alert.get("button").trigger("click");
+    await alert!.get("button").trigger("click");
     await flushPromises();
     expect(wrapper.find('[data-testid="query-error"]').exists()).toBe(false);
     expect(rows(wrapper, "crl-target-table")).toHaveLength(3);
@@ -203,15 +208,16 @@ describe("OverviewPage", () => {
 describe("CertificatePage", () => {
   const path = `/certificates/${ROOT.id}`;
   const routes = {
-    [`GET /api/v1/certificates/${ROOT.id}`]: () => Response.json(ROOT),
+    ...OVERVIEW,
+    ...certificateBlob("root-ca"),
     "GET /ca/root-ca.crt.pem": () =>
       new Response("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"),
   };
 
-  it("shows the header and the overview with algorithms, (r, s), fingerprints and targets", async () => {
+  it("shows the header and the overview with algorithms, signature, fingerprints and targets", async () => {
     const { wrapper, api } = await open(path, routes);
 
-    expect(api.calls()).toEqual([`GET /api/v1/certificates/${ROOT.id}`]);
+    expect(api.calls()).toEqual(["GET /api/v1/certificates", `GET /api/v1/blobs/${ROOT.id}`]);
     expect(wrapper.get("h1").text()).toBe("Root CA");
     expect(document.title).toBe("Root CA · Test PKI");
     expect(wrapper.get("header [data-kind]").attributes("data-kind")).toBe("certificate");
@@ -219,12 +225,13 @@ describe("CertificatePage", () => {
 
     const text = wrapper.text();
     expect(text).toContain("CN=Example Root CA (ECC P-384),O=Example PKI,C=US");
-    // The algorithms with their parameters, never "Unknown".
+    // The algorithms with their parameters, never "Unknown"; the signature value as hex.
     expect(wrapper.get('[data-testid="signature"]').text()).toContain("ecdsa-with-SHA384");
     expect(wrapper.get('[data-testid="public-key"]').text()).toContain("ecPublicKey (P-384)");
-    expect(wrapper.get('[data-testid="signature"]').text()).toContain("Signature r");
-    expect(wrapper.get('[data-testid="signature"]').text()).toContain("7A:7A:7A");
+    expect(definitions(wrapper.get('[data-testid="signature"]'))[1]![0]).toBe("Signature Value");
     expect(text).not.toContain("Unknown");
+    // The file's fingerprints come from the list item.
+    expect(text).toContain(ROOT.id.slice(0, 2).toUpperCase());
     // The status detail: time to notAfter.
     expect(wrapper.get('[data-testid="status-detail"]').text()).toBe("(in 6937d)");
     // The targets this certificate issues.
@@ -237,7 +244,7 @@ describe("CertificatePage", () => {
     const { wrapper, api } = await open(path, routes);
 
     await selectTab(wrapper, /Extensions/);
-    expect(wrapper.get('[data-oid="2.5.29.19"]').text()).toContain("basicConstraints");
+    expect(wrapper.get('[data-oid="2.5.29.19"]').text()).toContain("Basic Constraints");
 
     expect(api.calls()).not.toContain("GET /ca/root-ca.crt.pem");
     await selectTab(wrapper, /PEM/);
@@ -247,25 +254,49 @@ describe("CertificatePage", () => {
 
   it("has no PEM tab without a .pem download", async () => {
     const { wrapper } = await open(path, {
-      [`GET /api/v1/certificates/${ROOT.id}`]: () =>
-        Response.json({ ...ROOT, downloads: ["/ca/root-ca.crt"] }),
+      ...routes,
+      "GET /api/v1/certificates": () =>
+        Response.json([{ ...ROOT, downloads: ["/ca/root-ca.crt"] }]),
     });
 
     expect(wrapper.findAll('[role="tab"]').map((tab) => tab.text())).toEqual([
       "Overview",
-      "Extensions (1)",
+      expect.stringMatching(/^Extensions \(\d+\)$/),
     ]);
+  });
+
+  it("reports DER that does not decode as an invalid certificate, without retrying", async () => {
+    const { wrapper, api } = await open(path, {
+      ...OVERVIEW,
+      [`GET /api/v1/blobs/${ROOT.id}`]: () => new Response(new Uint8Array([0x30, 0x00])),
+    });
+
+    expect(wrapper.get('[data-testid="query-error"]').text()).toContain(
+      "This is not a valid X.509 certificate."
+    );
+    expect(api.calls().filter((call) => call.includes("blobs"))).toHaveLength(1);
   });
 });
 
 describe("CrlTargetPage", () => {
   const path = `/crls/${TARGET_IDS.issuingFull}`;
-  const detailRoute = `GET /api/v1/crls/${TARGET_IDS.issuingFull}`;
+  const PSS = "crls/issuing-ca-1/full-pss.der";
+  const DELTA = "crls/issuing-ca-1/delta-adcs.der";
+
+  /** The target list with `targetId`'s current CRL replaced by `file` (null: unpublished). */
+  function withCurrent(targetId: string, file: string | null): Record<string, Handler> {
+    const list: CrlTargetList = targetItems().map((target) =>
+      target.targetId === targetId
+        ? { ...target, current: file === null ? null : currentOf(file) }
+        : target
+    );
+    return { "GET /api/v1/crls": () => Response.json(list) };
+  }
+
+  const pssRoutes = { ...withCurrent(TARGET_IDS.issuingFull, PSS), ...crlBlob(PSS) };
 
   it("shows the current CRL with its numbers, times and signature algorithm parameters", async () => {
-    const { wrapper } = await open(path, {
-      [detailRoute]: () => Response.json(issuingFullDetail()),
-    });
+    const { wrapper } = await open(path, pssRoutes);
 
     expect(wrapper.get("h1").text()).toBe("Issuing CA 01");
     expect(document.title).toBe("Issuing CA 01 · Test PKI");
@@ -276,7 +307,9 @@ describe("CrlTargetPage", () => {
 
     const overview = wrapper.get('[data-testid="crl-overview"]').text();
     expect(overview).toContain("CRL Number16");
+    expect(overview).toContain("Versionv2");
     expect(overview).toContain(`RSASSA-PSS (SHA-256, MGF1/SHA-256, salt 32)`);
+    expect(overview).toContain("CN=Example Issuing CA 01 (RSA),O=Example PKI,C=US");
     expect(overview).not.toContain("Base CRL Number");
 
     await selectTab(wrapper, /Revoked/);
@@ -287,9 +320,9 @@ describe("CrlTargetPage", () => {
 
   it("shows a delta CRL's numbers, its three times and its Next CRL Publish", async () => {
     vi.stubEnv("TZ", "UTC");
-    const delta = issuingDeltaDetail();
     const { wrapper } = await open(`/crls/${TARGET_IDS.issuingDelta}`, {
-      [`GET /api/v1/crls/${TARGET_IDS.issuingDelta}`]: () => Response.json(delta),
+      ...withCurrent(TARGET_IDS.issuingDelta, DELTA),
+      ...crlBlob(DELTA),
     });
 
     expect(wrapper.get("header [data-kind]").attributes("data-kind")).toBe("delta");
@@ -311,19 +344,16 @@ describe("CrlTargetPage", () => {
     // Two minutes before full-pss's thisUpdate (2026-01-03T12:00:00Z): a browser clock behind the
     // server's, or the 5 minutes of skew the server accepts.
     vi.setSystemTime(new Date("2026-01-03T11:58:00Z"));
-    const { wrapper } = await open(path, {
-      [detailRoute]: () => Response.json(issuingFullDetail()),
-    });
+    const { wrapper } = await open(path, pssRoutes);
 
     expect(wrapper.find('header [data-state="not-yet-valid"]').exists()).toBe(true);
     expect(wrapper.get('[data-testid="status-detail"]').text()).toBe("(in 2m)");
   });
 
-  it("shows an unpublished target as not published, without a revoked list", async () => {
-    const { wrapper } = await open(path, {
-      [detailRoute]: () => Response.json(issuingFullDetail({ published: false })),
-    });
+  it("shows an unpublished target as not published, without a revoked list or a blob", async () => {
+    const { wrapper, api } = await open(path, withCurrent(TARGET_IDS.issuingFull, null));
 
+    expect(api.calls()).toEqual(["GET /api/v1/crls"]);
     expect(wrapper.get("h1").text()).toBe("Issuing CA 01");
     // The issuer link is in the header, so it stays without a CRL.
     expect(wrapper.get('[data-testid="issuer-link"]').attributes("href")).toBe(
@@ -338,7 +368,10 @@ describe("CrlTargetPage", () => {
   });
 
   it("shows other failures with their error text", async () => {
-    const { wrapper } = await open(path, { [detailRoute]: () => envelope(400, "bad_request") });
+    const { wrapper } = await open(path, {
+      ...pssRoutes,
+      [`GET /api/v1/blobs/${currentOf(PSS).sha256}`]: () => envelope(400, "bad_request"),
+    });
 
     expect(wrapper.find('[data-testid="missing"]').exists()).toBe(false);
     expect(wrapper.get('[data-testid="query-error"]').text()).toContain(
@@ -351,15 +384,13 @@ describe("CertificatePage and CrlTargetPage", () => {
   it.each([
     ["Certificate not found", `/certificates/${ROOT.id}`],
     ["CRL target not found", `/crls/${TARGET_IDS.issuingFull}`],
-  ])("say %s for an unknown id (404, not retried)", async (title, path) => {
-    const { wrapper, api } = await open(path, {});
-
-    // A retry would show the state only after a timer turn, and send a second request.
-    await vi.waitFor(() => {
-      expect(wrapper.find('[data-testid="missing"]').exists()).toBe(true);
+  ])("say %s for an id its list does not have", async (title, path) => {
+    const { wrapper } = await open(path, {
+      "GET /api/v1/certificates": () => Response.json([]),
+      "GET /api/v1/crls": () => Response.json([]),
     });
+
     expect(wrapper.get('[data-testid="missing"]').text()).toContain(title);
     expect(document.title).toBe(`${title} · Test PKI`);
-    expect(api.calls()).toEqual([`GET /api/v1${path}`]);
   });
 });

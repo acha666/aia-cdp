@@ -1,9 +1,12 @@
-// Hex and WebCrypto digests (Workers and Node 26; the web program only type-checks them). No
-// imports: storage and the CLI use them without loading asn1js or PKIjs.
+// Hex and WebCrypto digests, for Workers, Node 26 and the browser (which decodes certificates and
+// CRLs for display; not every browser has Uint8Array.prototype.toHex). No imports: storage and the
+// CLI use them without loading asn1js or PKIjs.
 
 /** Lowercase hex of `input`: of a view, exactly its bytes. */
 export const toHex = (input: ArrayBuffer | Uint8Array) =>
-  (input instanceof Uint8Array ? input : new Uint8Array(input)).toHex();
+  Array.from(input instanceof Uint8Array ? input : new Uint8Array(input), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
 
 /** Uppercase hex, as details and the catalog show serials and octets. */
 export const toUpperHex = (input: ArrayBuffer | Uint8Array) => toHex(input).toUpperCase();

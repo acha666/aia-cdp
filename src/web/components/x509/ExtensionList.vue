@@ -1,20 +1,24 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import type { Extension } from "@/client/types";
+import type { PlainExtension } from "../../../core/pki/extensions.ts";
 import { Accordion } from "@/components/ui/accordion";
 import ExtensionView from "@/components/x509/ExtensionView.vue";
+import { describeExtension } from "@/x509/extensions";
+import type { ExtensionDisplay } from "@/x509/extensions";
 
-// Extensions, critical ones first, then by name (or OID), sorting a copy so the query data is
-// never reordered. Any number of items can be open at once. An empty list reads "No extensions.".
-const props = defineProps<{ extensions: readonly Extension[] }>();
+// Extensions, decoded for display (x509/extensions.ts), critical ones first, then by name (or
+// OID). Any number of items can be open at once. An empty list reads "No extensions.".
+const props = defineProps<{ extensions: readonly PlainExtension[] }>();
 
-const { t } = useI18n();
+const i18n = useI18n();
+const { t } = i18n;
 
-const label = (extension: Extension) => extension.extnID.name ?? extension.extnID.oid;
+const label = (extension: ExtensionDisplay) => extension.name ?? extension.oid;
 
 const items = computed(() => {
-  const sorted = [...props.extensions].sort((a, b) => {
+  const sorted = props.extensions.map((extension) => describeExtension(extension, i18n));
+  sorted.sort((a, b) => {
     if (a.critical !== b.critical) {
       return a.critical ? -1 : 1;
     }
@@ -23,7 +27,7 @@ const items = computed(() => {
   // Accordion values must be unique, and an OID can repeat (e.g. in CRL entry extensions).
   return sorted.map((extension, index) => ({
     extension,
-    value: `${String(index)}-${extension.extnID.oid}`,
+    value: `${String(index)}-${extension.oid}`,
   }));
 });
 </script>

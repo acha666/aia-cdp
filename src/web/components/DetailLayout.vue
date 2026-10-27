@@ -1,32 +1,30 @@
 <script setup lang="ts">
 import { ArrowLeftIcon } from "@lucide/vue";
-import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 import QueryError from "@/components/QueryError.vue";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePageTitle } from "@/composables/usePageTitle";
-import { isNotFound } from "@/utils/errors";
 
 // The frame of a detail page (plan §8): the back link, then the page's own content once the
-// resource is loaded (`name` is set), else that `id` does not exist (404), the failure with a
-// retry, or a skeleton. The page title is the resource's name, else the state's.
+// resource is loaded (`name` is set), else that `id` is not in its list (`missing`), the failure
+// with a retry, or a skeleton. The page title is the resource's name, else the state's.
 const props = defineProps<{
   kind: "certificate" | "crl";
   id: string;
   name?: string;
+  missing: boolean;
   error: unknown;
 }>();
 defineEmits<{ retry: [] }>();
 
 const { t } = useI18n();
 
-const missing = computed(() => props.name === undefined && isNotFound(props.error));
 usePageTitle(
   () =>
     props.name ??
-    t(missing.value ? `details.${props.kind}.notFoundTitle` : `pages.${props.kind}.title`)
+    t(props.missing ? `details.${props.kind}.notFoundTitle` : `pages.${props.kind}.title`)
 );
 </script>
 

@@ -1,11 +1,13 @@
 // Shared display and X.509 components, mounted in happy-dom.
 import { flushPromises, mount } from "@vue/test-utils";
+import * as asn1 from "asn1js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { h } from "vue";
 import type { Component } from "vue";
 import { toast } from "vue-sonner";
+import type { PlainExtension } from "../../src/core/pki/extensions.ts";
+import { attribute, nameOf } from "../helpers/pki.ts";
 import { definitions } from "./helpers";
-import type { Extension, Name } from "@/client/types";
 import DownloadLinks from "@/components/DownloadLinks.vue";
 import HexValue from "@/components/HexValue.vue";
 import LocaleSelect from "@/components/LocaleSelect.vue";
@@ -17,6 +19,8 @@ import ExtensionView from "@/components/x509/ExtensionView.vue";
 import NameDetails from "@/components/x509/NameDetails.vue";
 import { createAppI18n } from "@/i18n";
 import type { AppLocale } from "@/i18n";
+import { describeExtension } from "@/x509/extensions";
+import type { ExtensionDisplay } from "@/x509/extensions";
 
 // happy-dom has no execCommand; the copy tests install one for the textarea fallback.
 afterEach(() => Reflect.deleteProperty(document, "execCommand"));
@@ -173,33 +177,13 @@ describe("LocaleSelect", () => {
 });
 
 describe("NameDetails", () => {
-  const name = {
-    commonName: " <script>bad</script> ",
-    organization: " ",
-    organizationalUnit: null,
-    country: "US",
-    stateOrProvince: null,
-    locality: null,
-    rdnSequence: [
-      {
-        attributes: [
-          {
-            type: { oid: "0.9.2342.19200300.100.1.25", name: "DC" },
-            value: { string: "test", encoding: "ia5String" },
-          },
-        ],
-      },
-      {
-        attributes: [
-          {
-            type: { oid: "1.2.3.4", name: null },
-            value: { string: null, encoding: "unknown", rawHex: "0101ff" },
-          },
-        ],
-      },
-    ],
-    rfc4514: "CN=<script>bad</script>,C=US,1.2.3.4=#0101ff,DC=test",
-  } satisfies Name;
+  const name = nameOf(
+    [attribute("0.9.2342.19200300.100.1.25", new asn1.IA5String({ value: "test" }))],
+    [attribute("1.2.3.4", new asn1.Boolean({ value: true }))],
+    [attribute("2.5.4.6", new asn1.PrintableString({ value: "US" }))],
+    [attribute("2.5.4.10", new asn1.Utf8String({ value: " " }))],
+    [attribute("2.5.4.3", new asn1.Utf8String({ value: " <script>bad</script> " }))]
+  );
 
   it("keeps the labels of empty fields", () => {
     const details = render(NameDetails, { title: "Issuer", name });
@@ -210,66 +194,70 @@ describe("NameDetails", () => {
       ["Country Name", "US"],
       ["State/Province", "(empty)"],
       ["Locality", "(empty)"],
-      ["DC", "test"],
-      ["1.2.3.4", "#0101ff"],
+      ["domainComponent", "test"],
+      ["1.2.3.4", "#0101FF"],
     ]);
     expect(details.findAll("dt")[6]!.attributes("title")).toBe("ia5String");
+    expect(details.text()).toContain(
+      "CN=\\ \\<script\\>bad\\</script\\>\\ ,O=\\ ,C=US,1.2.3.4=#0101ff,DC=test"
+    );
   });
 });
 
-function extension(oid: string, name: string | null, critical: boolean): Extension {
-  return {
-    extnID: { oid, name },
-    critical,
-    extnValue: { hex: "0c0141", byteLength: 3 },
-    parseStatus: "unsupported",
-    asn1: [{ depth: 0, tag: "UTF8String", length: 1, value: "A" }],
-  } satisfies Extension;
+/** An extension whose value is the UTF8String "A": no decoder takes it as its own value. */
+function extension(extnID: string, critical: boolean): PlainExtension {
+  return { extnID, critical, value: Uint8Array.of(0x0c, 0x01, 0x41) };
 }
 
 describe("ExtensionList", () => {
-  it("puts critical extensions first, then sorts by name, without reordering its input", () => {
+  it("puts critical extensions first, then sorts by name (or OID), without reordering its input", () => {
     const items = [
-      extension("1.2.3", "AAA optional", false),
-      extension("1.2.4", "ZZZ critical", true),
-      extension("1.2.5", null, false),
-      extension("1.2.6", "BBB critical", true),
+      extension("2.5.29.14", false),
+      extension("2.5.29.15", true),
+      extension("1.2.5", false),
+      extension("2.5.29.19", true),
     ];
     const list = render(ExtensionList, { extensions: items });
+    // Basic Constraints, Key Usage; then 1.2.5, Subject Key Identifier.
     expect(list.findAll("[data-oid]").map((item) => item.attributes("data-oid"))).toEqual([
-      "1.2.6",
-      "1.2.4",
+      "2.5.29.19",
+      "2.5.29.15",
       "1.2.5",
-      "1.2.3",
+      "2.5.29.14",
     ]);
-    expect(items.map((item) => item.extnID.oid)).toEqual(["1.2.3", "1.2.4", "1.2.5", "1.2.6"]);
+    expect(items.map((item) => item.extnID)).toEqual([
+      "2.5.29.14",
+      "2.5.29.15",
+      "1.2.5",
+      "2.5.29.19",
+    ]);
     expect(list.findAll('[data-testid="critical"]')).toHaveLength(2);
   });
 });
 
 describe("ExtensionView", () => {
   /** An ExtensionView inside an Accordion, opened. */
-  function renderOpen(value: Extension, locale: AppLocale = "en") {
+  function renderOpen(value: ExtensionDisplay, locale: AppLocale = "en") {
     return mount(Accordion, {
-      props: { type: "multiple", defaultValue: [value.extnID.oid] },
-      slots: { default: () => h(ExtensionView, { extension: value, value: value.extnID.oid }) },
+      props: { type: "multiple", defaultValue: [value.oid] },
+      slots: { default: () => h(ExtensionView, { extension: value, value: value.oid }) },
       global: { plugins: [createAppI18n(locale)] },
     });
   }
 
   it("shows the parse error, the ASN.1 dump and the raw hex of an undecoded extension", async () => {
-    const unknown = {
-      extnID: { oid: "1.3.6.1.4.1.32473.1", name: null },
+    const view = renderOpen({
+      oid: "1.3.6.1.4.1.32473.1",
+      name: undefined,
       critical: true,
-      extnValue: { hex: "0c03616263", byteLength: 5 },
-      parseStatus: "error",
-      parseError: "Unexpected value",
+      hex: "0C03616263",
+      status: "error",
+      error: "Unexpected value",
       asn1: [
         { depth: 0, tag: "SEQUENCE", length: 5 },
         { depth: 1, tag: "UTF8String", length: 3, value: "abc" },
       ],
-    } satisfies Extension;
-    const view = renderOpen(unknown);
+    });
     expect(view.get("button").text()).toContain("1.3.6.1.4.1.32473.1");
     expect(view.get('[data-testid="critical"]').text()).toBe("Critical");
     expect(view.get('[data-testid="parse-status"]').text()).toBe("Decode error");
@@ -286,16 +274,19 @@ describe("ExtensionView", () => {
     expect(view.get('[data-testid="hex-value"]').element.textContent).toBe("0C:03:61:62:63");
   });
 
+  /** The display of `value` (DER of the extension value) as the extension `oid`. */
+  const decoded = (oid: string, value: asn1.BaseBlock, locale: AppLocale = "en") =>
+    describeExtension(
+      { extnID: oid, critical: false, value: new Uint8Array(value.toBER()) },
+      createAppI18n(locale).global
+    );
+
   it("renders the sections of a decoded extension without dump or raw value", () => {
     // A CA renewed with its old key: CA Version V1.0.
-    const caVersion = {
-      extnID: { oid: "1.3.6.1.4.1.311.21.1", name: "CA Version" },
-      critical: false,
-      extnValue: { hex: "02020100", byteLength: 4 },
-      parseStatus: "parsed",
-      parsed: { extensionType: "msCaVersion", certificateIndex: 1, keyIndex: 0 },
-    } satisfies Extension;
-    const view = renderOpen(caVersion, "zh-CN");
+    const view = renderOpen(
+      decoded("1.3.6.1.4.1.311.21.1", new asn1.Integer({ value: 1 }), "zh-CN"),
+      "zh-CN"
+    );
     const header = view.get("button").text();
     expect(header).toContain("CA Version");
     expect(header).toContain("1.3.6.1.4.1.311.21.1");
@@ -307,71 +298,74 @@ describe("ExtensionView", () => {
     ]);
   });
 
-  /** A decoded extension of `parsed`'s type (the header and value are not looked at here). */
-  function decoded(oid: string, parsed: NonNullable<Extension["parsed"]>): Extension {
-    return {
-      extnID: { oid, name: parsed.extensionType },
-      critical: false,
-      extnValue: { hex: "3000", byteLength: 2 },
-      parseStatus: "parsed",
-      parsed,
-    };
-  }
-
   it("draws one list per section, a hex value with HexValue, and (empty) without sections", () => {
-    const uri = (value: string) => ({ type: "uniformResourceIdentifier" as const, value });
-    const freshest = renderOpen(
-      decoded("2.5.29.46", {
-        extensionType: "freshestCRL",
-        distributionPoints: [
-          { distributionPoint: { fullName: [uri("http://a.test/a.crl")] } },
-          { distributionPoint: { fullName: [uri("http://b.test/b.crl")] } },
+    const point = (uri: string) =>
+      new asn1.Sequence({
+        value: [
+          new asn1.Constructed({
+            idBlock: { tagClass: 3, tagNumber: 0 },
+            value: [
+              new asn1.Constructed({
+                idBlock: { tagClass: 3, tagNumber: 0 },
+                value: [
+                  new asn1.Primitive({
+                    idBlock: { tagClass: 3, tagNumber: 6 },
+                    valueHex: new TextEncoder().encode(uri).buffer,
+                  }),
+                ],
+              }),
+            ],
+          }),
         ],
-      })
+      });
+    const freshest = renderOpen(
+      decoded(
+        "2.5.29.46",
+        new asn1.Sequence({ value: [point("http://a.test/a.crl"), point("http://b.test/b.crl")] })
+      )
     );
     expect(freshest.findAll("dl")).toHaveLength(2);
 
     const ski = renderOpen(
-      decoded("2.5.29.14", { extensionType: "subjectKeyIdentifier", keyIdentifier: "AB12" })
+      decoded("2.5.29.14", new asn1.OctetString({ valueHex: Uint8Array.of(0xab, 0x12).buffer }))
     );
     expect(ski.get('dd [data-testid="hex-value"]').element.textContent).toBe("AB:12");
     // No sections: the body reads "(empty)".
-    expect(renderOpen(decoded("2.5.29.30", { extensionType: "nameConstraints" })).text()).toContain(
-      "(empty)"
-    );
+    expect(renderOpen(decoded("2.5.29.30", new asn1.Sequence())).text()).toContain("(empty)");
   });
 
-  it("names the access methods in the UI language, else as the server sent them", () => {
-    const uri = (value: string) => ({ type: "uniformResourceIdentifier" as const, value });
-    const view = renderOpen(
-      decoded("1.3.6.1.5.5.7.1.1", {
-        extensionType: "authorityInfoAccess",
-        accessDescriptions: [
-          {
-            accessMethod: { oid: "1.3.6.1.5.5.7.48.2", name: "caIssuers" },
-            accessLocation: uri("http://a.test/ca.crt"),
-          },
-          {
-            accessMethod: { oid: "1.3.6.1.5.5.7.48.4", name: null },
-            accessLocation: uri("http://a.test/dvcs"),
-          },
-          {
-            accessMethod: { oid: "1.3.6.1.4.1.32473.5", name: "exampleMethod" },
-            accessLocation: uri("http://a.test/x"),
-          },
+  it("names the access methods in the UI language, else by their OID", () => {
+    const access = (method: string, uri: string) =>
+      new asn1.Sequence({
+        value: [
+          new asn1.ObjectIdentifier({ value: method }),
+          new asn1.Primitive({
+            idBlock: { tagClass: 3, tagNumber: 6 },
+            valueHex: new TextEncoder().encode(uri).buffer,
+          }),
         ],
-      }),
+      });
+    const view = renderOpen(
+      decoded(
+        "1.3.6.1.5.5.7.1.1",
+        new asn1.Sequence({
+          value: [
+            access("1.3.6.1.5.5.7.48.2", "http://a.test/ca.crt"),
+            access("1.3.6.1.4.1.32473.5", "http://a.test/x"),
+          ],
+        }),
+        "zh-CN"
+      ),
       "zh-CN"
     );
     expect(view.findAll("dt").map((term) => term.text())).toEqual([
       "CA 签发者",
-      "1.3.6.1.5.5.7.48.4",
-      "exampleMethod",
+      "1.3.6.1.4.1.32473.5",
     ]);
   });
 
-  it("marks an extension the server does not decode as such, with its raw value", () => {
-    const view = renderOpen(extension("1.3.6.1.4.1.32473.3", null, false));
+  it("marks an extension without a decoder as such, with its raw value", () => {
+    const view = renderOpen(decoded("1.3.6.1.4.1.32473.3", new asn1.Utf8String({ value: "A" })));
     expect(view.get('[data-testid="parse-status"]').text()).toBe("Not decoded");
     expect(view.findAll("button").some((button) => button.text() === "Raw value (hex)")).toBe(true);
   });
