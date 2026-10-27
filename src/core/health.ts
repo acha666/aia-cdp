@@ -7,27 +7,19 @@ import { z } from "zod";
 import { InvalidStoredObjectError, readState } from "./catalog.ts";
 import type { ObjectStore } from "./store.ts";
 
-/** 200: the store answers. `degraded` while config.json is missing or invalid. */
-export const HealthOk = z
+/** Both 200 (healthy or degraded) and 503 (unhealthy) carry the same report. */
+export const Health = z
   .object({
-    status: z.enum(["healthy", "degraded"]),
+    status: z.enum(["healthy", "degraded", "unhealthy"]),
     checks: z.object({
-      store: z.literal("ok"),
-      configuration: z.enum(["ok", "missing", "invalid"]),
+      store: z.enum(["ok", "error"]),
+      configuration: z.enum(["ok", "missing", "invalid", "unknown"]),
     }),
   })
-  .meta({ id: "HealthOk" });
+  .meta({ id: "Health" });
 
-/** 503: the store failed, so the configuration could not be checked. */
-export const HealthUnavailable = z
-  .object({
-    status: z.literal("unhealthy"),
-    checks: z.object({ store: z.literal("error"), configuration: z.literal("unknown") }),
-  })
-  .meta({ id: "HealthUnavailable" });
-
-export type HealthReport = z.infer<typeof HealthOk> | z.infer<typeof HealthUnavailable>;
-type ConfigurationCheck = z.infer<typeof HealthOk>["checks"]["configuration"];
+export type HealthReport = z.infer<typeof Health>;
+type ConfigurationCheck = Exclude<HealthReport["checks"]["configuration"], "unknown">;
 
 const UNHEALTHY: HealthReport = {
   status: "unhealthy",

@@ -59,7 +59,7 @@ pnpm run ci:docker
 CLI：`pnpm aia <命令>`（镜像内为 `node dist/server/cli/aia.js <命令>`），读 `AIA_URL` 与当前命令的令牌：import、config、history、delete-certificate 用
 `AIA_ADMIN_TOKEN_FILE` / `AIA_ADMIN_TOKEN`，`publish <file...>` 用 `AIA_UPLOAD_TOKEN_FILE` / `AIA_UPLOAD_TOKEN`（服务端未设上传令牌时可不给）；
 `--token-file` 优先于两个变量。令牌只经 `https://` 发送，经 `http://` 只发往 `localhost`、`127.0.0.0/8` 与 `[::1]`；其他主机要加
-`--allow-insecure-http`，否则是用法错误、不发请求。退出码 0 成功、1 失败、2 用法错误；`pnpm aia --help` 列出子命令。`pnpm aia config validate docs/config.example.json` 离线校验示例配置（不需要服务与令牌）。
+`--allow-insecure-http`，否则是用法错误、不发请求。退出码 0 成功、1 失败、2 用法错误；`pnpm aia --help` 列出子命令，`pnpm aia config --help` 和 `pnpm aia config apply --help` 查看逐级帮助。`pnpm aia config validate docs/config.example.json` 离线校验示例配置（不需要服务与令牌）。
 
 测试夹具 `tests/fixtures/pki/` 入库，由 `tests/fixtures/generate-test-data.sh` 生成，测试只读不写。改了脚本就 `pnpm run fixtures`
 重新生成并提交（每次生成都用新密钥，签名、摘要、key id 全变）。

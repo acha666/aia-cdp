@@ -1,12 +1,7 @@
 import * as asn1 from "asn1js";
 import * as pkijs from "pkijs";
 import { describe, expect, it } from "vitest";
-import {
-  CERTIFICATE_ISSUER_OID,
-  checkCrlPolicy,
-  checkEntryPolicy,
-  ISSUING_DISTRIBUTION_POINT_OID,
-} from "../../../src/core/pki/crl-policy.ts";
+import { checkCrlPolicy, checkEntryPolicy } from "../../../src/core/pki/crl-policy.ts";
 import { plainExtension } from "../../../src/core/pki/extensions.ts";
 import { parseCRL } from "../../../src/core/pki/parsers.ts";
 import type { ReceivedCrl } from "../../../src/core/pki/parsers.ts";
@@ -18,6 +13,8 @@ import { extension } from "../../helpers/pki.ts";
 // check the signature.
 
 const FULL_01 = "crls/issuing-ca-1/full-01.der";
+const ISSUING_DISTRIBUTION_POINT_OID = "2.5.29.28";
+const CERTIFICATE_ISSUER_OID = "2.5.29.29";
 /** A private OID (IANA example enterprise number). */
 const UNKNOWN = "1.3.6.1.4.1.32473.99";
 
@@ -61,24 +58,14 @@ describe("checkCrlPolicy", () => {
     expect(checkCrlPolicy(crl, new Date("2099-01-01T00:00:00Z"))).toEqual(OK);
   });
 
-  // A CA may mark them critical; none is critical in the fixtures.
-  it("accepts every recognized extension marked critical", () => {
-    const crl = crlOf("crls/issuing-ca-1/full-adcs.der");
-    // Issuer Alternative Name and Authority Information Access: the policy does not read them.
-    for (const oid of ["2.5.29.18", "1.3.6.1.5.5.7.1.1"]) {
-      withCrlExtension(crl, extension(oid, new asn1.Sequence()));
-    }
+  // Extensions the service does not read are the CA's business, critical or not.
+  it("accepts any other extension, critical or not", () => {
+    const crl = crlOf("crls/issuing-ca-1/full-unknown-critical.der");
+    withCrlExtension(crl, extension(UNKNOWN, new asn1.Sequence(), true));
     for (const ext of crl.crlExtensions!.extensions) {
       ext.critical = true;
     }
     expect(checkCrlPolicy(crl, NOW)).toEqual(OK);
-  });
-
-  // publishCrl's rejections cover the critical one.
-  it("accepts an unknown extension that is not critical", () => {
-    expect(checkCrlPolicy(crlOf("crls/issuing-ca-1/full-unknown-noncritical.der"), NOW)).toEqual(
-      OK
-    );
   });
 
   // A partition is never the issuer's whole CRL, so the scope is refused also when the IDP is not
@@ -112,25 +99,12 @@ describe("checkCrlPolicy", () => {
 describe("checkEntryPolicy", () => {
   const value = new asn1.Utf8String({ value: "x" });
 
-  it("accepts reasonCode, invalidityDate and holdInstructionCode marked critical", () => {
-    const crl = crlOf(FULL_01);
-    const extensions = crl.entries[0]!.extensions;
-    const hold = new asn1.ObjectIdentifier({ value: "1.2.840.10040.2.3" });
-    extensions.push(plainExtension(extension("2.5.29.23", hold)));
-    for (const ext of extensions) {
+  it("accepts any other entry extension, critical or not", () => {
+    const crl = withEntryExtension(extension(UNKNOWN, value, true));
+    for (const ext of crl.entries[0]!.extensions) {
       ext.critical = true;
     }
     expect(checkEntryPolicy(crl)).toEqual({ ok: true });
-  });
-
-  it("rejects an unknown critical entry extension with the oid and the entry's serial", () => {
-    expect(checkEntryPolicy(withEntryExtension(extension(UNKNOWN, value, true)))).toEqual({
-      ok: false,
-      error: "unknown_critical_extension",
-      details: { oid: UNKNOWN, serialNumber: cert("leaf-revoked").serial },
-      detail: expect.any(String) as unknown,
-    });
-    expect(checkEntryPolicy(withEntryExtension(extension(UNKNOWN, value)))).toEqual({ ok: true });
   });
 
   it("rejects a certificateIssuer entry (an indirect CRL), also when not critical", () => {

@@ -23,27 +23,17 @@ import { CrlHistory, getHistoryBlob, listHistory } from "../../core/history.ts";
 import { ApiError, NO_STORE, validationError } from "../errors.ts";
 import { mediaTypeGate } from "../media.ts";
 import {
-  AdminDisabledError,
-  BadRequestError,
+  ErrorResponse,
   binary,
   CERTIFICATE_MEDIA_TYPES,
-  CertificateConflictError,
   CertificateIdParam,
-  ConcurrentUpdateError,
-  ConfigInvalidError,
   HistoryVersionParam,
   ImportedCertificate,
-  InvalidCertificateError,
   jsonContent,
   jsonResponse,
-  NotFoundError,
   PAYLOAD_TOO_LARGE,
-  PreconditionFailedError,
-  PreconditionRequiredError,
   rawBody,
   TargetIdParam,
-  UnauthorizedError,
-  UnsupportedMediaTypeError,
 } from "../schemas.ts";
 import type { AppDeps } from "../types.ts";
 
@@ -54,21 +44,21 @@ const tags = ["admin"];
 // Shared responses -------------------------------------------------------------------------------
 
 const ADMIN_FAILURES = {
-  400: jsonResponse("Malformed Authorization header, or an invalid request", BadRequestError),
+  400: jsonResponse("Malformed Authorization header, or an invalid request", ErrorResponse),
   401: {
     description: "Missing or wrong admin token",
     headers: z.object({ "WWW-Authenticate": z.string() }),
-    content: jsonContent(UnauthorizedError),
+    content: jsonContent(ErrorResponse),
   },
   503: jsonResponse(
     "No admin token is configured (AIA_ADMIN_TOKEN): the admin API is disabled",
-    AdminDisabledError
+    ErrorResponse
   ),
 } as const;
 
 const UNSUPPORTED_MEDIA_TYPE = jsonResponse(
   "The Content-Type is missing or not one of the request body's media types",
-  UnsupportedMediaTypeError
+  ErrorResponse
 );
 
 const ETAG = z.object({
@@ -107,12 +97,12 @@ const importCertificateRoute = createRoute({
     ),
     201: jsonResponse("Imported", ImportedCertificate),
     ...ADMIN_FAILURES,
-    409: jsonResponse("The catalog kept changing concurrently; retry", ConcurrentUpdateError),
+    409: jsonResponse("The catalog kept changing concurrently; retry", ErrorResponse),
     413: PAYLOAD_TOO_LARGE,
     415: UNSUPPORTED_MEDIA_TYPE,
     422: jsonResponse(
       "Not a certificate this service accepts; `details.reason` says why",
-      InvalidCertificateError
+      ErrorResponse
     ),
   },
 });
@@ -135,10 +125,10 @@ const deleteCertificateRoute = createRoute({
   responses: {
     204: { description: "Deleted" },
     ...ADMIN_FAILURES,
-    404: jsonResponse("No certificate with this id is imported", NotFoundError),
+    404: jsonResponse("No certificate with this id is imported", ErrorResponse),
     409: jsonResponse(
       "Referenced, or the catalog kept changing concurrently (retry)",
-      CertificateConflictError
+      ErrorResponse
     ),
   },
 });
@@ -161,7 +151,7 @@ const getConfigRoute = createRoute({
       headers: ETAG,
       content: jsonContent(ConfigSchema),
     },
-    404: jsonResponse("Nothing has been configured yet", NotFoundError),
+    404: jsonResponse("Nothing has been configured yet", ErrorResponse),
     ...ADMIN_FAILURES,
   },
 });
@@ -182,6 +172,7 @@ function configPrecondition(headers: Headers): ConfigPrecondition {
   }
   if (ifMatch === null || ifNoneMatch !== null) {
     throw new ApiError(
+      428,
       "precondition_required",
       'Send exactly one of If-Match: "<ETag of GET>" or If-None-Match: * (first configuration)'
     );
@@ -195,13 +186,14 @@ function configPrecondition(headers: Headers): ConfigPrecondition {
 
 function preconditionFailed(): ApiError {
   return new ApiError(
+    412,
     "precondition_failed",
     "The precondition does not hold for the stored configuration: GET it again"
   );
 }
 
 function configInvalid(issues: ConfigIssue[]): ApiError {
-  return new ApiError("config_invalid", "The configuration is invalid", { issues });
+  return new ApiError(422, "config_invalid", "The configuration is invalid", { issues });
 }
 
 const applyConfigRoute = createRoute({
@@ -237,15 +229,12 @@ const applyConfigRoute = createRoute({
     ...ADMIN_FAILURES,
     412: jsonResponse(
       "The precondition does not hold (another apply came first, or W/ / list / *)",
-      PreconditionFailedError
+      ErrorResponse
     ),
     413: PAYLOAD_TOO_LARGE,
     415: UNSUPPORTED_MEDIA_TYPE,
-    422: jsonResponse("The configuration breaks rules V1–V9", ConfigInvalidError),
-    428: jsonResponse(
-      "Not exactly one of If-Match and If-None-Match: *",
-      PreconditionRequiredError
-    ),
+    422: jsonResponse("The configuration breaks rules V1–V9", ErrorResponse),
+    428: jsonResponse("Not exactly one of If-Match and If-None-Match: *", ErrorResponse),
   },
 });
 
@@ -266,7 +255,7 @@ const getHistoryRoute = createRoute({
   responses: {
     200: jsonResponse("The history", CrlHistory),
     ...ADMIN_FAILURES,
-    404: jsonResponse("The target is neither in config.json nor has a history", NotFoundError),
+    404: jsonResponse("The target is neither in config.json nor has a history", ErrorResponse),
   },
 });
 
@@ -286,7 +275,7 @@ const getHistoryVersionRoute = createRoute({
       content: { "application/pkix-crl": { schema: binary } },
     },
     ...ADMIN_FAILURES,
-    404: jsonResponse("The target's history has no version with this SHA-256", NotFoundError),
+    404: jsonResponse("The target's history has no version with this SHA-256", ErrorResponse),
   },
 });
 
@@ -322,6 +311,7 @@ export function adminRoutes(deps: AppDeps) {
       "/admin/*",
       createMiddleware(async () => {
         throw new ApiError(
+          503,
           "admin_disabled",
           "The admin API is disabled: no admin token is configured"
         );
@@ -338,17 +328,23 @@ export function adminRoutes(deps: AppDeps) {
   admin.openapi(importCertificateRoute, async (c) => {
     const bytes = await c.req.bytes();
     if (bytes.byteLength === 0) {
-      throw new ApiError("bad_request", "Expected a certificate in the request body");
+      throw new ApiError(400, "bad_request", "Expected a certificate in the request body");
     }
 
     const result = await importCertificate(deps, bytes);
     if ("error" in result) {
       if (result.error === "invalid_certificate") {
         log({ level: "warn", msg: "import", reason: result.details.reason });
-        throw new ApiError("invalid_certificate", "Not a valid X.509 certificate", result.details);
+        throw new ApiError(
+          422,
+          "invalid_certificate",
+          "Not a valid X.509 certificate",
+          result.details
+        );
       }
       log({ level: "warn", msg: "import", certificateId: result.id, reason: result.error });
       throw new ApiError(
+        409,
         "concurrent_update",
         "The catalog kept changing concurrently: retry the import"
       );
@@ -367,24 +363,25 @@ export function adminRoutes(deps: AppDeps) {
       return c.body(null, 204, NO_STORE);
     }
     if (result.error === "not_found") {
-      throw new ApiError("not_found", "No certificate with this id is imported");
+      throw new ApiError(404, "not_found", "No certificate with this id is imported");
     }
     log({ level: "warn", msg: "delete_certificate", certificateId: id, reason: result.error });
     throw result.error === "referenced"
       ? new ApiError(
+          409,
           "referenced",
           "The certificate is referenced: remove the references from config.json first, or keep " +
             "it (the verifier of a target's current CRL stays referenced)",
           result.details
         )
-      : new ApiError("concurrent_update", "The catalog kept changing concurrently: retry");
+      : new ApiError(409, "concurrent_update", "The catalog kept changing concurrently: retry");
   });
 
   admin.openapi(getHistoryRoute, async (c) => {
     const { targetId } = c.req.valid("param");
     const history = await listHistory(deps, targetId);
     if ("error" in history) {
-      throw new ApiError("not_found", "No target with this id is configured or has a history");
+      throw new ApiError(404, "not_found", "No target with this id is configured or has a history");
     }
     return c.json(history, 200, NO_STORE);
   });
@@ -393,7 +390,7 @@ export function adminRoutes(deps: AppDeps) {
     const { targetId, sha256 } = c.req.valid("param");
     const found = await getHistoryBlob(deps, targetId, sha256);
     if ("error" in found) {
-      throw new ApiError("not_found", "The target's history has no CRL with this SHA-256");
+      throw new ApiError(404, "not_found", "The target's history has no CRL with this SHA-256");
     }
     return c.body(found.der, 200, {
       "Content-Type": "application/pkix-crl",
@@ -406,7 +403,7 @@ export function adminRoutes(deps: AppDeps) {
   admin.openapi(getConfigRoute, async () => {
     const stored = await deps.store.get(CONFIG_KEY);
     if (stored === null) {
-      throw new ApiError("not_found", "Nothing has been configured yet");
+      throw new ApiError(404, "not_found", "Nothing has been configured yet");
     }
     return configResponse(stored.bytes, await sha256Hex(stored.bytes));
   });

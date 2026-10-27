@@ -6,7 +6,6 @@ import type { ObjectStore } from "../../src/core/store.ts";
 import { MemoryStore } from "../../src/storage/memory.ts";
 import { cert, fixture, NOW } from "../fixtures/pki.ts";
 import { certificateEntry } from "../helpers/catalog.ts";
-import { withOuterAlgorithm } from "../helpers/pki.ts";
 import { puts, racingStore, recordingStore } from "../helpers/store.ts";
 import type { RecordingStore } from "../helpers/store.ts";
 
@@ -38,21 +37,6 @@ describe("importCertificate", () => {
     const later = new Date(NOW.getTime() + 86_400_000);
     const pem = fixture(cert("issuing-ca-1").pem);
     expect(await importInto(store, pem, later)).toEqual({ outcome: "unchanged", id, entry });
-    expect(store.writes).toEqual([]);
-  });
-
-  // RFC 5280 §4.1.1.2: the outer signatureAlgorithm is outside the signature, so anyone holding
-  // the file can rewrite it; it must equal the TBS signature.
-  it("rejects an outer signatureAlgorithm other than the TBS signature without writing", async () => {
-    const store = recordingStore();
-    const der = withOuterAlgorithm(fixture(cert("root-ca").der), (algorithm) =>
-      // ecdsa-with-SHA384 → ecdsa-with-SHA256: the last octet of the OID.
-      Uint8Array.from([...algorithm.subarray(0, -1), 0x02])
-    );
-    expect(await importInto(store, der)).toEqual({
-      error: "invalid_certificate",
-      details: { reason: "signature_algorithm_mismatch" },
-    });
     expect(store.writes).toEqual([]);
   });
 

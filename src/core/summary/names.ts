@@ -1,7 +1,7 @@
 // How the X.509 detail shows a name: Name (the RDN sequence, its normalized fields and the RFC 4514
 // string), and the GeneralName CHOICE with its text forms (otherName and the AD GUID, IP addresses
-// and constraint ranges, directoryName). The GeneralName readers take strict DER through
-// ../pki/der.ts, like the extension decoders in extensions.ts that call them.
+// and constraint ranges, directoryName). The small GeneralName readers also cover forms that
+// PKIjs models cannot read or round-trip correctly.
 import { BaseBlock, Set as Asn1Set } from "asn1js";
 import * as pkijs from "pkijs";
 import { blockHex, displayText, stringOf } from "../pki/asn1.ts";
@@ -221,9 +221,9 @@ export function readGeneralName(block: BaseBlock): GeneralName {
   }
 }
 
-/** GeneralNames ::= SEQUENCE SIZE (1..MAX) OF GeneralName, possibly implicitly tagged. */
+/** GeneralNames for display, possibly implicitly tagged; an empty list stays empty. */
 export const readGeneralNames = (block: BaseBlock, tag = SEQUENCE) =>
-  sequenceOf(block, tag).map(readGeneralName);
+  sequenceOf(block, tag, 0).map(readGeneralName);
 
 /** RelativeDistinguishedName ::= SET SIZE (1..MAX) OF AttributeTypeAndValue, under [1] IMPLICIT. */
 export function readRelativeName(block: BaseBlock): RelativeDistinguishedName {

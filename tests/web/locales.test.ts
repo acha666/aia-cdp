@@ -1,9 +1,7 @@
-// The message files: en and zh-CN have the same keys and placeholders, and every error code and
-// upload reason the client can meet has a message in both (utils/errors.ts falls back to
-// errors.unknown or the bare reason without one).
+// en and zh-CN keep the same keys and placeholders. Client failures, the unknown-code fallback
+// and every upload parse reason have messages in both languages.
 import { describe, expect, it } from "vitest";
 import { PKI_PARSE_REASONS } from "../../src/core/pki/errors.ts";
-import { ERROR_STATUS } from "../../src/http/schemas.ts";
 import en from "@/locales/en.json";
 import zhCN from "@/locales/zh-CN.json";
 
@@ -35,9 +33,9 @@ describe("locales", () => {
     }
   });
 
-  it("have a message for every error code of the client, and for unknown codes", () => {
-    // The server's codes, the two of client/errors.ts and the fallback.
-    for (const code of [...Object.keys(ERROR_STATUS), "network", "invalid_response", "unknown"]) {
+  it("have messages for client failures and unknown codes", () => {
+    // Codes created by client/errors.ts and the fallback; locale parity covers server messages.
+    for (const code of ["network", "invalid_response", "unknown"]) {
       for (const messages of [EN, ZH]) {
         expect(messages.get(`errors.${code}`), code).toBeTruthy();
       }

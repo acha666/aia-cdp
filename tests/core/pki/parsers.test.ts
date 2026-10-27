@@ -50,15 +50,10 @@ describe("parseCertificate / parseCRL", () => {
   });
 
   // A BER re-encoding of the unsigned outer SEQUENCE leaves the TBS and the signature intact: one
-  // CA under several ids, one CRL under several digests.
-  it("rejects BER encodings of the outer SEQUENCE as a DER error", () => {
-    for (const [kind, file, parse] of [
-      ["certificate", "certs/issuing-ca-1.der", parseCertificate],
-      ["crl", "crls/issuing-ca-1/full-01.der", parseCRL],
-    ] as const) {
-      for (const [variant, bytes] of berVariants(fixture(file))) {
-        expect(() => parse(bytes), `${kind}: ${variant}`).toThrow(pkiError(kind, "der"));
-      }
+  // CRL under several digests.
+  it("rejects BER encodings of a CRL's outer SEQUENCE as a DER error", () => {
+    for (const [variant, bytes] of berVariants(fixture("crls/issuing-ca-1/full-01.der"))) {
+      expect(() => parseCRL(bytes), variant).toThrow(pkiError("crl", "der"));
     }
   });
 
@@ -123,7 +118,7 @@ describe("key identifiers", () => {
   });
 });
 
-it("reads the CRL Number and Delta CRL Indicator exactly and rejects negative or wrong-tag values", () => {
+it("reads CRL numbers exactly and rejects negative, oversized or wrong-tag upload values", () => {
   const crlWith = (ext: pkijs.Extension) =>
     new pkijs.CertificateRevocationList({
       crlExtensions: new pkijs.Extensions({ extensions: [ext] }),
@@ -131,7 +126,11 @@ it("reads the CRL Number and Delta CRL Indicator exactly and rejects negative or
   for (const oid of ["2.5.29.20", "2.5.29.27"]) {
     const large = 2n ** 100n + 123n;
     expect(getCRLInteger(crlWith(extension(oid, asn1.Integer.fromBigInt(large))), oid)).toBe(large);
-    for (const value of [new asn1.Integer({ value: -1 }), new asn1.Enumerated({ value: 1 })]) {
+    for (const value of [
+      new asn1.Integer({ value: -1 }),
+      asn1.Integer.fromBigInt(2n ** 200n),
+      new asn1.Enumerated({ value: 1 }),
+    ]) {
       expect(
         () => getCRLInteger(crlWith(extension(oid, value)), oid),
         `${oid} ${value.constructor.name}`

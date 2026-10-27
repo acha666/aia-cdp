@@ -1,7 +1,5 @@
-// A strict reader of DER values, in the style of Go's cryptobyte (crypto/x509/parser.go): a
-// decoder reads the elements of a constructed value in order and names the tag of each one; an
-// unexpected or left-over element throws. asn1js only splits the bytes into TLV blocks; no PKIjs
-// extension model and no compareSchema (which accepts extra SEQUENCE elements) is involved.
+// Small ASN.1 readers shared by upload checks and display adapters. readOne accepts BER;
+// readDer additionally enforces DER. Callers use end() when trailing fields must be rejected.
 import { fromBER, Integer, ObjectIdentifier } from "asn1js";
 import type { BaseBlock } from "asn1js";
 import { asciiOf, assertWellFormed, integerNumber } from "./asn1.ts";
@@ -16,7 +14,6 @@ export interface Tag {
 
 const universal = (num: number, name: string): Tag => ({ cls: 1, num, name });
 export const context = (num: number): Tag => ({ cls: 3, num, name: `[${String(num)}]` });
-export const BOOLEAN = universal(1, "BOOLEAN");
 export const INTEGER = universal(2, "INTEGER");
 export const BIT_STRING = universal(3, "BIT STRING");
 export const OCTET_STRING = universal(4, "OCTET STRING");
@@ -24,7 +21,6 @@ export const NULL = universal(5, "NULL");
 export const OBJECT_IDENTIFIER = universal(6, "OBJECT IDENTIFIER");
 export const ENUMERATED = universal(10, "ENUMERATED");
 export const SEQUENCE = universal(16, "SEQUENCE");
-export const SET = universal(17, "SET");
 export const IA5_STRING = universal(22, "IA5String");
 export const GENERALIZED_TIME = universal(24, "GeneralizedTime");
 
@@ -61,7 +57,7 @@ export function expectTag(block: BaseBlock, tag: Tag): BaseBlock {
 
 /** An implicitly tagged primitive as the universal type `tag` ([0] IMPLICIT GeneralizedTime). */
 export function asUniversal(block: BaseBlock, tag: Tag): BaseBlock {
-  return readDer(encodeTlv(tag.num, [contents(block)]));
+  return readOne(encodeTlv(tag.num, [contents(block)]));
 }
 
 /** The contents octets of a primitive element, also when it is implicitly tagged. */
@@ -152,13 +148,13 @@ export function explicit(block: BaseBlock, tag: Tag): BaseBlock {
   return item;
 }
 
-/** BOOLEAN contents: 00 or FF only (X.690 §11.1). */
+/** A BER BOOLEAN for display: one contents octet, any nonzero value means true. */
 export function readBoolean(block: BaseBlock): boolean {
-  const [byte, ...rest] = contents(block);
-  if ((byte !== 0 && byte !== 0xff) || rest.length > 0) {
+  const bytes = contents(block);
+  if (bytes.length !== 1) {
     throw new Error("Invalid BOOLEAN");
   }
-  return byte === 0xff;
+  return bytes[0] !== 0;
 }
 
 /** INTEGER contents (also implicitly tagged) as an asn1js Integer, at least one octet. */

@@ -1,13 +1,12 @@
 // Certificate import and deletion (plan §5.5).
 // There is one commit point, the catalog write: no companion objects, no edge cache. Importing does
 // not authorize anything: a certificate only becomes an issuer once a config target names it.
-import { z } from "zod";
 import { certificateBlobKey, certificateReferences, readCatalog, updateState } from "./catalog.ts";
 import type { CatalogCertificate, CatalogDeps, CertificateSummary, State } from "./catalog.ts";
 import { sha256Hex } from "./digest.ts";
 import { PkiParseError } from "./pki/errors.ts";
 import type { PkiParseReason } from "./pki/errors.ts";
-import { parseCertificate, sameSignatureAlgorithms } from "./pki/parsers.ts";
+import { parseCertificate } from "./pki/parsers.ts";
 import { toDer } from "./pki/pem.ts";
 import { buildCertificateSummary } from "./summary/catalog-summary.ts";
 
@@ -46,18 +45,13 @@ export async function importCertificate(
   bytes: Uint8Array
 ): Promise<ImportResult> {
   const now = deps.now();
-  // toDer → parseCertificate (strict DER, RFC 5280 times) → the two signature algorithms →
-  // summary; every PkiParseError is a 422. The outer signatureAlgorithm must be the TBS signature,
-  // octet for octet as received (RFC 5280 §4.1.1.2): it is outside the signature, and the detail
-  // shows it.
+  // toDer → parseCertificate → summary; every PkiParseError is a 422. Only an admin imports, so
+  // what the certificate itself gets wrong is left to the tool that made it.
   let der: Uint8Array;
   let summary: CertificateSummary;
   try {
     der = toDer(bytes, "certificate");
     const certificate = parseCertificate(der);
-    if (!sameSignatureAlgorithms(certificate)) {
-      return { error: "invalid_certificate", details: { reason: "signature_algorithm_mismatch" } };
-    }
     summary = await buildCertificateSummary(certificate, der);
   } catch (error) {
     if (error instanceof PkiParseError) {
@@ -96,24 +90,17 @@ export async function importCertificate(
   if ("error" in update) {
     return { error: update.error, id };
   }
-  return { ...update.result, id };
+  return { ...update, id };
 }
 
 // Deletion ----------------------------------------------------------------------------------------
 
-/**
- * Where a certificate is referenced: the object and the keys from its root, as in ConfigIssue
- * (`details.references[]` of referenced; the HTTP schema uses this one).
- */
-export const CertificateReference = z
-  .object({
-    object: z.enum(["config.json", "catalog.json"]),
-    /** Keys from the object's root. */
-    path: z.array(z.string()),
-  })
-  .meta({ id: "CertificateReference" });
-
-export type CertificateReference = z.infer<typeof CertificateReference>;
+/** Where a certificate is referenced (`details.references[]` of referenced). */
+export interface CertificateReference {
+  object: "config.json" | "catalog.json";
+  /** Keys from the object's root. */
+  path: string[];
+}
 
 export type DeleteCertificateResult =
   | { deleted: true }
@@ -167,12 +154,9 @@ export async function deleteCertificate(
     const { [id]: _deleted, ...certificates } = state.catalog.certificates;
     return { next: { ...state.catalog, certificates }, result: { key: entry.key } };
   });
-  if ("error" in outcome) {
+  if (!("key" in outcome)) {
     return outcome;
   }
-  if (!("key" in outcome.result)) {
-    return outcome.result;
-  }
-  await deps.store.delete(outcome.result.key);
+  await deps.store.delete(outcome.key);
   return { deleted: true };
 }

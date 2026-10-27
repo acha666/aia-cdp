@@ -79,12 +79,6 @@ function parsedServiceUrl(ctx: Context): URL {
   return url;
 }
 
-/** The base URL without a trailing slash; a path prefix (behind a proxy) is kept. */
-export function serviceUrl(ctx: Context): string {
-  const url = parsedServiceUrl(ctx);
-  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
-}
-
 /**
  * localhost, 127.0.0.0/8 or [::1]: the Docker exec and development setups. The URL parser has
  * normalized the host already (127.1 → 127.0.0.1, [0:0:0:0:0:0:0:1] → [::1], case).
@@ -100,8 +94,7 @@ function isLoopback(hostname: string): boolean {
  * The production host answers plain HTTP with no redirect (AIA / CDP clients need it), so
  * http://<host> reaches the service and would put the token on the wire in clear text.
  */
-function checkTokenTransport(ctx: Context, name: string): void {
-  const url = parsedServiceUrl(ctx);
+function checkTokenTransport(ctx: Context, name: string, url: URL): void {
   if (url.protocol === "http:" && !isLoopback(url.hostname) && !ctx.allowInsecureHttp) {
     throw new UsageError(
       `refusing to send the ${name} token over http:// to ${url.host}: use https://, ` +
@@ -110,26 +103,19 @@ function checkTokenTransport(ctx: Context, name: string): void {
   }
 }
 
-/** The admin token (import, config, history, delete-certificate) or the upload token (publish). */
-type TokenVariable = "AIA_ADMIN_TOKEN" | "AIA_UPLOAD_TOKEN";
-
-const TOKEN_NAMES: Record<TokenVariable, string> = {
-  AIA_ADMIN_TOKEN: "admin",
-  AIA_UPLOAD_TOKEN: "upload",
-};
-
 /**
  * The command's bearer token, from --token-file, else `<variable>_FILE`, else `<variable>`
  * (trimmed); undefined when none of them is set. Both variables set, an unreadable file, an
  * empty or malformed token, or a token that checkTokenTransport refuses is a usage error.
  * Messages name the source, never the token.
  */
-export async function bearerToken(
+async function bearerToken(
   ctx: Context,
-  variable: TokenVariable
+  name: "admin" | "upload",
+  url: URL
 ): Promise<string | undefined> {
   const { env } = ctx.io;
-  const name = TOKEN_NAMES[variable];
+  const variable = name === "admin" ? "AIA_ADMIN_TOKEN" : "AIA_UPLOAD_TOKEN";
   const fileVariable = `${variable}_FILE`;
   const file = ctx.tokenFile ?? env[fileVariable];
   let token: string | undefined;
@@ -155,38 +141,37 @@ export async function bearerToken(
     );
   }
   if (token !== undefined) {
-    checkTokenTransport(ctx, name);
+    checkTokenTransport(ctx, name, url);
   }
   return token;
 }
 
-/** `Authorization` for the admin routes: the admin token is required. */
-export async function adminHeaders(ctx: Context): Promise<Record<string, string>> {
-  const token = await bearerToken(ctx, "AIA_ADMIN_TOKEN");
-  if (token === undefined) {
+/** Resolve the base URL and token once. Paths are relative to /api/v1, including a leading /. */
+export async function createClient(ctx: Context, access: "admin" | "upload" | "public" = "admin") {
+  const url = parsedServiceUrl(ctx);
+  const base = `${url.origin}${url.pathname.replace(/\/+$/, "")}/api/v1`;
+  const token = access === "public" ? undefined : await bearerToken(ctx, access, url);
+  if (access === "admin" && token === undefined) {
     throw new UsageError(
       "no admin token: pass --token-file, or set AIA_ADMIN_TOKEN_FILE or AIA_ADMIN_TOKEN"
     );
   }
-  return { Authorization: `Bearer ${token}` };
+  return (path: string, init: RequestInit = {}) => {
+    const headers = new Headers(init.headers);
+    if (token !== undefined) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+    return request(ctx, `${base}${path}`, { method: "GET", ...init, headers });
+  };
 }
 
-/** A response with its body read in full. */
-interface Reply {
-  status: number;
-  statusText: string;
-  ok: boolean;
-  headers: Headers;
-  bytes: Uint8Array;
-  /** `bytes` as UTF-8, as Response.text() decodes them. */
-  text: string;
-}
+export type Api = Awaited<ReturnType<typeof createClient>>;
 
 /**
  * fetch with a timeout, and the whole body read: a request that gets no response, or a body that
  * fails after the headers (a reset connection, the timeout firing mid-body), is a Failure.
  */
-export async function request(ctx: Context, url: string, init: RequestInit): Promise<Reply> {
+async function request(ctx: Context, url: string, init: RequestInit) {
   let res: Response;
   try {
     res = await ctx.io.fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
@@ -200,15 +185,31 @@ export async function request(ctx: Context, url: string, init: RequestInit): Pro
     throw new Failure(`cannot read the response from ${url}: ${reasonOf(error)}`);
   }
   const { status, statusText, ok, headers } = res;
-  return { status, statusText, ok, headers, bytes, text: new TextDecoder().decode(bytes) };
-}
-
-/** `reply`, if `ok` (by default: a 2xx status); otherwise its HTTP error is the Failure. */
-export function accepted(reply: Reply, ok = reply.ok): Reply {
-  if (!ok) {
-    throw new Failure(describeHttp(httpError(reply)));
-  }
-  return reply;
+  return {
+    url,
+    status,
+    statusText,
+    ok,
+    headers,
+    bytes,
+    text: new TextDecoder().decode(bytes),
+    error(): HttpError {
+      return httpError(this);
+    },
+    check(accepted = ok) {
+      if (!accepted) {
+        throw new Failure(describeHttp(this.error()));
+      }
+      return this;
+    },
+    json<T = unknown>(): T {
+      try {
+        return JSON.parse(this.text) as T;
+      } catch {
+        throw new Failure(`HTTP ${status}, but the body is not JSON`);
+      }
+    },
+  };
 }
 
 /** A non-success response: the error envelope's fields, or the status line without one. */
@@ -219,7 +220,7 @@ export interface HttpError {
   details?: unknown;
 }
 
-export function httpError(reply: Reply): HttpError {
+function httpError(reply: Pick<Response, "status" | "statusText"> & { text: string }): HttpError {
   try {
     const { error } = JSON.parse(reply.text) as { error?: Record<string, unknown> };
     if (typeof error?.code === "string" && typeof error.message === "string") {
@@ -241,13 +242,4 @@ export function describeHttp(error: HttpError): string {
   const reason = typeof details?.reason === "string" ? ` (${details.reason})` : "";
   const code = error.code === undefined ? "" : ` ${error.code}`;
   return `HTTP ${error.status}${code}${reason}: ${error.message}`;
-}
-
-/** The JSON body of a success response; a body that is not JSON is a Failure. */
-export function jsonOf(reply: Reply): unknown {
-  try {
-    return JSON.parse(reply.text) as unknown;
-  } catch {
-    throw new Failure(`HTTP ${reply.status}, but the body is not JSON`);
-  }
 }

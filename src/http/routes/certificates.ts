@@ -11,13 +11,12 @@ import { readState } from "../../core/catalog.ts";
 import { certificateDetail, certificateList } from "../../core/views.ts";
 import { ApiError, NO_STORE } from "../errors.ts";
 import {
-  BadRequestError,
+  ErrorResponse,
   CertificateDetail,
   CertificateIdParam,
   CertificateListItem,
   INTERNAL_ERROR,
   jsonResponse,
-  NotFoundError,
 } from "../schemas.ts";
 import type { AppDeps } from "../types.ts";
 
@@ -50,8 +49,8 @@ const getCertificateRoute = createRoute({
   request: { params: CertificateIdParam },
   responses: {
     200: jsonResponse("The certificate", CertificateDetail),
-    400: jsonResponse("The id is not 64 hex digits", BadRequestError),
-    404: jsonResponse("No certificate with this id is imported", NotFoundError),
+    400: jsonResponse("The id is not 64 hex digits", ErrorResponse),
+    404: jsonResponse("No certificate with this id is imported", ErrorResponse),
     500: INTERNAL_ERROR,
   },
 });
@@ -67,7 +66,7 @@ export function certificateRoutes(deps: AppDeps) {
       const { config, catalog } = await readState(deps.store);
       const detail = await certificateDetail(deps.store, config, catalog, id);
       if (detail === undefined) {
-        throw new ApiError("not_found", "No certificate with this id is imported");
+        throw new ApiError(404, "not_found", "No certificate with this id is imported");
       }
       return c.json(detail, 200, NO_STORE);
     });

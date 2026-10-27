@@ -25,7 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useCrlUploadInput } from "@/composables/useCrlUploadInput";
-import { useUploadToken } from "@/composables/useUploadToken";
+import { uploadToken as token } from "@/upload-token";
 import { errorMessage, errorReason } from "@/utils/errors";
 
 // Publishing a CRL from the browser: no submit while the input is invalid or an upload runs, the
@@ -42,7 +42,6 @@ const { t } = i18n;
 const client = useQueryClient();
 const upload = useUploadCrl();
 const { input, text, file, isValid, selectFile, clear } = useCrlUploadInput();
-const token = useUploadToken();
 
 const ids = { text: useId(), token: useId() };
 const dropZone = useTemplateRef<HTMLElement>("dropZone");

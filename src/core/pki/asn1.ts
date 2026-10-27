@@ -159,9 +159,8 @@ const SET = 17;
 const NON_EMPTY = new Set([BOOLEAN, INTEGER, BIT_STRING, OBJECT_IDENTIFIER, ENUMERATED]);
 
 // asn1js decodes BER and only warns, if at all, about what DER forbids, and re-encodes what it
-// decoded in DER. Re-encoding the unsigned outer SEQUENCE of a certificate this way keeps the TBS
-// and the signature intact, so without these checks one certificate could be imported under
-// several ids.
+// decoded in DER. Re-encoding the unsigned parts of a CRL this way keeps the TBS and the signature
+// intact, so without these checks anyone could publish other bytes for a CA's CRL.
 function derProblem(block: BaseBlock): string | undefined {
   const { idBlock, lenBlock } = block;
   // toBER writes the identifier octets in their shortest form; isHexOnly is a tag number asn1js
@@ -190,16 +189,16 @@ function derProblem(block: BaseBlock): string | undefined {
 }
 
 /**
- * Strict DER: reject decoder errors, BER that DER forbids, and time values that decoded into
- * garbage. PKIjs copies decoded dates without checking them, which turns malformed input into
- * real-looking timestamps (year 1899 and similar).
+ * Reject decoder errors anywhere in the tree; with `der` (the default) also BER that DER forbids
+ * and times not in the RFC 5280 form. PKIjs copies decoded dates without checking them, which turns
+ * malformed input into real-looking timestamps (year 1899 and similar).
  *
  * Only the structure is walked: the children of constructed values. asn1js also decodes the
  * contents of every primitive OCTET STRING and BIT STRING on speculation; for extension values,
  * key ids, hashes, keys and signatures that is not checked (an SKI starting with 17 12 decodes as
  * a broken UTCTime).
  */
-export function assertWellFormed(root: BaseBlock): void {
+export function assertWellFormed(root: BaseBlock, der = true): void {
   const stack: BaseBlock[] = [root];
   while (stack.length > 0) {
     const block = stack.pop();
@@ -213,11 +212,11 @@ export function assertWellFormed(root: BaseBlock): void {
       const ErrorType = isTime ? Asn1TimeError : Error;
       throw new ErrorType(`ASN.1 decode error: ${block.error}`);
     }
-    const problem = derProblem(block);
+    const problem = der ? derProblem(block) : undefined;
     if (problem !== undefined) {
       throw new Error(`Not DER: ${problem} (${tagLabel(block)})`);
     }
-    if (isTime) {
+    if (der && isTime) {
       readStrictTime(block);
     }
     if (block.idBlock.isConstructed) {

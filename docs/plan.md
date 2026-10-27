@@ -63,14 +63,14 @@
 | Node 服务器   | `@hono/node-server`                             | 2.1.5                             | `serve()` + `serve-static`；替代手写 `node:http` 桥                                            |
 | 校验与 OpenAPI | `@hono/zod-openapi` + `zod`                    | 1.6.3 / 4.6.7                     | 路由声明即 schema，处理器返回值按状态码类型检查；OpenAPI 文档运行时从路由表生成，另写出提交的 `docs/openapi.json` 作漂移基线（§7.3） |
 | 类型化客户端  | `hono/client` 的 `hc<AppType>`                  | 随 hono                           | 前端类型从服务端路由推导；`init: { cache: "no-store" }`                                        |
-| PKI           | `pkijs` + `asn1js`                              | 4.0.0 / 4.0.0                     | 证书、CRL、名称与 SCT 的解析，验签；扩展值由 asn1js 之上的严格 DER 读取器（`src/core/pki/der.ts`）解码 |
+| PKI           | `pkijs` + `asn1js`                              | 4.0.0 / 4.0.0                     | 证书、CRL 与常规扩展的解析、验签；详情采用尽力展示，仅为库缺陷和未支持的结构保留小型读取器 |
 | 前端          | `vue`、`vue-router`、`@tanstack/vue-query`、`vue-i18n` | 3.5.44 / 5.4.0 / 5.104.5 / 11.4.16 | 不用 Pinia（决策 5）                                                                   |
 | 前端构建      | `vite` + `@vitejs/plugin-vue`、`tailwindcss` + `@tailwindcss/vite`、`tw-animate-css`、`vue-tsc` | 8.3.5 / 6.0.10、4.3.3 / 4.3.3、1.4.0、3.3.13 | vite 8（Rolldown、默认 oxc 压缩）；`vue-tsc -b` 检查 worker / node / web 三个程序（§10） |
 | UI 组件       | shadcn-vue（CLI，`--style nova`）+ `reka-ui` + `class-variance-authority` + `cn` + `@lucide/vue` + `vue-sonner` | 2.8.2 / 2.11.0 / 0.7.1 / 0.5.0 / 1.61.0 / 2.0.9 | 组件源码生成到 `src/web/components/ui/`；生成代码用 `cn` 包，取代 `clsx` + `tailwind-merge`；`@lucide/vue` 取代已弃用的 `lucide-vue-next`；`vue-sonner` 需 `import "vue-sonner/style.css"`；`@tanstack/vue-table` 不随 shadcn Table 安装，也没用上（吊销列表分页只是 `slice()`） |
 | 前端工具      | `@vueuse/core`                                   | 15.0.0                            | reka-ui 2.11.0 仍依赖 `^14.1.0`，web 包里暂有两份（多约 0.4 kB gzip），reka-ui 跟上后自然合一；`useNow`（统一时钟快照，15 起间隔经 `scheduler` 传 `useIntervalFn`）、`useStorage`；复制不用 `useClipboard`（其 `execCommand` 退路失败也报成功） |
 | 测试          | `vitest`、`@vue/test-utils`、`happy-dom`        | 5.0.5 / 2.5.1 / 21.0.4            | HTTP 用 `app.request()` 进程内测；R2 用 wrangler `getPlatformProxy`；夹具由脚本生成后入库（§10） |
 | Cloudflare    | `wrangler`                                      | 4.152.0（精确锁定）               | `wrangler types` 生成绑定类型 `worker-configuration.d.ts`（不入库）；不装 `@cloudflare/workers-types`；`compatibility_date` 随 wrangler 一起升 |
-| CLI           | `node:util` `parseArgs` + `fetch`               | 内置                              | 零依赖                                                                                         |
+| CLI           | `commander` + 内置 `fetch`                      | 15.0.0                            | 无传递依赖；声明式子命令、参数检查和自动帮助；`exitOverride` / 注入输出保留进程内测试与 0/1/2 退出码 |
 | 后续          | `@aws-sdk/client-s3`                            | 3.1152.0                          | S3 适配器切片，仅进 Node bundle                                                                |
 | 质量          | `typescript`；`eslint` + `@eslint/js` + `typescript-eslint` + `eslint-plugin-vue` + `vue-eslint-parser` + `jiti`；`prettier`；`knip` | 6.0.3；10.13.0 / 10.0.1 / 8.72.0 / 10.11.1 / 10.4.1 / 2.7.0；3.9.10；6.43.0 | `typescript` 精确锁 6.0.3（npm latest 7.0.2 超出 typescript-eslint 的 `<6.1.0`）；`jiti` 供 ESLint 10 加载 `eslint.config.ts`；`knip` 查未用的文件、导出与依赖（§10）；`@types/node` 26.6.5 |
 | 开发前置      | OpenSSL CLI、bash、Docker Engine                 | OpenSSL ≥ 3.0（不是 LibreSSL）、Docker ≥ 25 | 只在开发与 CI 用：OpenSSL 只在重新生成测试夹具时需要，bash 用于夹具生成与冒烟脚本（`smoke:worker`、`ci:docker`）（§10，`pnpm test` 两者都不需要），Docker 构建镜像（`HEALTHCHECK --start-interval` 需要 25）；运行时都不需要 |
@@ -374,7 +374,7 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 2. 读 `config.json` 与 `catalog.json`（各一次 `get`，记下 catalog 的 ETag）。`sha256` 等于某个已配置目标的 `current.sha256` →
    200 `unchanged`，不解析、不验签、不写。
 3. 头部：外层 SEQUENCE 须是定长 DER 且恰好覆盖全部字节（否则 `der` / `trailing_bytes`）；TBSCertList 里的吊销列表只按它的 TLV
-   头切出、不解码，其余字段拼回后按严格 DER 解析（asn1js 默认限额，读出的字段须与切分一致）。读出 AKI、CRL 号、delta 指示与
+   头切出、不解码，其余字段拼回后解析（asn1js 默认限额，未签名部分须为严格 DER，读出的字段须与切分一致）。读出 AKI、CRL 号、delta 指示与
    时间，再做 CRL 级检查：外层算法与 TBS 内的字节不同、`thisUpdate` 超前 5 分钟以上、未识别的关键扩展、作用域 IDP，各是独立
    拒绝原因。每次调用至多做一次。
 4. 用 AKI 在 catalog 的证书摘要里找 SKI 相等的证书，再在 config 里找绑定它且 kind 匹配的目标。
@@ -424,10 +424,12 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 - 验证：AKI/SKI 匹配 + 签名验证。CRL 没有 AKI `keyIdentifier` → `issuer_not_found`（`details.reason = "missing_aki"`）；
   keyIdentifier 为空也找不到证书（导入拒绝空 SKI）→ `issuer_not_found`；
   外层 `signatureAlgorithm` 与 TBS 内 `signature` 收到的字节不同（OID 或参数）→ `invalid_crl`（`signature_algorithm_mismatch`；
-  比较收到的字节而不是重编码，外层不在签名之内）；证书导入同样比较（RFC 5280 §4.1.1.2），不同 → `invalid_certificate`
-  （`signature_algorithm_mismatch`：证书详情显示外层算法，导入后它必与 TBS 内的相同）。严格 DER 只查结构（标签与长度是 DER 形式、
-  需要内容的类型不为空、RFC 5280 时间），不查原始类型的内容规则，也不下钻扩展值；外层算法按收到的字节与签名之内的那份比较，
-  所以没有人能改写外层算法造出先成为 current 的变体。ECDSA 签名本身可延展：`(r, n − s)` 是另一份 OpenSSL 也验得过的合法 CRL，
+  比较收到的字节而不是重编码，外层不在签名之内）。
+  校验范围：验签通过的 CRL 一定出自 CA，TBS 里写了什么是 CA 的事；本服务只查签名覆盖不到、任何人都能改的部分（外层 SEQUENCE、
+  `signatureAlgorithm`、`signatureValue` 须为严格 DER：标签与长度是 DER 形式、需要内容的类型不为空；外层算法与签名内的一致；
+  ECDSA 签名为 DER），自己依赖的字段（AKI、CRL 号、`thisUpdate`、IDP 作用域）能否读出，以及常见配置问题（时钟）。TBS 内部与
+  吊销条目只要求能解码（asn1js 无解码错误），不查 DER 形式与 RFC 5280 时间格式，也不下钻扩展值。证书只由管理员导入，同样只要求能
+  解码、读得出摘要字段，不比较外层算法。所以没有人能改写 CRL 的未签名部分造出先成为 current 的变体。ECDSA 签名本身可延展：`(r, n − s)` 是另一份 OpenSSL 也验得过的合法 CRL，
   谁先上传谁成为 current，CA 的原始字节随后得 `conflict`（只是 409 的麻烦，不是完整性问题）。上传按目标配置的签发者验签，同 SKI 的
   其他证书不参与。不比较签发者名称、不检查 `cRLSign` 和签发者有效期。
   验签方式（B21）：先过 CRL 级的扩展与时钟策略，再在任何密码学调用之前按 OID 白名单判定：sha1/256/384/512WithRSAEncryption、RSASSA-PSS
@@ -445,13 +447,14 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
   （AD CS 两者共用一个号计数器）；只读 catalog 的 `current.summary`，不读当前 DER（`compareFreshness`，`src/core/publish.ts`）。
 - 时钟：注入的 `now` 是唯一时间源；`thisUpdate` 超前 5 分钟以上拒绝 `not_yet_valid`（恰好 5 分钟接受）；
   `nextUpdate` 已过去的 CRL 接受并记录日志。
-- 扩展：识别列表为 `2.5.29.20`、`2.5.29.27`（delta 指示）、`2.5.29.35`、`2.5.29.46`、`2.5.29.18`（IAN）、
-  `1.3.6.1.5.5.7.1.1`（AIA）与 AD CS 私有 `1.3.6.1.4.1.311.21.1 / .4 / .14`；识别与关键性无关，标了关键也接受。`2.5.29.28`（IDP）不论关键性都读：
+- 扩展详情仅用于展示，不重复执行上传准入校验：优先使用 PKIjs 模型；不再统一拒绝 BER 编码、空 GeneralNames 列表或额外字段，按具体展示解码器读取。
+  仍要求值恰好占满输入，避免只显示前缀；保留整数精度、有效时间和 SCT 完整性检查，无法可靠读取时显示原始 hex / ASN.1。
+  名称约束、分发点原因位、CA Version 等存在已复现库缺陷的结构继续使用小型读取器；展示 CRL Number 不套用上传的非负与 20 字节限制。
+- 扩展：只读服务自己用到的几个（CRL 号、delta 指示、AKI、AD CS Next CRL Publish、IDP），其余扩展不论是否关键都接受，原始字节
+  留在 blob 里并在详情中展示（关键扩展该怎么处理是依赖方的事）。`2.5.29.28`（IDP）不论关键性都读：
   只含 `distributionPoint` 接受（AD CS 的 CDP 选项），含其他任何字段（`onlyContains*`、`onlySomeReasons`、`indirectCRL`）即作用域 CRL，
-  拒绝 `scoped_crl_unsupported`；值不是 SEQUENCE 才是 `invalid_crl`；其他未识别关键扩展拒绝 `unknown_critical_extension`。
-  同一扩展出现两次不拒绝，读取时取第一个。
-  条目扩展在验签之后、完整解码时检查（§5.5 第 7 步）：reasonCode、invalidityDate、holdInstructionCode 接受，certificateIssuer（间接 CRL）→
-  `scoped_crl_unsupported`，其他关键 → `unknown_critical_extension`。未识别的非关键扩展保留原始字节在详情里展示。
+  拒绝 `scoped_crl_unsupported`；值不是 SEQUENCE 才是 `invalid_crl`。同一扩展出现两次不拒绝，读取时取第一个。
+  条目扩展在验签之后、完整解码时检查（§5.5 第 7 步）：只有 certificateIssuer（间接 CRL）→ `scoped_crl_unsupported`。
   策略表见 `src/core/pki/crl-policy.ts`。
 - delta 与 base 相互独立：记录并展示 `baseCrlNumber`，不与已发布 full CRL 对账。
 - 下载：路径表命中 → 资源 → catalog 的 current → 先用摘要生成 `ETag`（DER `"<sha256>"`，
@@ -510,7 +513,7 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 | 409 | `stale_crl`、`conflict`、`non_orderable`：`{ current: { sha256, crlNumber, thisUpdate } }`；`concurrent_update`：无 |
 | 413 | `payload_too_large`（`AIA_MAX_UPLOAD_BYTES`，无 `Content-Length` 的流式体也算） |
 | 415 | `unsupported_media_type`：`{ received, accepted }`，`received` 为小写、不带参数的媒体类型，缺失或空头为 `null` |
-| 422 | `invalid_crl` `{ reason }`；`not_yet_valid` `{ thisUpdate }`；`unknown_critical_extension`、`scoped_crl_unsupported` `{ oid, serialNumber? }`（序列号只对条目扩展）；`issuer_not_found` `{ reason: "missing_aki" }` 或 `{ authorityKeyId }`；`target_not_configured` `{ kind, certificates }`；`invalid_signature`、`unsupported_algorithm` `{ algorithm }` |
+| 422 | `invalid_crl` `{ reason }`；`not_yet_valid` `{ thisUpdate }`；`scoped_crl_unsupported` `{ oid, serialNumber? }`（序列号只对条目扩展）；`issuer_not_found` `{ reason: "missing_aki" }` 或 `{ authorityKeyId }`；`target_not_configured` `{ kind, certificates }`；`invalid_signature`、`unsupported_algorithm` `{ algorithm }` |
 | 500 | `internal`，不含异常文本（OpenAPI 里上传与五条公开读路由声明 500，管理路由不声明） |
 
 OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
@@ -533,14 +536,14 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
 ### 7.3 信封、错误、中间件
 
 - 成功：直接返回资源体，不包 `{ data }`。
-- 失败：`{ "error": { "code": "…", "message": "…", "details"?: … } }`，每个状态码一个 schema。
+- 失败：`{ "error": { "code": "…", "message": "…", "details"?: … } }`，共用一个 `ErrorResponse` schema；HTTP 状态码在抛错处明确指定，`code` 和 `details` 不再按状态码细分 schema。
 - 错误码：`bad_request`、`unauthorized`、`not_found`、`method_not_allowed`、
   `payload_too_large`、`unsupported_media_type`、`admin_disabled`、`precondition_failed`、`precondition_required`、
   `config_invalid`、`referenced`、`invalid_crl`、`invalid_certificate`、`not_yet_valid`、
-  `unknown_critical_extension`、`scoped_crl_unsupported`、`unsupported_algorithm`、
+  `scoped_crl_unsupported`、`unsupported_algorithm`、
   `issuer_not_found`、`target_not_configured`、`invalid_signature`、
   `stale_crl`、`conflict`、`non_orderable`、`concurrent_update`、`internal`。`details.reason`：`invalid_certificate` / `invalid_crl` 为 `der`、`trailing_bytes`、
-  `time`、`structure`、`extension_value`、`pem_label`、`pem_blocks`、`pem_base64`，两者另有 `signature_algorithm_mismatch`；
+  `time`、`structure`、`extension_value`、`pem_label`、`pem_blocks`、`pem_base64`，`invalid_crl` 另有 `signature_algorithm_mismatch`；
   `issuer_not_found` 为 `missing_aki`（否则 `details.authorityKeyId`）。
 - 中间件顺序：`secureHeaders({ strictTransportSecurity: false })`（§6）→ 请求日志 →
   `methodNotAllowed({ app, onMethodNotAllowed })`（`hono/method-not-allowed`，hono ≥ 4.13.0；`onMethodNotAllowed` 产出
@@ -568,8 +571,10 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
 之外都算该文件失败）、`history <targetId>`（列历史）、`history <targetId> <sha256> --out <file>`（把一条历史的 DER 写进文件）、
 `delete-certificate <id>`（被引用时逐行列出引用来源，退出 1）、`health`。`config validate` 离线只跑静态规则（V1–V3、V4 / V6 的静态部分，
 与服务端共用不带 context 的 `validateConfig`），不连服务、不要令牌；状态与迁移规则（V4–V7、V9 的其余部分）由服务端在
-apply 时判定，以服务端为准。参数解析用 `parseArgs`，输出为每个文件（块）一行加汇总行，或 `--json`；退出码 0 成功、1 失败（或服务
-不健康）、2 用法错误。
+apply 时判定，以服务端为准。参数解析、子命令分发、参数数量检查和帮助由 `commander` 的命令树生成；每次 `main()` 新建实例，
+输出与退出处理可注入，不在库内终止进程。`createClient` 按命令解析 URL 与令牌，保留代理路径前缀，统一认证头、超时、响应读取和错误处理；
+命令只提供 `/api/v1` 下的相对路径。批量上传按文件和 PEM 块顺序发送，失败不中断后续项，边处理边累计统计；文本模式逐项输出，
+只有 `--json` 保存完整结果数组。输出为每个文件（块）一行加汇总行，或 `--json`；退出码 0 成功、1 失败（或服务不健康）、2 用法错误。
 
 ## 8. 前端
 

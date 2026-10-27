@@ -627,6 +627,49 @@ describe("decoders on values built in the test", () => {
   });
 
   it.each([
+    [
+      "a CRL number outside upload limits",
+      "2.5.29.20",
+      asn1.Integer.fromBigInt(2n ** 200n),
+      { number: (2n ** 200n).toString() },
+    ],
+    ["a BER IDP flag", "2.5.29.28", seq(implicit(1, 1)), { onlyContainsUserCerts: true }],
+    ["a BER long-form length", "2.5.29.19", der(0x30, 0x81, 0x00), { cA: false }],
+    ["a BER true BOOLEAN", "2.5.29.19", der(0x30, 0x03, 0x01, 0x01, 0x01), { cA: true }],
+    [
+      "extra BasicConstraints fields",
+      "2.5.29.19",
+      seq(new asn1.Boolean({ value: true }), int(0), int(5)),
+      { cA: true, pathLenConstraint: 0 },
+    ],
+    ["an empty SubjectAltName", "2.5.29.17", seq(), { names: [] }],
+    [
+      "extra AccessDescription fields",
+      "1.3.6.1.5.5.7.1.1",
+      seq(seq(objectId("1.3.6.1.5.5.7.48.1"), block(uri("http://ocsp.example")), new asn1.Null())),
+      {
+        accessDescriptions: [
+          {
+            accessMethod: named("1.3.6.1.5.5.7.48.1", "ocsp"),
+            accessLocation: URI("http://ocsp.example"),
+          },
+        ],
+      },
+    ],
+    [
+      "extra QCStatement fields",
+      "1.3.6.1.5.5.7.1.3",
+      seq(seq(objectId("0.4.0.1862.1.1"), new asn1.Null(), new asn1.Null())),
+      { statements: [{ statementId: named("0.4.0.1862.1.1", "QcCompliance"), rawHex: "0500" }] },
+    ],
+  ] as const)("displays %s without imposing upload validation", (_case, oid, value, parsed) => {
+    const result = buildExtension(extension(oid, value));
+    expect(result).toMatchObject({ parseStatus: "parsed", parsed });
+    expect(result.extnValue.hex).toBe(toHex(value.toBER()).toUpperCase());
+    expect(result.asn1).toBeUndefined();
+  });
+
+  it.each([
     // PKIjs yields an SCT of 1970 with an empty log id from truncated TLS data.
     ["a truncated SCT list", "1.3.6.1.4.1.11129.2.4.2", octets([0, 2, 9, 9])],
     // PKIjs reads the short last SCT, its signature cut, as if the octets were there.
@@ -640,24 +683,10 @@ describe("decoders on values built in the test", () => {
         asn1.Integer.fromBigInt(BigInt(Number.MAX_SAFE_INTEGER) + 1n)
       ),
     ],
-    // Strict DER (X.690 §10, §11) and RFC 5280 syntax, which PKIjs's models let through.
+    // Do not silently display a prefix of an extension value.
     ["trailing bytes after the value", "2.5.29.19", der(0x30, 0x00, 0x05, 0x00)],
-    ["a length in the long form", "2.5.29.19", der(0x30, 0x81, 0x00)],
-    ["a BOOLEAN other than 00 / FF", "2.5.29.19", der(0x30, 0x03, 0x01, 0x01, 0x01)],
-    ["an element too many", "2.5.29.19", seq(new asn1.Boolean({ value: true }), int(0), int(5))],
-    ["an empty SubjectAltName (SIZE 1..MAX)", "2.5.29.17", seq()],
-    [
-      "an AccessDescription with an element too many",
-      "1.3.6.1.5.5.7.1.1",
-      seq(seq(objectId("1.3.6.1.5.5.7.48.1"), block(uri("http://ocsp.example")), new asn1.Null())),
-    ],
     // PKIjs writes and reads [1] reasons without the unused-bits octet: 0x60 is no such count.
     ["reasons without the unused-bits octet", "2.5.29.31", seq(seq(implicit(1, 0x60)))],
-    [
-      "a QCStatement with an element too many",
-      "1.3.6.1.5.5.7.1.3",
-      seq(seq(objectId("0.4.0.1862.1.1"), new asn1.Null(), new asn1.Null())),
-    ],
     [
       "an empty IMPLICIT INTEGER (GeneralSubtree minimum)",
       "2.5.29.30",

@@ -1,7 +1,6 @@
 // Extension values that both the upload path and the detail views read: key identifiers and CRL
-// numbers. An upload holds the certificate or CRL to DER but not the contents of its extension
-// values (plan §6), so it reads them with readExtensionSchema; the detail views decode every value
-// in strict DER (readDer). The readers below take the decoded value either way.
+// numbers. Both decode the value as one element, BER let through (readExtensionSchema here,
+// readOne in the detail views).
 import type { BaseBlock } from "asn1js";
 import type { Extension } from "pkijs";
 import {
@@ -16,7 +15,7 @@ import {
   sequenceOf,
 } from "./der.ts";
 
-/** The extension value as one element, BER let through (the upload path, plan §6). */
+/** The extension value as one element, BER let through. */
 export const readExtensionSchema = (extension: Extension): BaseBlock =>
   readOne(extension.extnValue.valueBlock.valueHexView);
 
@@ -57,14 +56,14 @@ export function readAuthorityKeyId(value: BaseBlock) {
 }
 
 /**
- * The longest CRL Number (or Delta CRL Indicator) the service takes, in contents octets: RFC 5280
- * §5.2.3 forbids CRL issuers longer values.
+ * The longest CRL Number (or Delta CRL Indicator) the service takes, in contents octets (RFC 5280
+ * §5.2.3). The number is part of the blob and marker names, which a file system limits.
  */
 export const MAX_CRL_NUMBER_OCTETS = 20;
 
 /**
- * A CRL Number or Delta CRL Indicator: one INTEGER (tag 2, not ENUMERATED), not negative, at most
- * MAX_CRL_NUMBER_OCTETS contents octets. Throws otherwise.
+ * A CRL Number or Delta CRL Indicator: one INTEGER (tag 2, not ENUMERATED), not negative (the
+ * catalog stores a decimal), at most MAX_CRL_NUMBER_OCTETS contents octets. Throws otherwise.
  */
 export function readCRLInteger(value: BaseBlock): bigint {
   const integer = expectTag(value, INTEGER);
