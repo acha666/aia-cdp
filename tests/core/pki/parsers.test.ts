@@ -50,15 +50,10 @@ describe("parseCertificate / parseCRL", () => {
   });
 
   // A BER re-encoding of the unsigned outer SEQUENCE leaves the TBS and the signature intact: one
-  // CA under several ids, one CRL under several digests.
-  it("rejects BER encodings of the outer SEQUENCE as a DER error", () => {
-    for (const [kind, file, parse] of [
-      ["certificate", "certs/issuing-ca-1.der", parseCertificate],
-      ["crl", "crls/issuing-ca-1/full-01.der", parseCRL],
-    ] as const) {
-      for (const [variant, bytes] of berVariants(fixture(file))) {
-        expect(() => parse(bytes), `${kind}: ${variant}`).toThrow(pkiError(kind, "der"));
-      }
+  // CRL under several digests.
+  it("rejects BER encodings of a CRL's outer SEQUENCE as a DER error", () => {
+    for (const [variant, bytes] of berVariants(fixture("crls/issuing-ca-1/full-01.der"))) {
+      expect(() => parseCRL(bytes), variant).toThrow(pkiError("crl", "der"));
     }
   });
 

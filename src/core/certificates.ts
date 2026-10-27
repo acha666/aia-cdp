@@ -6,7 +6,7 @@ import type { CatalogCertificate, CatalogDeps, CertificateSummary, State } from 
 import { sha256Hex } from "./digest.ts";
 import { PkiParseError } from "./pki/errors.ts";
 import type { PkiParseReason } from "./pki/errors.ts";
-import { parseCertificate, sameSignatureAlgorithms } from "./pki/parsers.ts";
+import { parseCertificate } from "./pki/parsers.ts";
 import { toDer } from "./pki/pem.ts";
 import { buildCertificateSummary } from "./summary/catalog-summary.ts";
 
@@ -45,18 +45,13 @@ export async function importCertificate(
   bytes: Uint8Array
 ): Promise<ImportResult> {
   const now = deps.now();
-  // toDer → parseCertificate (strict DER, RFC 5280 times) → the two signature algorithms →
-  // summary; every PkiParseError is a 422. The outer signatureAlgorithm must be the TBS signature,
-  // octet for octet as received (RFC 5280 §4.1.1.2): it is outside the signature, and the detail
-  // shows it.
+  // toDer → parseCertificate → summary; every PkiParseError is a 422. Only an admin imports, so
+  // what the certificate itself gets wrong is left to the tool that made it.
   let der: Uint8Array;
   let summary: CertificateSummary;
   try {
     der = toDer(bytes, "certificate");
     const certificate = parseCertificate(der);
-    if (!sameSignatureAlgorithms(certificate)) {
-      return { error: "invalid_certificate", details: { reason: "signature_algorithm_mismatch" } };
-    }
     summary = await buildCertificateSummary(certificate, der);
   } catch (error) {
     if (error instanceof PkiParseError) {

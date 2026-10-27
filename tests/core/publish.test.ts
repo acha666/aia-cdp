@@ -117,11 +117,6 @@ describe("publishCrl: rejections", () => {
   it.each<[string, PublishErrorCode, object]>([
     ["invalid/garbage.txt", "invalid_crl", { reason: "der" }],
     [future, "not_yet_valid", { thisUpdate: iso(crlEntry(future).thisUpdate) }],
-    [
-      "crls/issuing-ca-1/full-unknown-critical.der",
-      "unknown_critical_extension",
-      { oid: "1.3.6.1.4.1.32473.1" },
-    ],
     ["crls/issuing-ca-1/full-idp-scoped.der", "scoped_crl_unsupported", { oid: "2.5.29.28" }],
     ["crls/issuing-ca-1/full-no-aki.der", "issuer_not_found", { reason: "missing_aki" }],
     ["crls/rogue-ca/full-01.der", "issuer_not_found", { authorityKeyId: rogueKeyId }],
@@ -363,18 +358,18 @@ describe("publishCrl: the publish log line", () => {
       ms: expect.any(Number) as unknown,
     });
     // The policy runs before the target is resolved: no targetId.
-    const rejected = crlEntry("crls/issuing-ca-1/full-unknown-critical.der");
+    const rejected = crlEntry("crls/issuing-ca-1/full-idp-scoped.der");
     expect((await publishFile(base, rejected.file)).record).toEqual({
       level: "warn",
       msg: "publish",
       kind: "full",
-      reason: "unknown_critical_extension",
+      reason: "scoped_crl_unsupported",
       sha256: rejected.sha256,
       crlNumber: rejected.crlNumber,
       thisUpdate: iso(rejected.thisUpdate),
       attempts: 1,
       ms: expect.any(Number) as unknown,
-      detail: expect.stringContaining("1.3.6.1.4.1.32473.1") as unknown,
+      detail: expect.stringContaining("Issuing Distribution Point") as unknown,
     });
   });
 });

@@ -137,7 +137,7 @@ export type PublishFailure =
   | { error: "invalid_crl"; details: { reason: PkiParseReason } }
   | { error: "not_yet_valid"; details: { thisUpdate: string } }
   | {
-      error: "unknown_critical_extension" | "scoped_crl_unsupported";
+      error: "scoped_crl_unsupported";
       /** serialNumber (uppercase hex) only for an entry extension. */
       details: { oid: string; serialNumber?: string };
     }

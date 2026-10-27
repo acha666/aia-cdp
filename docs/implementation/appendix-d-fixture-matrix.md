@@ -45,7 +45,7 @@ manifest 的 `nextPublish`（AD CS Next CRL Publish）只有 `full-adcs`（01-10
 | `issuing-ca-1/full-no-aki` | full | — | — | 01-03 06:00 | 01-10 06:00 | 2 | `issuer_not_found` | 没有任何 CRL 扩展（无 AKI；`details.reason = "missing_aki"`） |
 | `issuing-ca-1/full-broken-sig` | full | 10 | — | 01-03 12:00 | 01-10 12:00 | 2 | `invalid_signature` | 签名末字节翻转 |
 | `issuing-ca-1/full-forged-aki` | full | 11 | — | 01-03 12:00 | 01-10 12:00 | 0 | `invalid_signature` | issuing-ca-1 的名称与 AKI，rogue-ca 的密钥签名 |
-| `issuing-ca-1/full-unknown-critical` | full | 12 | — | 01-03 12:00 | 01-10 12:00 | 2 | `unknown_critical_extension` | 关键 `1.3.6.1.4.1.32473.1` |
+| `issuing-ca-1/full-unknown-critical` | full | 12 | — | 01-03 12:00 | 01-10 12:00 | 2 | `created` | 关键 `1.3.6.1.4.1.32473.1`，原样保留 |
 | `issuing-ca-1/full-unknown-noncritical` | full | 13 | — | 01-03 12:00 | 01-10 12:00 | 2 | `created` | 非关键 `1.3.6.1.4.1.32473.2`，原样保留 |
 | `issuing-ca-1/full-idp-scoped` | full | 14 | — | 01-03 12:00 | 01-10 12:00 | 2 | `scoped_crl_unsupported` | 关键 IDP，onlyContainsUserCerts |
 | `issuing-ca-1/full-idp-dp-only` | full | 15 | — | 01-03 12:00 | 01-10 12:00 | 2 | `created` | 只含 DP 的关键 IDP（AD CS 选项），附录 C 切片 4 第 2 项接受 |

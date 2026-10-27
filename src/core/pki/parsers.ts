@@ -2,7 +2,7 @@ import { fromBER } from "asn1js";
 import type { BaseBlock } from "asn1js";
 import * as pkijs from "pkijs";
 import { Asn1TimeError, assertWellFormed, readStrictTime } from "./asn1.ts";
-import { DerReader, INTEGER, SEQUENCE, context, readInteger } from "./der.ts";
+import { BIT_STRING, DerReader, INTEGER, SEQUENCE } from "./der.ts";
 import { messageOf, PkiParseError } from "./errors.ts";
 import type { PkiKind } from "./errors.ts";
 import {
@@ -19,12 +19,26 @@ import { toHex } from "../digest.ts";
 
 const LABELS: Record<PkiKind, string> = { certificate: "certificate", crl: "CRL" };
 
-// Strict DER: one top-level element, no decoder errors, RFC 5280 times. A Uint8Array may be a view
-// into a larger buffer: asn1js decodes the view, so the end offset is compared with the view's
-// byteLength, never the buffer's (whatever surrounds the view is not part of the input).
-// asn1js's default limits (10 000 nodes, 16 MiB of contents, 100 levels) apply unless `limits` says
-// otherwise.
-function decodeDer(der: ArrayBuffer | Uint8Array, kind: PkiKind, limits?: { maxDepth: number }) {
+/** assertWellFormed as a PkiParseError: reason "time" for a time, "der" for anything else. */
+function wellFormed(kind: PkiKind, block: BaseBlock, der: boolean): void {
+  try {
+    assertWellFormed(block, der);
+  } catch (error) {
+    throw new PkiParseError(
+      kind,
+      error instanceof Asn1TimeError ? "time" : "der",
+      `Bad ${LABELS[kind]} DER: ${messageOf(error)}`,
+      { cause: error }
+    );
+  }
+}
+
+// One top-level element and no decoder errors. Strict DER is left to the unsigned parts of a CRL
+// (crlOf): what a CA signed is the CA's business. A Uint8Array may be a view into a larger buffer:
+// asn1js decodes the view, so the end offset is compared with the view's byteLength, never the
+// buffer's. asn1js's default limits (10 000 nodes, 16 MiB of contents, 100 levels) apply unless
+// `limits` says otherwise.
+function decode(der: ArrayBuffer | Uint8Array, kind: PkiKind, limits?: { maxDepth: number }) {
   const label = LABELS[kind];
   let asn1: ReturnType<typeof fromBER>;
   try {
@@ -39,35 +53,42 @@ function decodeDer(der: ArrayBuffer | Uint8Array, kind: PkiKind, limits?: { maxD
   if (asn1.offset !== der.byteLength) {
     throw new PkiParseError(kind, "trailing_bytes", `Bad ${label} DER: trailing bytes`);
   }
-  try {
-    assertWellFormed(asn1.result);
-  } catch (error) {
-    throw new PkiParseError(
-      kind,
-      error instanceof Asn1TimeError ? "time" : "der",
-      `Bad ${label} DER: ${messageOf(error)}`,
-      { cause: error }
-    );
-  }
+  wellFormed(kind, asn1.result, false);
   return asn1.result;
 }
 
-/**
- * The octets of the two AlgorithmIdentifiers of a certificate or CRL as received (asn1js's
- * valueBeforeDecodeView, a view of its copy of the input, like PKIjs's own tbsView). RFC 5280
- * §4.1.1.2 and §5.1.1.2: they must be the same. Import and the upload policy compare these: the
- * outer one is outside the signature, so anyone holding the file can rewrite it, and comparing
- * re-encodings would hide what asn1js normalizes.
- */
-export interface ReceivedAlgorithms {
-  /** The outer signatureAlgorithm of the Certificate / CertificateList, outside the signature. */
-  signatureAlgorithmView: Uint8Array;
-  /** The signature field of the TBSCertificate / TBSCertList. */
-  signatureView: Uint8Array;
+/** PKIjs's object for `schema`; a tree that does not match PKIjs's schema is a structure error. */
+function construct<T>(kind: PkiKind, build: () => T): T {
+  try {
+    return build();
+  } catch (error) {
+    throw new PkiParseError(
+      kind,
+      "structure",
+      `Bad ${LABELS[kind]} structure: ${messageOf(error)}`,
+      { cause: error }
+    );
+  }
 }
 
-/** A certificate from parseCertificate: PKIjs's object plus its AlgorithmIdentifiers as received. */
-export interface ReceivedCertificate extends pkijs.Certificate, ReceivedAlgorithms {}
+/** Throws PkiParseError (kind "certificate", reason der / trailing_bytes / time / structure). */
+export function parseCertificate(der: ArrayBuffer | Uint8Array): pkijs.Certificate {
+  const schema = decode(der, "certificate");
+  return construct("certificate", () => new pkijs.Certificate({ schema }));
+}
+
+/**
+ * The octets of the two AlgorithmIdentifiers of a CRL as received (asn1js's valueBeforeDecodeView,
+ * a view of its copy of the input, like PKIjs's own tbsView). RFC 5280 §5.1.1.2: they must be the
+ * same. The upload policy compares these: the outer one is outside the signature, so anyone
+ * holding the file can rewrite it, and comparing re-encodings would hide what asn1js normalizes.
+ */
+export interface ReceivedAlgorithms {
+  /** The outer signatureAlgorithm of the CertificateList, outside the signature. */
+  signatureAlgorithmView: Uint8Array;
+  /** The signature field of the TBSCertList. */
+  signatureView: Uint8Array;
+}
 
 /** A CRL from parseCrlHeader: PKIjs's object plus its AlgorithmIdentifiers as received. */
 export interface ReceivedCrl extends pkijs.CertificateRevocationList, ReceivedAlgorithms {}
@@ -81,66 +102,22 @@ export function sameSignatureAlgorithms(received: ReceivedAlgorithms): boolean {
 }
 
 /**
- * What PKIjs's object for `schema` (accepted as `kind`) does not hold as received: the octets of
- * both AlgorithmIdentifiers, and the version as a number, undefined when absent (v1, PKIjs's
- * default). PKIjs copies asn1js's valueDec for the version, which is 0 from four contents octets
- * on. Throws for a version beyond Number.MAX_SAFE_INTEGER.
+ * PKIjs's CRL for `schema` plus its received AlgorithmIdentifiers. The signatureAlgorithm and
+ * signatureValue are outside the signature, so anyone could re-encode them: they must be DER.
  */
-function receivedFields(
-  kind: PkiKind,
-  schema: BaseBlock
-): ReceivedAlgorithms & { version: number | undefined } {
+function crlOf(schema: BaseBlock): ReceivedCrl {
+  const crl = construct("crl", () => new pkijs.CertificateRevocationList({ schema }));
   const outer = new DerReader(schema);
   const tbs = new DerReader(outer.read(SEQUENCE));
-  let version: BaseBlock | undefined;
-  if (kind === "certificate") {
-    // TBSCertificate: version [0] EXPLICIT, then serialNumber.
-    const tagged = tbs.optional(context(0));
-    version = tagged && new DerReader(tagged, context(0)).read(INTEGER);
-    tbs.read(INTEGER);
-  } else {
-    // TBSCertList: an optional version INTEGER first.
-    version = tbs.optional(INTEGER);
-  }
-  return {
-    version: version && readInteger(version),
-    signatureView: tbs.read(SEQUENCE).valueBeforeDecodeView,
-    signatureAlgorithmView: outer.read(SEQUENCE).valueBeforeDecodeView,
-  };
-}
-
-/**
- * PKIjs's object for `schema` plus its received fields. PKIjs throws when the decoded tree does not
- * match its schema (a CRL given as a certificate): a structure error, like a version out of range.
- */
-function construct<T extends pkijs.Certificate | pkijs.CertificateRevocationList>(
-  kind: PkiKind,
-  schema: BaseBlock,
-  build: () => T
-): T & ReceivedAlgorithms {
-  try {
-    const object = build();
-    const { version, ...views } = receivedFields(kind, schema);
-    object.version = version ?? object.version;
-    return Object.assign(object, views);
-  } catch (error) {
-    throw new PkiParseError(
-      kind,
-      "structure",
-      `Bad ${LABELS[kind]} structure: ${messageOf(error)}`,
-      { cause: error }
-    );
-  }
-}
-
-/** Throws PkiParseError (kind "certificate", reason der / trailing_bytes / time / structure). */
-export function parseCertificate(der: ArrayBuffer | Uint8Array): ReceivedCertificate {
-  const schema = decodeDer(der, "certificate");
-  return construct("certificate", schema, () => new pkijs.Certificate({ schema }));
-}
-
-function crlOf(schema: BaseBlock): ReceivedCrl {
-  return construct("crl", schema, () => new pkijs.CertificateRevocationList({ schema }));
+  tbs.optional(INTEGER);
+  const signature = tbs.read(SEQUENCE);
+  const algorithm = outer.read(SEQUENCE);
+  wellFormed("crl", algorithm, true);
+  wellFormed("crl", outer.read(BIT_STRING), true);
+  return Object.assign(crl, {
+    signatureView: signature.valueBeforeDecodeView,
+    signatureAlgorithmView: algorithm.valueBeforeDecodeView,
+  });
 }
 
 const SEQUENCE_TAG = 0x30;
@@ -176,7 +153,7 @@ function fieldsOf(der: Uint8Array, parent: Tlv, max: number): Tlv[] {
  * The outer SEQUENCE must be DER and span `der` exactly, filled by exactly its three fields; the
  * revokedCertificates of the TBSCertList is the SEQUENCE after thisUpdate or nextUpdate. A
  * CertificateList re-assembled from every other field, octet for octet, must fit in 16 KiB and then
- * goes through the strict decoding, which must read the same fields. `tbsView` is the TBSCertList
+ * decode to the same fields. `tbsView` is the TBSCertList
  * as received, entries included, which the signature covers; `revokedCertificates` is undefined.
  * Throws PkiParseError like parseCRL.
  */
@@ -228,7 +205,7 @@ function splitCrl(der: Uint8Array): { crl: ReceivedCrl; revoked: Tlv | undefined
       "Bad CRL structure: more than 16 KiB besides the entries"
     );
   }
-  const schema = decodeDer(header, "crl");
+  const schema = decode(header, "crl");
   // asn1js reads the elements of a constructed value as far as its input goes, not only as far as
   // the value: a field whose elements overrun it makes asn1js read other fields than the split
   // above (a revoked list among them, whose entries parseCRL would then skip).
@@ -257,18 +234,11 @@ export interface WholeCrl extends ReceivedCrl {
   entries: CrlEntry[];
 }
 
-/** One entry of revokedCertificates (its TLV), decoded in strict DER on its own. */
+/** One entry of revokedCertificates (its TLV), decoded on its own. */
 function readEntry(der: Uint8Array): CrlEntry {
   // An entry sits three levels below the CertificateList (TBSCertList, revokedCertificates).
-  const schema = decodeDer(der, "crl", { maxDepth: 97 });
-  let entry: pkijs.RevokedCertificate;
-  try {
-    entry = new pkijs.RevokedCertificate({ schema });
-  } catch (error) {
-    throw new PkiParseError("crl", "structure", `Bad CRL structure: ${messageOf(error)}`, {
-      cause: error,
-    });
-  }
+  const schema = decode(der, "crl", { maxDepth: 97 });
+  const entry = construct("crl", () => new pkijs.RevokedCertificate({ schema }));
   return {
     serial: entry.userCertificate.valueBlock.valueHexView,
     revocationDate: entry.revocationDate,

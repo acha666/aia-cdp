@@ -145,7 +145,6 @@ const getCrlTargetRoute = createRoute({
 const FAILURES = {
   invalid_crl: "Not a valid X.509 CRL",
   not_yet_valid: "The CRL's thisUpdate is more than 5 minutes ahead of the service's clock",
-  unknown_critical_extension: "The CRL has a critical extension this service does not know",
   scoped_crl_unsupported: "Scoped and indirect CRLs are not supported",
   unsupported_algorithm: "The CRL's signature algorithm is not supported",
   issuer_not_found:

@@ -298,7 +298,6 @@
     "invalid_crl": "这不是有效的 X.509 CRL。",
     "invalid_certificate": "这不是有效的 X.509 证书。",
     "not_yet_valid": "CRL 的本次更新时间晚于服务器当前时间。",
-    "unknown_critical_extension": "CRL 含有本服务不认识的关键扩展。",
     "scoped_crl_unsupported": "不支持限定范围的 CRL 和间接 CRL。",
     "unsupported_algorithm": "不支持此 CRL 的签名算法。",
     "issuer_not_found": "没有已导入的证书是此 CRL 的签发者。",

@@ -374,7 +374,7 @@ ETag 对调用方不透明，只回传给同一后端；HTTP 层的 `ETag` 永�
 2. 读 `config.json` 与 `catalog.json`（各一次 `get`，记下 catalog 的 ETag）。`sha256` 等于某个已配置目标的 `current.sha256` →
    200 `unchanged`，不解析、不验签、不写。
 3. 头部：外层 SEQUENCE 须是定长 DER 且恰好覆盖全部字节（否则 `der` / `trailing_bytes`）；TBSCertList 里的吊销列表只按它的 TLV
-   头切出、不解码，其余字段拼回后按严格 DER 解析（asn1js 默认限额，读出的字段须与切分一致）。读出 AKI、CRL 号、delta 指示与
+   头切出、不解码，其余字段拼回后解析（asn1js 默认限额，未签名部分须为严格 DER，读出的字段须与切分一致）。读出 AKI、CRL 号、delta 指示与
    时间，再做 CRL 级检查：外层算法与 TBS 内的字节不同、`thisUpdate` 超前 5 分钟以上、未识别的关键扩展、作用域 IDP，各是独立
    拒绝原因。每次调用至多做一次。
 4. 用 AKI 在 catalog 的证书摘要里找 SKI 相等的证书，再在 config 里找绑定它且 kind 匹配的目标。
@@ -424,10 +424,12 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 - 验证：AKI/SKI 匹配 + 签名验证。CRL 没有 AKI `keyIdentifier` → `issuer_not_found`（`details.reason = "missing_aki"`）；
   keyIdentifier 为空也找不到证书（导入拒绝空 SKI）→ `issuer_not_found`；
   外层 `signatureAlgorithm` 与 TBS 内 `signature` 收到的字节不同（OID 或参数）→ `invalid_crl`（`signature_algorithm_mismatch`；
-  比较收到的字节而不是重编码，外层不在签名之内）；证书导入同样比较（RFC 5280 §4.1.1.2），不同 → `invalid_certificate`
-  （`signature_algorithm_mismatch`：证书详情显示外层算法，导入后它必与 TBS 内的相同）。严格 DER 只查结构（标签与长度是 DER 形式、
-  需要内容的类型不为空、RFC 5280 时间），不查原始类型的内容规则，也不下钻扩展值；外层算法按收到的字节与签名之内的那份比较，
-  所以没有人能改写外层算法造出先成为 current 的变体。ECDSA 签名本身可延展：`(r, n − s)` 是另一份 OpenSSL 也验得过的合法 CRL，
+  比较收到的字节而不是重编码，外层不在签名之内）。
+  校验范围：验签通过的 CRL 一定出自 CA，TBS 里写了什么是 CA 的事；本服务只查签名覆盖不到、任何人都能改的部分（外层 SEQUENCE、
+  `signatureAlgorithm`、`signatureValue` 须为严格 DER：标签与长度是 DER 形式、需要内容的类型不为空；外层算法与签名内的一致；
+  ECDSA 签名为 DER），自己依赖的字段（AKI、CRL 号、`thisUpdate`、IDP 作用域）能否读出，以及常见配置问题（时钟）。TBS 内部与
+  吊销条目只要求能解码（asn1js 无解码错误），不查 DER 形式与 RFC 5280 时间格式，也不下钻扩展值。证书只由管理员导入，同样只要求能
+  解码、读得出摘要字段，不比较外层算法。所以没有人能改写 CRL 的未签名部分造出先成为 current 的变体。ECDSA 签名本身可延展：`(r, n − s)` 是另一份 OpenSSL 也验得过的合法 CRL，
   谁先上传谁成为 current，CA 的原始字节随后得 `conflict`（只是 409 的麻烦，不是完整性问题）。上传按目标配置的签发者验签，同 SKI 的
   其他证书不参与。不比较签发者名称、不检查 `cRLSign` 和签发者有效期。
   验签方式（B21）：先过 CRL 级的扩展与时钟策略，再在任何密码学调用之前按 OID 白名单判定：sha1/256/384/512WithRSAEncryption、RSASSA-PSS
@@ -448,13 +450,11 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 - 扩展详情仅用于展示，不重复执行上传准入校验：优先使用 PKIjs 模型；不再统一拒绝 BER 编码、空 GeneralNames 列表或额外字段，按具体展示解码器读取。
   仍要求值恰好占满输入，避免只显示前缀；保留整数精度、有效时间和 SCT 完整性检查，无法可靠读取时显示原始 hex / ASN.1。
   名称约束、分发点原因位、CA Version 等存在已复现库缺陷的结构继续使用小型读取器；展示 CRL Number 不套用上传的非负与 20 字节限制。
-- 扩展：识别列表为 `2.5.29.20`、`2.5.29.27`（delta 指示）、`2.5.29.35`、`2.5.29.46`、`2.5.29.18`（IAN）、
-  `1.3.6.1.5.5.7.1.1`（AIA）与 AD CS 私有 `1.3.6.1.4.1.311.21.1 / .4 / .14`；识别与关键性无关，标了关键也接受。`2.5.29.28`（IDP）不论关键性都读：
+- 扩展：只读服务自己用到的几个（CRL 号、delta 指示、AKI、AD CS Next CRL Publish、IDP），其余扩展不论是否关键都接受，原始字节
+  留在 blob 里并在详情中展示（关键扩展该怎么处理是依赖方的事）。`2.5.29.28`（IDP）不论关键性都读：
   只含 `distributionPoint` 接受（AD CS 的 CDP 选项），含其他任何字段（`onlyContains*`、`onlySomeReasons`、`indirectCRL`）即作用域 CRL，
-  拒绝 `scoped_crl_unsupported`；值不是 SEQUENCE 才是 `invalid_crl`；其他未识别关键扩展拒绝 `unknown_critical_extension`。
-  同一扩展出现两次不拒绝，读取时取第一个。
-  条目扩展在验签之后、完整解码时检查（§5.5 第 7 步）：reasonCode、invalidityDate、holdInstructionCode 接受，certificateIssuer（间接 CRL）→
-  `scoped_crl_unsupported`，其他关键 → `unknown_critical_extension`。未识别的非关键扩展保留原始字节在详情里展示。
+  拒绝 `scoped_crl_unsupported`；值不是 SEQUENCE 才是 `invalid_crl`。同一扩展出现两次不拒绝，读取时取第一个。
+  条目扩展在验签之后、完整解码时检查（§5.5 第 7 步）：只有 certificateIssuer（间接 CRL）→ `scoped_crl_unsupported`。
   策略表见 `src/core/pki/crl-policy.ts`。
 - delta 与 base 相互独立：记录并展示 `baseCrlNumber`，不与已发布 full CRL 对账。
 - 下载：路径表命中 → 资源 → catalog 的 current → 先用摘要生成 `ETag`（DER `"<sha256>"`，
@@ -513,7 +513,7 @@ catalog 写成功之前目标被删（`config apply`）：catalog 会留下 conf
 | 409 | `stale_crl`、`conflict`、`non_orderable`：`{ current: { sha256, crlNumber, thisUpdate } }`；`concurrent_update`：无 |
 | 413 | `payload_too_large`（`AIA_MAX_UPLOAD_BYTES`，无 `Content-Length` 的流式体也算） |
 | 415 | `unsupported_media_type`：`{ received, accepted }`，`received` 为小写、不带参数的媒体类型，缺失或空头为 `null` |
-| 422 | `invalid_crl` `{ reason }`；`not_yet_valid` `{ thisUpdate }`；`unknown_critical_extension`、`scoped_crl_unsupported` `{ oid, serialNumber? }`（序列号只对条目扩展）；`issuer_not_found` `{ reason: "missing_aki" }` 或 `{ authorityKeyId }`；`target_not_configured` `{ kind, certificates }`；`invalid_signature`、`unsupported_algorithm` `{ algorithm }` |
+| 422 | `invalid_crl` `{ reason }`；`not_yet_valid` `{ thisUpdate }`；`scoped_crl_unsupported` `{ oid, serialNumber? }`（序列号只对条目扩展）；`issuer_not_found` `{ reason: "missing_aki" }` 或 `{ authorityKeyId }`；`target_not_configured` `{ kind, certificates }`；`invalid_signature`、`unsupported_algorithm` `{ algorithm }` |
 | 500 | `internal`，不含异常文本（OpenAPI 里上传与五条公开读路由声明 500，管理路由不声明） |
 
 OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
@@ -540,10 +540,10 @@ OpenAPI 的 `security` 为 `[{}, { uploadBearer: [] }]`：令牌可选。
 - 错误码：`bad_request`、`unauthorized`、`not_found`、`method_not_allowed`、
   `payload_too_large`、`unsupported_media_type`、`admin_disabled`、`precondition_failed`、`precondition_required`、
   `config_invalid`、`referenced`、`invalid_crl`、`invalid_certificate`、`not_yet_valid`、
-  `unknown_critical_extension`、`scoped_crl_unsupported`、`unsupported_algorithm`、
+  `scoped_crl_unsupported`、`unsupported_algorithm`、
   `issuer_not_found`、`target_not_configured`、`invalid_signature`、
   `stale_crl`、`conflict`、`non_orderable`、`concurrent_update`、`internal`。`details.reason`：`invalid_certificate` / `invalid_crl` 为 `der`、`trailing_bytes`、
-  `time`、`structure`、`extension_value`、`pem_label`、`pem_blocks`、`pem_base64`，两者另有 `signature_algorithm_mismatch`；
+  `time`、`structure`、`extension_value`、`pem_label`、`pem_blocks`、`pem_base64`，`invalid_crl` 另有 `signature_algorithm_mismatch`；
   `issuer_not_found` 为 `missing_aki`（否则 `details.authorityKeyId`）。
 - 中间件顺序：`secureHeaders({ strictTransportSecurity: false })`（§6）→ 请求日志 →
   `methodNotAllowed({ app, onMethodNotAllowed })`（`hono/method-not-allowed`，hono ≥ 4.13.0；`onMethodNotAllowed` 产出

@@ -510,7 +510,7 @@ crl_entry invalid_signature "last signature byte flipped"
 FORGED_KEYID=$(ski $I1) crl rogue-ca 11 $EDGE $EDGE_NEXT crl_ext_forged_aki $I1/full-forged-aki.der
 crl_entry invalid_signature "issuer name and AKI of issuing-ca-1, signed by the rogue key"
 crl $I1 12 $EDGE $EDGE_NEXT crl_ext_unknown_critical $I1/full-unknown-critical.der
-crl_entry unknown_critical_extension "critical 1.3.6.1.4.1.32473.1"
+crl_entry created "critical 1.3.6.1.4.1.32473.1 is kept"
 crl $I1 13 $EDGE $EDGE_NEXT crl_ext_unknown_noncritical $I1/full-unknown-noncritical.der
 crl_entry created "non-critical 1.3.6.1.4.1.32473.2 is kept"
 crl $I1 14 $EDGE $EDGE_NEXT crl_ext_idp_scoped $I1/full-idp-scoped.der
