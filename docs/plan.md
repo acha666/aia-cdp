@@ -97,8 +97,9 @@ aia-cdp/
   .devcontainer/       devcontainer.json（决策 15）
   src/
     core/              纯 TS：不引用 node:*、process、R2Bucket
-      pki/             解析、扩展、验签、PEM 编解码
-      summary/         catalog 的证书 / CRL 摘要
+      pki/             解析、准入检查、验签、PEM 编解码（详情页在浏览器里也用它的解析器）
+      summary/         catalog-summary.ts：导入与发布时写进 catalog 的证书 / CRL 摘要（§5.3）
+      digest.ts        hex 与 SHA 摘要（服务端、CLI 与浏览器共用）
       store.ts         ObjectStore 端口
       catalog.ts       catalog.json / config.json 的 schema、读取、条件写与重试
       resources.ts     路径表解析、下载策略
@@ -106,6 +107,8 @@ aia-cdp/
       publish.ts       publishCrl(deps, bytes)（入口取一次 deps.now()）
       admin.ts         validateConfig / applyConfig
       history.ts       CRL 版本名与键（crlBlobKey / crlHistoryKey）、listHistory / getHistoryBlob
+      views.ts         公共读接口：证书与 CRL 目标列表、按 SHA-256 取 blob
+      health.ts        健康检查
     http/
       app.ts           createApp(deps) → OpenAPIHono；中间件与挂载顺序
       routes/          health.ts  certificates.ts  crls.ts  admin.ts  downloads.ts
@@ -125,6 +128,7 @@ aia-cdp/
     web/               Vue UI（Vite root；按 §8 重建）
       client/          hc<AppType> 客户端（不得叫 api：dev server 会把 src/web 下的目录当 URL 服务）
       components/ui/   shadcn-vue 生成的组件（入库）
+      x509/            详情页的显示映射：扩展、名称、算法字段、ASN.1 dump 与 OID 名称表
       lib/utils.ts     shadcn-vue 生成（cn）
   tests/
     core/  http/  storage/  integration/  web/
@@ -139,10 +143,10 @@ aia-cdp/
 不入库：`dist/`、`.wrangler/`（含生成的 `worker-configuration.d.ts`）、`.data/`、`.dev.vars*`、`node_modules/`。
 `.gitattributes` 设 `*.sh text eol=lf` 与 `tests/fixtures/pki/** -text`（夹具逐字节比较）；`.dockerignore` 用白名单，`tests/fixtures`、`.dev.vars`、`.git` 进不了构建上下文。
 
-模块约定（全仓 ESM、服务端相对导入写 `.ts`、只用可擦除语法、`src/web` 对服务端模块只许 `import type`、core 与 http 只用 Web 标准全局）
+模块约定（全仓 ESM、服务端相对导入写 `.ts`、只用可擦除语法、`src/web` 对服务端模块只许 `import type`（core/pki 与 core/digest.ts 除外）、core 与 http 只用 Web 标准全局）
 见 implementation 总则 §2.1。tsconfig 拓扑（worker / node / web 三个程序加只发射的 `tsconfig.build.json`）见总则 §2.2：三套程序都编译
 `src/core` 与 `src/http`，Worker 程序的类型只有 `worker-configuration.d.ts`。`eslint.config.ts` 只另加一条导入规则：`src/web` 对 `src/core`、`src/http`、
-`src/storage`、`src/runtime` 只许 `import type`，Hono 只许 `hono/client`。core 与 http 不用 Node 全局、不导入 http / storage / runtime 是约定，没有专门的检查；
+`src/storage`、`src/runtime` 只许 `import type`，例外是 `src/core/pki` 与 `src/core/digest.ts`（详情页在浏览器里解码 DER），Hono 只许 `hono/client`。core 与 http 不用 Node 全局、不导入 http / storage / runtime 是约定，没有专门的检查；
 接受的剩余风险：某个依赖的类型声明引用了 node 时，core / http 里误用的 `process`、`Buffer` 也能通过 Worker 程序的类型检查，只有 `smoke:worker` 执行到的路径
 会失败。R2 适配器按结构化类型 `R2BucketLike` 写，r2 一致性测试因此在 `tsconfig.node.json` 下编译。
 
@@ -610,7 +614,7 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   Publish、算法、指纹、签发者 DN）/ 吊销列表 / 扩展；未发布目标（`current: null`）只有页头与"未发布"，不取 DER，不显示 0 或"未知"。
   扩展是 Accordion（关键在前）：每个已知 OID 的值解码成若干区段（`src/web/x509/extensions.ts`，41 种；分发点、策略、SCT 这类重复元素
   各占一段），每段是一张标签 / 值表，值只有文本、十六进制、等宽行、标签四种，各由 `ValueView` 用一种样式画出，概览页的表也用它；
-  未识别或解码失败显示解析错误、ASN.1 结构 dump 与原始 hex。吊销列表：序列号、吊销时间、原因、失效起始、间接签发者；有条目扩展的行
+  未识别或解码失败显示解析错误、ASN.1 结构 dump 与原始 hex。吊销列表：序列号、吊销时间、原因、失效起始；有条目扩展的行
   可展开，用同一个扩展 Accordion 列出全部条目扩展（保留指令、关键标记、未解码的扩展）；表头吸顶，超过 200 行按 200 行一页 `slice()`
   分页，0 条显示空状态（不用 `@tanstack/vue-table`）。
 - 客户端：`const api = hc<AppType>("", { init: { cache: "no-store" }, fetch: apiFetch })`，vue-query 的 `queryFn` 写
@@ -618,7 +622,8 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   非信封为 `invalid_response`；拿不到响应为 `network`、`status: 0`，由 `apiFetch` 产出）；响应体类型从 `src/web/client/types.ts` 取；错误码显示 `errors.<code>` 的文案（vue-i18n 的 `te()` 判断有无，没有则 `errors.unknown`），
   每个服务端码都有文案由 tests/web/locales.test.ts 检查。客户端目录是 `src/web/client/`：
   Vite `root: src/web` 时 dev server 会把 `src/web` 下的目录当 URL 服务，叫 `api` 会与 `/api/` 冲突（`ca`、`crl`、`dcrl` 同理）。
-  web 对服务端模块只许 `import type`（`AppType`、core 的 X.509 类型），运行时只导入 `hono/client`（ESLint 规则，§3）。
+  web 从服务端导入的值只有 core/pki（解析器与 DER 读取）和 core/digest.ts，其余只许 `import type`（`AppType`、catalog 的类型）；
+  Hono 只导入 `hono/client`（ESLint 规则，§3）。
 - 下载链接来自 API 的 `downloads`（`.pem` 结尾标 PEM，其余 DER；多条 DER 路径时另显示文件名）；未发布目标的路径在发布前是 404，
   不给链接（"—"）。
 - `SITE_NAME` 只来自 `import.meta.env.VITE_SITE_NAME`（页头与页面标题）；页脚是 OpenAPI 文档链接与语言选择。
@@ -658,7 +663,7 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
 - 类型：`pnpm run typecheck` = `wrangler types` 后 `vue-tsc -b`，按 `tsconfig.json` 的 references 检查 worker、node、web 三个程序，
   一次报出全部错误；各程序 `noEmit`，`.tsbuildinfo` 写到 `node_modules/.tmp`。
 - Lint 与格式：ESLint 常规预设（`@eslint/js`、`typescript-eslint`、`eslint-plugin-vue`），另加一条导入规则：`src/web` 对 `src/core`、`src/http`、
-  `src/storage`、`src/runtime` 只许 `import type`，Hono 只许 `hono/client`；`prettier --check`。
+  `src/storage`、`src/runtime` 只许 `import type`（`src/core/pki` 与 `src/core/digest.ts` 除外），Hono 只许 `hono/client`；`prettier --check`。
 - 未用代码：knip（`knip.json`，默认模式，测试也算入口）报未用的文件、导出与依赖；类型导出不报（`rules.types` 关），
   `src/web/lib/utils.ts`（`components.json` 的 `utils` 别名）不报未用文件。
 - vitest 5 两个 `projects`：`node`（`tests/` 下除 `tests/web` 外的 `*.test.ts`，node 环境）与 `web`（`tests/web`，happy-dom）；独立的
