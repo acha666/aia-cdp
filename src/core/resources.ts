@@ -154,9 +154,12 @@ const DER_CONTENT_TYPES: Record<DownloadKind, string> = {
 
 const PEM_CONTENT_TYPE = "application/x-pem-file";
 
-// No s-maxage / stale-while-revalidate. A certificate path never changes its bytes (V7; a two-step
-// rebind is the operator's responsibility).
-const CERTIFICATE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+/**
+ * Cache-Control of bytes that never change at their URL: certificate downloads (V7; a two-step
+ * rebind is the operator's responsibility), blobs by SHA-256 and hashed UI assets. No s-maxage or
+ * stale-while-revalidate.
+ */
+export const IMMUTABLE = "public, max-age=31536000, immutable";
 
 /** CRL max-age bounds in seconds: an expired CRL still gets 60, a far one at most 3600. */
 const CRL_MAX_AGE = { min: 60, max: 3600, withoutNextUpdate: 300 } as const;
@@ -177,7 +180,7 @@ function crlMaxAge(nextUpdate: Date | null, now: Date): number {
 
 function cacheControl(found: FoundDownload, now: Date): string {
   return found.kind === "certificate"
-    ? CERTIFICATE_CACHE_CONTROL
+    ? IMMUTABLE
     : `public, max-age=${crlMaxAge(found.nextUpdate, now)}, must-revalidate`;
 }
 

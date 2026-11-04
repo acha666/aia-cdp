@@ -9,6 +9,7 @@
 // return successes. HEAD is Hono's automatic HEAD of each GET.
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { readState } from "../../core/catalog.ts";
+import { IMMUTABLE } from "../../core/resources.ts";
 import { readBlob } from "../../core/store.ts";
 import { certificateList, findBlob } from "../../core/views.ts";
 import { ApiError, NO_STORE } from "../errors.ts";
@@ -80,7 +81,7 @@ export function certificateRoutes(deps: AppDeps) {
       return c.body(der, 200, {
         "Content-Type": blob.kind === "crl" ? "application/pkix-crl" : "application/pkix-cert",
         "Content-Length": String(der.byteLength),
-        "Cache-Control": "public, max-age=31536000, immutable",
+        "Cache-Control": IMMUTABLE,
       });
     });
 }
