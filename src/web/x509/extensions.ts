@@ -640,13 +640,11 @@ export interface EntryColumns {
   /** The CRLReason name (keyCompromise, …); null without the extension. */
   reason: string | null;
   invalidityDate: string | null;
-  /** The certificate issuer of an indirect CRL entry, its names joined with "; ". */
-  issuer: string | null;
 }
 
-/** Reason, invalidity date and indirect issuer; an extension that does not decode shows none. */
+/** Reason and invalidity date; an extension that does not decode shows none. */
 export function entryColumns(extensions: readonly PlainExtension[], i18n: I18nText): EntryColumns {
-  const columns: EntryColumns = { reason: null, invalidityDate: null, issuer: null };
+  const columns: EntryColumns = { reason: null, invalidityDate: null };
   for (const { extnID, value } of extensions) {
     try {
       const block = readOne(value);
@@ -654,8 +652,6 @@ export function entryColumns(extensions: readonly PlainExtension[], i18n: I18nTe
         columns.reason = reasonName(readInteger(expectTag(block, ENUMERATED)));
       } else if (extnID === "2.5.29.24") {
         columns.invalidityDate = contextOf(i18n).time(expectTag(block, GENERALIZED_TIME));
-      } else if (extnID === "2.5.29.29") {
-        columns.issuer = formatGeneralNames(block, i18n).join("; ");
       }
     } catch {
       // The expanded row shows the error.
