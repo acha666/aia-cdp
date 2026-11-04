@@ -92,8 +92,8 @@ export function readStrictTime(block: BaseBlock): StrictTime {
 /**
  * The RFC 5280 GeneralizedTime text of `date`: `YYYYMMDDHHMMSSZ` in UTC, fractional seconds
  * dropped (certificate and CRL times are whole seconds). Fixed width, so lexicographic order is
- * time order: CRL blob keys sort by thisUpdate (plan §5.1). Throws RangeError for an invalid date
- * or a year outside 0000–9999, which the format cannot hold.
+ * time order: CRL blob keys sort by thisUpdate. Throws RangeError for an invalid date or a year
+ * outside 0000–9999, which the format cannot hold.
  */
 export function formatGeneralizedTime(date: Date): string {
   // toISOString throws RangeError for an invalid date and writes ±YYYYYY outside 0000–9999.
@@ -159,7 +159,7 @@ function derProblem(block: BaseBlock): string | undefined {
     return "length not in its shortest form";
   }
   if (idBlock.tagClass === UNIVERSAL) {
-    // DER uses the primitive form for strings (§10.2); X.509 has no other constructed types.
+    // DER uses the primitive form for strings (X.690 §10.2); X.509 has no other constructed types.
     if (idBlock.isConstructed && idBlock.tagNumber !== SEQUENCE && idBlock.tagNumber !== SET) {
       return "constructed encoding of a primitive type";
     }

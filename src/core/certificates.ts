@@ -1,4 +1,4 @@
-// Certificate import and deletion (plan §5.5).
+// Certificate import and deletion.
 // There is one commit point, the catalog write: no companion objects, no edge cache. Importing does
 // not authorize anything: a certificate only becomes an issuer once a config target names it.
 import { certificateBlobKey, certificateReferences, readCatalog, updateState } from "./catalog.ts";
@@ -45,8 +45,8 @@ export async function importCertificate(
   bytes: Uint8Array
 ): Promise<ImportResult> {
   const now = deps.now();
-  // toDer → parseCertificate → summary; every PkiParseError is a 422. Only an admin imports, so
-  // what the certificate itself gets wrong is left to the tool that made it.
+  // Every PkiParseError is a 422. Only an admin imports, so what the certificate itself gets wrong
+  // is left to the tool that made it.
   let der: Uint8Array;
   let summary: CertificateSummary;
   try {

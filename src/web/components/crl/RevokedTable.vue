@@ -10,7 +10,7 @@ import ExtensionList from "@/components/x509/ExtensionList.vue";
 import { formatDate } from "@/utils/dates";
 import { entryColumns } from "@/x509/extensions";
 
-// The revoked certificates of a target's current CRL (plan §8): serial number, revocation date,
+// The revoked certificates of a target's current CRL: serial number, revocation date,
 // reason and invalidity date; an empty list says so. A CRL can have tens of
 // thousands of entries, so the table renders PAGE_SIZE rows at a time; the header row
 // stays in view while the box scrolls. On the first and the last page one page button is only

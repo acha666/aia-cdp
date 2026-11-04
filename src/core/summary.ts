@@ -1,5 +1,5 @@
-// Catalog summaries (plan §5.3). A summary is always built whole and replaces the previous one (no
-// merge, no summary version), so there is one implementation of each summary.
+// Catalog summaries. A summary is always built whole and replaces the previous one (no merge, no
+// summary version), so there is one implementation of each summary.
 import type {
   Certificate,
   CertificateRevocationList,
