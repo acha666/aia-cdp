@@ -5,14 +5,10 @@
 import { Constructed, Integer, ObjectIdentifier, Sequence } from "asn1js";
 import * as pkijs from "pkijs";
 import { integerNumber } from "../../core/pki/asn1.ts";
-import {
-  CURVE_NAMES,
-  HASH_ALG_NAMES,
-  MASK_GEN_ALG_NAMES,
-  OID_DICTIONARY,
-} from "../../core/pki/constants.ts";
+import { CURVE_NAMES, HASH_ALG_NAMES } from "../../core/pki/constants.ts";
 import { toUpperHex } from "../../core/digest.ts";
 import type { I18nText } from "@/i18n";
+import { MASK_GEN_ALG_NAMES, OID_DICTIONARY } from "./oid-names";
 
 /** "v1", "v2", "v3" from the version field (0, 1, 2; absent is v1). */
 export const versionText = (version: number | undefined) => `v${String((version ?? 0) + 1)}`;

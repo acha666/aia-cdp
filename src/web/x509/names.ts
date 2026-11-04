@@ -4,8 +4,7 @@
 // cover forms that PKIjs models cannot read or round-trip correctly.
 import { BaseBlock, Set as Asn1Set } from "asn1js";
 import * as pkijs from "pkijs";
-import { blockHex, displayText, stringOf } from "../../core/pki/asn1.ts";
-import { OID_DICTIONARY, OTHER_NAME_TYPES } from "../../core/pki/constants.ts";
+import { stringOf } from "../../core/pki/asn1.ts";
 import {
   OBJECT_IDENTIFIER,
   OCTET_STRING,
@@ -22,6 +21,8 @@ import {
 } from "../../core/pki/der.ts";
 import { toHex, toUpperHex } from "../../core/digest.ts";
 import type { I18nText } from "@/i18n";
+import { blockHex, displayText } from "./asn1-dump";
+import { OID_DICTIONARY, OTHER_NAME_TYPES } from "./oid-names";
 
 type Text = Pick<I18nText, "t">;
 

@@ -8,30 +8,7 @@
 import { Integer } from "asn1js";
 import type { BaseBlock } from "asn1js";
 import * as pkijs from "pkijs";
-import {
-  blockHex,
-  displayText,
-  dumpAsn1,
-  integerNumber,
-  readStrictTime,
-  stringOf,
-} from "../../core/pki/asn1.ts";
-import type { Asn1Line } from "../../core/pki/asn1.ts";
-import {
-  ACCESS_METHOD_NAMES,
-  CERTIFICATE_POLICY_NAMES,
-  CRL_REASON_CODES,
-  EKU_NAMES,
-  EXTENSION_NAMES,
-  HOLD_INSTRUCTION_NAMES,
-  KEY_USAGE_FLAGS,
-  NETSCAPE_CERT_TYPE_FLAGS,
-  OID_DICTIONARY,
-  POLICY_QUALIFIER_NAMES,
-  QC_STATEMENT_NAMES,
-  REASON_FLAGS,
-  TLS_FEATURE_NAMES,
-} from "../../core/pki/constants.ts";
+import { integerNumber, readStrictTime, stringOf } from "../../core/pki/asn1.ts";
 import {
   BIT_STRING,
   ENUMERATED,
@@ -67,6 +44,8 @@ import type en from "@/locales/en.json";
 import { formatDate } from "@/utils/dates";
 import { rowOf, rows } from "@/utils/values";
 import type { Row, Value } from "@/utils/values";
+import { blockHex, displayText, dumpAsn1 } from "./asn1-dump";
+import type { Asn1Line } from "./asn1-dump";
 import {
   formatAttributes,
   formatGeneralName,
@@ -74,6 +53,21 @@ import {
   readOtherNameParts,
   readRelativeName,
 } from "./names";
+import {
+  ACCESS_METHOD_NAMES,
+  CERTIFICATE_POLICY_NAMES,
+  CRL_REASON_CODES,
+  EKU_NAMES,
+  EXTENSION_NAMES,
+  HOLD_INSTRUCTION_NAMES,
+  KEY_USAGE_FLAGS,
+  NETSCAPE_CERT_TYPE_FLAGS,
+  OID_DICTIONARY,
+  POLICY_QUALIFIER_NAMES,
+  QC_STATEMENT_NAMES,
+  REASON_FLAGS,
+  TLS_FEATURE_NAMES,
+} from "./oid-names";
 
 /** One label / value list (KeyValueList); a repeated element (point, policy, SCT) gets its own. */
 export type Section = Row[];
