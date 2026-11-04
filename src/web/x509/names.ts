@@ -22,7 +22,7 @@ import {
 import { toHex, toUpperHex } from "../../core/digest.ts";
 import type { I18nText } from "@/i18n";
 import { blockHex, displayText } from "./asn1-dump";
-import { OID_DICTIONARY, OTHER_NAME_TYPES } from "./oid-names";
+import { OID_DICTIONARY, OTHER_NAME_TYPES, oidName } from "./oid-names";
 
 type Text = Pick<I18nText, "t">;
 
@@ -99,7 +99,7 @@ function readAttribute(schema: BaseBlock): NameAttribute {
   const universal = isBlock(block) && block.idBlock.tagClass === 1;
   return {
     oid: tv.type,
-    label: OID_DICTIONARY[tv.type]?.name ?? tv.type,
+    label: oidName(tv.type) ?? tv.type,
     string,
     value: string ?? `#${isBlock(block) ? blockHex(block) : ""}`,
     encoding: (universal ? ENCODING_BY_TAG[block.idBlock.tagNumber] : undefined) ?? "unknown",

@@ -11,7 +11,7 @@ import StatusBadge from "@/components/StatusBadge.vue";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { useClock } from "@/composables/useClock";
 import { formatDate, relativeTime } from "@/utils/dates";
-import { compareTargets } from "@/utils/labels";
+import { compareTargets } from "@/utils/targets";
 import { computeTargetStatus } from "@/utils/status";
 
 // The configured CRL targets (plan §8), one table for full and delta targets: label with the

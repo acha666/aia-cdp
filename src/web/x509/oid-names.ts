@@ -256,3 +256,7 @@ export const KNOWN_OID_NAMES: Record<string, string> = {
   ...QC_STATEMENT_NAMES,
   "1.3.6.1.4.1.311.25.2.1": "ntdsObjectSid",
 };
+
+/** An OID's name from `names`, else from OID_DICTIONARY; undefined when it has none. */
+export const oidName = (oid: string, names?: Record<string, string>): string | undefined =>
+  names?.[oid] ?? OID_DICTIONARY[oid]?.name;
