@@ -16,7 +16,7 @@ import { checkCrlPolicy, checkEntryPolicy } from "./pki/crl-policy.ts";
 import type { CrlPolicyFailure } from "./pki/crl-policy.ts";
 import { PkiParseError } from "./pki/errors.ts";
 import type { PkiParseReason } from "./pki/errors.ts";
-import { getAuthorityKeyIdHex, parseCertificate, parseCRL, parseCrlHeader } from "./pki/parsers.ts";
+import { parseCertificate, parseCRL, parseCrlHeader } from "./pki/parsers.ts";
 import type { ReceivedCrl } from "./pki/parsers.ts";
 import { toDer } from "./pki/pem.ts";
 import { verifyCrlSignature } from "./pki/verify.ts";
@@ -24,8 +24,8 @@ import type { SignatureCheck, SignatureFailure } from "./pki/verify.ts";
 import { downloadPaths } from "./resources.ts";
 import { readBlob } from "./store.ts";
 import type { ObjectStore } from "./store.ts";
-import { buildCrlSummary, readCrlFields, readExtension } from "./summary/catalog-summary.ts";
-import type { CrlFields } from "./summary/catalog-summary.ts";
+import { authorityKeyId, buildCrlSummary, readCrlFields } from "./summary.ts";
+import type { CrlFields } from "./summary.ts";
 
 // Freshness ---------------------------------------------------------------------------------------
 
@@ -187,9 +187,7 @@ interface Header {
 function checkHeader(der: Uint8Array, now: Date, trace: Trace): Header {
   const crl = parseCrlHeader(der);
   const fields = readCrlFields(crl);
-  const aki = readExtension("crl", "Authority Key Identifier", () =>
-    getAuthorityKeyIdHex(crl.crlExtensions?.extensions)
-  );
+  const aki = authorityKeyId("crl", crl.crlExtensions?.extensions);
   // A valid Delta CRL Indicator makes a delta (an invalid one threw above).
   const kind: CrlKind = fields.baseCrlNumber === null ? "full" : "delta";
   trace.kind = kind;

@@ -4,10 +4,10 @@ import {
   CrlKind,
   CrlSummarySchema,
   Sha256Hex,
+  Size,
   TargetId,
   Timestamp,
 } from "../core/catalog.ts";
-import { Size } from "../core/history.ts";
 
 /** All API failures use the same envelope. Codes and details describe the failure. */
 export const ErrorResponse = z

@@ -8,7 +8,7 @@ import { PkiParseError } from "./pki/errors.ts";
 import type { PkiParseReason } from "./pki/errors.ts";
 import { parseCertificate } from "./pki/parsers.ts";
 import { toDer } from "./pki/pem.ts";
-import { buildCertificateSummary } from "./summary/catalog-summary.ts";
+import { buildCertificateSummary } from "./summary.ts";
 
 // Import ------------------------------------------------------------------------------------------
 

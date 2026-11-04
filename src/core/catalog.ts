@@ -30,6 +30,9 @@ const KeyId = z
 /** Uppercase hex of the INTEGER content bytes, leading 00 kept. */
 const SerialNumber = z.string().regex(/^(?:[0-9A-F]{2})+$/, "Expected uppercase hex bytes");
 
+/** A DER size in bytes. */
+export const Size = z.number().int().positive().describe("DER size in bytes");
+
 /** Date.toISOString(): UTC with milliseconds, e.g. 2026-01-01T00:00:00.000Z. */
 export const Timestamp = z.iso.datetime({ precision: 3 });
 
@@ -94,7 +97,7 @@ export function certificateReferences(config: Config): { id: string; path: strin
 
 // catalog.json (service) --------------------------------------------------------------------------
 
-/** Built by buildCertificateSummary (src/core/summary/catalog-summary.ts). */
+/** Built by buildCertificateSummary (src/core/summary.ts). */
 export const CertificateSummarySchema = z
   .strictObject({
     /** The first CN in RDN order with a string value, as the detail page shows Common Name. */
@@ -112,12 +115,12 @@ export const CertificateSummarySchema = z
 const CatalogCertificate = z.strictObject({
   /** certificateBlobKey(id). */
   key: z.string(),
-  size: z.number().int().positive(),
+  size: Size,
   importedAt: Timestamp,
   summary: CertificateSummarySchema,
 });
 
-/** Built by buildCrlSummary (src/core/summary/catalog-summary.ts). */
+/** Built by buildCrlSummary (src/core/summary.ts). */
 export const CrlSummarySchema = z
   .strictObject({
     crlNumber: Decimal.nullable(),
@@ -138,7 +141,7 @@ export const CrlSummarySchema = z
 const CurrentCrl = z.strictObject({
   sha256: Sha256Hex,
   key: z.string(),
-  size: z.number().int().positive(),
+  size: Size,
   publishedAt: Timestamp,
   /** Id of the certificate that verified the signature. */
   verifier: Sha256Hex,

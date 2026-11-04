@@ -98,7 +98,7 @@ aia-cdp/
   src/
     core/              纯 TS：不引用 node:*、process、R2Bucket
       pki/             解析、准入检查、验签、PEM 编解码（详情页在浏览器里也用它的解析器）
-      summary/         catalog-summary.ts：导入与发布时写进 catalog 的证书 / CRL 摘要（§5.3）
+      summary.ts       导入与发布时写进 catalog 的证书 / CRL 摘要（§5.3），含 SKI / AKI、CRL 号的读取
       digest.ts        hex 与 SHA 摘要（服务端、CLI 与浏览器共用）
       store.ts         ObjectStore 端口
       catalog.ts       catalog.json / config.json 的 schema、读取、条件写与重试

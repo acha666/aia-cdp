@@ -7,7 +7,7 @@
 // a publish writes the blob and the marker before the catalog and nothing removes them, so the
 // lists hold every version that catalog names.
 import { z } from "zod";
-import { CrlSummarySchema, readState, Sha256Hex, TargetId } from "./catalog.ts";
+import { CrlSummarySchema, readState, Sha256Hex, Size, TargetId } from "./catalog.ts";
 import type { CrlSummary } from "./catalog.ts";
 import { formatGeneralizedTime } from "./pki/asn1.ts";
 import { readBlob } from "./store.ts";
@@ -85,9 +85,6 @@ function versionName(key: string, prefix: string, extension: string): string {
 }
 
 // History -----------------------------------------------------------------------------------------
-
-/** A DER size in bytes (the http bodies share it). */
-export const Size = z.number().int().positive().describe("DER size in bytes");
 
 /** One version of a target's history. */
 const CrlHistoryEntry = z
