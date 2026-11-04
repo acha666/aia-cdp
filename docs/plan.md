@@ -605,7 +605,7 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   `expired`；CRL 目标 `unpublished`（无 current）、`unknown`（无 nextUpdate）、`not-yet-valid`（now < thisUpdate：服务端拒收超前 5 分钟以上的
   thisUpdate（§6），所以只在浏览器时钟落后于服务端或在那 5 分钟内出现；不计入"需关注"）、`expired`（now > nextUpdate）、`stale`（带 AD CS
   Next CRL Publish 时 now 超过它 1 h；不带时（如离线 OpenSSL 根 CRL）thisUpdate → nextUpdate 剩余不足 20%）、否则 `current`。证书与 CRL
-  的日期缺失、无法解析或颠倒（notAfter < notBefore、nextUpdate ≤ thisUpdate）都是 `unknown`，从不显示为有效。
+  的日期颠倒（notAfter < notBefore、nextUpdate ≤ thisUpdate）是 `unknown`，从不显示为有效；catalog 保证日期本身合法，不再另判缺失或无法解析。
 - 详情：页面取列表（catalog 事实：标签、导入 / 发布时间、大小、文件指纹、下载路径、目标链接）与 `/blobs/{sha256}` 的 DER，DER 在浏览器里
   用 core/pki 的解析器（`parseCertificate` / `parseCRL`，asn1js + PKIjs，随第一个详情懒加载）解码，再由 `src/web/x509/` 直接映射成显示行，
   没有中间 JSON 投影；列表里没有这个 id 显示"不存在"，DER 解不开显示"不是有效的证书 / CRL"。证书页 Tabs = 概览（主体 / 签发者 DN 表含
