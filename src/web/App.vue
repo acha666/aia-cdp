@@ -7,7 +7,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { siteName } from "@/site";
 
 // The shell: header (site name, health), the routed page, a footer (API document, language) and
-// the toast outlet (upload results, copy failures), at the top: at the bottom right a toast would
+// the toast outlet (copy failures), at the top: at the bottom right a toast would
 // cover the upload card's submit button (and stay while hovered). One container width for all
 // three bands. Light and dark follow the system (main.css).
 const CONTAINER = "mx-auto w-full max-w-6xl px-4";
