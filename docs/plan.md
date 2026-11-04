@@ -622,7 +622,7 @@ owner 已确认（决策 5、12）：Vue 3 + Tailwind 4 加组件库。
   非信封为 `invalid_response`；拿不到响应为 `network`、`status: 0`，由 `apiFetch` 产出）；响应体类型从 `src/web/client/types.ts` 取；错误码显示 `errors.<code>` 的文案（vue-i18n 的 `te()` 判断有无，没有则 `errors.unknown`），
   每个服务端码都有文案由 tests/web/locales.test.ts 检查。客户端目录是 `src/web/client/`：
   Vite `root: src/web` 时 dev server 会把 `src/web` 下的目录当 URL 服务，叫 `api` 会与 `/api/` 冲突（`ca`、`crl`、`dcrl` 同理）。
-  web 从服务端导入的值只有 core/pki（解析器与 DER 读取）和 core/digest.ts，其余只许 `import type`（`AppType`、catalog 的类型）；
+  web 从服务端导入的值只有 core/pki（解析器、DER 读取、扩展读取与算法名称表）和 core/digest.ts，其余只许 `import type`（`AppType`）；
   Hono 只导入 `hono/client`（ESLint 规则，§3）。
 - 下载链接来自 API 的 `downloads`（`.pem` 结尾标 PEM，其余 DER；多条 DER 路径时另显示文件名）；未发布目标的路径在发布前是 404，
   不给链接（"—"）。
