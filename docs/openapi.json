@@ -1,0 +1,1646 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "aia-cdp API",
+    "version": "1"
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": "Service health"
+    },
+    {
+      "name": "certificates",
+      "description": "Imported CA certificates"
+    },
+    {
+      "name": "crls",
+      "description": "CRL targets: their current CRLs, and the upload"
+    },
+    {
+      "name": "blobs",
+      "description": "The DER of certificates and current CRLs, for the UI to decode"
+    },
+    {
+      "name": "admin",
+      "description": "Certificate import and config.json (AIA_ADMIN_TOKEN)"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "uploadBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "AIA_UPLOAD_TOKEN (optional: while it is unset, uploads need no token)"
+      },
+      "adminBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "AIA_ADMIN_TOKEN"
+      }
+    },
+    "schemas": {
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "unhealthy"
+            ]
+          },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "store": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "error"
+                ]
+              },
+              "configuration": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "missing",
+                  "invalid",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "store",
+              "configuration"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "checks"
+        ]
+      },
+      "CertificateListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "importedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "size": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "description": "DER size in bytes"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/CertificateSummary"
+          },
+          "downloads": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The paths that serve the resource (config.json's path table), in code-unit order, each DER path followed by its `.pem`; [] when none is configured"
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CertificateTarget"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "importedAt",
+          "size",
+          "summary",
+          "downloads",
+          "targets"
+        ]
+      },
+      "CertificateSummary": {
+        "type": "object",
+        "properties": {
+          "subjectCN": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuerCN": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serialNumber": {
+            "type": "string",
+            "pattern": "^(?:[0-9A-F]{2})+$"
+          },
+          "notBefore": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notAfter": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "subjectKeyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:[0-9a-f]{2})+$"
+          },
+          "authorityKeyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:[0-9a-f]{2})+$"
+          },
+          "sha1": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          }
+        },
+        "required": [
+          "subjectCN",
+          "issuerCN",
+          "serialNumber",
+          "notBefore",
+          "notAfter",
+          "subjectKeyId",
+          "authorityKeyId",
+          "sha1"
+        ],
+        "additionalProperties": false
+      },
+      "CertificateTarget": {
+        "type": "object",
+        "properties": {
+          "targetId": {
+            "type": "string",
+            "pattern": "^[0-9a-f-]+$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "full",
+              "delta"
+            ]
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "targetId",
+          "kind",
+          "label"
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "CrlTargetListItem": {
+        "type": "object",
+        "properties": {
+          "targetId": {
+            "type": "string",
+            "pattern": "^[0-9a-f-]+$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "full",
+              "delta"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "issuer": {
+            "$ref": "#/components/schemas/CrlIssuer"
+          },
+          "downloads": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The paths that serve the resource (config.json's path table), in code-unit order, each DER path followed by its `.pem`; [] when none is configured"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CrlCurrent"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null while nothing is published"
+          }
+        },
+        "required": [
+          "targetId",
+          "kind",
+          "label",
+          "issuer",
+          "downloads",
+          "current"
+        ]
+      },
+      "CrlIssuer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subjectCN": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "subjectCN"
+        ]
+      },
+      "CrlCurrent": {
+        "type": "object",
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "size": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "description": "DER size in bytes"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "verifier": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/CrlSummary"
+          }
+        },
+        "required": [
+          "sha256",
+          "size",
+          "publishedAt",
+          "verifier",
+          "summary"
+        ]
+      },
+      "CrlSummary": {
+        "type": "object",
+        "properties": {
+          "crlNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:0|[1-9][0-9]*)$"
+          },
+          "baseCrlNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:0|[1-9][0-9]*)$"
+          },
+          "thisUpdate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextUpdate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revokedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha1": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "nextPublish": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "crlNumber",
+          "baseCrlNumber",
+          "thisUpdate",
+          "nextUpdate",
+          "revokedCount",
+          "sha1",
+          "nextPublish"
+        ],
+        "additionalProperties": false
+      },
+      "PublishedCrl": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "created",
+              "updated",
+              "unchanged"
+            ]
+          },
+          "target": {
+            "type": "string",
+            "pattern": "^[0-9a-f-]+$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "full",
+              "delta"
+            ]
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "crlNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:0|[1-9][0-9]*)$"
+          },
+          "baseCrlNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:0|[1-9][0-9]*)$"
+          },
+          "thisUpdate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextUpdate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "issuer": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "downloads": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "outcome",
+          "target",
+          "kind",
+          "sha256",
+          "crlNumber",
+          "baseCrlNumber",
+          "thisUpdate",
+          "nextUpdate",
+          "issuer",
+          "downloads"
+        ]
+      },
+      "ImportedCertificate": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "created",
+              "unchanged"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "size": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "description": "DER size in bytes"
+          },
+          "importedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/CertificateSummary"
+          }
+        },
+        "required": [
+          "outcome",
+          "id",
+          "size",
+          "importedAt",
+          "summary"
+        ]
+      },
+      "CrlHistory": {
+        "type": "object",
+        "properties": {
+          "targetId": {
+            "type": "string",
+            "pattern": "^[0-9a-f-]+$"
+          },
+          "configured": {
+            "type": "boolean",
+            "description": "false once the target was removed from config.json: nothing serves it"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CrlHistoryEntry"
+            },
+            "description": "Newest first: by thisUpdate, then CRL Number"
+          }
+        },
+        "required": [
+          "targetId",
+          "configured",
+          "entries"
+        ]
+      },
+      "CrlHistoryEntry": {
+        "type": "object",
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "crlNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?:0|[1-9][0-9]*)$"
+          },
+          "thisUpdate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "size": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "description": "DER size in bytes"
+          },
+          "current": {
+            "type": "boolean",
+            "description": "The version the target serves: its current CRL, while it is in config.json"
+          }
+        },
+        "required": [
+          "sha256",
+          "crlNumber",
+          "thisUpdate",
+          "size",
+          "current"
+        ]
+      },
+      "Config": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
+          "certificates": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "targets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "issuer": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "full",
+                    "delta"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "issuer",
+                "kind",
+                "label"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "paths": {
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "certificate": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  },
+                  "required": [
+                    "certificate"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f-]+$"
+                    }
+                  },
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "version",
+          "certificates",
+          "targets",
+          "paths"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Service health",
+        "tags": [
+          "health"
+        ],
+        "description": "Reads the object store and config.json. `degraded` (still 200) while the service is not configured yet or its configuration is invalid; 503 when the store cannot be read.",
+        "responses": {
+          "200": {
+            "description": "The store answers: healthy, or degraded (configuration missing or invalid)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The store failed; the configuration could not be checked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/certificates": {
+      "get": {
+        "operationId": "listCertificates",
+        "summary": "List certificates",
+        "description": "Every imported certificate, in id order, with its catalog summary, config.json label, download paths and the targets it issues CRLs for. The whole list: no pagination.",
+        "tags": [
+          "certificates"
+        ],
+        "responses": {
+          "200": {
+            "description": "The certificates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CertificateListItem"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The store failed or is inconsistent; the cause is logged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blobs/{sha256}": {
+      "get": {
+        "operationId": "getBlob",
+        "summary": "Get a certificate or CRL",
+        "description": "The DER of the imported certificate with this id, or of a configured target's current CRL with this SHA-256, as stored. The bytes never change, so the response may be cached for good.",
+        "tags": [
+          "blobs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{64}$",
+              "description": "SHA-256 of the DER, hex (either case)"
+            },
+            "required": true,
+            "description": "SHA-256 of the DER, hex (either case)",
+            "name": "sha256",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The DER",
+            "content": {
+              "application/pkix-cert": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/pkix-crl": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The SHA-256 is not 64 hex digits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No certificate or current CRL has this SHA-256",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The store failed or is inconsistent; the cause is logged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/crls": {
+      "get": {
+        "operationId": "listCrlTargets",
+        "summary": "List CRL targets",
+        "description": "Every target config.json defines, in targetId order, with its kind, label, issuer, download paths and current CRL summary (`current: null` while nothing is published). The whole list: no pagination.",
+        "tags": [
+          "crls"
+        ],
+        "responses": {
+          "200": {
+            "description": "The targets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CrlTargetListItem"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The store failed or is inconsistent; the cause is logged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "uploadCrl",
+        "summary": "Publish a CRL",
+        "description": "One CRL as the request body, DER or a single X509 CRL PEM block. It is published to the target of its kind (full or delta) whose issuer's Subject Key Identifier matches the CRL's Authority Key Identifier, once the issuer's signature verifies and the CRL is newer than the target's current one. `Authorization: Bearer <AIA_UPLOAD_TOKEN>` is required only when that token is set.",
+        "tags": [
+          "crls"
+        ],
+        "security": [
+          {},
+          {
+            "uploadBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/pkix-crl": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/x-pem-file": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated; or `unchanged`: the same bytes are current, nothing was written",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedCrl"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Published to a target without a current CRL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedCrl"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed Authorization header, or an empty body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "AIA_UPLOAD_TOKEN is set, and the token is missing or wrong",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Not newer than the target's current CRL (`details.current`): stale_crl, conflict (other bytes for the same CRL Number and thisUpdate) or non_orderable (a CRL Number on one side only); or concurrent_update (the catalog kept changing: retry)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is larger than AIA_MAX_UPLOAD_BYTES",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The Content-Type is missing or not one of the request body's media types",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Not a CRL this service publishes: the code and `details` say why",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The store failed or is inconsistent; the cause is logged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/certificates": {
+      "post": {
+        "operationId": "importCertificate",
+        "summary": "Import a CA certificate",
+        "description": "DER or a single PEM block, as the request body; the format is recognized from the bytes. Importing does not authorize anything: a certificate only issues CRLs once a config target names it. A PEM bundle is rejected (`pem_blocks`): the CLI sends each block on its own.",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/pkix-cert": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/x-pem-file": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Already imported: the stored entry, nothing was written",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportedCertificate"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Imported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportedCertificate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed Authorization header, or an invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong admin token",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The catalog kept changing concurrently; retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is larger than AIA_MAX_UPLOAD_BYTES",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The Content-Type is missing or not one of the request body's media types",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Not a certificate this service accepts; `details.reason` says why",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No admin token is configured (AIA_ADMIN_TOKEN): the admin API is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/certificates/{id}": {
+      "delete": {
+        "operationId": "deleteCertificate",
+        "summary": "Delete a CA certificate",
+        "description": "Removes an imported certificate and its blob, unless config.json names it or it verified the current CRL of a target, including a target removed from config.json: then 409 `referenced` with `details.references`.",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{64}$",
+              "description": "The certificate id: SHA-256 of the DER, hex (either case)"
+            },
+            "required": true,
+            "description": "The certificate id: SHA-256 of the DER, hex (either case)",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "description": "Malformed Authorization header, or an invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong admin token",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No certificate with this id is imported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Referenced, or the catalog kept changing concurrently (retry)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No admin token is configured (AIA_ADMIN_TOKEN): the admin API is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/crls/{targetId}/history": {
+      "get": {
+        "operationId": "getCrlHistory",
+        "summary": "List a CRL target's history",
+        "description": "Every version that was published as the target's current CRL, newest first, including for a target removed from config.json.",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "The target id from config.json (UUID, either case)"
+            },
+            "required": true,
+            "description": "The target id from config.json (UUID, either case)",
+            "name": "targetId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrlHistory"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed Authorization header, or an invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong admin token",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The target is neither in config.json nor has a history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No admin token is configured (AIA_ADMIN_TOKEN): the admin API is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/crls/{targetId}/history/{sha256}": {
+      "get": {
+        "operationId": "getCrlHistoryVersion",
+        "summary": "Download a version of a CRL target's history",
+        "description": "The DER as stored, as an attachment named \"<sha256>.crl\".",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "The target id from config.json (UUID, either case)"
+            },
+            "required": true,
+            "description": "The target id from config.json (UUID, either case)",
+            "name": "targetId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{64}$",
+              "description": "SHA-256 of the version's DER, hex (either case)"
+            },
+            "required": true,
+            "description": "SHA-256 of the version's DER, hex (either case)",
+            "name": "sha256",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The DER",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/pkix-crl": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed Authorization header, or an invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong admin token",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The target's history has no version with this SHA-256",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No admin token is configured (AIA_ADMIN_TOKEN): the admin API is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/config": {
+      "get": {
+        "operationId": "getConfig",
+        "summary": "Read config.json",
+        "description": "The stored bytes as they are, even if they are invalid, so they can be repaired. The ETag is the SHA-256 of those bytes, for `If-Match` on PUT.",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored config.json",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "description": "The SHA-256 (lowercase hex) of the stored bytes, quoted: \"<sha256>\""
+                },
+                "required": true,
+                "description": "The SHA-256 (lowercase hex) of the stored bytes, quoted: \"<sha256>\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Config"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed Authorization header, or an invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong admin token",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing has been configured yet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No admin token is configured (AIA_ADMIN_TOKEN): the admin API is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "applyConfig",
+        "summary": "Replace config.json",
+        "description": "The whole configuration, checked against rules V1–V9 (every violation in `details.issues`). Exactly one precondition: `If-Match: \"<ETag>\"` from GET, or `If-None-Match: *` for the first configuration.",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The ETag from GET, as sent: \"<sha256>\""
+            },
+            "required": false,
+            "description": "The ETag from GET, as sent: \"<sha256>\"",
+            "name": "If-Match",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`*`: only while nothing is configured"
+            },
+            "required": false,
+            "description": "`*`: only while nothing is configured",
+            "name": "If-None-Match",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Config"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Applied: the stored bytes and their new ETag",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "description": "The SHA-256 (lowercase hex) of the stored bytes, quoted: \"<sha256>\""
+                },
+                "required": true,
+                "description": "The SHA-256 (lowercase hex) of the stored bytes, quoted: \"<sha256>\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Config"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed Authorization header, or an invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong admin token",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "The stored config changed since GET, or If-Match is not a single strong ETag",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is larger than AIA_MAX_UPLOAD_BYTES",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The Content-Type is missing or not one of the request body's media types",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The configuration breaks rules V1–V9",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Not exactly one of If-Match and If-None-Match: *",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No admin token is configured (AIA_ADMIN_TOKEN): the admin API is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

@@ -1,0 +1,149 @@
+/**
+ * Extracts the catalog summaries of certificates and CRLs.
+ *
+ * @packageDocumentation
+ */
+
+import type {
+  Certificate,
+  CertificateRevocationList,
+  Extension,
+  RelativeDistinguishedNames,
+} from "pkijs";
+import type { CertificateSummary, CrlSummary } from "./catalog.ts";
+import { sha1Hex, toHex, toUpperHex } from "./digest.ts";
+import { readStrictTime, stringOf } from "./pki/asn1.ts";
+import { PkiParseError } from "./pki/errors.ts";
+import type { PkiKind } from "./pki/errors.ts";
+import {
+  readAuthorityKeyId,
+  readCrlNumber,
+  readExtensionSchema,
+  readSubjectKeyId,
+} from "./pki/extensions.ts";
+import type { WholeCrl } from "./pki/parsers.ts";
+
+/** Microsoft's Next CRL Publish extension, written by AD CS. */
+export const NEXT_CRL_PUBLISH_OID = "1.3.6.1.4.1.311.21.4";
+
+const findExtension = (extensions: Extension[] | undefined, oid: string) =>
+  extensions?.find((extension) => extension.extnID === oid);
+
+/** Decodes an extension value, reporting failures as `extension_value` parse errors. */
+function readExtension<T>(
+  kind: PkiKind,
+  name: string,
+  extension: Extension,
+  read: (value: ReturnType<typeof readExtensionSchema>) => T
+): T {
+  try {
+    return read(readExtensionSchema(extension));
+  } catch (error) {
+    throw new PkiParseError(kind, "extension_value", `Invalid ${name} extension`, {
+      cause: error,
+    });
+  }
+}
+
+/** Returns the hex keyIdentifier of the Authority Key Identifier extension, if present. */
+export function authorityKeyId(
+  kind: PkiKind,
+  extensions: Extension[] | undefined
+): string | undefined {
+  const extension = findExtension(extensions, "2.5.29.35");
+  const key =
+    extension &&
+    readExtension(
+      kind,
+      "Authority Key Identifier",
+      extension,
+      (value) => readAuthorityKeyId(value).keyIdentifier
+    );
+  return key && toHex(key);
+}
+
+function subjectKeyId(cert: Certificate): string | undefined {
+  const extension = findExtension(cert.extensions, "2.5.29.14");
+  return (
+    extension &&
+    toHex(readExtension("certificate", "Subject Key Identifier", extension, readSubjectKeyId))
+  );
+}
+
+function nonEmptyKeyId(name: string, keyId: string | undefined): string | null {
+  if (keyId === "") {
+    throw new PkiParseError("certificate", "extension_value", `Empty ${name} key identifier`);
+  }
+  return keyId ?? null;
+}
+
+/** Returns the first common name that is a string. */
+function commonName(name: RelativeDistinguishedNames): string | null {
+  for (const attribute of name.typesAndValues) {
+    const text = attribute.type === "2.5.4.3" ? stringOf(attribute.value) : undefined;
+    if (text !== undefined) {
+      return text;
+    }
+  }
+  return null;
+}
+
+export async function buildCertificateSummary(
+  cert: Certificate,
+  der: Uint8Array
+): Promise<CertificateSummary> {
+  return {
+    subjectCN: commonName(cert.subject),
+    issuerCN: commonName(cert.issuer),
+    serialNumber: toUpperHex(cert.serialNumber.valueBlock.valueHexView),
+    notBefore: cert.notBefore.value.toISOString(),
+    notAfter: cert.notAfter.value.toISOString(),
+    subjectKeyId: nonEmptyKeyId("Subject Key Identifier", subjectKeyId(cert)),
+    authorityKeyId: nonEmptyKeyId(
+      "Authority Key Identifier",
+      authorityKeyId("certificate", cert.extensions)
+    ),
+    sha1: await sha1Hex(der),
+  };
+}
+
+function crlNumber(crl: CertificateRevocationList, oid: string, name: string): bigint | undefined {
+  const extension = findExtension(crl.crlExtensions?.extensions, oid);
+  return extension && readExtension("crl", name, extension, readCrlNumber);
+}
+
+/** Reads Next CRL Publish; it is informational, so an unreadable value is ignored. */
+function nextCrlPublish(crl: CertificateRevocationList): Date | undefined {
+  const extension = findExtension(crl.crlExtensions?.extensions, NEXT_CRL_PUBLISH_OID);
+  if (!extension) {
+    return undefined;
+  }
+  try {
+    return readStrictTime(readExtensionSchema(extension)).date;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The summary fields that the header alone provides. */
+export type CrlFields = Omit<CrlSummary, "revokedCount" | "sha1">;
+
+export function readCrlFields(crl: CertificateRevocationList): CrlFields {
+  const number = crlNumber(crl, "2.5.29.20", "CRL Number");
+  const base = crlNumber(crl, "2.5.29.27", "Delta CRL Indicator");
+  return {
+    crlNumber: number?.toString(10) ?? null,
+    baseCrlNumber: base?.toString(10) ?? null,
+    thisUpdate: crl.thisUpdate.value.toISOString(),
+    nextUpdate: crl.nextUpdate?.value.toISOString() ?? null,
+    nextPublish: nextCrlPublish(crl)?.toISOString() ?? null,
+  };
+}
+
+export async function buildCrlSummary(crl: WholeCrl, der: Uint8Array): Promise<CrlSummary> {
+  return {
+    ...readCrlFields(crl),
+    revokedCount: crl.entries.length,
+    sha1: await sha1Hex(der),
+  };
+}

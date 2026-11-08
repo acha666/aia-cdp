@@ -1,0 +1,11 @@
+engineStrict: true
+saveExact: true
+
+allowBuilds:
+  esbuild: false
+  workerd: false
+  vue-demi: false
+
+publicHoistPattern:
+  - espree
+  - eslint-scope

@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist/server",
+    "rewriteRelativeImportExtensions": true,
+    "sourceMap": true,
+    "noEmitOnError": true
+  },
+  "include": ["src/runtime/node.ts", "src/cli/aia.ts"]
+}

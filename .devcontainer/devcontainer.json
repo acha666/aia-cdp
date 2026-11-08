@@ -1,0 +1,41 @@
+{
+  "name": "aia-cdp",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:5-26-trixie",
+  "features": {
+    "ghcr.io/devcontainers/features/powershell:2": {}
+  },
+  "remoteUser": "node",
+  "postCreateCommand": "pnpm install && pnpm run types",
+  "containerEnv": {
+    "WRANGLER_SEND_METRICS": "false"
+  },
+  "forwardPorts": [5173, 8080, 8787],
+  "portsAttributes": {
+    "5173": { "label": "Vite dev server" },
+    "8080": { "label": "Node runtime / Docker" },
+    "8787": { "label": "wrangler dev / dev:node" }
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "explorer.fileNesting.enabled": true,
+        "explorer.fileNesting.expand": false,
+        "explorer.fileNesting.patterns": {
+          "package.json": "pnpm-lock.yaml, pnpm-workspace.yaml, .nvmrc",
+          "tsconfig.json": "tsconfig.*.json",
+          "vite.config.ts": "vitest.config.ts, components.json",
+          "wrangler.jsonc": ".dev.vars*",
+          "Dockerfile": ".dockerignore",
+          ".gitignore": ".gitattributes, .prettierignore",
+          "README.md": "LICENSE"
+        }
+      },
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "Vue.volar",
+        "bradlc.vscode-tailwindcss"
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["./.wrangler/types/worker-configuration.d.ts"],
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.worker.tsbuildinfo"
+  },
+  "include": [
+    "src/core/**/*.ts",
+    "src/http/**/*.ts",
+    "src/storage/r2.ts",
+    "src/runtime/worker.ts",
+    "src/runtime/settings.ts"
+  ]
+}

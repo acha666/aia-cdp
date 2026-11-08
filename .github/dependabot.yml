@@ -1,0 +1,46 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      time: "09:00"
+      timezone: America/Vancouver
+    labels:
+      - dependencies
+      - pnpm
+    commit-message:
+      prefix: chore
+      include: scope
+    ignore:
+      # typescript-eslint supports TypeScript < 6.1.0.
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      time: "09:00"
+      timezone: America/Vancouver
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: ci
+      include: scope
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      time: "09:00"
+      timezone: America/Vancouver
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: chore
+      include: scope

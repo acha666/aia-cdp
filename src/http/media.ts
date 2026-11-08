@@ -1,0 +1,21 @@
+import { createMiddleware } from "hono/factory";
+import { ApiError } from "./errors.ts";
+
+function mediaType(contentType: string | undefined): string | undefined {
+  const type = contentType?.split(";")[0]?.trim().toLowerCase();
+  return type === "" ? undefined : type;
+}
+
+/** Rejects a request body whose Content-Type is not one of `accepted` with 415. */
+export function mediaTypeGate(accepted: readonly string[], message: string) {
+  return createMiddleware(async (c, next) => {
+    const type = mediaType(c.req.header("Content-Type"));
+    if (type === undefined || !accepted.includes(type)) {
+      throw new ApiError(415, "unsupported_media_type", message, {
+        received: type ?? null,
+        accepted,
+      });
+    }
+    await next();
+  });
+}
