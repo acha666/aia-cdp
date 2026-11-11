@@ -32,11 +32,13 @@ const pem = useQuery(() => ({
     @retry="pem.refetch()"
   />
   <Skeleton v-else-if="pem.data.value === undefined" class="h-40 w-full" />
-  <div v-else class="relative">
-    <CopyButton labelled :text="pem.data.value ?? ''" class="absolute top-2 right-2" />
-    <pre
-      class="max-h-[32rem] overflow-auto rounded-lg bg-muted/50 p-3 pr-24 font-mono text-xs leading-5"
-      data-testid="pem-text"
-      >{{ pem.data.value }}</pre>
+  <div v-else class="max-h-[32rem] overflow-y-auto rounded-lg bg-muted/50">
+    <!-- Inside the vertical scroller, so its scrollbar never covers the button. -->
+    <div class="sticky top-0 flex h-0 justify-end">
+      <CopyButton labelled :text="pem.data.value ?? ''" class="mt-2 mr-2" />
+    </div>
+    <pre class="overflow-x-auto p-3 pr-24 font-mono text-xs leading-5" data-testid="pem-text">{{
+      pem.data.value
+    }}</pre>
   </div>
 </template>
